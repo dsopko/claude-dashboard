@@ -157,6 +157,40 @@ public sealed class AckTests : IDisposable
     }
 
     /// <summary>
+    /// A row built with nowhere to send an ack still <em>offers</em> the affordance and cannot
+    /// fire it: visible, and disabled.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Whether a session can be acknowledged is a fact about the session; whether this row was
+    /// handed a publisher is a fact about how it was constructed. Collapsing the two would make
+    /// the button vanish on a wiring mistake, and a missing control is the one failure an operator
+    /// cannot report — there is nothing on screen to point at. So <c>CanAcknowledge</c> drives
+    /// visibility and the publisher only gates the command.
+    /// </para>
+    /// <para>
+    /// This is the only level at which a publisher can be absent at all, which is why the
+    /// assertion lives here. <see cref="MainViewModel"/> requires one, so the shipped window
+    /// always has somewhere to send an ack; rows are built standalone in tests, and that is what
+    /// <see cref="SessionViewModel"/>'s optional form is for.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void A_row_with_nowhere_to_send_an_ack_offers_it_and_cannot_fire_it()
+    {
+        var session = Reach("s-1", SessionState.Unread).Session;
+
+        var unwired = new SessionViewModel(session, new MotionPolicy(() => false, observeChanges: false));
+
+        Assert.True(unwired.CanAcknowledge);
+        Assert.False(unwired.AcknowledgeCommand.CanExecute(null));
+
+        unwired.AcknowledgeCommand.Execute(null);
+
+        Assert.Empty(_sink.Published);
+    }
+
+    /// <summary>
     /// Acknowledging one row acknowledges one session. An implementation that acked everything —
     /// or the wrong thing — passes every test that only looks at the row it clicked.
     /// </summary>

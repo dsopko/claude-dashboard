@@ -108,23 +108,38 @@ public sealed class StaHarness : IDisposable
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <strong>A nested frame, not an <c>Invoke</c>.</strong> These tests run their bodies
-    /// <em>on</em> the UI thread, and <see cref="Dispatcher.Invoke(Action, DispatcherPriority)"/>
-    /// called from that thread runs the delegate inline without draining anything — so the
-    /// obvious spelling of "let the queue catch up" is a no-op exactly where it is needed. That
-    /// cost an afternoon: a button's automation peer posts its click at
-    /// <see cref="DispatcherPriority.Input"/>, and the invocation simply never happened.
+    /// <strong>The priority is the whole fix.</strong> Pushing a frame runs a message loop until a
+    /// marker posted at <paramref name="upTo"/> comes back, which drains everything <em>above</em>
+    /// that priority — so the marker goes low. <c>Background</c> is below <c>Input</c>,
+    /// <c>Loaded</c>, <c>Render</c> and <c>DataBind</c>, which is everything layout and a click
+    /// need. This used to post its marker at <c>Loaded</c>, and <c>Loaded</c> sits <em>above</em>
+    /// <c>Input</c>: a button's automation peer posts its click at <c>Input</c>, so the marker came
+    /// back before the click had run and the invocation simply never happened. That cost an
+    /// afternoon.
     /// </para>
     /// <para>
-    /// Pushing a frame runs a real message loop until a marker posted at
-    /// <paramref name="upTo"/> comes back, which drains everything <em>above</em> that priority —
-    /// so the marker goes low. <c>Background</c> is below <c>Input</c>, <c>Loaded</c>, <c>Render</c>
-    /// and <c>DataBind</c>, which is everything layout and a click need; a marker at <c>Loaded</c>
-    /// would come back before the <c>Input</c>-priority click had run, which is the same no-op in a
-    /// different disguise.
+    /// <strong>And what is not true, because a wrong explanation of this was briefly in
+    /// circulation.</strong> <see cref="Dispatcher.Invoke(Action, DispatcherPriority)"/> called
+    /// from the UI thread is <em>not</em> a no-op. At any priority other than
+    /// <see cref="DispatcherPriority.Send"/> it queues a <see cref="DispatcherOperation"/> and
+    /// waits on it, and that wait pushes a frame of its own — so the old spelling did run a real
+    /// message loop and did drain everything above <c>Loaded</c>. Only <c>Send</c> runs the
+    /// delegate inline and drains nothing, and only when the caller is already the dispatcher
+    /// thread — which is exactly the case the branch below is for, where there is nothing to drain
+    /// and only a hop to make. Left uncorrected, "any <c>Invoke</c> from the UI thread is a no-op"
+    /// would have someone rewriting a correct pattern somewhere else.
+    /// </para>
+    /// <para>
+    /// There is deliberately no default: both call sites name <c>Background</c>, and an unused
+    /// default would be a value nothing pins and the next caller inherits.
+    /// </para>
+    /// <para>
+    /// <see cref="Dispatcher.PushFrame"/> is kept because it names the priority being waited for
+    /// out loud, and the priority is the thing that has to be right. It is a clearer spelling of
+    /// what the old line already did; it is not what repaired anything.
     /// </para>
     /// </remarks>
-    public void Pump(DispatcherPriority upTo = DispatcherPriority.Background)
+    public void Pump(DispatcherPriority upTo)
     {
         var dispatcher = Application.Dispatcher;
 

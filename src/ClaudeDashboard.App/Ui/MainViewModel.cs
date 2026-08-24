@@ -48,7 +48,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     private readonly SessionProjection _projection;
     private readonly MotionPolicy _motion;
-    private readonly IAckPublisher? _ack;
+    private readonly IAckPublisher _ack;
     private readonly Dictionary<SessionId, SessionViewModel> _sessionRows = [];
     private readonly Dictionary<GroupKey, GroupViewModel> _groupHeaders = [];
     private readonly Dictionary<AttentionBand, BandHeaderViewModel> _bandHeaders = [];
@@ -78,21 +78,35 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private int _endedCount;
 
     /// <summary>Binds to <paramref name="projection"/>.</summary>
+    /// <remarks>
+    /// <strong>Every collaborator here is required, and that is the point.</strong> This is the
+    /// type the container resolves, and Microsoft DI honours a constructor default for a service
+    /// it cannot resolve rather than throwing — so an optional parameter quietly turns a lost
+    /// registration into a program that still starts and still renders and does less. That is not
+    /// hypothetical: with <c>ack</c> optional, deleting one line from <c>AppHost</c> disabled every
+    /// Ack button in the shipped app and left the whole suite green, because every test supplies
+    /// the publisher the container was supposed to. Required parameters make the same deletion
+    /// throw at startup instead — loud, immediate, and unshippable.
+    /// <see cref="SessionViewModel"/> keeps its optional forms, because rows really are built
+    /// standalone in tests and nothing resolves one from a container.
+    /// </remarks>
     /// <param name="projection">The UI-thread mirror of the Registry.</param>
     /// <param name="motion">
-    /// Whether rows may animate; defaults to <see cref="MotionPolicy.System"/>.
+    /// Whether rows may animate. <see cref="MotionPolicy.System"/> is the operator's own setting.
     /// </param>
     /// <param name="ack">
     /// Where a row sends a manual acknowledgment (Design Document §4 tier 2). Passed to every row
-    /// this builds; null leaves the affordance visible and disabled.
+    /// this builds.
     /// </param>
-    /// <exception cref="ArgumentNullException"><paramref name="projection"/> is null.</exception>
-    public MainViewModel(SessionProjection projection, MotionPolicy? motion = null, IAckPublisher? ack = null)
+    /// <exception cref="ArgumentNullException">Any argument is null.</exception>
+    public MainViewModel(SessionProjection projection, MotionPolicy motion, IAckPublisher ack)
     {
         ArgumentNullException.ThrowIfNull(projection);
+        ArgumentNullException.ThrowIfNull(motion);
+        ArgumentNullException.ThrowIfNull(ack);
 
         _projection = projection;
-        _motion = motion ?? MotionPolicy.System;
+        _motion = motion;
         _ack = ack;
         _projection.Sessions.CollectionChanged += OnSessionsChanged;
         _motion.PropertyChanged += OnMotionChanged;

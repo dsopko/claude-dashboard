@@ -52,7 +52,7 @@ public sealed class MainWindowTests(StaHarness harness)
         {
             using var registry = new RegistryHarness();
             using var policy = new MotionPolicy(() => motionAllowed, observeChanges: false);
-            using var viewModel = new MainViewModel(registry.Projection, policy);
+            using var viewModel = new MainViewModel(registry.Projection, policy, new StubAckPublisher());
 
             arrange(registry);
 
@@ -434,11 +434,18 @@ public sealed class MainWindowTests(StaHarness harness)
     }
 
     /// <summary>
-    /// …and it is disabled where there is nothing to acknowledge, so "enabled" above means the
+    /// …and a row with nothing to acknowledge has no button at all, so "enabled" above means the
     /// command answered rather than that every button is always live.
     /// </summary>
+    /// <remarks>
+    /// This used to assert a second negative — a button present but inert — by building the window
+    /// over a view model with no publisher. That construction no longer exists:
+    /// <see cref="MainViewModel"/> requires one, precisely so a shipped window can never be given
+    /// nowhere to send an ack. The visible-but-disabled affordance is still real and still
+    /// asserted, one level down where a row genuinely can be built standalone — see <c>AckTests</c>.
+    /// </remarks>
     [Fact]
-    public void The_ack_button_is_disabled_where_there_is_nothing_to_acknowledge()
+    public void The_ack_button_is_absent_where_there_is_nothing_to_acknowledge()
     {
         var states = WithWindow(
             registry =>
@@ -453,12 +460,12 @@ public sealed class MainWindowTests(StaHarness harness)
                 ["busy"] = AckButton(window, "busy")?.IsEnabled,
             });
 
-        // Nothing to acknowledge on a working row, so there is no button at all to enable.
+        // Nothing to acknowledge on a working row, so there is no button there to enable.
         Assert.Null(states["busy"]);
 
-        // And the finished row's button is present but inert here, because this window's view
-        // model was given nowhere to send an ack — which is the other half of the pair.
-        Assert.False(states["finished"]);
+        // And the finished row has one, live: the window the container builds always has somewhere
+        // to send an ack.
+        Assert.True(states["finished"]);
     }
 
     private static Button? AckButton(MainWindow window, string sessionId) =>
@@ -496,7 +503,10 @@ public sealed class MainWindowTests(StaHarness harness)
         var state = _harness.Invoke(() =>
         {
             using var registry = new RegistryHarness();
-            using var viewModel = new MainViewModel(registry.Projection);
+            using var viewModel = new MainViewModel(
+                registry.Projection,
+                new MotionPolicy(() => false, observeChanges: false),
+                new StubAckPublisher());
             var window = new MainWindow(viewModel);
 
             window.Close();

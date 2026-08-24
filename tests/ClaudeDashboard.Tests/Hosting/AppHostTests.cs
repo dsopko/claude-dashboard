@@ -3,6 +3,8 @@ using ClaudeDashboard.App.Configuration;
 using ClaudeDashboard.App.Hosting;
 using ClaudeDashboard.App.Pipeline;
 using ClaudeDashboard.App.Ui;
+using ClaudeDashboard.Core;
+using ClaudeDashboard.Core.Events;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Serilog;
@@ -165,6 +167,54 @@ public sealed class AppHostTests : IDisposable
         Assert.True(isService.IsService(typeof(MainWindow)));
         Assert.True(isService.IsService(typeof(MainViewModel)));
         Assert.NotNull(host.Services.GetRequiredService<MotionPolicy>());
+    }
+
+    /// <summary>
+    /// The manual acknowledgment is wired: the view model the container builds has a publisher,
+    /// and that publisher's acks land in the channel the consumer reads.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>This is the test whose absence made T1.12 look shipped and be dead.</strong>
+    /// Deleting <c>AddSingleton&lt;IAckPublisher, AckPublisher&gt;()</c> left the whole suite
+    /// green, because every ack test injects the publisher the container is supposed to supply.
+    /// In the shipped app the row would still have drawn its Ack button — correctly, in the right
+    /// place, permanently disabled, forever.
+    /// </para>
+    /// <para>
+    /// The registration is load-bearing twice here. <see cref="MainViewModel"/> requires the
+    /// publisher, so resolving it throws outright if the registration is gone; and the round trip
+    /// through <see cref="EventPipeline.Reader"/> shows the publisher writing into the channel the
+    /// consumer actually reads rather than into one of its own. Resolving alone would prove a
+    /// service exists, not that the ack has anywhere to go.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void The_manual_acknowledgment_is_wired_end_to_end()
+    {
+        using var host = AppHost.Build(_paths);
+
+        // Throws if the publisher is unregistered: the parameter is required, not defaulted.
+        Assert.NotNull(host.Services.GetRequiredService<MainViewModel>());
+
+        var registry = host.Services.GetRequiredService<SessionRegistry>();
+        var id = new SessionId("s-wired");
+
+        registry.Apply(new UserPromptSubmit
+        {
+            SessionId = id,
+            Timestamp = DateTimeOffset.UtcNow.AddMinutes(-1),
+            Cwd = _root,
+            PromptId = "p-1",
+            Prompt = "run the tests",
+        });
+
+        Assert.True(host.Services.GetRequiredService<IAckPublisher>().Acknowledge(registry.Sessions[id]));
+
+        Assert.True(host.Services.GetRequiredService<EventPipeline>().Reader.TryRead(out var queued));
+        var ack = Assert.IsType<Ack>(queued);
+        Assert.Equal(id, ack.SessionId);
+        Assert.Equal(AckSource.Manual, ack.Source);
     }
 
     /// <summary>

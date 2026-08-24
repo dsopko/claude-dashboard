@@ -37,7 +37,7 @@ public sealed class MainViewModelTests : IDisposable
     public MainViewModelTests()
     {
         _projection = new SessionProjection(_registry, _dispatcher);
-        _viewModel = new MainViewModel(_projection);
+        _viewModel = new MainViewModel(_projection, new MotionPolicy(() => false, observeChanges: false), new StubAckPublisher());
         _viewModel.Rows.CollectionChanged += (_, e) => _rowChanges.Add(e);
     }
 
@@ -399,10 +399,25 @@ public sealed class MainViewModelTests : IDisposable
         Assert.Empty(_viewModel.Rows);
     }
 
+    /// <summary>
+    /// It needs all three collaborators, and none of them may be null.
+    /// </summary>
+    /// <remarks>
+    /// The motion policy and the publisher used to be optional, which read as convenience and was
+    /// in fact a trapdoor: this is the type the container resolves, and Microsoft DI fills an
+    /// unresolvable parameter from its default rather than throwing, so a deleted registration
+    /// became a running program that quietly did less. This is that rule stated for a direct
+    /// caller; <c>AppHostTests</c> states the container half.
+    /// </remarks>
     [Fact]
-    public void The_view_model_needs_a_projection()
+    public void The_view_model_needs_all_of_its_collaborators()
     {
-        Assert.Throws<ArgumentNullException>(() => new MainViewModel(null!));
+        var motion = new MotionPolicy(() => false, observeChanges: false);
+        var ack = new StubAckPublisher();
+
+        Assert.Throws<ArgumentNullException>(() => new MainViewModel(null!, motion, ack));
+        Assert.Throws<ArgumentNullException>(() => new MainViewModel(_projection, null!, ack));
+        Assert.Throws<ArgumentNullException>(() => new MainViewModel(_projection, motion, null!));
     }
 }
 

@@ -255,3 +255,51 @@ public sealed class RecordingEventSinkTests
         Assert.Equal(0, sink.RefusedCount);
     }
 }
+
+/// <summary>
+/// The stub publisher, exercised the way the tests that must supply one will use it.
+/// </summary>
+public sealed class StubAckPublisherTests
+{
+    [Fact]
+    public void It_accepts_by_default_and_records_what_it_was_asked()
+    {
+        var publisher = new StubAckPublisher();
+        var session = AnySession();
+
+        Assert.True(publisher.Acknowledge(session));
+        Assert.Equal(session.Id, Assert.Single(publisher.Asked));
+    }
+
+    [Fact]
+    public void It_can_be_told_to_refuse()
+    {
+        var publisher = new StubAckPublisher { Accepts = false };
+
+        Assert.False(publisher.Acknowledge(AnySession()));
+        Assert.Single(publisher.Asked);
+    }
+
+    [Fact]
+    public void It_needs_a_session()
+    {
+        Assert.Throws<ArgumentNullException>(() => new StubAckPublisher().Acknowledge(null!));
+    }
+
+    private static Session AnySession()
+    {
+        var registry = new SessionRegistry();
+        var id = new SessionId("s-1");
+
+        registry.Apply(new UserPromptSubmit
+        {
+            SessionId = id,
+            Timestamp = FakeClock.DefaultStart,
+            Cwd = @"C:\dev\PennCustQuote",
+            PromptId = "p-1",
+            Prompt = "run the tests",
+        });
+
+        return registry.Sessions[id];
+    }
+}

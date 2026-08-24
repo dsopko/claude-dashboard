@@ -58,8 +58,14 @@ public sealed class AckPublisher(IEventSink sink, IClock clock, ILogger logger) 
     private readonly IClock _clock = clock ?? throw new ArgumentNullException(nameof(clock));
     private readonly ILogger _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
-    /// <summary>How many acks have been accepted for delivery. Diagnostic only.</summary>
-    public long PublishedCount { get; private set; }
+    /// <summary>
+    /// How many acks have been accepted for delivery. Diagnostic only, and deliberately
+    /// <see langword="internal"/>: it is a plain non-atomic increment, correct because every ack
+    /// originates from a click on the UI thread, and a cross-thread reader would find it quietly
+    /// wrong. Keeping it off the public surface keeps that assumption inside the assembly that
+    /// holds it.
+    /// </summary>
+    internal long PublishedCount { get; private set; }
 
     /// <inheritdoc/>
     /// <exception cref="ArgumentNullException"><paramref name="session"/> is null.</exception>
