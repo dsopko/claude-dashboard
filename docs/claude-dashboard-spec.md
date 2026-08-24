@@ -328,7 +328,9 @@ Rule 3 supersedes the earlier "show only the first finished session per group wh
 Vocabulary: a **notice** is the first sound for an event; a **nudge** is a reminder.
 
 - **Notices** fire on state entry: distinct sounds for finished, permission, question, error (the existing sound language).
-- **Nudges** fire for a `NeedsYou.*` session still unacknowledged past T₁ (default 2 min): the *same melody, softer and quieter*, repeating at widening intervals (2 → 5 → 10 min). Never louder, never faster.
+- **Nudges** fire for a still-unacknowledged **`NeedsYou.Permission`, `Error` or `NeedsYou.Question`** session past T₁ (default 2 min): the *same melody, softer and quieter*, repeating at widening intervals (2 → 5 → 10 min). Never louder, never faster.
+
+> **Correction (2026-08-24, found at T1.5).** This bullet previously read "a `NeedsYou.*` session", but §IV.1's state list names `NeedsYou.Question`, `NeedsYou.Permission` and `Error` as three *separate* states — so read literally, an errored session would notice once and then go **silent forever**, which is the failure this product exists to prevent. The three nudge-eligible states are now named explicitly. This follows from the ratified §IV.2/§IV.3: `Error` sits inside the Needs-You band, its rationale is "stopped until looked at" — precisely the nudge condition — and it ranks *above* `Question`, so a scheme where a question nudges and an error does not would be incoherent.
 - **Unread** gets at most one soft nudge (default 5 min) or none — per-state configurable.
 - **Mute** is available per-session and per-group.
 - **Suppression (Phase 3):** when focus inference reports the operator is looking at a session, suppress that session's notice — they'll see it finish.
