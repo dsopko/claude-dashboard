@@ -198,8 +198,8 @@ Grouped into four sub-milestones. Each task lists Goal · Depends · Realizes ·
 - **Depends:** T1.9
 - **Realizes:** Design §9; Impl §5.2, §5.1
 - **Deliverables:** H.NotifyIcon tray icon; worst-state roll-up **Red (`NeedsPermission`) > Amber (`Error` or `NeedsQuestion`) > Green (Unread) > Blue (Working) > Grey (quiet)**, mirroring TS §IV.3 — see the correction in Impl §5.2; **tooltip carries counts**; **static** (no animation); left-click toggles the window; right-click menu (Open · Mute all / 30 min · Pause monitoring · Settings · Quit); window close → hide to tray.
-- **Acceptance:** icon color tracks the worst current state; tooltip shows the counts; close hides; Quit exits; menu items wired (Settings may be a stub until Phase 6).
-- **Guardrails:** color carries state, not digits; no elevation.
+- **Acceptance:** icon color tracks the worst current state; **the colour is derived from `AttentionOrder.Rank`, not from a second `SessionState` → colour table** — pinned by a test that enumerates `SessionState` (so a state added later fails rather than defaulting to Grey) and asserts the mapping is a **monotone coarsening of `Rank`**; the mixed case — one `Error` plus one `NeedsQuestion` — shows **Amber**; tooltip breaks out the Needs-You kinds; close hides; Quit exits; menu items wired (Settings may be a stub until Phase 6).
+- **Guardrails:** color carries state, not digits; no elevation; **`RowVisuals.AccentOf` is not the tray palette** and must not be reused for it (Impl §5.2).
 
 **T1.14 — Sound adapter (NAudio)**
 - **Goal:** play notices and nudges with volume.

@@ -178,7 +178,13 @@ Precedence (top wins), color carries state:
 >
 > The tray is still a **coarsening** — five colours for seven states — so `Error` and `NeedsQuestion` are indistinguishable in the glyph. That is what the tooltip counts are for; the distinction stays available where there is room to render it.
 
-- **Counts live in the tooltip**, not the glyph ("3 need you · 2 unread · 1 working") — a 16px icon can't render legible digits. H.NotifyIcon can generate the icon bitmap per state; if a digit is drawn, cap at `9+`.
+> **The tray palette is deliberately *not* the row LED palette (noted 2026-08-24, drafting T1.13).** `RowVisuals.AccentOf` already maps a state to a colour, and it puts `NeedsQuestion` on **Red** — right for a row, where the LED says what *that one session* is, and where Red is also what earns the blink (`MotionPolicy`: "red blinks; an error is amber and does not blink"). That mapping is **not monotone in `AttentionOrder.Rank`** — Permission 6 → Red, Error 5 → Amber, Question 4 → Red — so it cannot also serve a roll-up; reusing it for the tray reintroduces the contradiction above in the one-session-asking-a-question case.
+>
+> The two palettes are separate on purpose, and the property that tells a legitimate coarsening from a second severity opinion is **monotonicity in `Rank`**: if `Rank(a) > Rank(b)`, the tray colour of `a` must be at least as severe as the tray colour of `b`. The tray mapping must satisfy that; `AccentOf` demonstrably does not. Derive the tray colour from `Rank`, and do not "unify" the two.
+>
+> Consequence the operator sees: a lone session asking a question shows **amber** in the tray and **red, blinking** in its row. That is intended — the tray triages (*how urgently should I look?*), the row diagnoses (*what is it doing?*).
+
+- **Counts live in the tooltip**, not the glyph — a 16px icon can't render legible digits. Because the glyph merges `Error` and `NeedsQuestion`, the tooltip **breaks the Needs-You kinds out** rather than reusing the header's summary line: `2 permissions · 1 error · 1 question · 2 unread · 3 working`, omitting any zero count, and reading `all quiet` when every count is zero. H.NotifyIcon can generate the icon bitmap per state; if a digit is drawn, cap at `9+`.
 - **No animation.** The tray is static per state (TS reserves motion for needs-you rows inside the window, not the tray).
 - **Left-click:** toggle the dashboard window. **Right-click:** context menu — Open · Mute all (and "for 30 min") · Pause monitoring · Settings · **Quit**.
 
