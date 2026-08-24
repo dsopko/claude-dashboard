@@ -1,32 +1,22 @@
 using System.Windows;
-using ClaudeDashboard.App.Hosting;
-using Serilog.Core;
+using ClaudeDashboard.Tests.Ui;
 
 namespace ClaudeDashboard.Tests.Hosting;
 
 /// <summary>
-/// Constructing a WPF <see cref="Application"/> sets <see cref="Application.Current"/> for the
-/// whole process, so these run alone rather than alongside the parallel suite.
-/// </summary>
-[CollectionDefinition(Name, DisableParallelization = true)]
-public sealed class WpfApplicationSuite
-{
-    /// <summary>The collection name.</summary>
-    public const string Name = "WPF Application";
-}
-
-/// <summary>
-/// The application lifecycle Impl §5.1 requires, asserted against the real <see cref="App"/>.
+/// The application lifecycle Impl §5.1 requires, asserted against the real <c>App</c>.
 /// </summary>
 /// <remarks>
-/// Exactly one test here may construct an <see cref="Application"/>: WPF permits one per
-/// process and throws on a second, whichever test gets there first. That is a real constraint
-/// but a narrow one — it bounds how many such tests there can be, not whether the type can be
-/// verified at all.
+/// The application under test is the harness's, because WPF permits one per process. Before
+/// T1.11 that meant "exactly one test here may construct an Application", enforced by a comment;
+/// now there is one application, the harness owns it, and the rule is an arrangement rather than
+/// something to remember. See <see cref="StaHarness"/>.
 /// </remarks>
 [Collection(WpfApplicationSuite.Name)]
-public sealed class AppLifecycleTests
+public sealed class AppLifecycleTests(StaHarness harness)
 {
+    private readonly StaHarness _harness = harness;
+
     /// <summary>
     /// Impl §5.1: the app does not exit when its window closes — the window is hidden, and the
     /// process exits only via the tray's Quit.
@@ -36,42 +26,32 @@ public sealed class AppLifecycleTests
     /// <c>ApplicationDefinition</c> (see <c>Program</c>). That is an unusual enough arrangement
     /// that the property being applied at all is worth pinning: if it ever stopped being, the
     /// process would exit with its last window, which is exactly the failure §5.1 exists to
-    /// prevent — and nothing would notice until there was a window to close, in T1.11 or later.
+    /// prevent — and with T1.11's window now closing to hidden, that failure would be a
+    /// dashboard that quits when the operator closes it.
     /// </remarks>
     [Fact]
     public void The_application_does_not_exit_with_its_last_window()
     {
-        var mode = OnStaThread(() =>
-            new ClaudeDashboard.App.App(new UnhandledExceptionPolicy(Logger.None)).ShutdownMode);
+        var mode = _harness.Invoke(() => _harness.Application.ShutdownMode);
 
         Assert.Equal(ShutdownMode.OnExplicitShutdown, mode);
     }
 
     /// <summary>
-    /// Runs <paramref name="work"/> on a dedicated STA thread and returns its result, because
-    /// WPF types can only be constructed on one.
+    /// The harness must not absorb a failed assertion, because <c>App</c> marks every dispatcher
+    /// exception handled and would otherwise turn a red test green.
     /// </summary>
-    private static T OnStaThread<T>(Func<T> work)
+    /// <remarks>
+    /// A test about the tests, and worth its line: every other assertion in the WPF suite runs
+    /// inside <see cref="StaHarness.Invoke{T}"/>, so if this were broken they would all pass
+    /// regardless of what the UI did.
+    /// </remarks>
+    [Fact]
+    public void A_failure_on_the_ui_thread_reaches_the_test()
     {
-        T result = default!;
-        Exception? failure = null;
+        var thrown = Assert.Throws<InvalidOperationException>(
+            () => _harness.Invoke(() => throw new InvalidOperationException("deliberate")));
 
-        var thread = new Thread(() =>
-        {
-            try
-            {
-                result = work();
-            }
-            catch (Exception ex)
-            {
-                failure = ex;
-            }
-        });
-
-        thread.SetApartmentState(ApartmentState.STA);
-        thread.Start();
-        thread.Join();
-
-        return failure is not null ? throw failure : result;
+        Assert.Equal("deliberate", thrown.Message);
     }
 }

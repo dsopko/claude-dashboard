@@ -1,0 +1,107 @@
+<Window x:Class="ClaudeDashboard.App.Ui.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="clr-namespace:ClaudeDashboard.App.Ui"
+        Title="Claude Dashboard"
+        Width="400" Height="760"
+        MinWidth="320" MinHeight="240"
+        ShowInTaskbar="True"
+        UseLayoutRounding="True"
+        TextOptions.TextFormattingMode="Display">
+
+    <!--
+        The narrow side panel of Design Document §9. Chrome is the platform's own: a custom
+        title bar is Win32 work, and T1.11 may make no OS call beyond WPF.
+    -->
+
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="/ClaudeDashboard.App;component/Ui/RowTemplates.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+            <ui:InverseBooleanConverter x:Key="InverseBool" />
+        </ResourceDictionary>
+    </Window.Resources>
+
+    <Border Background="{StaticResource SurfaceBrush}">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <!-- ==== Header: counts · Grouped/Flat · mute (Design Document §9) ==================== -->
+            <Border Grid.Row="0" Padding="12,10"
+                    BorderBrush="{StaticResource HairlineBrush}" BorderThickness="0,0,0,1">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                        <StackPanel Orientation="Horizontal"
+                                    Visibility="{Binding NeedsYouCount, Converter={StaticResource ZeroToCollapsed}}">
+                            <TextBlock Text="{Binding NeedsYouCount}" FontSize="12" FontWeight="SemiBold"
+                                       Foreground="{StaticResource RedBrush}" />
+                            <TextBlock Text=" need you" FontSize="12" Foreground="{StaticResource Ink2Brush}" />
+                        </StackPanel>
+                        <TextBlock Text=" · " FontSize="12" Foreground="{StaticResource Ink3Brush}"
+                                   Visibility="{Binding UnreadCount, Converter={StaticResource ZeroToCollapsed}}" />
+                        <StackPanel Orientation="Horizontal"
+                                    Visibility="{Binding UnreadCount, Converter={StaticResource ZeroToCollapsed}}">
+                            <TextBlock Text="{Binding UnreadCount}" FontSize="12" FontWeight="SemiBold"
+                                       Foreground="{StaticResource GreenBrush}" />
+                            <TextBlock Text=" unread" FontSize="12" Foreground="{StaticResource Ink2Brush}" />
+                        </StackPanel>
+                        <TextBlock Text=" · " FontSize="12" Foreground="{StaticResource Ink3Brush}"
+                                   Visibility="{Binding WorkingCount, Converter={StaticResource ZeroToCollapsed}}" />
+                        <StackPanel Orientation="Horizontal"
+                                    Visibility="{Binding WorkingCount, Converter={StaticResource ZeroToCollapsed}}">
+                            <TextBlock Text="{Binding WorkingCount}" FontSize="12" FontWeight="SemiBold"
+                                       Foreground="{StaticResource BlueBrush}" />
+                            <TextBlock Text=" working" FontSize="12" Foreground="{StaticResource Ink2Brush}" />
+                        </StackPanel>
+                    </StackPanel>
+
+                    <Border Grid.Column="1" CornerRadius="6" Margin="8,0"
+                            BorderBrush="{StaticResource HairlineBrush}" BorderThickness="1">
+                        <StackPanel Orientation="Horizontal">
+                            <ToggleButton x:Name="GroupedToggle"
+                                          Content="Grouped"
+                                          Style="{StaticResource SegmentStyle}"
+                                          IsChecked="{Binding IsGrouped, Mode=TwoWay}" />
+                            <ToggleButton Content="Flat"
+                                          Style="{StaticResource SegmentStyle}"
+                                          IsChecked="{Binding IsGrouped, Mode=TwoWay, Converter={StaticResource InverseBool}}" />
+                        </StackPanel>
+                    </Border>
+
+                    <!--
+                        Mute all belongs to the tray's menu (Impl §5.2) and per-session mute to the
+                        sound engine (T1.5). The header keeps §9's slot for it, inert until then.
+                    -->
+                    <Button Grid.Column="2" Content="Mute all"
+                            Style="{StaticResource ReservedButtonStyle}"
+                            Margin="0"
+                            ToolTip="Muting arrives with the tray menu (T1.13)." />
+                </Grid>
+            </Border>
+
+            <!-- ==== Body: the rows, in the order T1.10 assembled them ========================= -->
+            <ScrollViewer Grid.Row="1"
+                          VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled"
+                          Focusable="False">
+                <ItemsControl x:Name="RowsHost" ItemsSource="{Binding Rows}" KeyboardNavigation.TabNavigation="Continue">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <StackPanel />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                </ItemsControl>
+            </ScrollViewer>
+        </Grid>
+    </Border>
+</Window>

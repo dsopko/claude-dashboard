@@ -1,3 +1,4 @@
+using ClaudeDashboard.App.Ui;
 using ClaudeDashboard.Core;
 using ClaudeDashboard.Core.Events;
 using ClaudeDashboard.Core.Ports;
@@ -52,8 +53,13 @@ public sealed class EventConsumer : BackgroundService
     private readonly SingleWriterGuard _guard;
     private readonly ILogger _logger;
     private readonly TimeSpan _tickInterval;
+    private readonly IUiTick? _uiTick;
 
     /// <summary>Creates the consumer.</summary>
+    /// <param name="uiTick">
+    /// Where the tick is echoed for the UI's age and staleness display (T1.11), or null when
+    /// there is no UI — the nudge schedule runs either way.
+    /// </param>
     public EventConsumer(
         EventPipeline pipeline,
         SessionRegistry registry,
@@ -61,7 +67,8 @@ public sealed class EventConsumer : BackgroundService
         IClock clock,
         SingleWriterGuard guard,
         ILogger logger,
-        TimeSpan? tickInterval = null)
+        TimeSpan? tickInterval = null,
+        IUiTick? uiTick = null)
     {
         ArgumentNullException.ThrowIfNull(pipeline);
         ArgumentNullException.ThrowIfNull(registry);
@@ -77,6 +84,7 @@ public sealed class EventConsumer : BackgroundService
         _guard = guard;
         _logger = logger;
         _tickInterval = tickInterval ?? DefaultTickInterval;
+        _uiTick = uiTick;
     }
 
     /// <summary>How many events have been applied to the Registry. Diagnostic only.</summary>
@@ -90,6 +98,17 @@ public sealed class EventConsumer : BackgroundService
 
     /// <summary>How many nudge evaluations have run. Diagnostic only.</summary>
     public long TickCount { get; private set; }
+
+    /// <summary>
+    /// Where the tick is echoed for the UI, or null when nothing asked for it.
+    /// </summary>
+    /// <remarks>
+    /// Exposed so the composition can be asserted. If this were left unregistered the process
+    /// would behave exactly as it does now in every other respect — and every age on screen would
+    /// silently stop advancing, which is the failure T1.11's wiring exists to prevent and the
+    /// kind a green suite hides best.
+    /// </remarks>
+    internal IUiTick? UiTick => _uiTick;
 
     /// <inheritdoc/>
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -257,15 +276,31 @@ public sealed class EventConsumer : BackgroundService
             UncorrelatedCount);
     }
 
-    /// <summary>Asks the sound engine what has come due (TS §IV.5).</summary>
+    /// <summary>
+    /// Asks the sound engine what has come due (TS §IV.5), and tells the UI what time it is.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>Both jobs, one instant.</strong> The clock is read once so the nudge that fires
+    /// and the age that appears beside it cannot disagree about what "now" is.
+    /// </para>
+    /// <para>
+    /// <strong>The UI echo is outside the guard, and separately guarded against failure.</strong>
+    /// It posts to the dispatcher and touches nothing this thread owns, so it needs no exclusion
+    /// — and a UI that throws must not stop nudges from firing, any more than a failed nudge may
+    /// stop the clock on screen. The two are independent and are kept that way.
+    /// </para>
+    /// </remarks>
     private void Tick()
     {
+        var now = _clock.Now;
+
         try
         {
             using (_guard.Enter("evaluating the nudge schedule"))
             {
                 TickCount++;
-                _sound.Evaluate(_clock.Now);
+                _sound.Evaluate(now);
             }
         }
         catch (SingleWriterViolationException ex)
@@ -275,6 +310,15 @@ public sealed class EventConsumer : BackgroundService
         catch (Exception ex)
         {
             _logger.Error(ex, "Evaluating the nudge schedule failed. The pipeline continues.");
+        }
+
+        try
+        {
+            _uiTick?.Tick(now);
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "Posting the tick to the UI failed. The pipeline continues.");
         }
     }
 }

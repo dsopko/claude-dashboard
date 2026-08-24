@@ -90,6 +90,17 @@ public static class AppHost
         builder.Services.AddSingleton<SoundPolicyEngine>();
         builder.Services.AddSingleton<IUiDispatcher, WpfDispatcher>();
         builder.Services.AddSingleton<SessionProjection>();
+
+        // The UI (T1.10, T1.11). The window and its view model own UI-thread state, so they must
+        // be resolved on the UI thread and nowhere else — Program does, once, before Run.
+        // UiTick is the wire from the consumer's tick to the age and staleness display; it is
+        // handed the view model rather than resolving one, so that nothing can construct the UI
+        // from the consumer thread.
+        builder.Services.AddSingleton<MotionPolicy>();
+        builder.Services.AddSingleton<UiTick>();
+        builder.Services.AddSingleton<IUiTick>(sp => sp.GetRequiredService<UiTick>());
+        builder.Services.AddSingleton<MainViewModel>();
+        builder.Services.AddSingleton<MainWindow>();
         builder.Services.AddHostedService(sp => sp.GetRequiredService<EventConsumer>());
         builder.Services.AddSingleton<EventConsumer>();
 

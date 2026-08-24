@@ -1,3 +1,4 @@
+using System.Globalization;
 using ClaudeDashboard.Core;
 
 namespace ClaudeDashboard.App.Ui;
@@ -25,17 +26,25 @@ public sealed class SessionViewModel : DashboardRow
     /// <summary>How much of the prompt the collapsed row shows before eliding.</summary>
     public const int SnippetLength = 140;
 
+    private readonly MotionPolicy _motion;
     private Session _session;
     private DateTimeOffset _now;
+    private bool _isExpanded;
 
     /// <summary>Wraps <paramref name="session"/>.</summary>
+    /// <param name="session">The session this row shows.</param>
+    /// <param name="motion">
+    /// Whether motion is permitted; defaults to <see cref="MotionPolicy.System"/>, so a row that
+    /// is handed no policy still honours the operator's reduced-motion setting.
+    /// </param>
     /// <exception cref="ArgumentNullException"><paramref name="session"/> is null.</exception>
-    public SessionViewModel(Session session)
+    public SessionViewModel(Session session, MotionPolicy? motion = null)
     {
         ArgumentNullException.ThrowIfNull(session);
 
         _session = session;
         _now = session.LastActivity;
+        _motion = motion ?? MotionPolicy.System;
     }
 
     /// <summary>The session's id — stable for this view model's whole life.</summary>
@@ -62,8 +71,69 @@ public sealed class SessionViewModel : DashboardRow
         }
     }
 
+    /// <summary>Whether the row is showing the full exchange (Design Document §9).</summary>
+    /// <remarks>
+    /// Lives on the row rather than on the view model so that expanding one row survives every
+    /// refresh around it — the row instance outlives the record, which is the whole reason it is
+    /// keyed by <see cref="SessionId"/>.
+    /// </remarks>
+    public bool IsExpanded
+    {
+        get => _isExpanded;
+        set
+        {
+            if (_isExpanded == value)
+            {
+                return;
+            }
+
+            _isExpanded = value;
+            OnPropertyChanged(nameof(IsExpanded));
+        }
+    }
+
     /// <summary>Where this session sits in the attention model.</summary>
     public SessionState State => _session.State;
+
+    /// <summary>The colour this row reads as (mockups' legend).</summary>
+    public Accent Accent => RowVisuals.AccentOf(_session.State);
+
+    /// <summary>
+    /// What the row is allowed to do visually: red blinks, working breathes, nothing else moves
+    /// (Design Document §9) — and nothing at all when the operator has asked for reduced motion.
+    /// </summary>
+    public MotionKind Motion => _motion.Allow(_session.State);
+
+    /// <summary>The state badge — "PERMISSION", "FINISHED", … (mockups).</summary>
+    public string BadgeText => RowVisuals.BadgeOf(_session.State);
+
+    /// <summary>The age, phrased for the state: "waiting 4 min", "2 min ago", "6 min".</summary>
+    public string AgeText => RowVisuals.Age(_session.State, Age);
+
+    /// <summary>
+    /// The extra detail the meta line carries — currently the error kind, or null.
+    /// </summary>
+    /// <remarks>
+    /// Verbatim from the hook, like every other piece of text here: the matcher list in Impl
+    /// §9.1 is open-ended, so a kind this build has never heard of must still reach the operator
+    /// intact rather than being prettified into something else or dropped.
+    /// </remarks>
+    public string? Detail => _session.ErrorKind;
+
+    /// <summary>Whether there is a <see cref="Detail"/> to show.</summary>
+    public bool HasDetail => !string.IsNullOrWhiteSpace(_session.ErrorKind);
+
+    /// <summary>
+    /// The workspace's short name, for the small group tag flat view puts on each row
+    /// (Design Document §7). Empty when the session has no workspace.
+    /// </summary>
+    public string GroupTag => string.IsNullOrWhiteSpace(_session.Cwd)
+        ? string.Empty
+        : RowVisuals.WorkspaceLabel(_session.Cwd);
+
+    /// <summary>When the prompt was submitted, for the expanded row's "YOU ASKED · 14:32".</summary>
+    public string AskedAtText => _session.Latest.StartedAt.ToLocalTime()
+        .ToString("HH:mm", CultureInfo.CurrentCulture);
 
     /// <summary>The band it displays in — from Core, never decided here.</summary>
     public AttentionBand Band => AttentionOrder.BandOf(_session.State);
@@ -115,13 +185,32 @@ public sealed class SessionViewModel : DashboardRow
 
         _now = now;
         OnPropertyChanged(nameof(Age));
+        OnPropertyChanged(nameof(AgeText));
     }
+
+    /// <summary>
+    /// Re-reads <see cref="Motion"/>, because the reduced-motion setting changed underneath it.
+    /// </summary>
+    /// <remarks>
+    /// Driven from <see cref="MainViewModel"/> rather than by each row subscribing to the policy:
+    /// fifteen rows subscribing to one process-wide event is fifteen handlers to unsubscribe, and
+    /// a row that forgot to would keep the policy alive after the session ended.
+    /// </remarks>
+    public void RefreshMotion() => OnPropertyChanged(nameof(Motion));
 
     private void RaiseAll()
     {
         OnPropertyChanged(nameof(Session));
         OnPropertyChanged(nameof(State));
         OnPropertyChanged(nameof(Band));
+        OnPropertyChanged(nameof(Accent));
+        OnPropertyChanged(nameof(Motion));
+        OnPropertyChanged(nameof(BadgeText));
+        OnPropertyChanged(nameof(AgeText));
+        OnPropertyChanged(nameof(Detail));
+        OnPropertyChanged(nameof(HasDetail));
+        OnPropertyChanged(nameof(GroupTag));
+        OnPropertyChanged(nameof(AskedAtText));
         OnPropertyChanged(nameof(Prompt));
         OnPropertyChanged(nameof(PromptSnippet));
         OnPropertyChanged(nameof(Answer));

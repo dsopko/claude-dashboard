@@ -2,6 +2,7 @@ using System.IO;
 using ClaudeDashboard.App.Configuration;
 using ClaudeDashboard.App.Hosting;
 using ClaudeDashboard.App.Pipeline;
+using ClaudeDashboard.App.Ui;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Serilog;
@@ -124,6 +125,46 @@ public sealed class AppHostTests : IDisposable
         Assert.NotNull(host.Services.GetRequiredService<DashboardSettings>());
         Assert.NotNull(host.Services.GetRequiredService<ILogger>());
         Assert.NotNull(host.Services.GetRequiredService<UnhandledExceptionPolicy>());
+    }
+
+    /// <summary>
+    /// The UI's clock is wired, and the consumer is the thing that drives it.
+    /// </summary>
+    /// <remarks>
+    /// Without this registration the process would look identical in every other respect and
+    /// every age on screen would stop advancing — a session blocked for nine minutes reading "9
+    /// min" for the rest of the afternoon. The behaviour is covered in <c>UiTickTests</c>; this
+    /// is the composition, which is the half that can be lost without any test noticing.
+    /// </remarks>
+    [Fact]
+    public void The_ui_tick_is_registered_and_reaches_the_consumer()
+    {
+        using var host = AppHost.Build(_paths);
+
+        var tick = host.Services.GetRequiredService<UiTick>();
+
+        Assert.Same(tick, host.Services.GetRequiredService<IUiTick>());
+        Assert.Same(tick, host.Services.GetRequiredService<EventConsumer>().UiTick);
+    }
+
+    /// <summary>
+    /// The window and its view model are registered, and the reduced-motion policy with them.
+    /// </summary>
+    /// <remarks>
+    /// The window is asserted as a registration rather than resolved: constructing a
+    /// <see cref="System.Windows.Window"/> requires an STA thread, and this suite runs on the
+    /// pool. Program resolves it on the UI thread, which is the only place it may be built.
+    /// </remarks>
+    [Fact]
+    public void The_window_and_its_view_model_are_registered()
+    {
+        using var host = AppHost.Build(_paths);
+
+        var isService = host.Services.GetRequiredService<IServiceProviderIsService>();
+
+        Assert.True(isService.IsService(typeof(MainWindow)));
+        Assert.True(isService.IsService(typeof(MainViewModel)));
+        Assert.NotNull(host.Services.GetRequiredService<MotionPolicy>());
     }
 
     /// <summary>

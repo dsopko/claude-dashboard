@@ -1,0 +1,494 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:sys="clr-namespace:System;assembly=System.Runtime"
+                    xmlns:ui="clr-namespace:ClaudeDashboard.App.Ui">
+
+    <!--
+        The dashboard's rows (Design Document §9; docs/claude-dashboard-mockups.html).
+
+        MOTION LIVES HERE AND NOWHERE ELSE. Design Document §9: "red blinks; working breathes;
+        nothing else moves." There are exactly two Storyboards in this file and each is reached
+        only through a DataTrigger on SessionViewModel.Motion — which is already gated on the
+        operator's reduced-motion setting (see MotionPolicy). A test walks this dictionary and
+        fails if a third animation ever appears, or if one is triggered by anything else.
+    -->
+
+    <!-- ==== Palette (mockups' :root) =========================================================== -->
+    <Color x:Key="PageColor">#FF101214</Color>
+    <SolidColorBrush x:Key="PageBrush" Color="{StaticResource PageColor}" />
+    <SolidColorBrush x:Key="SurfaceBrush" Color="#FF22262B" />
+    <SolidColorBrush x:Key="RaisedBrush" Color="#FF282D33" />
+    <SolidColorBrush x:Key="HairlineBrush" Color="#FF343A41" />
+    <SolidColorBrush x:Key="InkBrush" Color="#FFE8EAED" />
+    <SolidColorBrush x:Key="Ink2Brush" Color="#FF9AA3AD" />
+    <SolidColorBrush x:Key="Ink3Brush" Color="#FF6B7480" />
+    <SolidColorBrush x:Key="RedBrush" Color="#FFFF6B5E" />
+    <SolidColorBrush x:Key="GreenBrush" Color="#FF55C96A" />
+    <SolidColorBrush x:Key="BlueBrush" Color="#FF5AA9FF" />
+    <SolidColorBrush x:Key="AmberBrush" Color="#FFFFB454" />
+    <SolidColorBrush x:Key="GreyBrush" Color="#FF6B7480" />
+
+    <SolidColorBrush x:Key="RedWashBrush" Color="#1FFF6B5E" />
+    <SolidColorBrush x:Key="GreenWashBrush" Color="#1F55C96A" />
+    <SolidColorBrush x:Key="BlueWashBrush" Color="#1F5AA9FF" />
+    <SolidColorBrush x:Key="AmberWashBrush" Color="#1FFFB454" />
+
+    <FontFamily x:Key="UiFont">Segoe UI Variable Text, Segoe UI</FontFamily>
+    <FontFamily x:Key="MonoFont">Cascadia Code, Cascadia Mono, Consolas</FontFamily>
+
+    <ui:ZeroToCollapsedConverter x:Key="ZeroToCollapsed" />
+    <ui:EmptyToCollapsedConverter x:Key="EmptyToCollapsed" />
+    <BooleanToVisibilityConverter x:Key="BoolToVisible" />
+
+    <!-- ==== The only two animations in the application ========================================= -->
+    <Storyboard x:Key="BlinkStoryboard" RepeatBehavior="Forever" AutoReverse="True">
+        <DoubleAnimation Storyboard.TargetProperty="Opacity"
+                         From="1.0" To="0.15" Duration="0:0:0.55" />
+    </Storyboard>
+
+    <Storyboard x:Key="BreatheStoryboard" RepeatBehavior="Forever" AutoReverse="True">
+        <DoubleAnimation Storyboard.TargetProperty="Opacity"
+                         From="1.0" To="0.45" Duration="0:0:1.3">
+            <DoubleAnimation.EasingFunction>
+                <SineEase EasingMode="EaseInOut" />
+            </DoubleAnimation.EasingFunction>
+        </DoubleAnimation>
+    </Storyboard>
+
+    <!-- ==== The status LED ===================================================================== -->
+    <Style x:Key="LedStyle" TargetType="Ellipse">
+        <Setter Property="Width" Value="9" />
+        <Setter Property="Height" Value="9" />
+        <Setter Property="Margin" Value="8,5,8,0" />
+        <Setter Property="VerticalAlignment" Value="Top" />
+        <Setter Property="Fill" Value="{StaticResource GreyBrush}" />
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding Accent}" Value="Red">
+                <Setter Property="Fill" Value="{StaticResource RedBrush}" />
+            </DataTrigger>
+            <DataTrigger Binding="{Binding Accent}" Value="Amber">
+                <Setter Property="Fill" Value="{StaticResource AmberBrush}" />
+            </DataTrigger>
+            <DataTrigger Binding="{Binding Accent}" Value="Green">
+                <Setter Property="Fill" Value="{StaticResource GreenBrush}" />
+            </DataTrigger>
+            <DataTrigger Binding="{Binding Accent}" Value="Blue">
+                <Setter Property="Fill" Value="{StaticResource BlueBrush}" />
+            </DataTrigger>
+
+            <!-- Red blinks. -->
+            <DataTrigger Binding="{Binding Motion}" Value="Blink">
+                <DataTrigger.EnterActions>
+                    <BeginStoryboard x:Name="BlinkBegun" Storyboard="{StaticResource BlinkStoryboard}" />
+                </DataTrigger.EnterActions>
+                <DataTrigger.ExitActions>
+                    <StopStoryboard BeginStoryboardName="BlinkBegun" />
+                </DataTrigger.ExitActions>
+            </DataTrigger>
+
+            <!-- Working breathes. -->
+            <DataTrigger Binding="{Binding Motion}" Value="Breathe">
+                <DataTrigger.EnterActions>
+                    <BeginStoryboard x:Name="BreatheBegun" Storyboard="{StaticResource BreatheStoryboard}" />
+                </DataTrigger.EnterActions>
+                <DataTrigger.ExitActions>
+                    <StopStoryboard BeginStoryboardName="BreatheBegun" />
+                </DataTrigger.ExitActions>
+            </DataTrigger>
+        </Style.Triggers>
+    </Style>
+
+    <!-- The coloured spine down the left of an urgent row (mockups' .rail). -->
+    <Style x:Key="RailStyle" TargetType="Rectangle">
+        <Setter Property="Width" Value="3" />
+        <Setter Property="Fill" Value="Transparent" />
+        <Setter Property="Opacity" Value="0.7" />
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding Accent}" Value="Red">
+                <Setter Property="Fill" Value="{StaticResource RedBrush}" />
+            </DataTrigger>
+            <DataTrigger Binding="{Binding Accent}" Value="Amber">
+                <Setter Property="Fill" Value="{StaticResource AmberBrush}" />
+            </DataTrigger>
+        </Style.Triggers>
+    </Style>
+
+    <!-- The state badge: "PERMISSION", "FINISHED", … -->
+    <Style x:Key="BadgeStyle" TargetType="Border">
+        <Setter Property="CornerRadius" Value="4" />
+        <Setter Property="Padding" Value="5,1" />
+        <Setter Property="Background" Value="Transparent" />
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding Accent}" Value="Red">
+                <Setter Property="Background" Value="{StaticResource RedWashBrush}" />
+            </DataTrigger>
+            <DataTrigger Binding="{Binding Accent}" Value="Amber">
+                <Setter Property="Background" Value="{StaticResource AmberWashBrush}" />
+            </DataTrigger>
+            <DataTrigger Binding="{Binding Accent}" Value="Green">
+                <Setter Property="Background" Value="{StaticResource GreenWashBrush}" />
+            </DataTrigger>
+            <DataTrigger Binding="{Binding Accent}" Value="Blue">
+                <Setter Property="Background" Value="{StaticResource BlueWashBrush}" />
+            </DataTrigger>
+        </Style.Triggers>
+    </Style>
+
+    <Style x:Key="BadgeTextStyle" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="9.5" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Foreground" Value="{StaticResource Ink3Brush}" />
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding Accent}" Value="Red">
+                <Setter Property="Foreground" Value="{StaticResource RedBrush}" />
+            </DataTrigger>
+            <DataTrigger Binding="{Binding Accent}" Value="Amber">
+                <Setter Property="Foreground" Value="{StaticResource AmberBrush}" />
+            </DataTrigger>
+            <DataTrigger Binding="{Binding Accent}" Value="Green">
+                <Setter Property="Foreground" Value="{StaticResource GreenBrush}" />
+            </DataTrigger>
+            <DataTrigger Binding="{Binding Accent}" Value="Blue">
+                <Setter Property="Foreground" Value="{StaticResource BlueBrush}" />
+            </DataTrigger>
+        </Style.Triggers>
+    </Style>
+
+    <!--
+        Every clickable row is a ToggleButton bound to an IsExpanded, so expanding is a binding
+        rather than a click handler: keyboard-reachable, and no code-behind reaching into a
+        DataContext to flip a flag.
+    -->
+    <Style x:Key="RowToggleStyle" TargetType="ToggleButton">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Setter Property="VerticalContentAlignment" Value="Stretch" />
+        <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ToggleButton">
+                    <Border x:Name="Surround"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="{StaticResource HairlineBrush}"
+                            BorderThickness="0,1,0,0"
+                            SnapsToDevicePixels="True">
+                        <ContentPresenter Margin="{TemplateBinding Padding}" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Surround" Property="Background" Value="{StaticResource RaisedBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="Surround" Property="Background" Value="{StaticResource RaisedBrush}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- The header's Grouped/Flat segmented control (mockups' .seg). -->
+    <Style x:Key="SegmentStyle" TargetType="ToggleButton">
+        <Setter Property="FontSize" Value="11.5" />
+        <Setter Property="Padding" Value="10,4" />
+        <Setter Property="Foreground" Value="{StaticResource Ink3Brush}" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ToggleButton">
+                    <Border x:Name="Chip" Background="{TemplateBinding Background}" SnapsToDevicePixels="True">
+                        <ContentPresenter Margin="{TemplateBinding Padding}" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="Chip" Property="Background" Value="{StaticResource RaisedBrush}" />
+                            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- A slot reserved for a phase that has not arrived: visible, inert, and honest about it. -->
+    <Style x:Key="ReservedButtonStyle" TargetType="Button">
+        <Setter Property="IsEnabled" Value="False" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Foreground" Value="{StaticResource Ink3Brush}" />
+        <Setter Property="FontSize" Value="11" />
+        <Setter Property="Padding" Value="10,4" />
+        <Setter Property="Margin" Value="0,0,8,0" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border Background="{TemplateBinding Background}"
+                            BorderBrush="{StaticResource HairlineBrush}"
+                            BorderThickness="1"
+                            CornerRadius="6"
+                            Opacity="0.75">
+                        <ContentPresenter Margin="{TemplateBinding Padding}" />
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- ==== Session row ======================================================================== -->
+    <DataTemplate DataType="{x:Type ui:SessionViewModel}">
+        <ToggleButton Style="{StaticResource RowToggleStyle}"
+                      IsChecked="{Binding IsExpanded, Mode=TwoWay}"
+                      AutomationProperties.Name="{Binding PromptSnippet}">
+            <Grid Margin="0,7,10,8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <Rectangle Grid.Column="0" Grid.RowSpan="2" Style="{StaticResource RailStyle}" />
+                <Ellipse Grid.Column="1" Style="{StaticResource LedStyle}" />
+
+                <StackPanel Grid.Column="2">
+                    <!--
+                        The prompt is the session's name and it is terminal text, so it is set in
+                        the mono face (Design Document §9). TextBlock renders a string as
+                        characters and parses nothing, which is what keeps hook text data.
+                    -->
+                    <TextBlock Text="{Binding PromptSnippet}"
+                               FontFamily="{StaticResource MonoFont}"
+                               FontSize="12"
+                               LineHeight="16"
+                               TextWrapping="Wrap"
+                               MaxHeight="48"
+                               TextTrimming="CharacterEllipsis"
+                               Foreground="{StaticResource InkBrush}" />
+
+                    <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                        <Border Style="{StaticResource BadgeStyle}" VerticalAlignment="Center">
+                            <TextBlock Text="{Binding BadgeText}" Style="{StaticResource BadgeTextStyle}" />
+                        </Border>
+                        <TextBlock Text="{Binding Detail}"
+                                   Visibility="{Binding HasDetail, Converter={StaticResource BoolToVisible}}"
+                                   Margin="7,0,0,0"
+                                   FontSize="11"
+                                   VerticalAlignment="Center"
+                                   Foreground="{StaticResource Ink3Brush}" />
+                        <TextBlock Text="{Binding AgeText}"
+                                   Margin="7,0,0,0"
+                                   FontSize="11"
+                                   VerticalAlignment="Center"
+                                   Foreground="{StaticResource Ink3Brush}" />
+                        <Border Margin="7,0,0,0"
+                                Padding="5,0"
+                                CornerRadius="4"
+                                VerticalAlignment="Center"
+                                BorderBrush="{StaticResource HairlineBrush}"
+                                BorderThickness="1"
+                                Visibility="{Binding GroupTag, Converter={StaticResource EmptyToCollapsed}}">
+                            <TextBlock Text="{Binding GroupTag}" FontSize="10"
+                                       Foreground="{StaticResource Ink3Brush}" />
+                        </Border>
+                    </StackPanel>
+
+                    <!-- The expanded exchange (Design Document §9). -->
+                    <StackPanel Margin="0,10,0,2"
+                                Visibility="{Binding IsExpanded, Converter={StaticResource BoolToVisible}}">
+                        <Border BorderBrush="{StaticResource HairlineBrush}" BorderThickness="2,0,0,0" Padding="12,0,0,0">
+                            <StackPanel>
+                                <TextBlock FontSize="10" FontWeight="SemiBold" Foreground="{StaticResource Ink3Brush}">
+                                    <Run Text="YOU ASKED · " /><Run Text="{Binding AskedAtText, Mode=OneWay}" />
+                                </TextBlock>
+                                <TextBlock Text="{Binding Prompt}"
+                                           Margin="0,4,0,0"
+                                           FontFamily="{StaticResource MonoFont}"
+                                           FontSize="12"
+                                           TextWrapping="Wrap"
+                                           Foreground="{StaticResource InkBrush}" />
+
+                                <StackPanel Visibility="{Binding HasAnswer, Converter={StaticResource BoolToVisible}}">
+                                    <TextBlock Text="CLAUDE ANSWERED"
+                                               Margin="0,14,0,4"
+                                               FontSize="10"
+                                               FontWeight="SemiBold"
+                                               Foreground="{StaticResource Ink3Brush}" />
+                                    <!--
+                                        Bounded and scrollable rather than faded out. §9 asks for
+                                        the full exchange, and an answer can run to thousands of
+                                        characters against a narrow panel: fading the tail away
+                                        with no way to reach it would defeat the point of reading
+                                        the answer here instead of switching to the terminal.
+                                    -->
+                                    <ScrollViewer MaxHeight="180"
+                                                  VerticalScrollBarVisibility="Auto"
+                                                  HorizontalScrollBarVisibility="Disabled">
+                                        <TextBlock Text="{Binding Answer}"
+                                                   FontSize="12"
+                                                   TextWrapping="Wrap"
+                                                   Foreground="{StaticResource Ink2Brush}" />
+                                    </ScrollViewer>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
+                        <StackPanel Orientation="Horizontal" Margin="12,12,0,0">
+                            <Button Content="✓ Acknowledge"
+                                    Style="{StaticResource ReservedButtonStyle}"
+                                    Visibility="{Binding CanAcknowledge, Converter={StaticResource BoolToVisible}}"
+                                    ToolTip="Acknowledging arrives with the ack command (T1.12)." />
+                            <Button Style="{StaticResource ReservedButtonStyle}"
+                                    ToolTip="Opening the terminal arrives with Phase 2 navigation.">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="Open terminal" />
+                                    <TextBlock Text="PHASE 2" FontSize="9" Margin="5,0,0,0" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Button>
+                        </StackPanel>
+                    </StackPanel>
+                </StackPanel>
+
+                <!--
+                    The acknowledge affordance §9 puts on the row itself. Disabled: the command is
+                    T1.12's, and a button that silently does nothing is a worse lie than one that
+                    says it is not ready.
+                -->
+                <Button Grid.Column="3"
+                        Content="✓ Ack"
+                        VerticalAlignment="Top"
+                        Margin="8,2,0,0"
+                        Style="{StaticResource ReservedButtonStyle}"
+                        Visibility="{Binding CanAcknowledge, Converter={StaticResource BoolToVisible}}"
+                        ToolTip="Acknowledging arrives with the ack command (T1.12)." />
+            </Grid>
+        </ToggleButton>
+    </DataTemplate>
+
+    <!-- ==== Group heading ====================================================================== -->
+    <DataTemplate DataType="{x:Type ui:GroupViewModel}">
+        <ToggleButton Style="{StaticResource RowToggleStyle}"
+                      IsChecked="{Binding IsExpanded, Mode=TwoWay}"
+                      AutomationProperties.Name="{Binding Label}">
+            <Grid Margin="12,8,12,8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Grid.Column="0" Text="▼" FontSize="9" VerticalAlignment="Center"
+                           Margin="0,0,7,0" Foreground="{StaticResource Ink3Brush}" />
+
+                <TextBlock Grid.Column="1" Text="{Binding Label}"
+                           FontSize="12.5" FontWeight="SemiBold"
+                           VerticalAlignment="Center"
+                           Foreground="{StaticResource InkBrush}" />
+
+                <!-- The stale line's own words: "· 2 sessions · quiet 38 min". -->
+                <StackPanel Grid.Column="2" Orientation="Horizontal" Margin="8,0,0,0" VerticalAlignment="Center"
+                            Visibility="{Binding IsStale, Converter={StaticResource BoolToVisible}}">
+                    <TextBlock FontSize="11.5" Foreground="{StaticResource Ink3Brush}">
+                        <Run Text="· " /><Run Text="{Binding SessionCount, Mode=OneWay}" /><Run Text=" sessions · " /><Run Text="{Binding IdleText, Mode=OneWay}" />
+                    </TextBlock>
+                </StackPanel>
+
+                <TextBlock Grid.Column="2" Text="{Binding Workspace}"
+                           Margin="8,0,0,0"
+                           FontFamily="{StaticResource MonoFont}"
+                           FontSize="10.5"
+                           VerticalAlignment="Center"
+                           TextTrimming="CharacterEllipsis"
+                           Foreground="{StaticResource Ink3Brush}">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsStale}" Value="True">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
+
+                <ItemsControl Grid.Column="3" ItemsSource="{Binding MemberAccents}" VerticalAlignment="Center">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <StackPanel Orientation="Horizontal" />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Ellipse Width="6" Height="6" Margin="3,0,0,0">
+                                <Ellipse.Style>
+                                    <Style TargetType="Ellipse">
+                                        <Setter Property="Fill" Value="{StaticResource GreyBrush}" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding}" Value="Red">
+                                                <Setter Property="Fill" Value="{StaticResource RedBrush}" />
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding}" Value="Amber">
+                                                <Setter Property="Fill" Value="{StaticResource AmberBrush}" />
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding}" Value="Green">
+                                                <Setter Property="Fill" Value="{StaticResource GreenBrush}" />
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding}" Value="Blue">
+                                                <Setter Property="Fill" Value="{StaticResource BlueBrush}" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Ellipse.Style>
+                            </Ellipse>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </Grid>
+        </ToggleButton>
+    </DataTemplate>
+
+    <!-- ==== Band heading (flat view) =========================================================== -->
+    <DataTemplate DataType="{x:Type ui:BandHeaderViewModel}">
+        <Grid Margin="12,12,12,4">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <TextBlock Grid.Column="0" Text="{Binding Label}"
+                       FontSize="10" FontWeight="SemiBold">
+                <TextBlock.Style>
+                    <Style TargetType="TextBlock">
+                        <Setter Property="Foreground" Value="{StaticResource Ink3Brush}" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding Accent}" Value="Red">
+                                <Setter Property="Foreground" Value="{StaticResource RedBrush}" />
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding Accent}" Value="Green">
+                                <Setter Property="Foreground" Value="{StaticResource GreenBrush}" />
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding Accent}" Value="Blue">
+                                <Setter Property="Foreground" Value="{StaticResource BlueBrush}" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </TextBlock.Style>
+            </TextBlock>
+            <Rectangle Grid.Column="1" Height="1" Margin="8,0,0,0" VerticalAlignment="Center"
+                       Fill="{StaticResource HairlineBrush}" />
+        </Grid>
+    </DataTemplate>
+
+    <!-- ==== "+ 3 quiet" / "4 quiet sessions" =================================================== -->
+    <DataTemplate DataType="{x:Type ui:QuietFooterViewModel}">
+        <ToggleButton Style="{StaticResource RowToggleStyle}"
+                      IsChecked="{Binding Owner.IsExpanded, Mode=TwoWay}"
+                      AutomationProperties.Name="{Binding Text}">
+            <TextBlock Text="{Binding Text}"
+                       Margin="34,5,12,9"
+                       FontSize="11.5"
+                       Foreground="{StaticResource Ink3Brush}" />
+        </ToggleButton>
+    </DataTemplate>
+
+</ResourceDictionary>

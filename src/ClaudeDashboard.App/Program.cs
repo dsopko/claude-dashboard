@@ -1,6 +1,7 @@
 using System.IO;
 using Microsoft.AspNetCore.Connections;
 using ClaudeDashboard.App.Hosting;
+using ClaudeDashboard.App.Ui;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Serilog;
@@ -54,7 +55,14 @@ public static class Program
             using var handlers = AppHost.WireProcessExceptionHandlers(policy);
 
             var app = new App(policy);
-            var exitCode = app.Run();
+
+            // This is the UI thread, and the only place the window and its view model may be
+            // built. Attaching the tick here rather than inside the container is what keeps the
+            // consumer thread from ever constructing UI-thread state (see UiTick).
+            var window = host.Services.GetRequiredService<MainWindow>();
+            host.Services.GetRequiredService<UiTick>().Attach(window.ViewModel);
+
+            var exitCode = app.Run(window);
 
             host.StopAsync().GetAwaiter().GetResult();
             Log.Information("Claude Dashboard exited with code {ExitCode}.", exitCode);
