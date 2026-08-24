@@ -256,13 +256,13 @@ Bands, top to bottom, with intra-band order:
 
 | Band | Members | Order within band | Rationale |
 |---|---|---|---|
-| Needs You | `NeedsYou.Permission`, `Error`, `NeedsYou.Question` | **oldest first**; ties broken by kind, **Permission > Error > Question** | longest-blocked agent = most wasted capacity |
+| Needs You | `NeedsYou.Permission`, `Error`, `NeedsYou.Question` | **by kind first — Permission > Error > Question — then oldest first within each kind** | cheapest-to-clear blocker first: a permission is usually seconds of operator time holding up an agent indefinitely |
 | Unread | `Unread` | **newest first** | freshest finish is the one being chased after a beep |
 | Working | `Working` | most recent activity first | — |
 | Quiet | `Acked`, idle | recency | sinks; collapsible |
 | Ended | `Ended` | recency | dim; auto-removed after a short window |
 
-The ordering asymmetry (reds by *ascending* age, greens by *descending* recency) is intentional and is the heart of the attention model. Pseudocode:
+The ordering asymmetry (reds by *ascending* age, greens by *descending* recency) is intentional and is the heart of the attention model. In the Needs-You band that asymmetry operates *within* each kind, since kind sorts first (see §IV.3). Pseudocode:
 
 ```
 def render_order(sessions):
@@ -272,8 +272,8 @@ def render_order(sessions):
     quiet = [s for s in sessions if s.state == Acked or s.idle]
     ended = [s for s in sessions if s.state == Ended]
 
-    # oldest first; kind breaks ties only (Permission > Error > Question)
-    needs.sort(key=lambda s: (s.entered_at, needs_rank(s.state)))
+    # kind first (Permission > Error > Question), then oldest first within kind
+    needs.sort(key=lambda s: (needs_rank(s.state), s.entered_at))
     unread.sort(key=lambda s: s.entered_at, reverse=True)  # newest first
     working.sort(key=lambda s: s.last_activity, reverse=True)
     quiet.sort(key=lambda s: s.last_activity, reverse=True)
@@ -295,12 +295,21 @@ In **grouped** view this ordering runs *within* each group, and groups are order
 > Needs-You band, while this roll-up ranked it *below* the band as a whole. Both
 > now use one severity order, and the operator's ruling splits the two Needs-You
 > states around `Error` rather than keeping them together:
-> **Permission > Error > Question.** Rationale: a permission prompt is the agent
-> blocked on a decision only the operator can make; an error is the agent stopped
-> but often self-recoverable on retry; a question is the softest of the three.
-> The band itself is unchanged — all three are Needs-You — and §IV.2's oldest-first
-> ordering still dominates. Kind is a **tie-break**, not a sub-band: a Question
-> blocked ten minutes still sorts above a Permission blocked one minute.
+> **Permission > Error > Question.**
+>
+> **Rationale — throughput, not age.** A permission prompt is usually seconds of
+> operator time (one approval) standing between an agent and an indefinite wait,
+> so clearing it returns the most blocked capacity per second of attention. An
+> error is next: often self-recoverable on retry, but stopped until looked at. A
+> question is the softest — it may need real thought, and thinking about it does
+> not unblock anything else.
+>
+> **This order forms sub-bands, not tie-breaks.** In §IV.2's Needs-You band, kind
+> sorts first and age sorts within each kind, so a `Question` blocked twenty
+> minutes appears *below* a `Permission` raised three minutes ago. That is
+> deliberate and was chosen over the alternative (age dominant, kind breaking
+> exact ties only) with both renderings side by side. §IV.2's oldest-first
+> principle still governs *within* a kind.
 
 The operator never assigns groups by hand; grouping mirrors observable reality. A manual label or per-group checklist is a candidate refinement only if it later earns its place.
 
