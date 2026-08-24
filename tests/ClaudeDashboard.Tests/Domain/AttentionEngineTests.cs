@@ -345,6 +345,37 @@ public sealed class AttentionEngineTests
     private static Group GroupOf(string cwd, params Session[] members) =>
         new(GroupKeys.ForWorkspace(cwd), members);
 
+    /// <summary>
+    /// TS §IV.2's "this ordering runs within each group" includes band precedence, not only
+    /// the within-band rules: a group holding an ended session and a blocked one must list the
+    /// blocked one first.
+    /// </summary>
+    /// <remarks>
+    /// This is the only test of band precedence that reaches <c>Compare</c>'s band branch.
+    /// The flat view never depends on it — <see cref="AttentionEngine.Order"/> re-bands the
+    /// sorted sequence and orders the bands itself — so reversing that branch changes nothing
+    /// there, while silently inverting every group's member list.
+    ///
+    /// The ids run against the answer: <c>a-ended</c> precedes <c>b-needs</c> ordinally, so the
+    /// final id tie-break would produce the wrong order and only band precedence can produce
+    /// the right one.
+    /// </remarks>
+    [Fact]
+    public void Band_precedence_holds_within_a_groups_member_list()
+    {
+        var ordered = AttentionEngine.OrderGroups(
+        [
+            GroupOf(
+                Dashboard,
+                Aged("a-ended", SessionState.Ended, 1),
+                Aged("b-needs", SessionState.NeedsPermission, 1)),
+        ]).Single();
+
+        Assert.Equal(
+            [SessionState.NeedsPermission, SessionState.Ended],
+            ordered.Members.Select(m => m.State));
+    }
+
     /// <summary>TS §IV.2: in grouped view the ordering runs within each group.</summary>
     [Fact]
     public void Ordering_runs_within_each_group()

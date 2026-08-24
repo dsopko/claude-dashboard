@@ -100,6 +100,13 @@ public static class AttentionEngine
     }
 
     /// <summary>Display order: band first, then the rule that band sorts by, then the id.</summary>
+    /// <remarks>
+    /// The band branch is live only through <see cref="OrderGroups"/>, which sorts a group's
+    /// members and does not regroup afterwards, so this decides band precedence *within* a
+    /// group. <see cref="Order"/> re-bands the sorted sequence and orders the bands itself, so
+    /// the flat view does not depend on this branch — do not read it as the thing that puts
+    /// Needs-You above Unread on screen.
+    /// </remarks>
     private static int Compare(Session left, Session right)
     {
         var leftBand = AttentionOrder.BandOf(left.State);
