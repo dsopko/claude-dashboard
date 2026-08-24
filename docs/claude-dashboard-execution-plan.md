@@ -6,8 +6,18 @@
 
 This plan is written to be consumed by a **director agent** that turns it into prompts for a **coder agent**. It is not itself the architecture — the architecture lives in two companion documents, and this plan points into them rather than repeating them:
 
-- **Technical Specification** (`claude-dashboard-spec.md`, "TS") — the *why*, technology-agnostic.
+- **Technical Specification** (`claude-dashboard-spec.md`, "TS") — the *why*, technology-agnostic. Numbered **Parts I–V**.
 - **Implementation Specification** (`claude-dashboard-impl-spec.md`, "Impl") — the *how*, C#/.NET 10/WPF.
+- **Design Document** (`claude-dashboard-design.md`, "Design") — the product shape: the attention model, view modes, sound design, and **§9 Main window anatomy**, which is the authority on row structure and the motion discipline ("red blinks; working breathes; nothing else moves"). Numbered **§1–§12**.
+
+> **Correction (2026-08-24, found at T1.11 drafting).** T1.10, T1.11 and T1.13 previously
+> cited "TS §5, §7", "TS §5–§9" and "TS §9". Those sections do not exist — the TS is
+> numbered in Roman parts, I–V. The intended target in every case was the **Design
+> Document**, whose §5–§9 carry exactly the content those tasks need. Left uncorrected,
+> a coder would have followed the reference into the TS, found Part V (a
+> mechanism-to-phase map), and built the UI from the mockups alone — without the row
+> anatomy or the motion rule. Note also that the Design Document was **not listed among
+> the authoritative documents in `CLAUDE.md`**, so it would not have been read at all.
 
 **The director's loop, per task:**
 
@@ -156,7 +166,7 @@ Grouped into four sub-milestones. Each task lists Goal · Depends · Realizes ·
 **T1.10 — ViewModels**
 - **Goal:** expose the banded model to WPF.
 - **Depends:** T1.9, T1.3, T1.4
-- **Realizes:** Impl §5.5; TS §5, §7
+- **Realizes:** Impl §5.5; Design §5, §7
 - **Deliverables:** `SessionViewModel`, `GroupViewModel`, `MainViewModel` (banded `ObservableCollection`, grouped/flat toggle, counts strip) via CommunityToolkit.Mvvm.
 - **Acceptance:** tests/harness showing the VM reflects Registry changes and orders via the attention engine; grouped/flat toggle re-projects the same data.
 - **Guardrails:** no OS calls; ordering comes from Core.
@@ -164,7 +174,7 @@ Grouped into four sub-milestones. Each task lists Goal · Depends · Realizes ·
 **T1.11 — Main window & rows**
 - **Goal:** the dashboard UI matching the mockups.
 - **Depends:** T1.10
-- **Realizes:** TS §5–§9; mockups
+- **Realizes:** Design §5–§9; mockups
 - **Deliverables:** main window; session row (status LED, monospace prompt snippet, state+age line, ack affordance on Unread); grouped & flat views with labeled bands; **expanded row** showing the You-asked/Claude-answered exchange; collapse rules (stale group → one line; acked → "+ k quiet" footer; **Unread always full row**).
 - **Acceptance:** renders from the live Registry; structure matches the mockups; **motion only** red-blink and working-breathe; collapse rules behave.
 - **Guardrails:** presentation only; honor reduced-motion.
@@ -180,7 +190,7 @@ Grouped into four sub-milestones. Each task lists Goal · Depends · Realizes ·
 **T1.13 — Tray status light**
 - **Goal:** the always-on status glyph.
 - **Depends:** T1.9
-- **Realizes:** TS §9; Impl §5.2, §5.1
+- **Realizes:** Design §9; Impl §5.2, §5.1
 - **Deliverables:** H.NotifyIcon tray icon; worst-state roll-up **Red > Amber > Green > Blue > Grey**; **tooltip carries counts**; **static** (no animation); left-click toggles the window; right-click menu (Open · Mute all / 30 min · Pause monitoring · Settings · Quit); window close → hide to tray.
 - **Acceptance:** icon color tracks the worst current state; tooltip shows the counts; close hides; Quit exits; menu items wired (Settings may be a stub until Phase 6).
 - **Guardrails:** color carries state, not digits; no elevation.
