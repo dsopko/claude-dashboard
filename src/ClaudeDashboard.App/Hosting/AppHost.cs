@@ -81,6 +81,7 @@ public static class AppHost
         // The pipeline (Impl §4). Exactly one hosted service reads the channel and runs the
         // nudge tick, on one loop — see EventConsumer for why that is a correctness
         // requirement rather than a simplification.
+        // One shared region: a thread inside the Registry cannot also be inside the sound engine.
         builder.Services.AddSingleton<SingleWriterGuard>();
         builder.Services.AddSingleton<EventPipeline>();
         builder.Services.AddSingleton<IEventSink>(sp => sp.GetRequiredService<EventPipeline>().Sink);

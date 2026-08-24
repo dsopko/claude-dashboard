@@ -54,11 +54,16 @@ public sealed class SoundPolicyEngine
     private readonly Dictionary<SessionId, Tracked> _tracked = [];
     private readonly HashSet<SessionId> _mutedSessions = [];
     private readonly HashSet<GroupKey> _mutedGroups = [];
+    private readonly SingleWriterGuard _guard;
 
     /// <summary>Builds an engine that plays through <paramref name="player"/>.</summary>
     /// <exception cref="ArgumentNullException"><paramref name="player"/> or <paramref name="clock"/> is null.</exception>
     /// <exception cref="ArgumentException">The options describe a policy TS §IV.5 forbids.</exception>
-    public SoundPolicyEngine(ISoundPlayer player, IClock clock, SoundPolicyOptions? options = null)
+    public SoundPolicyEngine(
+        ISoundPlayer player,
+        IClock clock,
+        SoundPolicyOptions? options = null,
+        SingleWriterGuard? guard = null)
     {
         ArgumentNullException.ThrowIfNull(player);
         ArgumentNullException.ThrowIfNull(clock);
@@ -67,6 +72,7 @@ public sealed class SoundPolicyEngine
         _clock = clock;
         _options = options ?? new SoundPolicyOptions();
         _options.Validate();
+        _guard = guard ?? new SingleWriterGuard();
     }
 
     /// <summary>
@@ -84,6 +90,8 @@ public sealed class SoundPolicyEngine
     public void OnSessionChanged(Session session)
     {
         ArgumentNullException.ThrowIfNull(session);
+
+        using var writing = _guard.Enter("recording a session change in the sound engine");
 
         if (session.State == SessionState.Ended)
         {
@@ -140,6 +148,11 @@ public sealed class SoundPolicyEngine
     /// </remarks>
     public void Evaluate(DateTimeOffset now)
     {
+        // Enumerates _tracked while mutating its entries, and OnSessionChanged adds and removes
+        // from it. That pair is the race the T1.5 review reproduced, and it is why this method
+        // enters the region despite reading like a query.
+        using var writing = _guard.Enter("evaluating the nudge schedule");
+
         foreach (var (id, tracked) in _tracked)
         {
             if (tracked.NextNudgeAt is not { } due || due > now)
@@ -165,12 +178,19 @@ public sealed class SoundPolicyEngine
     }
 
     /// <summary>Mutes or unmutes one session (TS §IV.5).</summary>
-    public void SetSessionMuted(SessionId session, bool muted) =>
+    public void SetSessionMuted(SessionId session, bool muted)
+    {
+        // T1.13's tray menu is the caller that will reach for this from the Dispatcher.
+        using var writing = _guard.Enter("muting or unmuting a session");
         Set(_mutedSessions, session, muted);
+    }
 
     /// <summary>Mutes or unmutes a whole group (TS §IV.5).</summary>
-    public void SetGroupMuted(GroupKey group, bool muted) =>
+    public void SetGroupMuted(GroupKey group, bool muted)
+    {
+        using var writing = _guard.Enter("muting or unmuting a group");
         Set(_mutedGroups, group, muted);
+    }
 
     /// <summary>Whether anything would be heard for this session right now.</summary>
     public bool IsMuted(SessionId session, GroupKey group) =>

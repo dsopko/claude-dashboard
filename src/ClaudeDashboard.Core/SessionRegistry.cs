@@ -53,9 +53,19 @@ namespace ClaudeDashboard.Core;
 /// </description></item>
 /// </list>
 /// </remarks>
-public sealed class SessionRegistry
+public sealed class SessionRegistry(SingleWriterGuard? guard = null)
 {
     private readonly Dictionary<SessionId, Session> _sessions = [];
+
+    /// <summary>
+    /// The single-writer region this Registry mutates inside (Impl 2.2).
+    /// </summary>
+    /// <remarks>
+    /// Shared with the sound engine when both are composed by the host, so a thread inside one
+    /// cannot be inside the other. A Registry built without one gets its own, which is what an
+    /// isolated unit test wants.
+    /// </remarks>
+    private readonly SingleWriterGuard _guard = guard ?? new SingleWriterGuard();
 
     /// <summary>
     /// Every session the Registry has seen, keyed by <c>session_id</c>.
@@ -86,6 +96,8 @@ public sealed class SessionRegistry
     public ApplyOutcome Apply(InboundEvent inboundEvent)
     {
         ArgumentNullException.ThrowIfNull(inboundEvent);
+
+        using var writing = _guard.Enter("applying an event to the Registry");
 
         if (inboundEvent.SessionId.IsEmpty)
         {
