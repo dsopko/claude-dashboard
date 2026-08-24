@@ -50,6 +50,16 @@ public static class IngressEndpoints
     }
 
     /// <summary>The single ingest endpoint (Impl §3.2).</summary>
+    /// <remarks>
+    /// The catch-all is what makes Impl §3.3 <em>structural</em> rather than a consequence of
+    /// having anticipated the right exception types. Everything below the token check can
+    /// throw — the sink despite its contract, a body over Kestrel's size limit (a
+    /// <c>BadHttpRequestException</c>, which is an <see cref="IOException"/> and not a
+    /// <see cref="JsonException"/>), a service that failed to resolve, the mapper's own
+    /// unreachable arm — and every one of those would otherwise become a <c>500</c> delivered
+    /// to Claude Code. §3.3 permits no such thing: the dashboard must degrade Claude Code to
+    /// "no hooks fire", never to anything it has to react to.
+    /// </remarks>
     private static async Task<IResult> HandleHook(HttpContext context)
     {
         var services = context.RequestServices;
@@ -61,6 +71,20 @@ public static class IngressEndpoints
             return Results.Unauthorized();
         }
 
+        try
+        {
+            return await Ingest(context, services, logger).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            logger.Error(ex, "A /hook post failed after the token check. Answering 200 regardless (Impl §3.3).");
+            return Empty200();
+        }
+    }
+
+    /// <summary>Maps and publishes one authorized post. Anything it throws is caught above.</summary>
+    private static async Task<IResult> Ingest(HttpContext context, IServiceProvider services, ILogger logger)
+    {
         var mapper = (HookEventMapper)services.GetService(typeof(HookEventMapper))!;
         var sink = (IEventSink)services.GetService(typeof(IEventSink))!;
 
@@ -141,7 +165,17 @@ public static class IngressEndpoints
             return Results.Unauthorized();
         }
 
-        onShow?.Invoke();
+        try
+        {
+            onShow?.Invoke();
+        }
+        catch (Exception ex)
+        {
+            // T1.15 supplies this action and it reaches the UI. A window that fails to surface
+            // must not become a non-200 either.
+            logger.Error(ex, "A /show post failed while surfacing the window. Answering 200 regardless.");
+        }
+
         return Empty200();
     }
 
