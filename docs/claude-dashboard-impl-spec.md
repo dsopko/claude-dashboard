@@ -386,7 +386,7 @@ Realizes the "logon tray app, not a service" decision (TS integration constraint
 - **FlaUI.UIA3** — UI Automation for content-matching, tab enumeration, selection events *(Phase 2+)*.
 - **NAudio** — sound with programmatic gain/fade/mixing.
 - **Microsoft.Data.Sqlite** — history/warm-restart store.
-- **Serilog** + `Serilog.Sinks.File` — rolling logs.
+- **Serilog** + `Serilog.Sinks.File` + `Serilog.Extensions.Hosting` — rolling logs, and the bridge from `Microsoft.Extensions.Logging` to Serilog. *(The bridge was added 2026-08-24 at T1.7. Without it the host's own framework diagnostics — DI resolution failures, hosted-service start/stop errors, and Kestrel binding errors — never reach the rolling file, which Part 8 calls "the only console a resident app has". A port-binding failure at startup is precisely the fault the operator needs the log to explain, and it would otherwise be invisible.)*
 - **System.Text.Json** — in-box; settings.
 - **Microsoft.Win32.TaskScheduler** *(optional)* — typed scheduled-task registration.
 - **MScholtes VirtualDesktop** — vendored as source behind `IVirtualDesktopService`, version-pinned *(Phase 4; pin-to-all now)*.
