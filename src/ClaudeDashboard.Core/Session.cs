@@ -16,9 +16,18 @@ public sealed record Session
     private readonly string _cwd = string.Empty;
     private readonly Exchange _latest = null!;
     private readonly TransitionLog _transitions = TransitionLog.Empty;
+    private readonly SessionId _id;
+    private readonly GroupKey _group;
 
     /// <summary>Claude Code's <c>session_id</c>; the Registry key (TS §II.3).</summary>
-    public required SessionId Id { get; init; }
+    /// <exception cref="ArgumentException">Set to a <c>default</c> id, which names no session.</exception>
+    public required SessionId Id
+    {
+        get => _id;
+        init => _id = value.IsEmpty
+            ? throw new ArgumentException("A session must have an id.", nameof(value))
+            : value;
+    }
 
     /// <summary>Where this session sits in the attention model.</summary>
     public required SessionState State { get; init; }
@@ -47,7 +56,14 @@ public sealed record Session
     /// The key of the group this session rolls up into — derived, never operator-assigned
     /// (TS §IV.3). Deriving it is the group resolver's job (T1.4).
     /// </summary>
-    public required GroupKey Group { get; init; }
+    /// <exception cref="ArgumentException">Set to a <c>default</c> key, which names no group.</exception>
+    public required GroupKey Group
+    {
+        get => _group;
+        init => _group = value.IsEmpty
+            ? throw new ArgumentException("A session must belong to a group.", nameof(value))
+            : value;
+    }
 
     /// <summary>
     /// When the session entered <see cref="State"/>. Drives age display and nudge timing,

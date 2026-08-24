@@ -22,6 +22,7 @@ public readonly record struct DesktopId
     public Guid Value { get; }
 
     /// <summary>True when this id names no desktop.</summary>
+    /// <remarks>See <see cref="ValueTypeConventions"/> for why these types stay structs.</remarks>
     public bool IsNone => Value == Guid.Empty;
 
     public override string ToString() => IsNone ? "DesktopId(none)" : $"DesktopId({Value:D})";

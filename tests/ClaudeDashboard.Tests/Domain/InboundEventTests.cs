@@ -12,6 +12,13 @@ public sealed class InboundEventTests
     private static readonly DateTimeOffset At = new(2026, 8, 24, 9, 0, 0, TimeSpan.Zero);
     private static readonly SessionId Id = new("s-1");
 
+    /// <summary>Every <c>hook_event_name</c> Claude Code actually sends (Impl §9.1).</summary>
+    private static readonly string[] HookBackedEventNames =
+    [
+        "SessionStart", "UserPromptSubmit", "Notification", "Stop",
+        "StopFailure", "SessionEnd", "CwdChanged",
+    ];
+
     [Fact]
     public void Every_variant_carries_the_common_fields()
     {
@@ -41,7 +48,10 @@ public sealed class InboundEventTests
         Assert.Equal("CwdChanged", Build<CwdChanged>().HookEventName);
     }
 
-    /// <summary>Impl §9.1 consumes exactly these seven events; the hierarchy has no others.</summary>
+    /// <summary>
+    /// The hierarchy is closed over Impl §9.1's seven consumed events plus <c>Ack</c>, the one
+    /// synthetic variant, which has no hook behind it (TS §IV.1; Impl §4).
+    /// </summary>
     [Fact]
     public void The_hierarchy_is_closed_over_the_consumed_events()
     {
@@ -53,10 +63,31 @@ public sealed class InboundEventTests
 
         Assert.Equal(
             [
-                "CwdChanged", "Notification", "SessionEnd", "SessionStart",
+                "Ack", "CwdChanged", "Notification", "SessionEnd", "SessionStart",
                 "Stop", "StopFailure", "UserPromptSubmit",
             ],
             variants);
+    }
+
+    /// <summary>
+    /// <c>Ack</c> is the only variant no hook produces. Ingress must never map a wire payload
+    /// onto it: anything able to reach the loopback endpoint could otherwise forge an
+    /// acknowledgment and silence a session that genuinely needs the operator.
+    /// </summary>
+    [Fact]
+    public void Ack_is_synthetic_and_carries_its_source()
+    {
+        var ack = new Ack
+        {
+            SessionId = Id,
+            Timestamp = At,
+            Cwd = Cwd,
+            Source = AckSource.Manual,
+        };
+
+        Assert.Equal("Ack", ack.HookEventName);
+        Assert.Equal(AckSource.Manual, ack.Source);
+        Assert.DoesNotContain(ack.HookEventName, HookBackedEventNames, StringComparer.Ordinal);
     }
 
     [Fact]

@@ -1,0 +1,859 @@
+using ClaudeDashboard.Core;
+using ClaudeDashboard.Core.Events;
+using ClaudeDashboard.Tests.Fakes;
+
+namespace ClaudeDashboard.Tests.Domain;
+
+/// <summary>
+/// The transition table of TS §IV.1 and the three guards of Impl §2.2.
+/// </summary>
+/// <remarks>
+/// Event timestamps come from a <see cref="FakeClock"/> the test advances, which is how the
+/// ordering and staleness cases are exercised without waiting. The Registry itself never reads
+/// a clock — every stamp it writes comes from the event being applied.
+/// </remarks>
+public sealed class SessionRegistryTests
+{
+    private const string Cwd = @"C:\projects\dashboard";
+    private static readonly SessionId Id = new("s-1");
+
+    private readonly FakeClock _clock = new();
+    private readonly SessionRegistry _registry = new();
+    private readonly List<SessionChangedEventArgs> _changes = [];
+
+    public SessionRegistryTests() => _registry.SessionChanged += (_, e) => _changes.Add(e);
+
+    private Session Current => _registry.Sessions[Id];
+
+    // ---- Reaching a starting state ----------------------------------------------------------
+
+    /// <summary>Puts the session into Working with a correlated in-flight prompt.</summary>
+    private Session GivenWorking(string promptId = "p-1")
+    {
+        Apply(Prompt("do the thing", promptId));
+        return Current;
+    }
+
+    private bool Apply(InboundEvent inboundEvent) => _registry.Apply(inboundEvent);
+
+    private UserPromptSubmit Prompt(string text = "do the thing", string? promptId = "p-1") => new()
+    {
+        SessionId = Id, Timestamp = _clock.Now, Cwd = Cwd, PromptId = promptId, Prompt = text,
+    };
+
+    private Stop Finished(string? answer = "all done", string? promptId = "p-1") => new()
+    {
+        SessionId = Id, Timestamp = _clock.Now, Cwd = Cwd, PromptId = promptId,
+        LastAssistantMessage = answer,
+    };
+
+    private Notification Notified(string type) => new()
+    {
+        SessionId = Id, Timestamp = _clock.Now, Cwd = Cwd, NotificationType = type,
+    };
+
+    private StopFailure Failed(string kind = "rate_limit") => new()
+    {
+        SessionId = Id, Timestamp = _clock.Now, Cwd = Cwd, ErrorKind = kind,
+    };
+
+    private SessionEnd Ended(string reason = "clear") => new()
+    {
+        SessionId = Id, Timestamp = _clock.Now, Cwd = Cwd, Reason = reason,
+    };
+
+    private SessionStart Started(string? source = "startup", string cwd = Cwd) => new()
+    {
+        SessionId = Id, Timestamp = _clock.Now, Cwd = cwd, Source = source,
+    };
+
+    private CwdChanged Moved(string cwd) => new()
+    {
+        SessionId = Id, Timestamp = _clock.Now, Cwd = cwd,
+    };
+
+    private Ack Acknowledged(AckSource source = AckSource.Manual) => new()
+    {
+        SessionId = Id, Timestamp = _clock.Now, Cwd = Cwd, Source = source,
+    };
+
+    // ---- The transition table ----------------------------------------------------------------
+
+    [Fact]
+    public void UserPromptSubmit_moves_a_session_to_Working()
+    {
+        Assert.True(Apply(Prompt("run the tests")));
+
+        Assert.Equal(SessionState.Working, Current.State);
+        Assert.Equal("run the tests", Current.Latest.Prompt);
+        Assert.Equal("p-1", Current.Latest.PromptId);
+        Assert.Equal(_clock.Now, Current.EnteredAt);
+    }
+
+    [Fact]
+    public void Working_moves_to_Unread_on_Stop()
+    {
+        GivenWorking();
+        _clock.AdvanceMinutes(1);
+
+        Assert.True(Apply(Finished("29 passed")));
+
+        Assert.Equal(SessionState.Unread, Current.State);
+        Assert.Equal("29 passed", Current.Latest.Answer);
+        Assert.True(Current.Latest.IsAnswered);
+        Assert.Equal(_clock.Now, Current.EnteredAt);
+    }
+
+    [Theory]
+    [InlineData("permission_prompt", SessionState.NeedsPermission)]
+    [InlineData("idle_prompt", SessionState.NeedsQuestion)]
+    [InlineData("agent_needs_input", SessionState.NeedsQuestion)]
+    public void Working_moves_to_the_needs_you_state_on_Notification(string type, SessionState expected)
+    {
+        GivenWorking();
+        _clock.AdvanceMinutes(1);
+
+        Assert.True(Apply(Notified(type)));
+
+        Assert.Equal(expected, Current.State);
+    }
+
+    /// <summary>
+    /// Impl §9.1 marks <c>agent_completed</c> as an optional corroborating signal; <c>Stop</c>
+    /// is what authoritatively finishes a turn, so this must not move the session on its own.
+    /// </summary>
+    [Fact]
+    public void Notification_agent_completed_does_not_change_state()
+    {
+        GivenWorking();
+        _clock.AdvanceMinutes(1);
+
+        Assert.False(Apply(Notified("agent_completed")));
+
+        Assert.Equal(SessionState.Working, Current.State);
+    }
+
+    [Fact]
+    public void Notification_of_an_unrecognized_type_is_ignored()
+    {
+        GivenWorking();
+        _clock.AdvanceMinutes(1);
+
+        Assert.False(Apply(Notified("brand_new_signal")));
+
+        Assert.Equal(SessionState.Working, Current.State);
+    }
+
+    [Fact]
+    public void Working_moves_to_Error_on_StopFailure()
+    {
+        GivenWorking();
+        _clock.AdvanceMinutes(1);
+
+        Assert.True(Apply(Failed("rate_limit")));
+
+        Assert.Equal(SessionState.Error, Current.State);
+        Assert.Equal("rate_limit", Current.ErrorKind);
+    }
+
+    [Fact]
+    public void Any_state_moves_to_Ended_on_SessionEnd()
+    {
+        GivenWorking();
+        _clock.AdvanceMinutes(1);
+
+        Assert.True(Apply(Ended("logout")));
+
+        Assert.Equal(SessionState.Ended, Current.State);
+    }
+
+    [Theory]
+    [InlineData(SessionState.Unread)]
+    [InlineData(SessionState.NeedsPermission)]
+    [InlineData(SessionState.NeedsQuestion)]
+    [InlineData(SessionState.Error)]
+    public void An_ack_moves_an_attention_seeking_session_to_Acked(SessionState from)
+    {
+        GivenInState(from);
+        _clock.AdvanceMinutes(1);
+
+        Assert.True(Apply(Acknowledged()));
+
+        Assert.Equal(SessionState.Acked, Current.State);
+    }
+
+    [Theory]
+    [InlineData(AckSource.Manual)]
+    [InlineData(AckSource.InferredFocus)]
+    public void Both_ack_sources_acknowledge(AckSource source)
+    {
+        GivenInState(SessionState.Unread);
+        _clock.AdvanceMinutes(1);
+
+        Assert.True(Apply(Acknowledged(source)));
+
+        Assert.Equal(SessionState.Acked, Current.State);
+        Assert.Contains(source.ToString(), Current.Transitions[^1].Cause, StringComparison.Ordinal);
+    }
+
+    /// <summary>Nothing has finished, so there is nothing to acknowledge.</summary>
+    [Fact]
+    public void An_ack_of_a_working_session_does_nothing()
+    {
+        GivenWorking();
+        _clock.AdvanceMinutes(1);
+
+        Assert.False(Apply(Acknowledged()));
+
+        Assert.Equal(SessionState.Working, Current.State);
+    }
+
+    // ---- Auto-ack on a new prompt --------------------------------------------------------------
+
+    /// <summary>
+    /// TS §IV.1: a new prompt moves the session to Working from <em>any</em> state and
+    /// auto-acknowledges what was pending — the operator cannot have typed it without having
+    /// seen the previous result.
+    /// </summary>
+    [Theory]
+    [InlineData(SessionState.Unread)]
+    [InlineData(SessionState.NeedsPermission)]
+    [InlineData(SessionState.NeedsQuestion)]
+    [InlineData(SessionState.Error)]
+    [InlineData(SessionState.Acked)]
+    [InlineData(SessionState.Ended)]
+    public void A_new_prompt_moves_any_state_to_Working(SessionState from)
+    {
+        GivenInState(from);
+        _clock.AdvanceMinutes(1);
+
+        Assert.True(Apply(Prompt("next thing", "p-next")));
+
+        Assert.Equal(SessionState.Working, Current.State);
+        Assert.Equal("next thing", Current.Latest.Prompt);
+    }
+
+    [Theory]
+    [InlineData(SessionState.Unread)]
+    [InlineData(SessionState.NeedsPermission)]
+    [InlineData(SessionState.NeedsQuestion)]
+    [InlineData(SessionState.Error)]
+    public void A_new_prompt_records_the_auto_ack_of_what_was_pending(SessionState from)
+    {
+        GivenInState(from);
+        _clock.AdvanceMinutes(1);
+
+        Apply(Prompt("next thing", "p-next"));
+
+        var transition = Current.Transitions[^1];
+        Assert.Equal(from, transition.From);
+        Assert.Equal(SessionState.Working, transition.To);
+        Assert.Contains("auto-ack", transition.Cause!, StringComparison.Ordinal);
+        Assert.Contains(from.ToString(), transition.Cause!, StringComparison.Ordinal);
+    }
+
+    /// <summary>A prompt from a quiet session is not acknowledging anything.</summary>
+    [Fact]
+    public void A_new_prompt_from_a_quiet_session_records_no_auto_ack()
+    {
+        GivenInState(SessionState.Acked);
+        _clock.AdvanceMinutes(1);
+
+        Apply(Prompt("next thing", "p-next"));
+
+        Assert.DoesNotContain("auto-ack", Current.Transitions[^1].Cause!, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A permission prompt approved in the terminal is followed by the turn finishing. TS
+    /// §IV.1's diagram draws Stop only from Working, but this path is ordinary use, and
+    /// refusing it would strand the session in the loudest band there is.
+    /// </summary>
+    [Theory]
+    [InlineData(SessionState.NeedsPermission)]
+    [InlineData(SessionState.NeedsQuestion)]
+    [InlineData(SessionState.Error)]
+    public void A_turn_can_finish_from_a_needs_you_state(SessionState from)
+    {
+        GivenInState(from);
+        _clock.AdvanceMinutes(1);
+
+        Assert.True(Apply(Finished("done after all")));
+
+        Assert.Equal(SessionState.Unread, Current.State);
+        Assert.Equal("done after all", Current.Latest.Answer);
+    }
+
+    // ---- Idempotency ----------------------------------------------------------------------------
+
+    [Fact]
+    public void The_same_stop_applied_twice_has_one_effect()
+    {
+        GivenWorking();
+        _clock.AdvanceMinutes(1);
+        var stop = Finished("29 passed");
+
+        Assert.True(Apply(stop));
+        _changes.Clear();
+
+        Assert.False(Apply(stop));
+
+        Assert.Empty(_changes);
+        Assert.Equal(SessionState.Unread, Current.State);
+        Assert.Single(Current.Transitions, t => t.To == SessionState.Unread);
+    }
+
+    /// <summary>
+    /// A redelivery arrives with a fresh, later stamp, so it passes the timestamp guard and is
+    /// not record-equal to the original either. Idempotency has to be judged by outcome.
+    /// </summary>
+    [Fact]
+    public void A_redelivered_stop_with_a_later_stamp_still_has_no_second_effect()
+    {
+        GivenWorking();
+        _clock.AdvanceMinutes(1);
+        Apply(Finished("29 passed"));
+        _changes.Clear();
+
+        _clock.AdvanceMinutes(1);
+        var redelivered = Finished("29 passed");
+
+        Assert.False(Apply(redelivered));
+
+        Assert.Empty(_changes);
+        Assert.Equal(SessionState.Unread, Current.State);
+    }
+
+    [Theory]
+    [InlineData("permission_prompt")]
+    [InlineData("idle_prompt")]
+    public void The_same_notification_applied_twice_has_one_effect(string type)
+    {
+        GivenWorking();
+        _clock.AdvanceMinutes(1);
+
+        Assert.True(Apply(Notified(type)));
+        _changes.Clear();
+        _clock.AdvanceMinutes(1);
+
+        Assert.False(Apply(Notified(type)));
+        Assert.Empty(_changes);
+    }
+
+    [Fact]
+    public void The_same_prompt_id_applied_twice_has_one_effect()
+    {
+        Assert.True(Apply(Prompt("do the thing", "p-1")));
+        _changes.Clear();
+        _clock.AdvanceMinutes(1);
+
+        Assert.False(Apply(Prompt("do the thing", "p-1")));
+
+        Assert.Empty(_changes);
+        Assert.Single(Current.Transitions);
+    }
+
+    [Fact]
+    public void The_same_failure_applied_twice_has_one_effect()
+    {
+        GivenWorking();
+        _clock.AdvanceMinutes(1);
+        Assert.True(Apply(Failed("rate_limit")));
+        _changes.Clear();
+        _clock.AdvanceMinutes(1);
+
+        Assert.False(Apply(Failed("rate_limit")));
+        Assert.Empty(_changes);
+    }
+
+    [Fact]
+    public void A_different_failure_kind_is_a_real_change()
+    {
+        GivenWorking();
+        _clock.AdvanceMinutes(1);
+        Apply(Failed("rate_limit"));
+        _clock.AdvanceMinutes(1);
+
+        Assert.True(Apply(Failed("overloaded")));
+
+        Assert.Equal("overloaded", Current.ErrorKind);
+    }
+
+    [Fact]
+    public void The_same_session_end_applied_twice_has_one_effect()
+    {
+        GivenWorking();
+        _clock.AdvanceMinutes(1);
+        Assert.True(Apply(Ended()));
+        _changes.Clear();
+        _clock.AdvanceMinutes(1);
+
+        Assert.False(Apply(Ended()));
+        Assert.Empty(_changes);
+    }
+
+    [Fact]
+    public void The_same_ack_applied_twice_has_one_effect()
+    {
+        GivenInState(SessionState.Unread);
+        _clock.AdvanceMinutes(1);
+        Assert.True(Apply(Acknowledged()));
+        _changes.Clear();
+        _clock.AdvanceMinutes(1);
+
+        Assert.False(Apply(Acknowledged()));
+        Assert.Empty(_changes);
+    }
+
+    /// <summary>
+    /// A duplicate must leave no trace at all: if it advanced LastActivity it would silently
+    /// float the session up the recency ordering the Working and Quiet bands sort on.
+    /// </summary>
+    [Fact]
+    public void A_duplicate_does_not_advance_last_activity()
+    {
+        GivenWorking();
+        _clock.AdvanceMinutes(1);
+        Apply(Finished("29 passed"));
+        var settled = Current.LastActivity;
+
+        _clock.AdvanceMinutes(30);
+        Apply(Finished("29 passed"));
+
+        Assert.Equal(settled, Current.LastActivity);
+    }
+
+    // ---- Stale-drop ------------------------------------------------------------------------------
+
+    /// <summary>
+    /// An event older than the session's last-applied stamp is ignored (TS §IV.1). Hook events
+    /// cannot trip this on their own — ingress stamps them on arrival and the channel is FIFO —
+    /// so the guard is exercised here with events carrying independent origins, which is exactly
+    /// where it earns its place: a manual or inferred-focus ack, and warm-restart replay.
+    /// </summary>
+    [Fact]
+    public void An_event_older_than_the_last_applied_stamp_is_dropped()
+    {
+        GivenWorking();
+        _clock.AdvanceMinutes(10);
+        Apply(Finished("29 passed"));
+
+        var stale = new Ack
+        {
+            SessionId = Id,
+            Timestamp = _clock.Now.AddMinutes(-5),
+            Cwd = Cwd,
+            Source = AckSource.InferredFocus,
+        };
+        _changes.Clear();
+
+        Assert.False(Apply(stale));
+
+        Assert.Empty(_changes);
+        Assert.Equal(SessionState.Unread, Current.State);
+    }
+
+    /// <summary>
+    /// The warm-restart case the guard exists for: a replayed event with an independent origin
+    /// that <em>would</em> cause a real state change if it were not dropped. Here a stale
+    /// permission notification would drag an acknowledged session back into the Needs-You band
+    /// and start it chiming again.
+    /// </summary>
+    [Fact]
+    public void A_stale_event_cannot_drag_a_session_backwards()
+    {
+        GivenWorking();
+        _clock.AdvanceMinutes(10);
+        Apply(Finished("29 passed"));
+        _clock.AdvanceMinutes(1);
+        Apply(Acknowledged());
+        _changes.Clear();
+
+        var replayed = new Notification
+        {
+            SessionId = Id,
+            Timestamp = _clock.Now.AddMinutes(-30),
+            Cwd = Cwd,
+            NotificationType = "permission_prompt",
+        };
+
+        Assert.False(Apply(replayed));
+
+        Assert.Empty(_changes);
+        Assert.Equal(SessionState.Acked, Current.State);
+    }
+
+    /// <summary>Two events sharing an instant are both real; only strictly older is stale.</summary>
+    [Fact]
+    public void An_event_with_the_same_stamp_is_not_stale()
+    {
+        GivenWorking();
+
+        Assert.True(Apply(Finished("29 passed")));
+        Assert.Equal(SessionState.Unread, Current.State);
+    }
+
+    // ---- prompt_id correlation on Stop ------------------------------------------------------------
+
+    /// <summary>
+    /// The failure this guard exists to prevent: a delayed duplicate <c>Stop</c> from the
+    /// previous turn arriving after a new prompt would drag a live Working session back to
+    /// Unread — a false "finished" chime on a session that is still running.
+    /// </summary>
+    [Fact]
+    public void A_stop_from_a_previous_turn_cannot_finish_the_current_one()
+    {
+        Apply(Prompt("first", "p-1"));
+        _clock.AdvanceMinutes(1);
+        Apply(Finished("first answer", "p-1"));
+        _clock.AdvanceMinutes(1);
+        Apply(Prompt("second", "p-2"));
+        _changes.Clear();
+
+        _clock.AdvanceMinutes(1);
+        Assert.False(Apply(Finished("first answer", "p-1")));
+
+        Assert.Empty(_changes);
+        Assert.Equal(SessionState.Working, Current.State);
+        Assert.Equal("second", Current.Latest.Prompt);
+        Assert.Null(Current.Latest.Answer);
+    }
+
+    [Fact]
+    public void A_stop_matching_the_current_prompt_id_is_accepted()
+    {
+        Apply(Prompt("second", "p-2"));
+        _clock.AdvanceMinutes(1);
+
+        Assert.True(Apply(Finished("second answer", "p-2")));
+
+        Assert.Equal(SessionState.Unread, Current.State);
+        Assert.Equal("second answer", Current.Latest.Answer);
+    }
+
+    /// <summary>
+    /// Correlation needs an id on both sides. Refusing an uncorrelatable Stop would silently
+    /// lose real completions, which is worse than the duplicate the guard catches.
+    /// </summary>
+    [Fact]
+    public void A_stop_without_a_prompt_id_is_still_accepted()
+    {
+        Apply(Prompt("first", promptId: null));
+        _clock.AdvanceMinutes(1);
+
+        Assert.True(Apply(Finished("answer", promptId: null)));
+
+        Assert.Equal(SessionState.Unread, Current.State);
+    }
+
+    [Fact]
+    public void A_stop_is_accepted_when_the_session_has_no_prompt_id_to_correlate_against()
+    {
+        Apply(Prompt("first", promptId: null));
+        _clock.AdvanceMinutes(1);
+
+        Assert.True(Apply(Finished("answer", "p-99")));
+
+        Assert.Equal(SessionState.Unread, Current.State);
+    }
+
+    // ---- Unknown sessions --------------------------------------------------------------------------
+
+    /// <summary>
+    /// TS §I.2: "a session exists in the Registry because the system saw an event from it", and
+    /// TS §IV.7 promises the product still shows sessions from their next event on. A session
+    /// already running when the dashboard starts must surface from whatever event arrives first.
+    /// </summary>
+    [Theory]
+    [InlineData("Stop", SessionState.Unread)]
+    [InlineData("StopFailure", SessionState.Error)]
+    [InlineData("Notification", SessionState.NeedsPermission)]
+    [InlineData("SessionEnd", SessionState.Ended)]
+    [InlineData("SessionStart", SessionState.Acked)]
+    [InlineData("UserPromptSubmit", SessionState.Working)]
+    public void An_event_for_an_unknown_session_creates_it(string variant, SessionState expected)
+    {
+        InboundEvent inbound = variant switch
+        {
+            "Stop" => Finished(),
+            "StopFailure" => Failed(),
+            "Notification" => Notified("permission_prompt"),
+            "SessionEnd" => Ended(),
+            "SessionStart" => Started(),
+            _ => Prompt(),
+        };
+
+        Assert.True(Apply(inbound));
+
+        Assert.Equal(expected, Current.State);
+        Assert.Equal(SessionChangeKind.Added, Assert.Single(_changes).Kind);
+    }
+
+    [Fact]
+    public void A_stop_before_any_prompt_records_the_answer_without_inventing_a_question()
+    {
+        Assert.True(Apply(Finished("answer with no question")));
+
+        Assert.Equal(string.Empty, Current.Latest.Prompt);
+        Assert.Equal("answer with no question", Current.Latest.Answer);
+        Assert.True(Current.Latest.IsAnswered);
+    }
+
+    /// <summary>
+    /// A synthetic ack is the dashboard reporting that the operator saw something, not an
+    /// observation of a session. With nothing to acknowledge there is nothing to create, and
+    /// materializing a blank row from one would put a session on screen that has never been
+    /// observed.
+    /// </summary>
+    [Fact]
+    public void An_ack_for_an_unknown_session_creates_nothing()
+    {
+        Assert.False(Apply(Acknowledged()));
+
+        Assert.Empty(_registry.Sessions);
+        Assert.Empty(_changes);
+    }
+
+    [Fact]
+    public void An_event_naming_no_session_is_ignored()
+    {
+        var anonymous = new Stop { SessionId = default, Timestamp = _clock.Now, Cwd = Cwd };
+
+        Assert.False(Apply(anonymous));
+
+        Assert.Empty(_registry.Sessions);
+    }
+
+    // ---- Ended --------------------------------------------------------------------------------------
+
+    [Theory]
+    [InlineData("Stop")]
+    [InlineData("StopFailure")]
+    [InlineData("Notification")]
+    [InlineData("Ack")]
+    public void An_ended_session_ignores_further_activity(string variant)
+    {
+        GivenWorking();
+        _clock.AdvanceMinutes(1);
+        Apply(Ended());
+        _changes.Clear();
+        _clock.AdvanceMinutes(1);
+
+        InboundEvent inbound = variant switch
+        {
+            "Stop" => Finished(),
+            "StopFailure" => Failed(),
+            "Notification" => Notified("permission_prompt"),
+            _ => Acknowledged(),
+        };
+
+        Assert.False(Apply(inbound));
+
+        Assert.Empty(_changes);
+        Assert.Equal(SessionState.Ended, Current.State);
+    }
+
+    /// <summary>
+    /// <c>SessionEnd</c>'s matchers include <c>resume</c> and <c>SessionStart</c>'s include
+    /// <c>resume</c> and <c>fork</c> (Impl §9.1), so one session id can legitimately end and
+    /// start again. Leaving it dimmed as Ended would simply be wrong.
+    /// </summary>
+    [Fact]
+    public void An_ended_session_revives_on_SessionStart()
+    {
+        GivenWorking();
+        _clock.AdvanceMinutes(1);
+        Apply(Ended("resume"));
+        _clock.AdvanceMinutes(1);
+
+        Assert.True(Apply(Started("resume")));
+
+        Assert.Equal(SessionState.Acked, Current.State);
+    }
+
+    [Fact]
+    public void An_ended_session_revives_on_a_new_prompt()
+    {
+        GivenWorking();
+        _clock.AdvanceMinutes(1);
+        Apply(Ended());
+        _clock.AdvanceMinutes(1);
+
+        Assert.True(Apply(Prompt("back again", "p-2")));
+
+        Assert.Equal(SessionState.Working, Current.State);
+    }
+
+    // ---- SessionStart and cwd -------------------------------------------------------------------------
+
+    /// <summary>Impl §9.1: a resume "surfaces a pre-existing one" — it does not restart its turn.</summary>
+    [Fact]
+    public void SessionStart_does_not_disturb_a_live_sessions_state()
+    {
+        GivenWorking();
+        _clock.AdvanceMinutes(1);
+
+        Assert.False(Apply(Started("resume")));
+
+        Assert.Equal(SessionState.Working, Current.State);
+    }
+
+    [Fact]
+    public void CwdChanged_moves_the_session_and_re_derives_its_group()
+    {
+        GivenWorking();
+        _clock.AdvanceMinutes(1);
+
+        Assert.True(Apply(Moved(@"C:\projects\elsewhere")));
+
+        Assert.Equal(@"C:\projects\elsewhere", Current.Cwd);
+        Assert.Equal(new GroupKey(@"C:\projects\elsewhere"), Current.Group);
+        Assert.Equal(SessionState.Working, Current.State);
+    }
+
+    [Fact]
+    public void CwdChanged_to_the_same_directory_has_no_effect()
+    {
+        GivenWorking();
+        _changes.Clear();
+        _clock.AdvanceMinutes(1);
+
+        Assert.False(Apply(Moved(Cwd)));
+        Assert.Empty(_changes);
+    }
+
+    /// <summary>
+    /// A session with no known workspace groups alone rather than pooling with every other
+    /// directory-less session.
+    /// </summary>
+    [Fact]
+    public void A_session_without_a_cwd_groups_under_its_own_id()
+    {
+        Apply(new UserPromptSubmit
+        {
+            SessionId = Id, Timestamp = _clock.Now, Cwd = string.Empty, Prompt = "p", PromptId = "p-1",
+        });
+
+        Assert.Equal(new GroupKey(Id.Value), Current.Group);
+    }
+
+    // ---- Change notification ----------------------------------------------------------------------------
+
+    [Fact]
+    public void The_first_event_reports_an_addition_and_later_ones_report_updates()
+    {
+        Apply(Prompt());
+        _clock.AdvanceMinutes(1);
+        Apply(Finished());
+
+        Assert.Equal(
+            [SessionChangeKind.Added, SessionChangeKind.Updated],
+            _changes.Select(c => c.Kind));
+    }
+
+    [Fact]
+    public void The_notification_carries_the_session_as_it_now_stands()
+    {
+        Apply(Prompt("run the tests"));
+
+        var change = Assert.Single(_changes);
+        Assert.Equal(Id, change.Session.Id);
+        Assert.Equal(SessionState.Working, change.Session.State);
+        Assert.Same(Current, change.Session);
+    }
+
+    [Fact]
+    public void Dropped_events_raise_nothing()
+    {
+        GivenWorking();
+        _changes.Clear();
+        _clock.AdvanceMinutes(1);
+
+        Apply(Notified("agent_completed"));
+        Apply(Acknowledged());
+        Apply(Finished("x", "p-mismatch"));
+
+        Assert.Empty(_changes);
+    }
+
+    // ---- Registry mechanics ------------------------------------------------------------------------------
+
+    [Fact]
+    public void Sessions_are_kept_apart_by_id()
+    {
+        Apply(Prompt());
+        Apply(new UserPromptSubmit
+        {
+            SessionId = new SessionId("s-2"), Timestamp = _clock.Now, Cwd = Cwd,
+            Prompt = "other", PromptId = "q-1",
+        });
+
+        Assert.Equal(2, _registry.Sessions.Count);
+        Assert.Equal("do the thing", _registry.Sessions[Id].Latest.Prompt);
+        Assert.Equal("other", _registry.Sessions[new SessionId("s-2")].Latest.Prompt);
+    }
+
+    [Fact]
+    public void Applying_null_is_rejected()
+    {
+        Assert.Throws<ArgumentNullException>(() => _registry.Apply(null!));
+    }
+
+    [Fact]
+    public void A_new_registry_holds_nothing()
+    {
+        Assert.Empty(new SessionRegistry().Sessions);
+    }
+
+    /// <summary>The log is what explains how a row got the way it is.</summary>
+    [Fact]
+    public void Each_applied_event_appends_one_transition()
+    {
+        Apply(Prompt());
+        _clock.AdvanceMinutes(1);
+        Apply(Finished());
+        _clock.AdvanceMinutes(1);
+        Apply(Acknowledged());
+
+        Assert.Equal(
+            [SessionState.Working, SessionState.Unread, SessionState.Acked],
+            Current.Transitions.Select(t => t.To));
+    }
+
+    /// <summary>Drives the session into <paramref name="state"/> using ordinary events.</summary>
+    private void GivenInState(SessionState state)
+    {
+        GivenWorking();
+        _clock.AdvanceMinutes(1);
+
+        switch (state)
+        {
+            case SessionState.Working:
+                break;
+            case SessionState.Unread:
+                Apply(Finished());
+                break;
+            case SessionState.NeedsPermission:
+                Apply(Notified("permission_prompt"));
+                break;
+            case SessionState.NeedsQuestion:
+                Apply(Notified("idle_prompt"));
+                break;
+            case SessionState.Error:
+                Apply(Failed());
+                break;
+            case SessionState.Acked:
+                Apply(Finished());
+                _clock.AdvanceMinutes(1);
+                Apply(Acknowledged());
+                break;
+            case SessionState.Ended:
+                Apply(Ended());
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(state), state, "Unhandled state.");
+        }
+
+        Assert.Equal(state, Current.State);
+    }
+}

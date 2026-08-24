@@ -161,3 +161,47 @@ public sealed record CwdChanged : InboundEvent
     /// <inheritdoc/>
     public override string HookEventName => "CwdChanged";
 }
+
+/// <summary>Where an acknowledgment came from (TS §IV.1, "Ack*").</summary>
+public enum AckSource
+{
+    /// <summary>The operator clicked the row's acknowledge affordance (T1.12).</summary>
+    Manual = 1,
+
+    /// <summary>Focus inference observed the operator looking at the session (Phase 3).</summary>
+    InferredFocus = 2,
+}
+
+/// <summary>
+/// A synthetic acknowledgment — the operator has seen this session's result (TS §IV.1;
+/// Impl §4).
+/// </summary>
+/// <remarks>
+/// <para>
+/// <strong>Not a Claude Code hook.</strong> Every other variant here is normalized from a
+/// hook payload; this one originates inside the dashboard, from the acknowledge affordance
+/// (T1.12) or from focus inference (Phase 3). It is an <see cref="InboundEvent"/> because
+/// Impl §4 routes synthetic acks through the <em>same</em> channel as hook events, so that
+/// every ack source travels one path (TS §I.3) and the Registry stays single-writer.
+/// </para>
+/// <para>
+/// TS §IV.1's third ack source — a new <c>UserPromptSubmit</c> in the session — does
+/// <em>not</em> produce one of these. That auto-ack is folded into the
+/// <see cref="UserPromptSubmit"/> transition itself, because the prompt is the proof the
+/// operator saw the previous result.
+/// </para>
+/// <para>
+/// <strong>Ingress must never map a wire payload to this variant.</strong>
+/// <see cref="HookEventName"/> is a local discriminator, not a value Claude Code sends; a
+/// hook that could name it would let anything able to reach the loopback endpoint forge an
+/// acknowledgment and silence a session that genuinely needs the operator.
+/// </para>
+/// </remarks>
+public sealed record Ack : InboundEvent
+{
+    /// <inheritdoc/>
+    public override string HookEventName => "Ack";
+
+    /// <summary>Which acknowledgment source raised this.</summary>
+    public required AckSource Source { get; init; }
+}

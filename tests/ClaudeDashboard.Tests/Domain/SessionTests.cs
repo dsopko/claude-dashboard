@@ -53,6 +53,26 @@ public sealed class SessionTests
         Assert.Throws<ArgumentNullException>(() => NewSession() with { Cwd = null! });
     }
 
+    /// <summary>
+    /// `SessionId` is a struct, so `default` bypasses its non-empty constructor check
+    /// (see ValueTypeConventions). Session is the boundary that requires a real one.
+    /// </summary>
+    [Fact]
+    public void Rejects_an_id_that_names_no_session()
+    {
+        var thrown = Assert.Throws<ArgumentException>(() => NewSession() with { Id = default });
+
+        Assert.Equal("value", thrown.ParamName);
+    }
+
+    [Fact]
+    public void Rejects_a_group_key_that_names_no_group()
+    {
+        var thrown = Assert.Throws<ArgumentException>(() => NewSession() with { Group = default });
+
+        Assert.Equal("value", thrown.ParamName);
+    }
+
     [Fact]
     public void Rejects_a_null_transition_log()
     {

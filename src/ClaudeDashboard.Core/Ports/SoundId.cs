@@ -47,6 +47,7 @@ public readonly record struct SoundId
     public string Name => _name ?? string.Empty;
 
     /// <summary>True for <c>default(SoundId)</c>, which names no sound.</summary>
+    /// <remarks>See <see cref="ValueTypeConventions"/> for why these types stay structs.</remarks>
     public bool IsEmpty => string.IsNullOrEmpty(_name);
 
     public override string ToString() => Name;

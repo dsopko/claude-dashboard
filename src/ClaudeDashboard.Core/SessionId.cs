@@ -28,6 +28,7 @@ public readonly record struct SessionId
     public string Value => _value ?? string.Empty;
 
     /// <summary>True for <c>default(SessionId)</c>, which names no session.</summary>
+    /// <remarks>See <see cref="ValueTypeConventions"/> for why these types stay structs.</remarks>
     public bool IsEmpty => string.IsNullOrEmpty(_value);
 
     public override string ToString() => Value;

@@ -55,8 +55,23 @@ public readonly record struct TabRef
     /// <summary>True when the reference resolved all the way to a tab.</summary>
     public bool IsTabResolved => TabIndex is not null;
 
+    /// <summary>
+    /// True for <c>default(TabRef)</c>, which references nothing.
+    /// </summary>
+    /// <remarks>
+    /// Check this before acting on a <see cref="TabRef"/> that did not come straight from a
+    /// locator call. A <c>default</c> instance is structurally identical to a legitimate
+    /// window-level reference — <see cref="WindowHandle.None"/> and no tab index — so
+    /// without this member the documented "a non-null <see cref="TabRef"/> means navigate at
+    /// window granularity" rule would send a caller to window handle zero. See
+    /// <see cref="ValueTypeConventions"/> for why these types stay structs.
+    /// </remarks>
+    public bool IsNone => Window.IsNone;
+
     public override string ToString() =>
-        TabIndex is { } index
-            ? $"TabRef({Window}, tab {index})"
-            : $"TabRef({Window}, window-level)";
+        Window.IsNone
+            ? "TabRef(none)"
+            : TabIndex is { } index
+                ? $"TabRef({Window}, tab {index})"
+                : $"TabRef({Window}, window-level)";
 }

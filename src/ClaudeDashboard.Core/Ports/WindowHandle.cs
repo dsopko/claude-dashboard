@@ -23,6 +23,7 @@ public readonly record struct WindowHandle
     public nint Value { get; }
 
     /// <summary>True when this handle names no window.</summary>
+    /// <remarks>See <see cref="ValueTypeConventions"/> for why these types stay structs.</remarks>
     public bool IsNone => Value == 0;
 
     public override string ToString() =>

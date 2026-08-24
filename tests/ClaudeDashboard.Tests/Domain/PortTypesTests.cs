@@ -1,3 +1,4 @@
+using ClaudeDashboard.Core;
 using ClaudeDashboard.Core.Ports;
 
 namespace ClaudeDashboard.Tests.Domain;
@@ -175,5 +176,45 @@ public sealed class TabRefTests
         Assert.NotEqual(new TabRef(Window), new TabRef(Window, 0));
         Assert.NotEqual(new TabRef(Window, 3), new TabRef(Window, 4));
         Assert.NotEqual(new TabRef(Window, 3), new TabRef(new WindowHandle(0x9999), 3));
+    }
+}
+
+/// <summary>
+/// The convention documented in <c>ValueTypeConventions</c>: every guarded struct in Core can
+/// be asked whether it names anything, and whatever consumes it rejects a <c>default</c> where
+/// a real value is required.
+/// </summary>
+public sealed class DefaultValueConventionTests
+{
+    /// <summary>
+    /// The one place the hole actively misleads: <c>default(TabRef)</c> is structurally
+    /// identical to a legitimate window-level reference, so without <c>IsNone</c> a caller
+    /// following "a non-null TabRef means navigate at window granularity" would try to
+    /// activate window handle zero.
+    /// </summary>
+    [Fact]
+    public void A_default_TabRef_is_distinguishable_from_a_window_level_reference()
+    {
+        var none = default(TabRef);
+        var windowLevel = new TabRef(new WindowHandle(0x1234));
+
+        Assert.True(none.IsNone);
+        Assert.False(windowLevel.IsNone);
+
+        // Both are non-null and both report no resolved tab — IsNone is the only thing that
+        // separates them.
+        Assert.False(none.IsTabResolved);
+        Assert.False(windowLevel.IsTabResolved);
+    }
+
+    [Fact]
+    public void Every_guarded_value_type_can_be_asked_whether_it_names_anything()
+    {
+        Assert.True(default(SessionId).IsEmpty);
+        Assert.True(default(GroupKey).IsEmpty);
+        Assert.True(default(SoundId).IsEmpty);
+        Assert.True(default(TabRef).IsNone);
+        Assert.True(default(WindowHandle).IsNone);
+        Assert.True(default(DesktopId).IsNone);
     }
 }

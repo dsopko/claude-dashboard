@@ -35,6 +35,7 @@ public readonly record struct GroupKey
     public string Value => _value ?? string.Empty;
 
     /// <summary>True for <c>default(GroupKey)</c>, which names no group.</summary>
+    /// <remarks>See <see cref="ValueTypeConventions"/> for why these types stay structs.</remarks>
     public bool IsEmpty => string.IsNullOrEmpty(_value);
 
     public override string ToString() => Value;
