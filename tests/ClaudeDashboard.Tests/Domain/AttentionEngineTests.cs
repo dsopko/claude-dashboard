@@ -286,6 +286,19 @@ public sealed class AttentionEngineTests
         Assert.Empty(AttentionEngine.Order([]));
     }
 
+    /// <summary>
+    /// Carry-over from the T1.3 review — the same rule guarded on two types, tested on one.
+    /// <see cref="Group"/>'s identical guard is pinned by <c>Rejects_an_empty_membership</c>;
+    /// this one was not, and it is the invariant that lets a caller render one band header per
+    /// element without checking. Unreachable through <see cref="AttentionEngine.Order"/>, which
+    /// never yields an empty band, so only direct construction can breach it.
+    /// </summary>
+    [Fact]
+    public void A_band_with_no_sessions_is_rejected()
+    {
+        Assert.Throws<ArgumentException>(() => new BandedSessions(AttentionBand.Working, []));
+    }
+
     // ---- Determinism ------------------------------------------------------------------------------
 
     /// <summary>
