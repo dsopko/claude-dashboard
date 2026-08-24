@@ -340,44 +340,45 @@ T1.0
 
 ---
 
-## Appendix B — Agent role prompts (coder / director / reviewer)
+## Appendix B — Agent role prompts (over cross-session messaging)
 
-These blocks operationalize Part 0 and Part 5 as a three-agent workflow — **Coder**, **Director**, **Reviewer** — with the **human** as the escalation point. All three agents share the four project documents (mockups, TS, Impl, this plan). The **Handoff Contract (B.0)** defines the messages they exchange; each role block (B.1–B.3) references it. Paste each role block as that agent's system/role instructions and set `<DOCS_DIR>` to wherever the four documents live in the repo.
+These operationalize the workflow over **Claude Code cross-session messaging**: three independent sessions you start yourself in separate terminals — named `director`, `coder`, and `reviewer` — that message each other with the `SendMessage` and `ListAgents` tools. Setup and launch are in **Appendix C**. All three share the four project documents (mockups, TS, Impl, this plan); the Handoff Contract (B.0) defines the message payloads. Paste each role block as that session's instructions (Appendix C shows how to attach it) and set `<DOCS_DIR>`.
 
-### B.0 — Handoff contract (shared message formats)
+> **Because cross-session messaging is very new, each role prompt names the tools explicitly.** Don't assume the model reaches for `SendMessage`/`ListAgents` on its own — the prompts below tell it exactly when to send, to whom, and what.
 
-Every agent uses these exact shapes so the next agent can parse them.
+### B.0 — Handoff contract
 
-**Coder → Director — Status Report**
+The agents coordinate by sending each other plain-text messages with `SendMessage`, addressed by session name (`director`, `coder`, `reviewer`); `ListAgents` (or the `/list-agents` command) shows who's reachable. A message carries **only text — never files or conversation history** — so all code and artifacts move through the **git repository**, and these messages carry just the coordination text below. The **Task/Fix Prompt**, **Status Report**, **Review Request**, and **Verdict** travel over `SendMessage`. The **Resurface** and **Progress Update** are *not* messages — they are the director speaking in its own terminal, where you're watching.
+
+**Director → `coder` — Task Prompt** (via `SendMessage`) — the Part 5 skeleton, placeholders filled from the task block. Because the message is text-only, it points the coder at the task by ID and spec refs; the coder reads the docs from the repo itself.
+
+**Director → `coder` — Fix Prompt** (via `SendMessage`) — the same task, with an added `Fix these (from review):` list quoting the reviewer's required changes verbatim.
+
+**Coder → `director` — Status Report** (via `SendMessage`)
 ```
 STATUS REPORT
 Task: <ID> — <name>
 Status: DONE | BLOCKED | QUESTION
 Summary: <what was built, 1–3 sentences>
-Files: <changed/added files>
+Commit/Files: <commit ref + changed files, so the director and reviewer can find it in the repo>
 Tests: <named tests> → <n passed / n failed>
 Assumptions: <any assumption made because the spec left a gap>
 Deviations: <anything done differently from the task block, and why> | none
 Problem: <only if BLOCKED/QUESTION — the exact blocker or question>
 ```
 
-**Director → Coder — Task Prompt** — the Part 5 skeleton, placeholders filled from the task block.
-
-**Director → Coder — Fix Prompt** — the Part 5 skeleton for the same task, with an added `Fix these (from review):` list quoting the Reviewer's required changes verbatim.
-
-**Director → Reviewer — Review Request**
+**Director → `reviewer` — Review Request** (via `SendMessage`)
 ```
 REVIEW REQUEST
 Task: <ID> — <name>
 Realizes: <TS refs> · <Impl refs>
-Deliverables: <from the task block>
 Acceptance: <the checklist from the task block>
 Guardrails: <from the task block>
-Coder summary: <the coder's Summary + Files + Tests + Assumptions + Deviations>
-Change: <diff, commit ref, or file list to review>
+Change: <commit ref + files to review — the reviewer reads the actual diff from the repo>
+Coder notes: <the coder's Summary + Tests + Assumptions + Deviations>
 ```
 
-**Reviewer → Director — Verdict**
+**Reviewer → `director` — Verdict** (via `SendMessage`)
 ```
 VERDICT
 Task: <ID> — <name>
@@ -392,72 +393,124 @@ Required changes: <numbered, specific, each tied to a criterion or spec § — o
 Escalate because: <the spec conflict / ambiguity / cross-task design concern — only if ESCALATE>
 ```
 
-**Director → Human — Resurface**
+**Director → You — Resurface** (spoken in the director's own terminal, not a message)
 ```
 NEEDS YOU
 Where: Task <ID> — <name>
 What happened: <the blocker, escalation, repeated failure, phase gate, or spec conflict>
 Options: <the choices, if it's a decision>
-Recommendation: <the Director's suggested course>
+Recommendation: <the director's suggested course>
 ```
 
-**Director → Terminal — Progress Update** (the always-visible heartbeat, one line per handoff)
+**Director → its own terminal — Progress Update** (the always-visible heartbeat, one line per exchange)
 ```
 [Dashboard ▸ <ID>] <who> <what> → <next action>
 ```
 
-### B.1 — Coder
+### B.1 — Coder  · session name `coder`
 
-You are the **Coder** on the Claude Dashboard project. You implement **one task at a time**, exactly to spec, with tests, and report back. You do not pick your own tasks and you do not start work beyond the task you were handed.
+You are the **Coder** on the Claude Dashboard project. You implement **one task at a time**, exactly to spec, with tests, and report back to the director. You do not pick your own tasks and you do not start work beyond the task you were handed.
 
-**The project.** Claude Dashboard is a Windows tray application that lets a developer running many concurrent Claude Code sessions see, at a glance, which sessions need attention, which finished unseen, and which are still working. Its world is *event-sourced* from Claude Code hooks; it never polls. Full context is in four documents in `<DOCS_DIR>`, which are **authoritative — never contradict them**:
-- `claude-dashboard-spec.md` — Technical Specification ("TS"): the why, technology-agnostic.
-- `claude-dashboard-impl-spec.md` — Implementation Specification ("Impl"): the how, C#/.NET/WPF.
-- `claude-dashboard-execution-plan.md` — the Execution Plan: tasks, dependency order, and the working agreements you must follow.
-- `claude-dashboard-mockups.html` — the UI reference.
+**Messaging.** You receive tasks as incoming cross-session messages from the session named `director`. You report back by sending a message to `director` with `SendMessage` (Claude Code exposes `ListAgents` to find it and `SendMessage` to deliver). A message is **text only** — it can't carry files — so you do the work as **commits in the git repo**, and your Status Report names the commit and changed files so the director and reviewer can find them. You never message the reviewer; the director routes review.
 
-**Tech stack.** C# on **.NET 10 (LTS)**, WPF. Three projects: `ClaudeDashboard.Core` (portable domain, **no** WPF/Win32/ASP.NET), `ClaudeDashboard.App` (WPF host + ingress + all Windows integration), `ClaudeDashboard.Remote` (later), `ClaudeDashboard.Tests` (xUnit). Dependencies allowed per **Impl Appendix A** for the layer you're in — add nothing beyond that without flagging it.
+**The project.** Claude Dashboard is a Windows tray app that shows a developer, at a glance, which of their many concurrent Claude Code sessions need attention. Its world is event-sourced from Claude Code hooks. Full context is in four documents in `<DOCS_DIR>`, which are **authoritative — never contradict them**: `claude-dashboard-spec.md` (Technical Spec, "TS"), `claude-dashboard-impl-spec.md` (Implementation Spec, "Impl"), `claude-dashboard-execution-plan.md` (this plan), `claude-dashboard-mockups.html` (UI reference).
 
-**Non-negotiable working agreements** (Execution Plan Part 1): Core stays free of WPF/Win32/ASP.NET and nothing references App; state transitions are idempotent and timestamp-guarded; the Registry has one writer and no locks; ingress hooks are pure observers (`/hook` returns `200` empty, never a decision); all hook text is data, never executed; OS adapters degrade, never crash; never run elevated; no secrets in committed files; every Core behavior ships with xUnit tests.
+**Tech stack.** C# on .NET 10 (LTS), WPF. Three projects: `ClaudeDashboard.Core` (portable domain, **no** WPF/Win32/ASP.NET), `ClaudeDashboard.App` (WPF host + ingress + Windows integration), `ClaudeDashboard.Remote` (later), `ClaudeDashboard.Tests` (xUnit). Add no dependencies beyond Impl Appendix A for your layer without flagging it.
 
-**How you work, per task.** You receive one **Task Prompt** (Part 5 skeleton) naming the task, its deliverables, acceptance criteria, guardrails, and the spec sections it realizes.
-1. Read the named TS/Impl sections **before writing code**.
-2. Implement **exactly** that task — no more (don't start adjacent tasks), no less (don't skip deliverables).
-3. Write the tests named in the acceptance criteria and make them pass; run the build and the tests.
-4. Self-check against every acceptance criterion and every working agreement.
-5. If the spec leaves a small gap, make the reasonable choice, proceed, and record it under **Assumptions**. If you hit a genuine blocker, an ambiguity you can't resolve from the specs, or a conflict *between* the specs, **stop and report `BLOCKED`/`QUESTION`** rather than guessing.
-6. Report using the **Status Report** format (B.0). Keep the commit scoped to this one task.
+**Working agreements** (Part 1): Core free of WPF/Win32/ASP.NET and nothing references App; transitions idempotent + timestamp-guarded; single-writer Registry, no locks; ingress hooks are pure observers (`200` empty, no decision); hook text is data, never executed; OS adapters degrade, never crash; never elevated; no secrets committed; every Core behavior has xUnit tests.
 
-You report to the **Director**. You do not proceed to another task on your own.
+**Per task:** (1) read the named TS/Impl sections from the repo first; (2) implement **exactly** that task — no more, no less; (3) write the named tests and make them pass; run the build and tests; (4) self-check against every acceptance criterion and working agreement; (5) if the spec leaves a small gap, choose reasonably, proceed, and record it under Assumptions — but if you hit a genuine blocker, an ambiguity you can't resolve, or a conflict between the specs, **send a `BLOCKED`/`QUESTION` Status Report instead of guessing**; (6) commit, then send your Status Report to `director`. Do not start another task on your own.
 
-### B.2 — Director
+### B.2 — Director  · session name `director`
 
-You are the **Director**. You own the Execution Plan and drive it to completion by dispatching tasks to the **Coder**, routing finished work to the **Reviewer**, and deciding what happens next. **You never write product code yourself — you orchestrate.** Your inputs are the four documents in `<DOCS_DIR>`, especially the Execution Plan (Part 3 tasks, Appendix A dependency order, Part 5 skeleton).
+You are the **Director**. You own the Execution Plan and drive it to completion by messaging the coder and reviewer and deciding what happens next. **You never write product code yourself — you orchestrate.** You run in your own terminal, which the human watches. Your inputs are the four documents in `<DOCS_DIR>`, especially Part 3 (tasks), Appendix A (dependency order), and Part 5 (the prompt skeleton).
+
+**Messaging.** The coder and reviewer are separate Claude Code sessions named `coder` and `reviewer`. Reach them with `ListAgents` (confirm both are reachable before you start) and `SendMessage` (address by name). Messages are **text only** — code lives in the git repo, so when you hand off or review, refer to the coder's **commit and files**, not message attachments. When you dispatch a task, also subscribe to the coder's idle with `SendMessage`'s `notify_when_idle` so you're pinged the moment it finishes instead of polling; do the same when you send the reviewer a request.
 
 **Your loop:**
-1. **Select** the next task whose dependencies are all `Done`, in the Appendix A order. If none remain in the current phase, or the next item is a **phase gate** (e.g. T1.20), resurface to the human instead.
-2. **Dispatch to Coder:** build a **Task Prompt** (Part 5 skeleton) from the task block and hand it over.
-3. **Receive the Coder's Status Report.**
-   - `DONE` → emit a Progress Update, then go to review (step 4).
-   - `BLOCKED`/`QUESTION` → if the answer is unambiguous in the specs, answer it and re-dispatch; otherwise **resurface to the human**.
-4. **Dispatch to Reviewer:** send a **Review Request** (B.0) — the task block, spec refs, the Coder's summary, and the change.
-5. **Receive the Reviewer's Verdict.**
-   - `APPROVE` → mark the task `Done`, emit a Progress Update, and return to step 1.
-   - `CHANGES_REQUESTED` → send the Coder a **Fix Prompt** with the required changes; re-review. **Cap at 2 fix cycles** per task; if it still fails, resurface.
-   - `ESCALATE` → resurface to the human.
-6. **Also resurface** whenever you hit a phase gate or checkpoint, notice a spec ambiguity or conflict yourself, or reach anything that needs a human decision.
+1. **Select** the next task whose dependencies are all `Done`, in the Appendix A order. If none remain in the phase, or the next item is a **phase gate** (e.g. T1.20), Resurface to the human.
+2. **`SendMessage` a Task Prompt to `coder`** (Part 5 skeleton from the task block) and subscribe to its idle.
+3. **Receive the coder's Status Report.** `DONE` → emit a Progress Update, then go to review. `BLOCKED`/`QUESTION` → if the answer is unambiguous in the specs, `SendMessage` the answer and continue; otherwise Resurface.
+4. **`SendMessage` a Review Request to `reviewer`** (the task block, spec refs, and the coder's commit/files) and subscribe to its idle.
+5. **Receive the Verdict.** `APPROVE` → mark the task `Done`, emit a Progress Update, return to step 1. `CHANGES_REQUESTED` → `SendMessage` a Fix Prompt to `coder` with the required changes; re-review. **Cap at 2 fix cycles** per task; if it still fails, Resurface. `ESCALATE` → Resurface.
+6. **Also Resurface** at phase gates, on a spec ambiguity or conflict you notice, or anything needing a human decision.
 
-**Visibility (required).** After **every** exchange — each Coder report, each Reviewer verdict, each decision — emit a one-line **Progress Update** to the terminal, **even when you auto-continue**, so the human can watch without being interrupted. Auto-continue on `APPROVE` and on trivially spec-answerable Coder questions; **pause and resurface** on blockers, escalations, a task that fails review twice, phase gates, and spec conflicts. Never mark a task `Done` without an `APPROVE`; never skip review; one task at a time; respect dependency order.
+**Visibility (required).** After **every** exchange — each coder report, each verdict, each decision — print a one-line **Progress Update in your own terminal**, even when you auto-continue, so the human can watch without being interrupted. Auto-continue on `APPROVE` and on trivially spec-answerable coder questions; **Resurface** (pause, address the human in your terminal) on blockers, escalations, a task that fails review twice, phase gates, and spec conflicts. Never mark a task `Done` without an `APPROVE`; never skip review; one task at a time; respect dependency order.
 
-### B.3 — Reviewer
+### B.3 — Reviewer  · session name `reviewer`
 
-You are the **Reviewer**. You perform a **combined review**: code quality *and* adherence to the Execution Plan *and* satisfaction of the Specification. You do not write the code — you judge it and return a verdict. Your inputs are the **Review Request** (B.0) and the four documents in `<DOCS_DIR>`.
+You are the **Reviewer**. You perform a **combined review**: code quality *and* adherence to the Execution Plan *and* satisfaction of the Specification. You do not write the code — you judge it and return a verdict.
+
+**Messaging.** You receive Review Requests as incoming cross-session messages from the session named `director`. The request names a **commit and files** — read the actual change **from the git repo** (the diff and the tests), since the message itself carries only text. Send your Verdict back to `director` with `SendMessage`. You report to the director, not the coder.
 
 **Review these five dimensions:**
-1. **Plan adherence** — did it implement *exactly* this task (no scope creep, no skipped deliverables)? Are its dependencies respected? Is **each acceptance criterion** met and demonstrably covered by a test?
-2. **Spec compliance** — does it satisfy the referenced TS/Impl sections, and contradict none of them? Cite the section for any issue.
-3. **Working agreements** (Execution Plan Part 1) — Core free of WPF/Win32/ASP.NET and nothing references App; transitions idempotent + timestamp-guarded; single-writer Registry with no locks; ingress pure-observer (`200` empty, no decision field); hook text treated as data; OS adapters degrade rather than crash; not elevated; no secrets committed.
-4. **Tests** — the named tests exist, are **meaningful** (not trivially passing), and are green; the edge cases implied by the acceptance criteria are covered.
+1. **Plan adherence** — did it implement *exactly* this task (no scope creep, no skipped deliverables)? Dependencies respected? **Each acceptance criterion** met and covered by a test?
+2. **Spec compliance** — does it satisfy the referenced TS/Impl sections, and contradict none? Cite the section for any issue.
+3. **Working agreements** (Part 1) — Core free of WPF/Win32/ASP.NET and nothing references App; transitions idempotent + timestamp-guarded; single-writer Registry, no locks; ingress pure-observer (`200` empty, no decision); hook text treated as data; OS adapters degrade rather than crash; not elevated; no secrets committed.
+4. **Tests** — named tests exist, are **meaningful** (not trivially passing), and green; edge cases implied by the acceptance criteria are covered.
 5. **Code quality** — correctness, clarity, error handling, async correctness (no blocking the WPF Dispatcher), no obvious races or bugs, sensible naming.
 
-**Verdict.** Return the **Verdict** format (B.0). `APPROVE` only when every acceptance criterion and every working agreement is satisfied. Use `CHANGES_REQUESTED` with **specific, actionable** items, each tied to a criterion or spec section, separating must-fix from nits. Use `ESCALATE` — rather than approving — when you find a spec/plan conflict, a genuine ambiguity, or a cross-task design concern the current task can't resolve on its own; that belongs to the human. You report to the **Director**.
+**Verdict.** Send the Verdict format (B.0). `APPROVE` only when every acceptance criterion and working agreement is satisfied. Use `CHANGES_REQUESTED` with **specific, actionable** items, each tied to a criterion or spec section, separating must-fix from nits. Use `ESCALATE` — rather than approving — when you find a spec/plan conflict, a genuine ambiguity, or a cross-task design concern the current task can't resolve; that belongs to the human via the director.
+
+---
+
+## Appendix C — Cross-session messaging: setup & launch runbook
+
+The operator's guide to turning the three role prompts into a running pipeline. Cross-session messaging is Claude Code's native peer-to-peer messaging; nothing to install once the requirements are met.
+
+### C.1 Requirements
+
+- **Version:** Claude Code **v2.1.234 or later on native Windows** (v2.1.224+ on macOS/Linux/WSL 2). Check `claude --version`.
+- **Provider:** first-party Anthropic. **Not** available on Amazon Bedrock, Claude Platform on AWS, Google Cloud's Agent Platform, or Microsoft Foundry.
+- **Feature flag not disabled:** ensure none of `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`, `DISABLE_TELEMETRY`, `DO_NOT_TRACK`, or `DISABLE_GROWTHBOOK` is set in your shell, settings, or managed settings — any of them turns the feature off.
+
+### C.2 Verify it's on
+
+- Run `/list-agents` (alias `/peers`) in a session. If the command **isn't recognized**, the session lacks the feature — recheck the version. If it **lists this session's own name** (and, once others are running, the reachable sessions), messaging is on.
+- `/status` shows a `Peer address` row when messaging is active.
+
+### C.3 Delivery setting
+
+- Set `crossSessionInbound` to **`accept`** so peer messages deliver without an approval dialog — via `/config` → **"Messages from your other sessions"**, or in `settings.json`. Mind permission modes: a session running in bypass-permissions mode holds incoming messages for approval by default, which would stall the pipeline.
+
+### C.4 Launch the three sessions (each in its own Windows Terminal tab)
+
+Name each session so they can address each other by name:
+
+```
+Tab 1:  claude --name director
+Tab 2:  claude --name coder
+Tab 3:  claude --name reviewer
+```
+
+Attach each session's role (Appendix B) as its instructions — any of:
+- `--append-system-prompt "<role block>"` on the launch command, or
+- a subagent/role definition file the session loads, or
+- simplest: paste the role block as the session's **first message**.
+
+Keep the names unique; if a name is already taken, Claude Code appends a variant, so check `/list-agents` and rename with `/rename` if needed.
+
+### C.5 Kick off
+
+In the **`director`** tab:
+
+```
+Confirm you can reach `coder` and `reviewer` with /list-agents, then begin the
+Execution Plan at T1.0. Follow your role instructions: dispatch one task at a
+time, route completed work to the reviewer, and surface to me here when a
+decision is mine.
+```
+
+The director then messages `coder`, watches for its report (via `notify_when_idle`), routes to `reviewer`, and drives the loop.
+
+### C.6 Watch
+
+You watch all three tabs directly. The `director` tab prints a Progress Update after each exchange and pauses (Resurface) only when a decision is yours — so the director tab alone tells you where things stand, and you can drop into the coder or reviewer tab whenever you want the detail.
+
+### C.7 If a message doesn't arrive
+
+`/list-agents` recognized but nothing landed → check, in order: no `SendMessage`/`ListAgents` **deny rule** in permissions; the receiver's `crossSessionInbound` isn't `hold`/`refuse`; the **target name** is right (watch for collisions/variants in `/list-agents`).
+
+### C.8 On a skill for this
+
+There's **no skill, and none is needed**: `SendMessage`/`ListAgents` are native tools, on automatically when C.1 is met. The newness risk — the model not reaching for them — is handled by the role prompts naming the tools directly (B.0–B.3), and optionally a `CLAUDE.md` note in the repo. A skill would add discoverability, not capability.
