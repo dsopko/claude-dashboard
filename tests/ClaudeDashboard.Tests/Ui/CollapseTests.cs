@@ -59,7 +59,7 @@ public sealed class CollapseTests : IDisposable
         var header = Assert.Single(_viewModel.Rows.OfType<GroupViewModel>());
         Assert.True(header.IsStale);
         Assert.Equal(2, header.SessionCount);
-        Assert.Equal("quiet 15 min", header.IdleText);
+        Assert.Equal("idle 15 min", header.IdleText);
 
         // One row, and it is the heading: no member rows, and no "+ 2 quiet" footer either.
         Assert.Same(header, Assert.Single(_viewModel.Rows));

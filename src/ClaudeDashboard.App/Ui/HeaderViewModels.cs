@@ -277,10 +277,17 @@ public sealed class GroupViewModel : DashboardRow
         }
     }
 
-    /// <summary>The stale line's age — "quiet 38 min" (Design Document §6).</summary>
+    /// <summary>
+    /// The stale line's age — "idle 38 min" (Design Document §6).
+    /// </summary>
+    /// <remarks>
+    /// §6 writes it as "quiet 38 min", which is not quite true of a group whose members have all
+    /// ended: they are not being quiet, they are gone. "Idle" covers both without needing the line
+    /// to know which it is.
+    /// </remarks>
     public string IdleText => string.Create(
         CultureInfo.CurrentCulture,
-        $"quiet {RowVisuals.Duration(IdleAge)}");
+        $"idle {RowVisuals.Duration(IdleAge)}");
 
     /// <summary>The colour the heading reads as: the worst member's, from Core.</summary>
     public Accent Accent => RowVisuals.AccentOf(WorstState);

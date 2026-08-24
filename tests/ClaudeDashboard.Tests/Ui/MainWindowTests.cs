@@ -453,11 +453,29 @@ public sealed class MainWindowTests(StaHarness harness)
         Assert.Equal(0, Occurrences(markup, "VisualTransition"));
     }
 
-    /// <summary>The window's own markup animates nothing at all.</summary>
-    [Fact]
-    public void The_window_markup_animates_nothing()
+    /// <summary>
+    /// Every other piece of markup in the application animates nothing at all.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>App.xaml</c> is scanned as well as the window's own markup, and that is not padding: an
+    /// implicit style there applies to every element of its type in the process, so an animation
+    /// declared in it would move things the row templates never mention. The reviewer proved the
+    /// gap by putting a forever-repeating opacity animation on an implicit <c>TextBlock</c> style
+    /// in <c>App.xaml</c> — <see cref="The_only_animations_in_the_templates_are_the_two_motion_ones"/>
+    /// did not see it, because it does not read that file.
+    /// </para>
+    /// <para>
+    /// The rendering tests remain the other half. Something that animates only under a condition
+    /// no test exercises — a hover, a drag — would satisfy them and be caught only here.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [InlineData("MainWindow.xaml")]
+    [InlineData("../App.xaml")]
+    public void No_other_markup_in_the_application_animates(string file)
     {
-        var markup = File.ReadAllText(Path.Combine(UiFolder, "MainWindow.xaml"));
+        var markup = File.ReadAllText(Path.Combine(UiFolder, file));
 
         Assert.Equal(0, Occurrences(markup, "Storyboard"));
         Assert.Equal(0, Occurrences(markup, "Animation"));

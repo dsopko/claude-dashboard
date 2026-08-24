@@ -157,6 +157,12 @@ public static class AppHost
         {
             AppDomain.CurrentDomain.UnhandledException -= OnDomainException;
             TaskScheduler.UnobservedTaskException -= OnUnobservedTask;
+
+            // Unwiring is the shutdown path, and it is the last chance to write out counts the
+            // storm guard is still holding. Nothing runs a timer to expire a window, so without
+            // this a storm that stopped before the process did would take its tail with it —
+            // and the tail is where "it stopped when the session ended" is visible.
+            policy.Flush();
         });
     }
 
