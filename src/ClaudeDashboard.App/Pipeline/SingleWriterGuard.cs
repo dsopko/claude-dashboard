@@ -1,38 +1,37 @@
 namespace ClaudeDashboard.App.Pipeline;
 
 /// <summary>
-/// Detects a second thread entering the region that must have exactly one writer
-/// (Impl §2.2, §4).
+/// Enforces that exactly one thread is inside the region that mutates the Registry and the
+/// sound engine (Impl §2.2, §4).
 /// </summary>
 /// <remarks>
 /// <para>
 /// The Registry and the sound-policy engine hold no locks, on the stated assumption that one
-/// thread mutates them. Until this task nothing existed that could break that; the pipeline is
-/// the first code in a position to, and if it does the symptom is a data race — intermittent,
+/// thread mutates them. Until T1.9 nothing existed that could break that; the pipeline is the
+/// first code in a position to, and if it does the symptom is a data race — intermittent,
 /// unreproducible, and invisible in a green suite.
 /// </para>
 /// <para>
 /// <strong>Why a guard rather than a comment.</strong> "Only the consumer calls this" is an
 /// enumeration of the callers someone thought of. It stays true only while everyone who adds a
-/// caller happens to know. This turns the invariant into something the program checks: two
-/// threads inside at once is no longer a race that corrupts state quietly, it is an exception
-/// on the second thread naming both, at the moment it happens.
+/// caller happens to know. This makes the invariant something the program checks.
 /// </para>
 /// <para>
-/// It detects rather than prevents, and the distinction is honest: nothing here can stop a
-/// caller invoking the Registry directly. What it can do is ensure that every path which is
-/// <em>supposed</em> to be serialized fails loudly the first time it is not, instead of on a
-/// customer's machine six weeks later.
+/// <strong>It prevents rather than merely detects, for every path through
+/// <see cref="Enter"/>.</strong> The occupancy claim is a single
+/// <see cref="Interlocked.CompareExchange(ref object, object, object)"/>, so a second thread
+/// throws <em>before</em> touching anything the first is working on. What it cannot do is stop
+/// a caller that bypasses it and reaches the Registry directly — which is why moving the guard
+/// inside Core, where the mutators could enter it themselves, would close the last gap.
 /// </para>
 /// </remarks>
 public sealed class SingleWriterGuard
 {
-    private int _occupied;
-    private int _ownerThreadId;
-    private string? _ownerReason;
+    private Occupant? _occupant;
+    private int _violationCount;
 
     /// <summary>How many violations have been observed. Diagnostic only.</summary>
-    public int ViolationCount { get; private set; }
+    public int ViolationCount => Volatile.Read(ref _violationCount);
 
     /// <summary>
     /// Enters the single-writer region.
@@ -42,29 +41,34 @@ public sealed class SingleWriterGuard
     /// <exception cref="SingleWriterViolationException">Another thread is already inside.</exception>
     public Scope Enter(string reason)
     {
-        if (Interlocked.CompareExchange(ref _occupied, 1, 0) != 0)
+        var mine = new Occupant(Environment.CurrentManagedThreadId, reason);
+
+        // Occupancy and identity are claimed by the same atomic write, so there is no window in
+        // which the region is held by a thread that has not yet said who it is. Recording them
+        // separately would let a second thread arrive between the two and report thread 0 with
+        // no reason — the exception would fire correctly and then say nothing useful.
+        var existing = Interlocked.CompareExchange(ref _occupant, mine, null);
+
+        if (existing is not null)
         {
-            ViolationCount++;
+            // Interlocked, because a plain increment inside the type whose job is catching data
+            // races would be one.
+            Interlocked.Increment(ref _violationCount);
 
             throw new SingleWriterViolationException(
-                $"Two threads entered the single-writer region at once: thread {_ownerThreadId} is " +
-                $"'{_ownerReason}', thread {Environment.CurrentManagedThreadId} is '{reason}'. The " +
-                "Registry and the sound engine are lock-free on the assumption that this cannot happen " +
-                "(Impl §2.2, §4); the event consumer's read loop and its nudge tick must share one loop.");
+                $"Two threads entered the single-writer region at once: thread {existing.ThreadId} is " +
+                $"'{existing.Reason}', thread {mine.ThreadId} is '{mine.Reason}'. The Registry and the " +
+                "sound engine are lock-free on the assumption that this cannot happen (Impl §2.2, §4); " +
+                "the event consumer's read loop and its nudge tick must share one loop.");
         }
-
-        _ownerThreadId = Environment.CurrentManagedThreadId;
-        _ownerReason = reason;
 
         return new Scope(this);
     }
 
-    private void Leave()
-    {
-        _ownerReason = null;
-        _ownerThreadId = 0;
-        Volatile.Write(ref _occupied, 0);
-    }
+    private void Leave() => Interlocked.Exchange(ref _occupant, null);
+
+    /// <summary>Who holds the region, and what for.</summary>
+    private sealed record Occupant(int ThreadId, string Reason);
 
     /// <summary>Occupancy of the single-writer region; disposing leaves it.</summary>
     public readonly struct Scope(SingleWriterGuard guard) : IDisposable

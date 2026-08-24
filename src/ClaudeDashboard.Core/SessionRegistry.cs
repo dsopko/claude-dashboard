@@ -77,12 +77,13 @@ public sealed class SessionRegistry
     /// Applies <paramref name="inboundEvent"/> to the session it names.
     /// </summary>
     /// <returns>
-    /// <see langword="true"/> if the Registry changed; <see langword="false"/> if the event was
-    /// dropped as stale, duplicate, uncorrelated, or inapplicable in the session's current
-    /// state. A <see langword="false"/> is normal traffic, not an error.
+    /// What was done with it. Only <see cref="ApplyOutcome.Applied"/> changed the Registry; the
+    /// rest are declines, of which <see cref="ApplyOutcome.Uncorrelated"/> is the only one that
+    /// should not be happening. See <see cref="ApplyOutcome"/> for why that distinction is worth
+    /// a type.
     /// </returns>
     /// <exception cref="ArgumentNullException"><paramref name="inboundEvent"/> is null.</exception>
-    public bool Apply(InboundEvent inboundEvent)
+    public ApplyOutcome Apply(InboundEvent inboundEvent)
     {
         ArgumentNullException.ThrowIfNull(inboundEvent);
 
@@ -90,7 +91,7 @@ public sealed class SessionRegistry
         {
             // An event naming no session cannot be filed against one. `SessionId` is a struct,
             // so `default` is reachable however carefully ingress is written.
-            return false;
+            return ApplyOutcome.Ignored;
         }
 
         if (!_sessions.TryGetValue(inboundEvent.SessionId, out var current))
@@ -98,28 +99,45 @@ public sealed class SessionRegistry
             var created = Create(inboundEvent);
             if (created is null)
             {
-                return false;
+                return ApplyOutcome.Ignored;
             }
 
             _sessions[created.Id] = created;
             SessionChanged?.Invoke(this, new SessionChangedEventArgs(SessionChangeKind.Added, created));
-            return true;
+            return ApplyOutcome.Applied;
         }
 
         if (inboundEvent.Timestamp < current.LastActivity)
         {
-            return false;
+            return ApplyOutcome.Stale;
         }
 
-        var next = Transition(current, inboundEvent);
+        var (next, outcome) = Transition(current, inboundEvent);
         if (next is null)
         {
-            return false;
+            return outcome;
         }
 
         _sessions[next.Id] = next;
         SessionChanged?.Invoke(this, new SessionChangedEventArgs(SessionChangeKind.Updated, next));
-        return true;
+        return ApplyOutcome.Applied;
+    }
+
+    /// <summary>A transition's result: the session it produced, or why it produced none.</summary>
+    private readonly record struct Transitioned(Session? Next, ApplyOutcome Outcome)
+    {
+        /// <summary>The transition happened.</summary>
+        public static Transitioned To(Session next) => new(next, ApplyOutcome.Applied);
+
+        /// <summary>It did not, for <paramref name="outcome"/>.</summary>
+        public static Transitioned Declined(ApplyOutcome outcome) => new(null, outcome);
+
+        /// <summary>
+        /// The transition produced no change, which is a duplicate — re-applying the current
+        /// state is a no-op (TS §IV.1).
+        /// </summary>
+        public static Transitioned FromMove(Session? moved) =>
+            moved is null ? Declined(ApplyOutcome.Duplicate) : To(moved);
     }
 
     // ---- Creating a session the Registry has never seen -----------------------------------
@@ -213,7 +231,7 @@ public sealed class SessionRegistry
     /// <summary>
     /// Applies an event to an existing session, or returns null if it has no effect.
     /// </summary>
-    private static Session? Transition(Session current, InboundEvent inboundEvent) => inboundEvent switch
+    private static Transitioned Transition(Session current, InboundEvent inboundEvent) => inboundEvent switch
     {
         SessionStart start => ApplySessionStart(current, start),
         UserPromptSubmit prompt => ApplyUserPromptSubmit(current, prompt),
@@ -223,7 +241,7 @@ public sealed class SessionRegistry
         SessionEnd end => ApplySessionEnd(current, end),
         CwdChanged cwd => ApplyCwdChanged(current, cwd),
         Ack ack => ApplyAck(current, ack),
-        _ => null,
+        _ => Transitioned.Declined(ApplyOutcome.Ignored),
     };
 
     /// <summary>
@@ -231,21 +249,21 @@ public sealed class SessionRegistry
     /// <c>resume</c> or <c>fork</c> "surfaces a pre-existing one" (Impl §9.1), and a session
     /// that was mid-turn is still mid-turn.
     /// </summary>
-    private static Session? ApplySessionStart(Session current, SessionStart start) =>
+    private static Transitioned ApplySessionStart(Session current, SessionStart start) =>
         current.State == SessionState.Ended
-            ? Revived(current, start)
-            : RelocatedIfMoved(current, start);
+            ? Transitioned.To(Revived(current, start))
+            : Transitioned.FromMove(RelocatedIfMoved(current, start));
 
     /// <summary>
     /// <c>UserPromptSubmit</c> → <see cref="SessionState.Working"/> from <em>any</em> state
     /// (TS §IV.1), and in doing so auto-acknowledges whatever was pending: the operator cannot
     /// have typed a new prompt without having seen the previous result (TS §II.2).
     /// </summary>
-    private static Session? ApplyUserPromptSubmit(Session current, UserPromptSubmit prompt)
+    private static Transitioned ApplyUserPromptSubmit(Session current, UserPromptSubmit prompt)
     {
         if (IsDuplicatePrompt(current, prompt))
         {
-            return null;
+            return Transitioned.Declined(ApplyOutcome.Duplicate);
         }
 
         var exchange = new Exchange
@@ -255,7 +273,7 @@ public sealed class SessionRegistry
             StartedAt = prompt.Timestamp,
         };
 
-        return Moved(
+        return Transitioned.FromMove(Moved(
             current,
             SessionState.Working,
             prompt,
@@ -263,40 +281,42 @@ public sealed class SessionRegistry
             errorKind: null,
             cause: AutoAcks(current.State)
                 ? $"{prompt.HookEventName} (auto-ack of {current.State})"
-                : prompt.HookEventName);
+                : prompt.HookEventName));
     }
 
-    private static Session? ApplyNotification(Session current, Notification notification)
+    private static Transitioned ApplyNotification(Session current, Notification notification)
     {
         if (current.State == SessionState.Ended)
         {
-            return null;
+            return Transitioned.Declined(ApplyOutcome.Ignored);
         }
 
         // agent_completed is corroboration only — Stop is the authoritative "finished" signal
         // (Impl §9.1 marks it optional). An unrecognized type degrades to no effect.
         return TargetOf(notification) is { } target
-            ? Moved(current, target, notification)
-            : null;
+            ? Transitioned.FromMove(Moved(current, target, notification))
+            : Transitioned.Declined(ApplyOutcome.Ignored);
     }
 
-    private static Session? ApplyStop(Session current, Stop stop)
+    private static Transitioned ApplyStop(Session current, Stop stop)
     {
         if (current.State == SessionState.Ended)
         {
-            return null;
+            return Transitioned.Declined(ApplyOutcome.Ignored);
         }
 
         if (!Correlates(current, stop.PromptId))
         {
-            // This Stop belongs to a turn that is already over. See guard 2 on the type.
-            return null;
+            // This Stop belongs to a turn that is already over. See guard 2 on the type — and
+            // ApplyOutcome.Uncorrelated for why this decline is reported differently from the
+            // routine ones.
+            return Transitioned.Declined(ApplyOutcome.Uncorrelated);
         }
 
         if (current.State == SessionState.Unread && current.Latest.IsAnswered)
         {
             // Already recorded this turn's answer.
-            return null;
+            return Transitioned.Declined(ApplyOutcome.Duplicate);
         }
 
         var answered = current.Latest with
@@ -305,31 +325,37 @@ public sealed class SessionRegistry
             AnsweredAt = stop.Timestamp,
         };
 
-        return Moved(current, SessionState.Unread, stop, latest: answered, errorKind: null);
+        return Transitioned.FromMove(
+            Moved(current, SessionState.Unread, stop, latest: answered, errorKind: null));
     }
 
-    private static Session? ApplyStopFailure(Session current, StopFailure failure)
+    private static Transitioned ApplyStopFailure(Session current, StopFailure failure)
     {
         if (current.State == SessionState.Ended)
         {
-            return null;
+            return Transitioned.Declined(ApplyOutcome.Ignored);
         }
 
         if (current.State == SessionState.Error &&
             string.Equals(current.ErrorKind, failure.ErrorKind, StringComparison.Ordinal))
         {
-            return null;
+            return Transitioned.Declined(ApplyOutcome.Duplicate);
         }
 
-        return Moved(current, SessionState.Error, failure, errorKind: failure.ErrorKind);
+        return Transitioned.FromMove(
+            Moved(current, SessionState.Error, failure, errorKind: failure.ErrorKind));
     }
 
     /// <summary><c>SessionEnd</c> → <see cref="SessionState.Ended"/> from any state (TS §IV.1).</summary>
-    private static Session? ApplySessionEnd(Session current, SessionEnd end) =>
-        current.State == SessionState.Ended ? null : Moved(current, SessionState.Ended, end);
+    private static Transitioned ApplySessionEnd(Session current, SessionEnd end) =>
+        current.State == SessionState.Ended
+            ? Transitioned.Declined(ApplyOutcome.Duplicate)
+            : Transitioned.FromMove(Moved(current, SessionState.Ended, end));
 
-    private static Session? ApplyCwdChanged(Session current, CwdChanged moved) =>
-        current.State == SessionState.Ended ? null : RelocatedIfMoved(current, moved);
+    private static Transitioned ApplyCwdChanged(Session current, CwdChanged moved) =>
+        current.State == SessionState.Ended
+            ? Transitioned.Declined(ApplyOutcome.Ignored)
+            : Transitioned.FromMove(RelocatedIfMoved(current, moved));
 
     /// <summary>
     /// A manual or inferred-focus acknowledgment → <see cref="SessionState.Acked"/>
@@ -341,10 +367,11 @@ public sealed class SessionRegistry
     /// acking an <see cref="SessionState.Ended"/> one changes nothing that is still competing
     /// for attention.
     /// </remarks>
-    private static Session? ApplyAck(Session current, Ack ack) =>
+    private static Transitioned ApplyAck(Session current, Ack ack) =>
         IsAcknowledgeable(current.State)
-            ? Moved(current, SessionState.Acked, ack, errorKind: null, cause: $"{ack.HookEventName} ({ack.Source})")
-            : null;
+            ? Transitioned.FromMove(Moved(
+                current, SessionState.Acked, ack, errorKind: null, cause: $"{ack.HookEventName} ({ack.Source})"))
+            : Transitioned.Declined(ApplyOutcome.Ignored);
 
     // ---- Shared transition mechanics --------------------------------------------------------
 

@@ -34,7 +34,7 @@ public sealed class SessionRegistryTests
         return Current;
     }
 
-    private bool Apply(InboundEvent inboundEvent) => _registry.Apply(inboundEvent);
+    private ApplyOutcome Apply(InboundEvent inboundEvent) => _registry.Apply(inboundEvent);
 
     private UserPromptSubmit Prompt(string text = "do the thing", string? promptId = "p-1") => new()
     {
@@ -82,7 +82,7 @@ public sealed class SessionRegistryTests
     [Fact]
     public void UserPromptSubmit_moves_a_session_to_Working()
     {
-        Assert.True(Apply(Prompt("run the tests")));
+        Assert.Equal(ApplyOutcome.Applied, Apply(Prompt("run the tests")));
 
         Assert.Equal(SessionState.Working, Current.State);
         Assert.Equal("run the tests", Current.Latest.Prompt);
@@ -96,7 +96,7 @@ public sealed class SessionRegistryTests
         GivenWorking();
         _clock.AdvanceMinutes(1);
 
-        Assert.True(Apply(Finished("29 passed")));
+        Assert.Equal(ApplyOutcome.Applied, Apply(Finished("29 passed")));
 
         Assert.Equal(SessionState.Unread, Current.State);
         Assert.Equal("29 passed", Current.Latest.Answer);
@@ -113,7 +113,7 @@ public sealed class SessionRegistryTests
         GivenWorking();
         _clock.AdvanceMinutes(1);
 
-        Assert.True(Apply(Notified(type)));
+        Assert.Equal(ApplyOutcome.Applied, Apply(Notified(type)));
 
         Assert.Equal(expected, Current.State);
     }
@@ -128,7 +128,7 @@ public sealed class SessionRegistryTests
         GivenWorking();
         _clock.AdvanceMinutes(1);
 
-        Assert.False(Apply(Notified("agent_completed")));
+        Assert.Equal(ApplyOutcome.Ignored, Apply(Notified("agent_completed")));
 
         Assert.Equal(SessionState.Working, Current.State);
     }
@@ -139,7 +139,7 @@ public sealed class SessionRegistryTests
         GivenWorking();
         _clock.AdvanceMinutes(1);
 
-        Assert.False(Apply(Notified("brand_new_signal")));
+        Assert.Equal(ApplyOutcome.Ignored, Apply(Notified("brand_new_signal")));
 
         Assert.Equal(SessionState.Working, Current.State);
     }
@@ -150,7 +150,7 @@ public sealed class SessionRegistryTests
         GivenWorking();
         _clock.AdvanceMinutes(1);
 
-        Assert.True(Apply(Failed("rate_limit")));
+        Assert.Equal(ApplyOutcome.Applied, Apply(Failed("rate_limit")));
 
         Assert.Equal(SessionState.Error, Current.State);
         Assert.Equal("rate_limit", Current.ErrorKind);
@@ -162,7 +162,7 @@ public sealed class SessionRegistryTests
         GivenWorking();
         _clock.AdvanceMinutes(1);
 
-        Assert.True(Apply(Ended("logout")));
+        Assert.Equal(ApplyOutcome.Applied, Apply(Ended("logout")));
 
         Assert.Equal(SessionState.Ended, Current.State);
     }
@@ -177,7 +177,7 @@ public sealed class SessionRegistryTests
         GivenInState(from);
         _clock.AdvanceMinutes(1);
 
-        Assert.True(Apply(Acknowledged()));
+        Assert.Equal(ApplyOutcome.Applied, Apply(Acknowledged()));
 
         Assert.Equal(SessionState.Acked, Current.State);
     }
@@ -190,7 +190,7 @@ public sealed class SessionRegistryTests
         GivenInState(SessionState.Unread);
         _clock.AdvanceMinutes(1);
 
-        Assert.True(Apply(Acknowledged(source)));
+        Assert.Equal(ApplyOutcome.Applied, Apply(Acknowledged(source)));
 
         Assert.Equal(SessionState.Acked, Current.State);
         Assert.Contains(source.ToString(), Current.Transitions[^1].Cause, StringComparison.Ordinal);
@@ -203,7 +203,7 @@ public sealed class SessionRegistryTests
         GivenWorking();
         _clock.AdvanceMinutes(1);
 
-        Assert.False(Apply(Acknowledged()));
+        Assert.Equal(ApplyOutcome.Ignored, Apply(Acknowledged()));
 
         Assert.Equal(SessionState.Working, Current.State);
     }
@@ -227,7 +227,7 @@ public sealed class SessionRegistryTests
         GivenInState(from);
         _clock.AdvanceMinutes(1);
 
-        Assert.True(Apply(Prompt("next thing", "p-next")));
+        Assert.Equal(ApplyOutcome.Applied, Apply(Prompt("next thing", "p-next")));
 
         Assert.Equal(SessionState.Working, Current.State);
         Assert.Equal("next thing", Current.Latest.Prompt);
@@ -278,7 +278,7 @@ public sealed class SessionRegistryTests
         GivenInState(from);
         _clock.AdvanceMinutes(1);
 
-        Assert.True(Apply(Finished("done after all")));
+        Assert.Equal(ApplyOutcome.Applied, Apply(Finished("done after all")));
 
         Assert.Equal(SessionState.Unread, Current.State);
         Assert.Equal("done after all", Current.Latest.Answer);
@@ -293,10 +293,10 @@ public sealed class SessionRegistryTests
         _clock.AdvanceMinutes(1);
         var stop = Finished("29 passed");
 
-        Assert.True(Apply(stop));
+        Assert.Equal(ApplyOutcome.Applied, Apply(stop));
         _changes.Clear();
 
-        Assert.False(Apply(stop));
+        Assert.Equal(ApplyOutcome.Duplicate, Apply(stop));
 
         Assert.Empty(_changes);
         Assert.Equal(SessionState.Unread, Current.State);
@@ -318,7 +318,7 @@ public sealed class SessionRegistryTests
         _clock.AdvanceMinutes(1);
         var redelivered = Finished("29 passed");
 
-        Assert.False(Apply(redelivered));
+        Assert.Equal(ApplyOutcome.Duplicate, Apply(redelivered));
 
         Assert.Empty(_changes);
         Assert.Equal(SessionState.Unread, Current.State);
@@ -332,22 +332,22 @@ public sealed class SessionRegistryTests
         GivenWorking();
         _clock.AdvanceMinutes(1);
 
-        Assert.True(Apply(Notified(type)));
+        Assert.Equal(ApplyOutcome.Applied, Apply(Notified(type)));
         _changes.Clear();
         _clock.AdvanceMinutes(1);
 
-        Assert.False(Apply(Notified(type)));
+        Assert.Equal(ApplyOutcome.Duplicate, Apply(Notified(type)));
         Assert.Empty(_changes);
     }
 
     [Fact]
     public void The_same_prompt_id_applied_twice_has_one_effect()
     {
-        Assert.True(Apply(Prompt("do the thing", "p-1")));
+        Assert.Equal(ApplyOutcome.Applied, Apply(Prompt("do the thing", "p-1")));
         _changes.Clear();
         _clock.AdvanceMinutes(1);
 
-        Assert.False(Apply(Prompt("do the thing", "p-1")));
+        Assert.Equal(ApplyOutcome.Duplicate, Apply(Prompt("do the thing", "p-1")));
 
         Assert.Empty(_changes);
         Assert.Single(Current.Transitions);
@@ -358,11 +358,11 @@ public sealed class SessionRegistryTests
     {
         GivenWorking();
         _clock.AdvanceMinutes(1);
-        Assert.True(Apply(Failed("rate_limit")));
+        Assert.Equal(ApplyOutcome.Applied, Apply(Failed("rate_limit")));
         _changes.Clear();
         _clock.AdvanceMinutes(1);
 
-        Assert.False(Apply(Failed("rate_limit")));
+        Assert.Equal(ApplyOutcome.Duplicate, Apply(Failed("rate_limit")));
         Assert.Empty(_changes);
     }
 
@@ -374,7 +374,7 @@ public sealed class SessionRegistryTests
         Apply(Failed("rate_limit"));
         _clock.AdvanceMinutes(1);
 
-        Assert.True(Apply(Failed("overloaded")));
+        Assert.Equal(ApplyOutcome.Applied, Apply(Failed("overloaded")));
 
         Assert.Equal("overloaded", Current.ErrorKind);
     }
@@ -407,7 +407,7 @@ public sealed class SessionRegistryTests
         var blockedSince = Current.EnteredAt;
 
         _clock.AdvanceMinutes(10);
-        Assert.True(Apply(Failed("overloaded")));
+        Assert.Equal(ApplyOutcome.Applied, Apply(Failed("overloaded")));
 
         Assert.Equal(SessionState.Error, Current.State);
         Assert.Equal("overloaded", Current.ErrorKind);
@@ -428,7 +428,7 @@ public sealed class SessionRegistryTests
         var finishedAt = Current.EnteredAt;
 
         _clock.AdvanceMinutes(10);
-        Assert.True(Apply(Moved(@"C:\projects\elsewhere")));
+        Assert.Equal(ApplyOutcome.Applied, Apply(Moved(@"C:\projects\elsewhere")));
 
         Assert.Equal(SessionState.Unread, Current.State);
         Assert.Equal(finishedAt, Current.EnteredAt);
@@ -442,11 +442,11 @@ public sealed class SessionRegistryTests
     {
         GivenWorking();
         _clock.AdvanceMinutes(1);
-        Assert.True(Apply(Ended()));
+        Assert.Equal(ApplyOutcome.Applied, Apply(Ended()));
         _changes.Clear();
         _clock.AdvanceMinutes(1);
 
-        Assert.False(Apply(Ended()));
+        Assert.Equal(ApplyOutcome.Duplicate, Apply(Ended()));
         Assert.Empty(_changes);
     }
 
@@ -455,11 +455,11 @@ public sealed class SessionRegistryTests
     {
         GivenInState(SessionState.Unread);
         _clock.AdvanceMinutes(1);
-        Assert.True(Apply(Acknowledged()));
+        Assert.Equal(ApplyOutcome.Applied, Apply(Acknowledged()));
         _changes.Clear();
         _clock.AdvanceMinutes(1);
 
-        Assert.False(Apply(Acknowledged()));
+        Assert.Equal(ApplyOutcome.Ignored, Apply(Acknowledged()));
         Assert.Empty(_changes);
     }
 
@@ -505,7 +505,7 @@ public sealed class SessionRegistryTests
         };
         _changes.Clear();
 
-        Assert.False(Apply(stale));
+        Assert.Equal(ApplyOutcome.Stale, Apply(stale));
 
         Assert.Empty(_changes);
         Assert.Equal(SessionState.Unread, Current.State);
@@ -535,7 +535,7 @@ public sealed class SessionRegistryTests
             NotificationType = "permission_prompt",
         };
 
-        Assert.False(Apply(replayed));
+        Assert.Equal(ApplyOutcome.Stale, Apply(replayed));
 
         Assert.Empty(_changes);
         Assert.Equal(SessionState.Acked, Current.State);
@@ -547,7 +547,7 @@ public sealed class SessionRegistryTests
     {
         GivenWorking();
 
-        Assert.True(Apply(Finished("29 passed")));
+        Assert.Equal(ApplyOutcome.Applied, Apply(Finished("29 passed")));
         Assert.Equal(SessionState.Unread, Current.State);
     }
 
@@ -569,7 +569,7 @@ public sealed class SessionRegistryTests
         _changes.Clear();
 
         _clock.AdvanceMinutes(1);
-        Assert.False(Apply(Finished("first answer", "p-1")));
+        Assert.Equal(ApplyOutcome.Uncorrelated, Apply(Finished("first answer", "p-1")));
 
         Assert.Empty(_changes);
         Assert.Equal(SessionState.Working, Current.State);
@@ -583,7 +583,7 @@ public sealed class SessionRegistryTests
         Apply(Prompt("second", "p-2"));
         _clock.AdvanceMinutes(1);
 
-        Assert.True(Apply(Finished("second answer", "p-2")));
+        Assert.Equal(ApplyOutcome.Applied, Apply(Finished("second answer", "p-2")));
 
         Assert.Equal(SessionState.Unread, Current.State);
         Assert.Equal("second answer", Current.Latest.Answer);
@@ -599,7 +599,7 @@ public sealed class SessionRegistryTests
         Apply(Prompt("first", promptId: null));
         _clock.AdvanceMinutes(1);
 
-        Assert.True(Apply(Finished("answer", promptId: null)));
+        Assert.Equal(ApplyOutcome.Applied, Apply(Finished("answer", promptId: null)));
 
         Assert.Equal(SessionState.Unread, Current.State);
     }
@@ -610,7 +610,7 @@ public sealed class SessionRegistryTests
         Apply(Prompt("first", promptId: null));
         _clock.AdvanceMinutes(1);
 
-        Assert.True(Apply(Finished("answer", "p-99")));
+        Assert.Equal(ApplyOutcome.Applied, Apply(Finished("answer", "p-99")));
 
         Assert.Equal(SessionState.Unread, Current.State);
     }
@@ -641,7 +641,7 @@ public sealed class SessionRegistryTests
             _ => Prompt(),
         };
 
-        Assert.True(Apply(inbound));
+        Assert.Equal(ApplyOutcome.Applied, Apply(inbound));
 
         Assert.Equal(expected, Current.State);
         Assert.Equal(SessionChangeKind.Added, Assert.Single(_changes).Kind);
@@ -650,7 +650,7 @@ public sealed class SessionRegistryTests
     [Fact]
     public void A_stop_before_any_prompt_records_the_answer_without_inventing_a_question()
     {
-        Assert.True(Apply(Finished("answer with no question")));
+        Assert.Equal(ApplyOutcome.Applied, Apply(Finished("answer with no question")));
 
         Assert.Equal(string.Empty, Current.Latest.Prompt);
         Assert.Equal("answer with no question", Current.Latest.Answer);
@@ -666,7 +666,7 @@ public sealed class SessionRegistryTests
     [Fact]
     public void An_ack_for_an_unknown_session_creates_nothing()
     {
-        Assert.False(Apply(Acknowledged()));
+        Assert.Equal(ApplyOutcome.Ignored, Apply(Acknowledged()));
 
         Assert.Empty(_registry.Sessions);
         Assert.Empty(_changes);
@@ -677,7 +677,7 @@ public sealed class SessionRegistryTests
     {
         var anonymous = new Stop { SessionId = default, Timestamp = _clock.Now, Cwd = Cwd };
 
-        Assert.False(Apply(anonymous));
+        Assert.Equal(ApplyOutcome.Ignored, Apply(anonymous));
 
         Assert.Empty(_registry.Sessions);
     }
@@ -705,7 +705,7 @@ public sealed class SessionRegistryTests
             _ => Acknowledged(),
         };
 
-        Assert.False(Apply(inbound));
+        Assert.Equal(ApplyOutcome.Ignored, Apply(inbound));
 
         Assert.Empty(_changes);
         Assert.Equal(SessionState.Ended, Current.State);
@@ -724,7 +724,7 @@ public sealed class SessionRegistryTests
         Apply(Ended("resume"));
         _clock.AdvanceMinutes(1);
 
-        Assert.True(Apply(Started("resume")));
+        Assert.Equal(ApplyOutcome.Applied, Apply(Started("resume")));
 
         Assert.Equal(SessionState.Acked, Current.State);
     }
@@ -737,7 +737,7 @@ public sealed class SessionRegistryTests
         Apply(Ended());
         _clock.AdvanceMinutes(1);
 
-        Assert.True(Apply(Prompt("back again", "p-2")));
+        Assert.Equal(ApplyOutcome.Applied, Apply(Prompt("back again", "p-2")));
 
         Assert.Equal(SessionState.Working, Current.State);
     }
@@ -751,7 +751,7 @@ public sealed class SessionRegistryTests
         GivenWorking();
         _clock.AdvanceMinutes(1);
 
-        Assert.False(Apply(Started("resume")));
+        Assert.Equal(ApplyOutcome.Duplicate, Apply(Started("resume")));
 
         Assert.Equal(SessionState.Working, Current.State);
     }
@@ -762,7 +762,7 @@ public sealed class SessionRegistryTests
         GivenWorking();
         _clock.AdvanceMinutes(1);
 
-        Assert.True(Apply(Moved(@"C:\projects\elsewhere")));
+        Assert.Equal(ApplyOutcome.Applied, Apply(Moved(@"C:\projects\elsewhere")));
 
         Assert.Equal(@"C:\projects\elsewhere", Current.Cwd);
         Assert.Equal(GroupKeys.ForWorkspace(@"C:\projects\elsewhere"), Current.Group);
@@ -776,7 +776,7 @@ public sealed class SessionRegistryTests
         _changes.Clear();
         _clock.AdvanceMinutes(1);
 
-        Assert.False(Apply(Moved(Cwd)));
+        Assert.Equal(ApplyOutcome.Duplicate, Apply(Moved(Cwd)));
         Assert.Empty(_changes);
     }
 

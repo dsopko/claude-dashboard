@@ -85,6 +85,9 @@ public sealed class EventConsumer : BackgroundService
     /// <summary>How many events the Registry declined. Diagnostic only.</summary>
     public long DeclinedCount { get; private set; }
 
+    /// <summary>How many completions were rejected as uncorrelated. Diagnostic only.</summary>
+    public long UncorrelatedCount { get; private set; }
+
     /// <summary>How many nudge evaluations have run. Diagnostic only.</summary>
     public long TickCount { get; private set; }
 
@@ -177,24 +180,7 @@ public sealed class EventConsumer : BackgroundService
         {
             using (_guard.Enter("applying an event"))
             {
-                if (_registry.Apply(inboundEvent))
-                {
-                    AppliedCount++;
-                }
-                else
-                {
-                    DeclinedCount++;
-
-                    // Deliberately not interpreted here. `Apply` returns a bare bool, so this is
-                    // indistinguishable from a stale duplicate — which is normal and frequent —
-                    // and telling them apart would be domain reasoning, which does not belong in
-                    // the host. See the status report: this is the one place a richer return
-                    // from the Registry would pay for itself.
-                    _logger.Debug(
-                        "The Registry declined {HookEventName} for session {SessionId}.",
-                        inboundEvent.HookEventName,
-                        inboundEvent.SessionId.Value);
-                }
+                Report(inboundEvent, _registry.Apply(inboundEvent));
             }
         }
         catch (SingleWriterViolationException ex)
@@ -212,6 +198,63 @@ public sealed class EventConsumer : BackgroundService
                 inboundEvent.HookEventName,
                 inboundEvent.SessionId.Value);
         }
+    }
+
+    /// <summary>
+    /// Counts an outcome and logs it at the level it deserves.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The four routine outcomes go to <c>Debug</c>, which the file sink does not keep — stale
+    /// duplicates happen constantly and are the guards working, so recording them would bury
+    /// everything else.
+    /// </para>
+    /// <para>
+    /// <see cref="ApplyOutcome.Uncorrelated"/> goes to <c>Warning</c>, with both prompt ids,
+    /// because it is the one decline that should not be happening. If Claude Code's
+    /// <c>Stop</c> turns out not to echo the prompt's id (unverified as of T1.8), this is not a
+    /// rare event but every completion — every session stuck in <see cref="SessionState.Working"/>
+    /// — and this line is the only thing that would say so. Reading the tracked id here is safe
+    /// and correct: this is the single writer, and a declined event left the session untouched.
+    /// </para>
+    /// </remarks>
+    private void Report(InboundEvent inboundEvent, ApplyOutcome outcome)
+    {
+        if (outcome.Changed())
+        {
+            AppliedCount++;
+            return;
+        }
+
+        DeclinedCount++;
+
+        if (outcome != ApplyOutcome.Uncorrelated)
+        {
+            _logger.Debug(
+                "The Registry declined {HookEventName} for session {SessionId}: {Outcome}.",
+                inboundEvent.HookEventName,
+                inboundEvent.SessionId.Value,
+                outcome);
+
+            return;
+        }
+
+        UncorrelatedCount++;
+
+        var tracked = _registry.Sessions.TryGetValue(inboundEvent.SessionId, out var session)
+            ? session.Latest.PromptId
+            : null;
+
+        _logger.Warning(
+            "Rejected {HookEventName} for session {SessionId}: its prompt_id {IncomingPromptId} does not match " +
+            "the turn the session is tracking ({TrackedPromptId}). One of these is a delayed duplicate; if every " +
+            "completion is rejected this way, Claude Code does not echo the prompt's id and the correlation guard " +
+            "is wrong. {UncorrelatedCount} so far.",
+            inboundEvent.HookEventName,
+            inboundEvent.SessionId.Value,
+            inboundEvent.PromptId ?? "(none)",
+            tracked ?? "(none)",
+            UncorrelatedCount);
     }
 
     /// <summary>Asks the sound engine what has come due (TS §IV.5).</summary>
