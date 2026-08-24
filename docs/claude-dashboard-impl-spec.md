@@ -48,7 +48,7 @@ These interfaces are the seam. Core is written entirely against them; App provid
 - `ISoundPlayer` — `Play(SoundId, gain, fade)`; NAudio adapter in App.
 - `ITerminalLocator` — `Task<TabRef?> FindTab(SessionId)` and `TabRef? IdentifyForegroundTab()`; the content-matching adapter (Phase 2/3).
 - `IFocusSource` — raises `ForegroundChanged`/`TabFocusChanged`; the WinEvent+UIA adapter (Phase 3).
-- `ITerminalNavigator` — `Activate(TabRef)`; the `wt.exe`/UIA adapter (Phase 2).
+- `ITerminalNavigator` — `Task<bool> Activate(TabRef)`; the `wt.exe`/UIA adapter (Phase 2). Async because the adapter launches a process and may then drive UI Automation, neither of which may run on the WPF Dispatcher — the very thread the click arrives on. Returns `bool` because TS §IV.7 forbids throwing for a platform failure, and a `void` method that cannot throw can only fail silently, leaving the UI unable to fall back or tell the operator anything. *(Signature corrected 2026-08-24 at T1.6; the original sketch read `Activate(TabRef)`.)*
 - `IVirtualDesktopService` — `GetDesktop(hwnd)`, `PinToAllDesktops(hwnd)`, later `Switch`/`Name` (Phase 4).
 - `IEventSink` — how ingress hands normalized events to the pipeline.
 
@@ -63,8 +63,16 @@ Realizes TS Part IV. No behavior here is new; this is the C# shape of it.
 - `SessionId` — a wrapper over Claude Code's `session_id` string; Registry key.
 - `Exchange` — `{ Prompt: string, Answer: string?, PromptId: string?, StartedAt, AnsweredAt? }`. The latest `Exchange` is the session's context line and the payload of an expanded row.
 - `SessionState` — enum: `Working`, `NeedsPermission`, `NeedsQuestion`, `Error`, `Unread`, `Acked`, `Ended`.
-- `Session` — `{ Id, State, Latest: Exchange, Cwd, Group, EnteredAt, LastActivity, ErrorKind? }` plus a small transition log.
+- `Session` — `{ Id, State, Latest: Exchange, Cwd, Group: GroupKey, EnteredAt, LastActivity, ErrorKind? }` plus a small transition log.
 - `Group` — derived container keyed by `Cwd` (Phase 1) or virtual-desktop id (Phase 4); exposes worst-member state and most-recent activity.
+
+> **Correction (2026-08-24, found at T1.1).** `Session.Group` is a group **key**, not a
+> `Group`. The two cannot be the same type: a container holding its members while each
+> member holds the container is a cycle an immutable record graph cannot express. So a
+> session carries the key, and a `Group` is the container derived over all sessions
+> sharing it — which is also what §IV.3's "re-derived on directory-change events, not
+> fixed at session start" requires. Key **assignment** and normalization belong to the
+> group resolver (T1.4), not to `Session` and not to the Registry.
 - `InboundEvent` — the normalized internal event (see 3.2), a discriminated shape (record hierarchy or a tagged struct) the pipeline applies.
 
 ### 2.2 SessionRegistry and the state machine

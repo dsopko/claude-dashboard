@@ -224,17 +224,29 @@ Transitions are triggered by events (Part II) and by acknowledgment sources (Par
 ```
             UserPromptSubmit
    (any) ───────────────────────▶ Working        [also: auto-ack prior Unread/NeedsYou]
- Working ──Stop──────────────────▶ Unread
- Working ──Notification(perm)────▶ NeedsYou.Permission
- Working ──Notification(idle)────▶ NeedsYou.Question
- Working ──StopFailure───────────▶ Error
+ (live) ──Stop───────────────────▶ Unread
+ (live) ──Notification(perm)─────▶ NeedsYou.Permission
+ (live) ──Notification(idle)─────▶ NeedsYou.Question
+ (live) ──StopFailure────────────▶ Error
  Unread        ──Ack*────────────▶ Acked
  NeedsYou.*     ──Ack*────────────▶ Acked          (rare; usually a new prompt supersedes)
  NeedsYou.* / Error ──UserPromptSubmit─▶ Working    (operator answered/retried)
  (any)   ──SessionEnd────────────▶ Ended ──(timer)──▶ removed
 
  Ack* = { new UserPromptSubmit in session | manual Ack | inferred focus (Phase 3) }
+ (live) = any state except Ended
 ```
+
+> **Correction (2026-08-24).** `Stop`, `Notification` and `StopFailure` previously
+> originated only from `Working`. That was too narrow to be correct. The ordinary
+> permission flow is `Working → Notification(perm) → NeedsPermission →` *operator
+> approves in the terminal* `→ Claude finishes → Stop`. Approving a permission is
+> **not** a prompt submission, so under the literal reading that `Stop` was
+> inapplicable and the session stayed `NeedsPermission` **permanently** — stranded
+> in the loudest band, nudging at widening intervals about a turn that had already
+> finished, with no escape until the operator happened to type something new. Found
+> at T1.2 and reproduced independently; these transitions now originate from any
+> live (non-`Ended`) state.
 
 Every state carries: the latest exchange (prompt text; answer text once known), entry timestamp (for age display and nudge timing), workspace, and derived group.
 
@@ -244,7 +256,7 @@ Bands, top to bottom, with intra-band order:
 
 | Band | Members | Order within band | Rationale |
 |---|---|---|---|
-| Needs You | `NeedsYou.*`, `Error` | **oldest first** | longest-blocked agent = most wasted capacity |
+| Needs You | `NeedsYou.Permission`, `Error`, `NeedsYou.Question` | **oldest first**; ties broken by kind, **Permission > Error > Question** | longest-blocked agent = most wasted capacity |
 | Unread | `Unread` | **newest first** | freshest finish is the one being chased after a beep |
 | Working | `Working` | most recent activity first | — |
 | Quiet | `Acked`, idle | recency | sinks; collapsible |
@@ -260,7 +272,8 @@ def render_order(sessions):
     quiet = [s for s in sessions if s.state == Acked or s.idle]
     ended = [s for s in sessions if s.state == Ended]
 
-    needs.sort(key=lambda s: s.entered_at)            # oldest first
+    # oldest first; kind breaks ties only (Permission > Error > Question)
+    needs.sort(key=lambda s: (s.entered_at, needs_rank(s.state)))
     unread.sort(key=lambda s: s.entered_at, reverse=True)  # newest first
     working.sort(key=lambda s: s.last_activity, reverse=True)
     quiet.sort(key=lambda s: s.last_activity, reverse=True)
@@ -274,8 +287,20 @@ In **grouped** view this ordering runs *within* each group, and groups are order
 
 - **Phase 1 key:** workspace (`cwd`). Re-derived on directory-change events, not fixed at session start.
 - **Phase 4 key:** virtual desktop id (III.9), with desktop name as the group label.
-- **Group state** = worst member state (Needs You > Error > Unread > Working > Quiet).
+- **Group state** = worst member state (`NeedsYou.Permission` > `Error` > `NeedsYou.Question` > `Unread` > `Working` > `Quiet`).
 - **Group recency** = most recent member event.
+
+> **Correction (2026-08-24, ratified by the operator).** §IV.2 and this section
+> previously disagreed about `Error`: §IV.2's band table placed it *inside* the
+> Needs-You band, while this roll-up ranked it *below* the band as a whole. Both
+> now use one severity order, and the operator's ruling splits the two Needs-You
+> states around `Error` rather than keeping them together:
+> **Permission > Error > Question.** Rationale: a permission prompt is the agent
+> blocked on a decision only the operator can make; an error is the agent stopped
+> but often self-recoverable on retry; a question is the softest of the three.
+> The band itself is unchanged — all three are Needs-You — and §IV.2's oldest-first
+> ordering still dominates. Kind is a **tie-break**, not a sub-band: a Question
+> blocked ten minutes still sorts above a Permission blocked one minute.
 
 The operator never assigns groups by hand; grouping mirrors observable reality. A manual label or per-group checklist is a candidate refinement only if it later earns its place.
 
