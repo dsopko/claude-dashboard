@@ -70,13 +70,19 @@ The list is organized into priority bands, top to bottom:
 
 | Band | Contains | Order within band |
 |---|---|---|
-| **Needs You** | questions, permissions, errors | **oldest first** — the longest-blocked agent is the most wasted capacity |
+| **Needs You** | permissions, errors, questions | **by kind first — Permission > Error > Question — then oldest first within each kind** (see the correction below) |
 | **Unread** | finished, unseen | **newest first** — when a beep just fired, the newest green is the one being hunted |
 | **Working** | processing | most recent activity first |
 | **Quiet** | acked, idle | sinks to the bottom |
 | **Ended** | exited sessions | dim single line for a few minutes, then gone (history is a later phase) |
 
-The ordering asymmetry is deliberate: reds are sorted by starvation, greens by the beep-chasing workflow.
+The ordering asymmetry is deliberate: reds are sorted by starvation, greens by the beep-chasing workflow. Within the Needs-You band that asymmetry now operates *inside* each kind — see the correction.
+
+> **Correction (2026-08-24).** The Needs-You row above previously read "oldest first — the longest-blocked agent is the most wasted capacity". That was superseded by the operator's ratification recorded in **TS §IV.2 and §IV.3** (commits `e645fd8`, then `2860e14`), which is the authority for ordering. The ratified rule sorts the band **by kind first — `Permission` > `Error` > `Question` — then oldest-first within each kind**, so a Question blocked twenty minutes appears *below* a Permission raised three minutes ago.
+>
+> The rationale changed with it, from age to **throughput**: a permission is usually seconds of operator time standing between an agent and an indefinite wait, so clearing it returns the most blocked capacity per second of attention; an error is often self-recoverable on retry; a question may need real thought, and thinking about it unblocks nothing else meanwhile.
+>
+> This section went stale because the amendment landed in the TS while this document was not yet in the authoritative set — it was added to the Execution Plan's companion list at `9de8ab3`/`41d0f57`. **TS §IV.2/§IV.3 remain the authority for banding and ordering; this section is a summary of them.** The single implementation lives in `AttentionOrder` and is consumed by both the attention engine and `Group.WorstState`.
 
 *Alternative considered:* pure "last status change" ordering (the original sketch). Rejected because a fresh green would bury a starving red; recency is preserved *within* bands, so the feel survives.
 
