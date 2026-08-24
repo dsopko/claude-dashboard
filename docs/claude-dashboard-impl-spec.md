@@ -188,6 +188,24 @@ Precedence (top wins), color carries state:
 - **No animation.** The tray is static per state (TS reserves motion for needs-you rows inside the window, not the tray).
 - **Left-click:** toggle the dashboard window. **Right-click:** context menu — Open · Mute all (and "for 30 min") · Pause monitoring · Settings · **Quit**.
 
+#### Mute all versus Pause monitoring (ratified by the operator, 2026-08-24)
+
+Neither spec previously said what **Pause monitoring** does — it appeared only in this menu list and in the plan's T1.13 deliverables — which left it behaviourally identical to Mute all. Ruled:
+
+| | Sound | Glyph | Ends |
+|---|---|---|---|
+| **Mute all** | silenced | **unchanged — still the true colour** | on expiry (30 min) or on unmute |
+| **Pause monitoring** | silenced | **grey, visibly "off duty"** | only when the operator resumes |
+
+**Mute all is the volume knob; Pause monitoring is going off duty.** Muted, the operator can still glance at a burning red icon and know; paused, nothing pulls at them at all.
+
+- This is the **one deliberate exception** to "the tray tells the truth" (Design §9). It is not a leak — the operator turned it off *on purpose, from that menu*, this second — and the exception is the entire value of the item.
+- **The paused glyph must be visually distinct from all-quiet grey** (dim, hollow, or outlined — whatever reads as *off* rather than as *calm*). Same bitmap for both would make "nothing is happening" and "I switched it off" indistinguishable, which is the failure this ruling is one click away from. Still static, still no digits.
+- The tooltip **leads** with the mode: `paused · click to resume` when paused, `muted 24 min · …counts…` when muted. Paused, the counts may follow but the first words say why the icon is grey.
+- The menu item **toggles** — it reads *Resume monitoring* while paused. Not a second item.
+- **Pause does not survive a restart.** A dashboard that comes back silently paused tomorrow morning is the same trap as an append-only group mute, with the whole app behind it.
+- Neither mute nor pause stops **ingestion**. Events keep arriving, the Registry stays correct, and the window shows the truth whether or not the glyph does.
+
 ### 5.3 Single instance
 
 A named `Mutex` created at startup; if already held, this process is the second instance. The **loopback port bind** is the belt-and-suspenders interlock — a second instance can't bind the same port. The second instance signals the first by `POST /show` to the loopback endpoint (reusing ingress; no separate IPC), then exits.
