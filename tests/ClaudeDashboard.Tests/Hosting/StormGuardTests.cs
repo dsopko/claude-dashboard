@@ -266,6 +266,37 @@ public sealed class StormGuardTests
         Assert.True(fatal > summary, "the count must reach the log before the terminating line");
     }
 
+    /// <summary>
+    /// A flush that throws must not take the terminating line with it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The ordering decision deliberately puts the flush <em>before</em> the most important write
+    /// in the process's life. Nobody has reproduced a way to make it throw — Serilog reports sink
+    /// failures to its own SelfLog rather than raising them — so this is defence in depth: the
+    /// probability is unestablished and the downside is total, which is the trade that decides it.
+    /// </para>
+    /// <para>
+    /// Provoked through the clock, which the flush reads, since the logger will not oblige.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void A_flush_that_throws_does_not_stop_the_terminating_line()
+    {
+        var logger = new LoggerConfiguration().MinimumLevel.Verbose().WriteTo.Sink(_sink).CreateLogger();
+        var policy = new UnhandledExceptionPolicy(logger, new ThrowingClock(), Window);
+
+        policy.HandleDomainException(new InvalidOperationException("the end"), isTerminating: true);
+
+        Assert.Equal(1, _sink.Containing("the process is terminating"));
+    }
+
+    /// <summary>A clock that refuses, standing in for anything the flush could trip over.</summary>
+    private sealed class ThrowingClock : ClaudeDashboard.Core.Ports.IClock
+    {
+        public DateTimeOffset Now => throw new InvalidOperationException("the clock is broken");
+    }
+
     // ---- What must NOT happen ----------------------------------------------------------------
 
     /// <summary>

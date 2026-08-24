@@ -291,7 +291,7 @@ public sealed class SessionRegistry(SingleWriterGuard? guard = null)
             prompt,
             latest: exchange,
             errorKind: null,
-            cause: AutoAcks(current.State)
+            cause: Acknowledgment.Applies(current.State)
                 ? $"{prompt.HookEventName} (auto-ack of {current.State})"
                 : prompt.HookEventName));
     }
@@ -380,7 +380,7 @@ public sealed class SessionRegistry(SingleWriterGuard? guard = null)
     /// for attention.
     /// </remarks>
     private static Transitioned ApplyAck(Session current, Ack ack) =>
-        IsAcknowledgeable(current.State)
+        Acknowledgment.Applies(current.State)
             ? Transitioned.FromMove(Moved(
                 current, SessionState.Acked, ack, errorKind: null, cause: $"{ack.HookEventName} ({ack.Source})"))
             : Transitioned.Declined(ApplyOutcome.Ignored);
@@ -499,28 +499,6 @@ public sealed class SessionRegistry(SingleWriterGuard? guard = null)
             : current.State == SessionState.Working &&
               current.Latest.PromptId is null &&
               string.Equals(current.Latest.Prompt, prompt.Prompt, StringComparison.Ordinal);
-
-    /// <summary>The states a new prompt implicitly acknowledges (TS §IV.1).</summary>
-    private static bool AutoAcks(SessionState state) =>
-        state is SessionState.Unread
-              or SessionState.NeedsPermission
-              or SessionState.NeedsQuestion
-              or SessionState.Error;
-
-    /// <summary>
-    /// The states an explicit acknowledgment applies to.
-    /// </summary>
-    /// <remarks>
-    /// TS §IV.1 draws <c>Ack</c> from <see cref="SessionState.Unread"/> and the two Needs-You
-    /// states. <see cref="SessionState.Error"/> is included because TS §IV.2 bands Error with
-    /// Needs You, and because an operator who has read a failed turn must be able to dismiss
-    /// it — otherwise an Error row can only be cleared by submitting another prompt.
-    /// </remarks>
-    private static bool IsAcknowledgeable(SessionState state) =>
-        state is SessionState.Unread
-              or SessionState.NeedsPermission
-              or SessionState.NeedsQuestion
-              or SessionState.Error;
 
     /// <summary>
     /// The key a session groups under.

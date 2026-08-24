@@ -96,6 +96,10 @@ public static class AppHost
         // UiTick is the wire from the consumer's tick to the age and staleness display; it is
         // handed the view model rather than resolving one, so that nothing can construct the UI
         // from the consumer thread.
+        // The manual ack tier (Design Document §4). It takes the event sink, not the Registry:
+        // TS §I.3 requires every ack source to travel one path, and the Registry is lock-free on
+        // the assumption that the consumer is its only writer.
+        builder.Services.AddSingleton<IAckPublisher, AckPublisher>();
         builder.Services.AddSingleton<MotionPolicy>();
         builder.Services.AddSingleton<UiTick>();
         builder.Services.AddSingleton<IUiTick>(sp => sp.GetRequiredService<UiTick>());

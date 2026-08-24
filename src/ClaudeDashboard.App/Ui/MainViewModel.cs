@@ -48,6 +48,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     private readonly SessionProjection _projection;
     private readonly MotionPolicy _motion;
+    private readonly IAckPublisher? _ack;
     private readonly Dictionary<SessionId, SessionViewModel> _sessionRows = [];
     private readonly Dictionary<GroupKey, GroupViewModel> _groupHeaders = [];
     private readonly Dictionary<AttentionBand, BandHeaderViewModel> _bandHeaders = [];
@@ -81,13 +82,18 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     /// <param name="motion">
     /// Whether rows may animate; defaults to <see cref="MotionPolicy.System"/>.
     /// </param>
+    /// <param name="ack">
+    /// Where a row sends a manual acknowledgment (Design Document §4 tier 2). Passed to every row
+    /// this builds; null leaves the affordance visible and disabled.
+    /// </param>
     /// <exception cref="ArgumentNullException"><paramref name="projection"/> is null.</exception>
-    public MainViewModel(SessionProjection projection, MotionPolicy? motion = null)
+    public MainViewModel(SessionProjection projection, MotionPolicy? motion = null, IAckPublisher? ack = null)
     {
         ArgumentNullException.ThrowIfNull(projection);
 
         _projection = projection;
         _motion = motion ?? MotionPolicy.System;
+        _ack = ack;
         _projection.Sessions.CollectionChanged += OnSessionsChanged;
         _motion.PropertyChanged += OnMotionChanged;
 
@@ -177,11 +183,44 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     public void Refresh()
     {
         var sessions = _projection.Sessions.ToList();
+
+        Restate(sessions);
+
         var groups = IsGrouped ? GroupResolver.Resolve(sessions) : null;
 
         Reconcile(groups is null ? FlatRows(sessions) : GroupedRows(groups));
         Forget(sessions, groups?.Select(group => group.Key).ToHashSet());
         RecountBands(sessions);
+    }
+
+    /// <summary>
+    /// Gives every row this view model still holds the session it stands for — collapsed rows
+    /// included.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>Collapsing hides a row; it must not stop updating it.</strong> Assembling the
+    /// sequence only touches the rows that end up in it, so before this existed a row behind a
+    /// "+ 3 quiet" footer kept the record it had when it was collapsed — and since the act of
+    /// being acknowledged is what collapses a row, that meant the ack itself was the update the
+    /// row missed. It corrected itself when the footer was opened, which is exactly the kind of
+    /// bug that hides: invisible while invisible.
+    /// </para>
+    /// <para>
+    /// Idempotent against the assembly that follows, which sets the same records again;
+    /// <see cref="SessionViewModel.Session"/> compares by value, so the second write raises
+    /// nothing.
+    /// </para>
+    /// </remarks>
+    private void Restate(List<Session> sessions)
+    {
+        foreach (var session in sessions)
+        {
+            if (_sessionRows.TryGetValue(session.Id, out var row))
+            {
+                row.Session = session;
+            }
+        }
     }
 
     /// <summary>
@@ -359,7 +398,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             return existing;
         }
 
-        var created = new SessionViewModel(session, _motion);
+        var created = new SessionViewModel(session, _motion, _ack);
         created.RefreshAge(_now > session.LastActivity ? _now : session.LastActivity);
         _sessionRows[session.Id] = created;
         return created;

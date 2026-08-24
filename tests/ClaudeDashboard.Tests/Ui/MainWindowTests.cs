@@ -2,6 +2,9 @@ using System.Diagnostics;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Automation;
+using System.Windows.Automation.Peers;
+using System.Windows.Automation.Provider;
 using System.Windows.Controls.Primitives;
 using System.Windows.Media;
 using System.Windows.Threading;
@@ -152,8 +155,7 @@ public sealed class MainWindowTests(StaHarness harness)
         window.Show();
         window.UpdateLayout();
 
-        _harness.Pump(DispatcherPriority.Loaded);
-        _harness.Pump(DispatcherPriority.Render);
+        _harness.Pump(DispatcherPriority.Background);
     }
 
     private static IReadOnlyList<ContentPresenter> RowsOf(MainWindow window) =>
@@ -365,6 +367,104 @@ public sealed class MainWindowTests(StaHarness harness)
         Assert.DoesNotContain("Added 23 tests.", texts);
         Assert.DoesNotContain("CLAUDE ANSWERED", texts);
     }
+
+    /// <summary>
+    /// <strong>The Ack control is live: enabled, and invoking the command.</strong>
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Asserted on the control and on the effect, not on the view model. A disabled affordance
+    /// looks identical whether it is deliberately not yet wired — which is what T1.11 shipped —
+    /// or wired and disabled by a mistaken <c>CanExecute</c>, so a test that only checked "a
+    /// command exists" would pass over exactly the regression that matters.
+    /// </para>
+    /// <para>
+    /// Invoked through the button's automation peer, which is what a click goes through, rather
+    /// than by calling the command: that path also proves the <c>Command</c> binding resolved.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void The_ack_button_is_enabled_and_invokes_the_command()
+    {
+        var sink = new RecordingEventSink();
+
+        var enabled = _harness.Invoke(() =>
+        {
+            using var registry = new RegistryHarness();
+            using var policy = new MotionPolicy(() => false, observeChanges: false);
+            using var viewModel = new MainViewModel(
+                registry.Projection,
+                policy,
+                new AckPublisher(sink, new FakeClock(), Serilog.Core.Logger.None));
+
+            var promptId = registry.Working("finished", FakeClock.DefaultStart);
+            registry.Finished("finished", FakeClock.DefaultStart.AddMinutes(1), promptId);
+
+            var window = new MainWindow(viewModel);
+
+            try
+            {
+                Realize(window);
+
+                var ack = StaHarness.FindAll<Button>(RowFor(window, "finished"))
+                    .Single(button => button.Content as string == "✓ Ack");
+
+                var wasEnabled = ack.IsEnabled;
+
+                var peer = new ButtonAutomationPeer(ack);
+                ((IInvokeProvider)peer.GetPattern(PatternInterface.Invoke)).Invoke();
+
+                // The peer posts the click at Input priority; without draining, nothing happens.
+                _harness.Pump(DispatcherPriority.Background);
+
+                return wasEnabled;
+            }
+            finally
+            {
+                window.Hide();
+            }
+        });
+
+        Assert.True(enabled, "the acknowledge button must be enabled on a row that can be acknowledged");
+
+        // And invoking it did what it says: one ack, for that session, on the channel.
+        var published = Assert.Single(sink.Published);
+        var ack = Assert.IsType<ClaudeDashboard.Core.Events.Ack>(published);
+        Assert.Equal(new SessionId("finished"), ack.SessionId);
+    }
+
+    /// <summary>
+    /// …and it is disabled where there is nothing to acknowledge, so "enabled" above means the
+    /// command answered rather than that every button is always live.
+    /// </summary>
+    [Fact]
+    public void The_ack_button_is_disabled_where_there_is_nothing_to_acknowledge()
+    {
+        var states = WithWindow(
+            registry =>
+            {
+                var promptId = registry.Working("finished", At);
+                registry.Finished("finished", At.AddMinutes(1), promptId);
+                registry.Working("busy", At);
+            },
+            (window, _) => new Dictionary<string, bool?>(StringComparer.Ordinal)
+            {
+                ["finished"] = AckButton(window, "finished")?.IsEnabled,
+                ["busy"] = AckButton(window, "busy")?.IsEnabled,
+            });
+
+        // Nothing to acknowledge on a working row, so there is no button at all to enable.
+        Assert.Null(states["busy"]);
+
+        // And the finished row's button is present but inert here, because this window's view
+        // model was given nowhere to send an ack — which is the other half of the pair.
+        Assert.False(states["finished"]);
+    }
+
+    private static Button? AckButton(MainWindow window, string sessionId) =>
+        StaHarness.FindAll<Button>(RowFor(window, sessionId))
+            .FirstOrDefault(button =>
+                button.Content as string == "✓ Ack" && button.Visibility == Visibility.Visible);
 
     /// <summary>The ack affordance §9 puts on rows that have something to acknowledge, and only those.</summary>
     [Fact]

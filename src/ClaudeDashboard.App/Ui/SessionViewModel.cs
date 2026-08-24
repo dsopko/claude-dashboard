@@ -1,5 +1,6 @@
 using System.Globalization;
 using ClaudeDashboard.Core;
+using CommunityToolkit.Mvvm.Input;
 
 namespace ClaudeDashboard.App.Ui;
 
@@ -21,12 +22,13 @@ namespace ClaudeDashboard.App.Ui;
 /// anything that could be interpreted — a snippet is a substring and nothing more.
 /// </para>
 /// </remarks>
-public sealed class SessionViewModel : DashboardRow
+public sealed partial class SessionViewModel : DashboardRow
 {
     /// <summary>How much of the prompt the collapsed row shows before eliding.</summary>
     public const int SnippetLength = 140;
 
     private readonly MotionPolicy _motion;
+    private readonly IAckPublisher? _ack;
     private Session _session;
     private DateTimeOffset _now;
     private bool _isExpanded;
@@ -37,14 +39,21 @@ public sealed class SessionViewModel : DashboardRow
     /// Whether motion is permitted; defaults to <see cref="MotionPolicy.System"/>, so a row that
     /// is handed no policy still honours the operator's reduced-motion setting.
     /// </param>
+    /// <param name="ack">
+    /// Where the row's acknowledge action sends its event. Null in tests that are not about
+    /// acknowledging, which leaves the affordance visible and disabled rather than absent —
+    /// whether a session <em>can</em> be acknowledged is a fact about the session, not about
+    /// whether this row was wired up.
+    /// </param>
     /// <exception cref="ArgumentNullException"><paramref name="session"/> is null.</exception>
-    public SessionViewModel(Session session, MotionPolicy? motion = null)
+    public SessionViewModel(Session session, MotionPolicy? motion = null, IAckPublisher? ack = null)
     {
         ArgumentNullException.ThrowIfNull(session);
 
         _session = session;
         _now = session.LastActivity;
         _motion = motion ?? MotionPolicy.System;
+        _ack = ack;
     }
 
     /// <summary>The session's id — stable for this view model's whole life.</summary>
@@ -157,12 +166,59 @@ public sealed class SessionViewModel : DashboardRow
     /// <summary>The failure that stopped it, or null.</summary>
     public string? ErrorKind => _session.ErrorKind;
 
-    /// <summary>Whether the row offers an acknowledge affordance (Design Document §9).</summary>
-    /// <remarks>The command itself is T1.12's; this is only whether the row has one.</remarks>
-    public bool CanAcknowledge => _session.State is SessionState.Unread
-        or SessionState.NeedsPermission
-        or SessionState.NeedsQuestion
-        or SessionState.Error;
+    /// <summary>
+    /// Whether the row offers an acknowledge affordance (Design Document §4, §9).
+    /// </summary>
+    /// <remarks>
+    /// <strong>Asked, not restated.</strong> Which states an acknowledgment applies to is domain
+    /// knowledge and lives in <see cref="Acknowledgment.Applies"/>, where the automatic tier
+    /// reads it too. This row would have been the third copy of that list — and the one most
+    /// likely to drift, because nothing in Core would fail when it did: the button would simply
+    /// stop appearing on a state the next prompt still acknowledges.
+    /// </remarks>
+    public bool CanAcknowledge => Acknowledgment.Applies(_session.State);
+
+    /// <summary>
+    /// Acknowledges this session (Design Document §4 tier 2).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>It publishes an event; it does not change anything.</strong> The row still reads
+    /// the projection, so what appears on screen is what the Registry decided, arriving by the
+    /// same route as every hook. Nothing here goes grey optimistically — see the remarks on the
+    /// command's own summary.
+    /// </para>
+    /// <para>
+    /// One command for both the row's Ack and the expanded row's, because they are the same act;
+    /// two would be two things to keep enabled in step.
+    /// </para>
+    /// </remarks>
+    /// <remarks>
+    /// The body re-checks rather than trusting <c>CanExecute</c>. A binding will not invoke a
+    /// disabled command, but <c>RelayCommand.Execute</c> does not gate on it, so anything holding
+    /// the command object can raise an ack the Registry will only decline. The channel is bounded
+    /// and drops its oldest entry when full (Impl §4) — publishing events already known to be
+    /// no-ops is how a real one gets evicted.
+    /// </remarks>
+    [RelayCommand(CanExecute = nameof(CanRaiseAck))]
+    private void Acknowledge()
+    {
+        if (_ack is { } publisher && CanAcknowledge)
+        {
+            publisher.Acknowledge(_session);
+        }
+    }
+
+    /// <summary>
+    /// Whether the acknowledge action can be invoked: the session has something to acknowledge,
+    /// and this row has somewhere to send it.
+    /// </summary>
+    /// <remarks>
+    /// Separate from <see cref="CanAcknowledge"/>, which is the domain question and drives
+    /// whether the affordance is shown at all. A row with nowhere to send an ack shows a
+    /// disabled button rather than hiding one, because hiding it would misreport the session.
+    /// </remarks>
+    public bool CanRaiseAck => CanAcknowledge && _ack is not null;
 
     /// <summary>
     /// How long the session has been in its current state, as of the last <see cref="RefreshAge"/>.
@@ -218,6 +274,8 @@ public sealed class SessionViewModel : DashboardRow
         OnPropertyChanged(nameof(Cwd));
         OnPropertyChanged(nameof(ErrorKind));
         OnPropertyChanged(nameof(CanAcknowledge));
+        OnPropertyChanged(nameof(CanRaiseAck));
+        AcknowledgeCommand.NotifyCanExecuteChanged();
         OnPropertyChanged(nameof(Age));
     }
 }

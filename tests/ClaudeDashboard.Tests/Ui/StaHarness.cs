@@ -104,10 +104,45 @@ public sealed class StaHarness : IDisposable
 
     /// <summary>
     /// Lets the UI thread finish everything queued at <paramref name="upTo"/> or above —
-    /// layout, bindings, and the storyboards a trigger has just started.
+    /// layout, bindings, the storyboards a trigger has just started, and the work a click posts.
     /// </summary>
-    public void Pump(DispatcherPriority upTo = DispatcherPriority.Loaded) =>
-        Application.Dispatcher.Invoke(() => { }, upTo);
+    /// <remarks>
+    /// <para>
+    /// <strong>A nested frame, not an <c>Invoke</c>.</strong> These tests run their bodies
+    /// <em>on</em> the UI thread, and <see cref="Dispatcher.Invoke(Action, DispatcherPriority)"/>
+    /// called from that thread runs the delegate inline without draining anything — so the
+    /// obvious spelling of "let the queue catch up" is a no-op exactly where it is needed. That
+    /// cost an afternoon: a button's automation peer posts its click at
+    /// <see cref="DispatcherPriority.Input"/>, and the invocation simply never happened.
+    /// </para>
+    /// <para>
+    /// Pushing a frame runs a real message loop until a marker posted at
+    /// <paramref name="upTo"/> comes back, which drains everything <em>above</em> that priority —
+    /// so the marker goes low. <c>Background</c> is below <c>Input</c>, <c>Loaded</c>, <c>Render</c>
+    /// and <c>DataBind</c>, which is everything layout and a click need; a marker at <c>Loaded</c>
+    /// would come back before the <c>Input</c>-priority click had run, which is the same no-op in a
+    /// different disguise.
+    /// </para>
+    /// </remarks>
+    public void Pump(DispatcherPriority upTo = DispatcherPriority.Background)
+    {
+        var dispatcher = Application.Dispatcher;
+
+        if (!dispatcher.CheckAccess())
+        {
+            dispatcher.Invoke(() => Drain(dispatcher, upTo));
+            return;
+        }
+
+        Drain(dispatcher, upTo);
+    }
+
+    private static void Drain(Dispatcher dispatcher, DispatcherPriority upTo)
+    {
+        var frame = new DispatcherFrame();
+        dispatcher.BeginInvoke(upTo, new Action(() => frame.Continue = false));
+        Dispatcher.PushFrame(frame);
+    }
 
     /// <summary>Finds the first <typeparamref name="T"/> under <paramref name="root"/> that matches.</summary>
     /// <remarks>

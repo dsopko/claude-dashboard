@@ -212,6 +212,40 @@
         </Setter>
     </Style>
 
+    <!--
+        The acknowledge action (Design Document §4 tier 2, §9). Enabled, and bound to the row's
+        command — which publishes an event into the channel and changes nothing itself.
+    -->
+    <Style x:Key="AckButtonStyle" TargetType="Button">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Foreground" Value="{StaticResource Ink2Brush}" />
+        <Setter Property="FontSize" Value="11" />
+        <Setter Property="Padding" Value="9,3" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="Chip"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="{StaticResource HairlineBrush}"
+                            BorderThickness="1"
+                            CornerRadius="6">
+                        <ContentPresenter Margin="{TemplateBinding Padding}" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Chip" Property="Background" Value="{StaticResource RaisedBrush}" />
+                            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter TargetName="Chip" Property="Opacity" Value="0.4" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <!-- A slot reserved for a phase that has not arrived: visible, inert, and honest about it. -->
     <Style x:Key="ReservedButtonStyle" TargetType="Button">
         <Setter Property="IsEnabled" Value="False" />
@@ -335,9 +369,11 @@
 
                         <StackPanel Orientation="Horizontal" Margin="12,12,0,0">
                             <Button Content="✓ Acknowledge"
-                                    Style="{StaticResource ReservedButtonStyle}"
+                                    Style="{StaticResource AckButtonStyle}"
+                                    Margin="0,0,8,0"
+                                    Command="{Binding AcknowledgeCommand}"
                                     Visibility="{Binding CanAcknowledge, Converter={StaticResource BoolToVisible}}"
-                                    ToolTip="Acknowledging arrives with the ack command (T1.12)." />
+                                    ToolTip="Mark this result seen." />
                             <Button Style="{StaticResource ReservedButtonStyle}"
                                     ToolTip="Opening the terminal arrives with Phase 2 navigation.">
                                 <StackPanel Orientation="Horizontal">
@@ -350,17 +386,18 @@
                 </StackPanel>
 
                 <!--
-                    The acknowledge affordance §9 puts on the row itself. Disabled: the command is
-                    T1.12's, and a button that silently does nothing is a worse lie than one that
-                    says it is not ready.
+                    The acknowledge affordance §9 puts on the row itself, and the same command the
+                    expanded row's button uses — they are one act, and two commands would be two
+                    things to keep enabled in step.
                 -->
                 <Button Grid.Column="3"
                         Content="✓ Ack"
                         VerticalAlignment="Top"
                         Margin="8,2,0,0"
-                        Style="{StaticResource ReservedButtonStyle}"
+                        Style="{StaticResource AckButtonStyle}"
+                        Command="{Binding AcknowledgeCommand}"
                         Visibility="{Binding CanAcknowledge, Converter={StaticResource BoolToVisible}}"
-                        ToolTip="Acknowledging arrives with the ack command (T1.12)." />
+                        ToolTip="Mark this result seen." />
             </Grid>
         </ToggleButton>
     </DataTemplate>

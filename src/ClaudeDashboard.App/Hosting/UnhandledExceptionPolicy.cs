@@ -220,7 +220,20 @@ public sealed class UnhandledExceptionPolicy
     /// </remarks>
     public void HandleDomainException(Exception? exception, bool isTerminating)
     {
-        Flush();
+        try
+        {
+            Flush();
+        }
+        catch (Exception)
+        {
+            // Deliberately swallowed, and deliberately not narrowed. This is the one place the
+            // guard puts work *before* the most important write in the process's life — the
+            // terminating line — and if flushing a count could ever fail, the count would take
+            // the reason for the crash down with it. Serilog reports sink failures to its own
+            // SelfLog rather than throwing, so this is defence in depth on a path nobody has
+            // reproduced; the probability is unestablished and the downside is total.
+        }
+
         ObservedCount++;
 
         if (isTerminating)
