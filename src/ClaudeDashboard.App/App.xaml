@@ -1,0 +1,11 @@
+<Application x:Class="ClaudeDashboard.App.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             ShutdownMode="OnExplicitShutdown">
+    <!--
+        No StartupUri: the app starts headless and shows no window (the window is T1.11).
+        ShutdownMode is OnExplicitShutdown per Impl 5.1 — closing the window must hide it, and
+        the process exits only via the tray's Quit (T1.13).
+    -->
+    <Application.Resources />
+</Application>
