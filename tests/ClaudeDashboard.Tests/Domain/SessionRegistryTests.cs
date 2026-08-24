@@ -432,6 +432,9 @@ public sealed class SessionRegistryTests
 
         Assert.Equal(SessionState.Unread, Current.State);
         Assert.Equal(finishedAt, Current.EnteredAt);
+
+        // The session was still heard from, so recency advances even though age does not.
+        Assert.Equal(_clock.Now, Current.LastActivity);
     }
 
     [Fact]
@@ -762,7 +765,7 @@ public sealed class SessionRegistryTests
         Assert.True(Apply(Moved(@"C:\projects\elsewhere")));
 
         Assert.Equal(@"C:\projects\elsewhere", Current.Cwd);
-        Assert.Equal(new GroupKey(@"C:\projects\elsewhere"), Current.Group);
+        Assert.Equal(GroupKeys.ForWorkspace(@"C:\projects\elsewhere"), Current.Group);
         Assert.Equal(SessionState.Working, Current.State);
     }
 
@@ -789,7 +792,7 @@ public sealed class SessionRegistryTests
             SessionId = Id, Timestamp = _clock.Now, Cwd = string.Empty, Prompt = "p", PromptId = "p-1",
         });
 
-        Assert.Equal(new GroupKey(Id.Value), Current.Group);
+        Assert.Equal(GroupKeys.ForUngrouped(Id), Current.Group);
     }
 
     // ---- Change notification ----------------------------------------------------------------------------

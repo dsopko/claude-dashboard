@@ -484,16 +484,15 @@ public sealed class SessionRegistry
               or SessionState.Error;
 
     /// <summary>
-    /// The Phase 1 group key: the workspace, falling back to the session's own id when no
-    /// <c>cwd</c> is known, so an ungroupable session groups alone rather than pooling with
-    /// every other directory-less one.
+    /// The key a session groups under.
     /// </summary>
     /// <remarks>
-    /// Provisional and minimal. TS §IV.3 makes <c>cwd</c> the Phase 1 key, and
-    /// <see cref="Session.Group"/> cannot be left unset, so the Registry has to produce one.
-    /// The group <em>resolver</em> — partitioning sessions into <see cref="Group"/> containers,
-    /// and any path normalization that implies — is T1.4's, and this is expected to defer to it.
+    /// The Registry stamps a key onto every session because <see cref="Session.Group"/> cannot
+    /// be left unset, but it does not <em>decide</em> the key: the policy — including
+    /// normalization and the no-workspace case — belongs to <see cref="GroupKeys"/>, which is
+    /// its only home. Keeping a second rule here is exactly how the Registry and the resolver
+    /// would drift into disagreeing about which group a session is in.
     /// </remarks>
     private static GroupKey DeriveGroup(string cwd, SessionId sessionId) =>
-        string.IsNullOrWhiteSpace(cwd) ? new GroupKey(sessionId.Value) : new GroupKey(cwd);
+        GroupKeys.ForSession(cwd, sessionId);
 }
