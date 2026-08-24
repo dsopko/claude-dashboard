@@ -34,7 +34,9 @@ A hexagonal split: a portable domain core with **ports** (interfaces), and a Win
 | **ClaudeDashboard.Core** | `net10.0` | Domain: Registry, state machine, attention engine, sound-policy engine, and the port interfaces. **Zero** WPF, zero Win32, zero ASP.NET. | — |
 | **ClaudeDashboard.App** | `net10.0-windows` | The Windows host: WPF UI, ingress (Kestrel), and every Win32/UIA/COM adapter. | Core |
 | **ClaudeDashboard.Remote** *(Phase 7)* | `net10.0` | ASP.NET Core + SignalR read/ack surface for the phone. A second consumer of Core. | Core |
-| **ClaudeDashboard.Tests** | `net10.0` | xUnit. Exercises Core (pure) and adapter contracts against fakes. | Core, App |
+| **ClaudeDashboard.Tests** | `net10.0-windows` | xUnit. Exercises Core (pure) and adapter contracts against fakes. | Core, App |
+
+> **Correction (2026-08-24, ratified at T1.0).** The Tests row originally read `net10.0`. That was unsatisfiable: a `net10.0` project cannot reference `ClaudeDashboard.App` (`net10.0-windows`) — NuGet rejects it with NU1201. The App reference is the load-bearing half of the row, so the TFM was widened to `net10.0-windows` and the single test project retained. Core's platform-neutrality is guaranteed by Core's own TFM and the forbidden-reference architecture tests, not by the test project's TFM. Alternatives weighed and rejected: splitting into `Core.Tests` + `App.Tests` (drags in a third `TestSupport` project once T1.6 adds shared fakes), and multi-targeting (doubles every test run).
 
 **Dependency rule:** everything points *at* Core; nothing points at App. All OS-specific code lives in App behind interfaces declared in Core. Enforced by project references and, optionally, an architecture test.
 
