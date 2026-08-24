@@ -379,6 +379,61 @@ public sealed class SessionRegistryTests
         Assert.Equal("overloaded", Current.ErrorKind);
     }
 
+    /// <summary>
+    /// Enriching a session in place must not make it look newer.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <see cref="Session.EnteredAt"/> is the age clock, and TS §IV.2 sorts the Needs-You band
+    /// <strong>oldest first</strong> — the longest-blocked session belongs at the top, because
+    /// it is the most wasted capacity. A same-state change that restarted that clock would sink
+    /// the session to the bottom of the band instead, quietly defeating the ordering asymmetry
+    /// TS calls the heart of the attention model. It would also reset the nudge schedule the
+    /// same clock feeds (TS §IV.5), so a session blocked for an hour could go on chiming as if
+    /// newly blocked.
+    /// </para>
+    /// <para>
+    /// The live path is <see cref="SessionState.Error"/> → <see cref="SessionState.Error"/>
+    /// with a different <c>ErrorKind</c>: a real change, accepted and recorded, but not a
+    /// change of state — so the clock must survive it.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void A_new_error_kind_must_not_restart_the_age_clock()
+    {
+        GivenWorking();
+        _clock.AdvanceMinutes(1);
+        Apply(Failed("rate_limit"));
+        var blockedSince = Current.EnteredAt;
+
+        _clock.AdvanceMinutes(10);
+        Assert.True(Apply(Failed("overloaded")));
+
+        Assert.Equal(SessionState.Error, Current.State);
+        Assert.Equal("overloaded", Current.ErrorKind);
+        Assert.Equal(blockedSince, Current.EnteredAt);
+
+        // The session was still heard from, so recency advances even though age does not.
+        Assert.Equal(_clock.Now, Current.LastActivity);
+    }
+
+    /// <summary>
+    /// The same rule for the other same-state path: a <c>cwd</c> move enriches the session
+    /// without changing what it is doing, so it must not restart the age clock either.
+    /// </summary>
+    [Fact]
+    public void A_directory_move_must_not_restart_the_age_clock()
+    {
+        GivenInState(SessionState.Unread);
+        var finishedAt = Current.EnteredAt;
+
+        _clock.AdvanceMinutes(10);
+        Assert.True(Apply(Moved(@"C:\projects\elsewhere")));
+
+        Assert.Equal(SessionState.Unread, Current.State);
+        Assert.Equal(finishedAt, Current.EnteredAt);
+    }
+
     [Fact]
     public void The_same_session_end_applied_twice_has_one_effect()
     {
