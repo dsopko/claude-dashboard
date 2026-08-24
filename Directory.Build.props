@@ -1,0 +1,23 @@
+<Project>
+
+  <!--
+    Solution-wide build settings. Applies to every project in the repo so the
+    language and analyzer configuration is genuinely in effect everywhere,
+    rather than being declared project by project (Execution Plan Part 1,
+    "Engineering standards"). Product projects add warnings-as-errors on top,
+    in src/Directory.Build.props.
+  -->
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+
+    <!-- Analyzers on, at the recommended (stricter than default) rule set. -->
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <AnalysisMode>Recommended</AnalysisMode>
+
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+</Project>

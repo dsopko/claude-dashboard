@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Impl 1.2 — the portable domain. Zero WPF, zero Win32/COM, zero ASP.NET.
+    References nothing; everything else points at it. Enforced by
+    ArchitectureTests in ClaudeDashboard.Tests.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>ClaudeDashboard.Core</RootNamespace>
+    <AssemblyName>ClaudeDashboard.Core</AssemblyName>
+  </PropertyGroup>
+
+</Project>

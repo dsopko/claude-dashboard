@@ -1,0 +1,16 @@
+<Project>
+
+  <!-- Chain to the repo-root Directory.Build.props; MSBuild otherwise stops here. -->
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+
+  <!--
+    Product code is held to warnings-as-errors (Execution Plan Part 1 requires
+    this for Core "at minimum"; App and Remote are held to the same bar).
+    The test project deliberately stays out of this so analyzer noise in test
+    scaffolding can never block a red/green cycle.
+  -->
+  <PropertyGroup>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+</Project>

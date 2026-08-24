@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Impl 1.2 — the Windows host: WPF UI, ingress, and every Win32/UIA/COM
+    adapter. References Core. Nothing but the test project may reference this.
+    Publish settings (win-x64, self-contained, single-file) land in T1.19.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <OutputType>WinExe</OutputType>
+    <RootNamespace>ClaudeDashboard.App</RootNamespace>
+    <AssemblyName>ClaudeDashboard.App</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ClaudeDashboard.Core\ClaudeDashboard.Core.csproj" />
+  </ItemGroup>
+
+</Project>

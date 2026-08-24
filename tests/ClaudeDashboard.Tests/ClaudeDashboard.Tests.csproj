@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Impl 1.2 — xUnit. Exercises Core (pure) and adapter contracts against fakes.
+    Targets net10.0-windows because it references App, which is a WPF host.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>ClaudeDashboard.Tests</RootNamespace>
+    <AssemblyName>ClaudeDashboard.Tests</AssemblyName>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+
+    <!--
+      CA1707 (no underscores in member names) is wrong for xUnit: underscore-separated
+      test names are the readable convention and are surfaced verbatim in test output.
+      Suppressed here only — product code keeps the rule.
+    -->
+    <NoWarn>$(NoWarn);CA1707</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\ClaudeDashboard.Core\ClaudeDashboard.Core.csproj" />
+    <ProjectReference Include="..\..\src\ClaudeDashboard.App\ClaudeDashboard.App.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+</Project>

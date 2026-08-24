@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Impl 1.2 — Phase 7 stub. Becomes the ASP.NET Core + SignalR read/ack surface
+    for the phone: a second consumer of Core. Empty placeholder until then.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>ClaudeDashboard.Remote</RootNamespace>
+    <AssemblyName>ClaudeDashboard.Remote</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ClaudeDashboard.Core\ClaudeDashboard.Core.csproj" />
+  </ItemGroup>
+
+</Project>
