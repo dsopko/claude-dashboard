@@ -259,9 +259,14 @@ Bands, top to bottom, with intra-band order:
 | Needs You | `NeedsYou.Permission`, `Error`, `NeedsYou.Question` | **by kind first — Permission > Error > Question — then oldest first within each kind** | cheapest-to-clear blocker first: a permission is usually seconds of operator time holding up an agent indefinitely |
 | Unread | `Unread` | **newest first** | freshest finish is the one being chased after a beep |
 | Working | `Working` | most recent activity first | — |
-| Quiet | `Acked`, idle | recency | sinks; collapsible |
+| Quiet | `Acked` (see note — covers "idle" too) | recency | sinks; collapsible |
 | Ended | `Ended` | recency | dim; auto-removed after a short window |
 
+> **Decision (2026-08-24, ratified by the operator).** This row previously read "`Acked`, idle", naming a distinct **idle** member that `SessionState` never had — so the model was knowingly incomplete against its own spec from T1.1 onward, and `AttentionOrder`'s remark had been recording the collision since T1.3. Raised again at T1.11, where the gap first became user-visible: a just-started session renders the badge "QUIET" though nothing has been seen because nothing has happened, and the "+ k quiet" footer counts "finished and seen" together with "started, nothing yet".
+>
+> **Ruled: no separate state. One quiet state covers both.** The operator's reasoning — not worth a dedicated `Idle` state for that edge case. `Acked` therefore carries both meanings deliberately, and this is settled rather than deferred: do not re-raise it as a defect.
+>
+> What it would have cost, recorded so a future reader can weigh a reversal rather than rediscover it: a `SessionState` change touching the transition table, `AttentionOrder`'s rank and band arrays, the sound engine's notice mapping, and every test asserting `Acked` — plus a **new persisted enum value**, since Impl §8 forbids renumbering. Both members sort by recency, so no ordering would change.
 The ordering asymmetry (reds by *ascending* age, greens by *descending* recency) is intentional and is the heart of the attention model. In the Needs-You band that asymmetry operates *within* each kind, since kind sorts first (see §IV.3). Pseudocode:
 
 ```
