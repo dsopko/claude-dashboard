@@ -195,6 +195,19 @@ public sealed class ServiceCompositionTests : IDisposable
     /// design — the invariant is one thread, not one call — which is why this needs a second
     /// thread rather than a nested <c>Enter</c>.
     /// </para>
+    /// <para>
+    /// <strong>Why the Registry's half asserts the write did not happen.</strong> The throw alone
+    /// does not distinguish the two guards. <c>AppHost</c> wires
+    /// <c>registry.SessionChanged += … sound.OnSessionChanged(…)</c>, so a Registry sitting in a
+    /// <em>private</em> region enters it unopposed, does the work, raises the notification, and
+    /// the <em>engine</em> throws from the shared region — a
+    /// <see cref="SingleWriterViolationException"/> comes out of <c>Apply</c> either way and
+    /// <c>Assert.Throws</c> cannot tell them apart. <c>Apply</c> stores the session on the line
+    /// before it raises, so the surviving evidence is the store: if the Registry shares the
+    /// region it is refused entry and writes nothing, and if it does not, the session is already
+    /// there when the engine throws. Asserting the throw <em>prevented</em> the write is what
+    /// separates them.
+    /// </para>
     /// </remarks>
     [Fact]
     public void The_single_writer_guard_is_one_shared_instance()
@@ -232,6 +245,11 @@ public sealed class ServiceCompositionTests : IDisposable
                 Cwd = _root,
                 Source = "startup",
             }));
+
+            // The throw must have *prevented* the write. See the remarks: without this, a Registry
+            // in a private region is refused by nothing, stores the session, and the engine throws
+            // downstream — which satisfies Assert.Throws just as well.
+            Assert.Empty(registry.Sessions);
 
             Assert.Throws<SingleWriterViolationException>(
                 () => sound.SetSessionMuted(new SessionId("s-1"), muted: true));
