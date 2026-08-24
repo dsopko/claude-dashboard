@@ -309,9 +309,24 @@
       <div class="band">QUIET</div>
       <div class="gstale" style="border-top:none"><span>4 quiet sessions</span></div>
     </div>
-    <p class="caption"><b>Flat view.</b> Same rows, global bands. Needs You sorts <b>oldest first</b>
-       (the longest-blocked agent tops the list — here the 9-minute rate-limit error). Unread sorts
-       <b>newest first</b>, because the freshest green is the one you're chasing after a beep.</p>
+    <p class="caption"><b>Flat view.</b> Same rows, global bands. Needs You sorts
+       <b>by kind first — Permission &gt; Error &gt; Question — then oldest first within each kind</b>.
+       Unread sorts <b>newest first</b>, because the freshest green is the one you're chasing after
+       a beep.</p>
+    <p class="caption" style="border-left:3px solid #c66;padding-left:10px">
+       <b>Correction (2026-08-24).</b> This caption previously read "Needs You sorts <i>oldest
+       first</i> (the longest-blocked agent tops the list — here the 9-minute rate-limit error)",
+       and <b>the Needs-You rows below are still drawn in that superseded order</b> — Error above
+       Question above Permission, which is the reverse of the ratified rule. The ordering authority
+       is <b>TS §IV.2/§IV.3</b> (ratified in <code>e645fd8</code>, then <code>2860e14</code>);
+       Design §5 was reconciled in <code>00a9954</code>. The rationale changed from age to
+       <b>throughput</b>: a permission is usually seconds of operator time standing between an agent
+       and an indefinite wait, so clearing it returns the most blocked capacity per second of
+       attention; an error is often self-recoverable on retry; a question may need real thought, and
+       thinking about it unblocks nothing else meanwhile.
+       <b>Use this file for visuals only — never for ordering.</b> The single implementation lives in
+       <code>AttentionOrder</code> and is consumed by both the attention engine and
+       <code>Group.WorstState</code>. Found at T1.11.</p>
   </div>
 
   <!-- ================= EXPANDED ROW ================= -->
