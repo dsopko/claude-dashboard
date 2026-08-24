@@ -193,6 +193,15 @@ Grouped into four sub-milestones. Each task lists Goal · Depends · Realizes ·
 - **Acceptance:** manual ack → Acked and the row greys/collapses; a new prompt auto-acks a prior Unread; both travel the same pipeline.
 - **Guardrails:** ack is an event through the Channel, not a direct Registry poke from the UI.
 
+**T1.12b — No silent collaborators** *(added 2026-08-24; scheduled ahead of T1.13)*
+- **Goal:** make a missing registration fail loudly at startup instead of quietly degrading the app.
+- **Depends:** T1.12
+- **Realizes:** the "single writer" working agreement (Part 1) — structurally, rather than by convention.
+- **Why it jumps the queue:** five instances of one class have now been found by hand (T1.6 unowned tick, T1.11 `UiTick` registration, T1.11a `Flush`, T1.11 collapsed-row restatement, T1.12 ack publisher). The cause is not a forgotten test: **in each case the collaborator is optional and its absence is silent.** Deleting `AddSingleton<IAckPublisher, AckPublisher>()` left 746 tests green with every Ack button in the shipped app permanently disabled — Microsoft DI honours a constructor default for an unregistered service rather than throwing. Worse: `SessionRegistry.guard` and `SoundPolicyEngine.guard` are both optional, so deleting that one registration leaves the Registry running with **no single-writer guard** while every test that constructs its own keeps passing. Doing this before T1.13 also spares retrofitting the tray and the Core mute surface it adds.
+- **Deliverables:** a guard test asserting that **for every type the container resolves, no constructor parameter that is itself a registered service may have a default value** (scanned via `IServiceProviderIsService`, so it holds for types added later and needs no list); the four current violations made required — `EventConsumer.uiTick`, `SessionRegistry.guard`, `SoundPolicyEngine.guard`, `UnhandledExceptionPolicy.clock`; **measure first** whether the container already publishes its `ServiceDescriptors` (a type registered behind an interface is container-constructed but invisible to `IsService`) and add the one-line seam only if it does not.
+- **Acceptance:** deleting any one of the four registrations reddens a test; reintroducing a default on any of the four reddens the guard; **no allowlist** — `SessionViewModel`'s optional `motion`/`ack` are excluded by the property itself, because rows are never resolved from a container.
+- **Guardrails:** no exemption list. If a genuine exemption ever appears, that is a stop-and-ask, not a suppression — the discriminating work belongs to the property, not to a hand-maintained set.
+
 **T1.13 — Tray status light**
 - **Goal:** the always-on status glyph.
 - **Depends:** T1.9
