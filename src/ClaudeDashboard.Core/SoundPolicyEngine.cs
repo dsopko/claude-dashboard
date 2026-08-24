@@ -148,9 +148,14 @@ public sealed class SoundPolicyEngine
     /// </remarks>
     public void Evaluate(DateTimeOffset now)
     {
-        // Enumerates _tracked while mutating its entries, and OnSessionChanged adds and removes
-        // from it. That pair is the race the T1.5 review reproduced, and it is why this method
-        // enters the region despite reading like a query.
+        // Enters the single-writer region because it ENUMERATES _tracked, not merely because it
+        // writes to the entries it finds. The distinction decides the method's future: what the
+        // T1.5 review actually reproduced was this enumeration being invalidated by
+        // OnSessionChanged inserting into the same dictionary — a structural modification during
+        // a walk, not two writes colliding. So if this were ever rewritten to stop touching the
+        // entries — returning the due nudges for the caller to act on, say — it would still have
+        // to enter the region, and a reviewer who classified it as a query on the grounds that
+        // it no longer writes would reopen exactly the race this closed.
         using var writing = _guard.Enter("evaluating the nudge schedule");
 
         foreach (var (id, tracked) in _tracked)

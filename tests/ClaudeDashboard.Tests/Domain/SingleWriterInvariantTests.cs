@@ -1,3 +1,4 @@
+using System.Reflection;
 using ClaudeDashboard.Core;
 using ClaudeDashboard.Core.Events;
 using ClaudeDashboard.Tests.Fakes;
@@ -137,13 +138,18 @@ public sealed class SingleWriterInvariantTests
     }
 
     /// <summary>
-    /// <strong>The T1.5 race, converted.</strong> <c>Evaluate</c> enumerates the tracked
-    /// sessions while mutating them and <c>OnSessionChanged</c> adds and removes from the same
-    /// dictionary, which is why the review could make it throw
+    /// <strong>The T1.5 race, converted.</strong> <c>Evaluate</c> <em>enumerates</em> the tracked
+    /// sessions while <c>OnSessionChanged</c> inserts into the same dictionary — an enumeration
+    /// invalidated by a structural modification, which is why the review could make it throw
     /// <see cref="InvalidOperationException"/> from the collection within a few hundred
-    /// iterations. It now fails as the guard's own exception instead — the same collision,
-    /// named, at the moment it happens, rather than a mangled enumeration.
+    /// iterations. It now fails as the guard's own exception instead: the same collision, named,
+    /// at the moment it happens, rather than a mangled walk.
     /// </summary>
+    /// <remarks>
+    /// Note what the hazard is <em>not</em>: two writes colliding. <c>Evaluate</c> also writes,
+    /// but a version of it that only read would race identically. See the comment at its guard
+    /// entry.
+    /// </remarks>
     [Fact]
     public void Evaluate_racing_a_session_change_is_caught_as_a_violation_not_a_mangled_collection()
     {
@@ -170,28 +176,91 @@ public sealed class SingleWriterInvariantTests
         }
     }
 
-    /// <summary>Every mutator, so none is left opt-in.</summary>
+    /// <summary>
+    /// Every method classified as a mutator, proven to enter the region.
+    /// </summary>
+    /// <remarks>
+    /// Paired with <see cref="No_public_method_escapes_classification"/>, which is what stops
+    /// this list from being the same kind of enumeration the guard replaced. On its own it
+    /// proves only that the five methods someone thought of are guarded; together they prove
+    /// that every public method is either on this list — and therefore guarded — or explicitly
+    /// declared a query.
+    /// </remarks>
     [Fact]
     public void Every_mutator_enters_the_region()
     {
-        var mutators = new (string Name, Action Call)[]
-        {
-            ("SessionRegistry.Apply", () => _registry.Apply(Prompt("s-9", At))),
-            ("SoundPolicyEngine.OnSessionChanged", () => _sound.OnSessionChanged(Blocked("s-9", At))),
-            ("SoundPolicyEngine.Evaluate", () => _sound.Evaluate(_clock.Now)),
-            ("SoundPolicyEngine.SetSessionMuted", () => _sound.SetSessionMuted(new SessionId("s-9"), true)),
-            ("SoundPolicyEngine.SetGroupMuted", () => _sound.SetGroupMuted(GroupKeys.ForWorkspace(@"C:\w"), true)),
-        };
-
         using var held = _guard.Enter("the consumer, mid-event");
 
-        foreach (var (name, call) in mutators)
+        foreach (var (name, call) in Mutators)
         {
             Assert.True(
                 OnAnotherThread(call) is SingleWriterViolationException,
                 $"{name} does not enter the single-writer region, so a second thread can reach it unnoticed.");
         }
     }
+
+    /// <summary>
+    /// <strong>A new public method is guilty until classified.</strong>
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The guard is structural, but the proof that it covers everything was not: a hand-written
+    /// list of five mutators is "the ones someone thought of", moved out of a comment and into a
+    /// test. A sixth public mutator added tomorrow would be unguarded and invisible — the exact
+    /// failure this task existed to remove, displaced one level.
+    /// </para>
+    /// <para>
+    /// So the default is inverted. Anything public must be declared a mutator — which the test
+    /// above proves guarded — or a query. Adding a method and neither classifying it nor
+    /// guarding it fails here. Classification is asserted rather than invocation, deliberately:
+    /// synthesising arguments reflectively is fragile, and it is not needed, because the mutator
+    /// list is independently proven.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void No_public_method_escapes_classification()
+    {
+        // Queries: they read and do not mutate, so they do not enter the region. See
+        // SingleWriterGuard for why reads are documented rather than guarded.
+        string[] queries = ["IsMuted", "NextNudgeAt"];
+
+        var classified = Mutators
+            .Select(mutator => mutator.Name.Split('.')[^1])
+            .Concat(queries)
+            .ToHashSet(StringComparer.Ordinal);
+
+        foreach (var type in new[] { typeof(SessionRegistry), typeof(SoundPolicyEngine) })
+        {
+            var unclassified = type
+                .GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
+                .Where(method => !method.IsSpecialName)
+                .Select(method => method.Name)
+                .Where(name => !classified.Contains(name))
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+
+            Assert.True(
+                unclassified.Count == 0,
+                $"{type.Name} has unclassified public methods: {string.Join(", ", unclassified)}. " +
+                "Add each to the mutator list — which proves it enters the guard — or to the query list.");
+        }
+    }
+
+    /// <summary>
+    /// The methods that mutate shared state and must therefore enter the single-writer region.
+    /// </summary>
+    /// <remarks>
+    /// An instance member because each entry must actually be callable; the classification test
+    /// takes the names from here so the two cannot drift apart.
+    /// </remarks>
+    private (string Name, Action Call)[] Mutators =>
+    [
+        ("SessionRegistry.Apply", () => _registry.Apply(Prompt("s-9", At))),
+        ("SoundPolicyEngine.OnSessionChanged", () => _sound.OnSessionChanged(Blocked("s-9", At))),
+        ("SoundPolicyEngine.Evaluate", () => _sound.Evaluate(_clock.Now)),
+        ("SoundPolicyEngine.SetSessionMuted", () => _sound.SetSessionMuted(new SessionId("s-9"), true)),
+        ("SoundPolicyEngine.SetGroupMuted", () => _sound.SetGroupMuted(GroupKeys.ForWorkspace(@"C:\w"), true)),
+    ];
 
     // ---- What must NOT be caught ----------------------------------------------------------------
 
