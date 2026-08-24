@@ -1,6 +1,11 @@
 using System.Globalization;
+using ClaudeDashboard.App.Adapters;
 using ClaudeDashboard.App.Configuration;
+using ClaudeDashboard.App.Ingress;
+using ClaudeDashboard.Core.Ports;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using ILogger = Serilog.ILogger;
@@ -29,9 +34,10 @@ namespace ClaudeDashboard.App.Hosting;
 /// </remarks>
 public static class AppHost
 {
-    /// <summary>Builds the host: settings, logging, and the exception policy.</summary>
+    /// <summary>Builds the host: settings, logging, the exception policy, and ingress.</summary>
     /// <param name="paths">Where the data folder is; defaults to <c>%LOCALAPPDATA%\ClaudeDashboard\</c>.</param>
-    public static IHost Build(DashboardPaths? paths = null)
+    /// <param name="onShow">What a <c>/show</c> post should do; T1.15 supplies it.</param>
+    public static WebApplication Build(DashboardPaths? paths = null, Action? onShow = null)
     {
         var resolved = paths ?? new DashboardPaths();
         var foldersReady = resolved.TryEnsureCreated(out var folderFailure);
@@ -43,21 +49,42 @@ public static class AppHost
 
         ReportStartup(logger, resolved, loaded, foldersReady, folderFailure);
 
-        var builder = Host.CreateApplicationBuilder();
+        var builder = WebApplication.CreateSlimBuilder();
 
-        // The host's own diagnostics would need Serilog.Extensions.Hosting to reach the rolling
-        // file, and that package is not in Impl Appendix A. Clearing the default providers keeps
-        // the console provider from writing into a process that has no console. See the status
-        // report: this is a genuine gap in Appendix A, not a preference.
+        // Route the framework's own diagnostics into the rolling file. Without this bridge,
+        // Kestrel's bind failure on the fixed port — the likeliest startup failure this app has
+        // — would reach no sink at all, and the operator would see a dashboard that starts,
+        // says so, and then never receives a hook, with nothing anywhere explaining why.
         builder.Logging.ClearProviders();
+        builder.Logging.AddSerilog(logger, dispose: false);
+
+        // Impl §3.1: loopback only, fixed default port, configurable. Loopback is the whole of
+        // the network boundary — nothing off-machine may post events (TS §II.5).
+        builder.WebHost.ConfigureKestrel(kestrel =>
+        {
+            kestrel.ListenLocalhost(loaded.Settings.Port);
+            kestrel.AddServerHeader = false;
+        });
 
         builder.Services.AddSingleton(resolved);
         builder.Services.AddSingleton(settingsStore);
         builder.Services.AddSingleton(loaded.Settings);
         builder.Services.AddSingleton<ILogger>(logger);
         builder.Services.AddSingleton<UnhandledExceptionPolicy>();
+        builder.Services.AddSingleton<IClock, SystemClock>();
+        builder.Services.AddSingleton<IngressToken>();
+        builder.Services.AddSingleton<HookEventMapper>();
+        builder.Services.AddSingleton<IEventSink, LoggingEventSink>();
 
-        return builder.Build();
+        var app = builder.Build();
+        app.MapIngress(onShow);
+
+        logger.Information(
+            "Ingress will listen on http://127.0.0.1:{Port} (loopback only). Token check {TokenState}.",
+            loaded.Settings.Port,
+            app.Services.GetRequiredService<IngressToken>().IsConfigured ? "enabled" : "disabled");
+
+        return app;
     }
 
     /// <summary>
@@ -103,6 +130,17 @@ public static class AppHost
     {
         var configuration = new LoggerConfiguration()
             .MinimumLevel.Information()
+
+            // The framework logs four lines per request at Information — request starting,
+            // endpoint executing, status code, request finished. Across fifteen busy sessions
+            // that buries the dashboard's own diagnostics in its own traffic, in a file kept for
+            // a fortnight. Framework warnings and errors still reach the file, which is what the
+            // bridge is for: a Kestrel bind failure on the fixed port is the likeliest startup
+            // failure this app has, and it must not be silent.
+            .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
+
+            // …except the lifetime messages, which say what was bound and that startup finished.
+            .MinimumLevel.Override("Microsoft.Hosting.Lifetime", LogEventLevel.Information)
             .Enrich.FromLogContext();
 
         if (foldersReady)

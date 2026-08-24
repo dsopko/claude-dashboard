@@ -1,3 +1,5 @@
+using System.IO;
+using Microsoft.AspNetCore.Connections;
 using ClaudeDashboard.App.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -57,6 +59,19 @@ public static class Program
             host.StopAsync().GetAwaiter().GetResult();
             Log.Information("Claude Dashboard exited with code {ExitCode}.", exitCode);
             return exitCode;
+        }
+        catch (IOException ex) when (ex.InnerException is AddressInUseException)
+        {
+            // Impl §3.1 fixes the port so the hook URL stays stable, which makes "something
+            // else already has it" the likeliest startup failure this app will ever have. The
+            // operator has no console and no window, so the log line has to be the whole
+            // diagnosis — a stack trace alone would say what happened but not what to do.
+            Log.Fatal(
+                ex,
+                "Claude Dashboard could not start: another process is already using the ingress port. " +
+                "Stop that process, or set a different \"port\" in the settings file, and remember that " +
+                "the hook URL registered with Claude Code must match it.");
+            return 1;
         }
         catch (Exception ex)
         {

@@ -24,7 +24,24 @@ public sealed class AppHostTests : IDisposable
 
     private readonly DashboardPaths _paths;
 
-    public AppHostTests() => _paths = new DashboardPaths(_root);
+    public AppHostTests()
+    {
+        _paths = new DashboardPaths(_root);
+
+        // Every host now binds Kestrel (T1.8). Tests take a free ephemeral port so they neither
+        // collide with each other nor with a dashboard actually running on the fixed 52789.
+        new SettingsStore(_paths).Save(new DashboardSettings { Port = FreePort() });
+    }
+
+    /// <summary>Asks the OS for a free loopback port and releases it.</summary>
+    internal static int FreePort()
+    {
+        using var probe = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+        probe.Start();
+        var port = ((System.Net.IPEndPoint)probe.LocalEndpoint).Port;
+        probe.Stop();
+        return port;
+    }
 
     public void Dispose()
     {
@@ -86,12 +103,14 @@ public sealed class AppHostTests : IDisposable
     [Fact]
     public void The_host_creates_the_data_and_log_folders()
     {
-        Assert.False(Directory.Exists(_root));
+        // A root nothing has touched — this fixture's constructor writes settings into _root.
+        var fresh = new DashboardPaths(Path.Combine(_root, "fresh"));
+        Assert.False(Directory.Exists(fresh.Root));
 
-        using var host = AppHost.Build(_paths);
+        using var host = AppHost.Build(fresh);
 
-        Assert.True(Directory.Exists(_paths.Root));
-        Assert.True(Directory.Exists(_paths.LogFolder));
+        Assert.True(Directory.Exists(fresh.Root));
+        Assert.True(Directory.Exists(fresh.LogFolder));
     }
 
     [Fact]
@@ -107,16 +126,26 @@ public sealed class AppHostTests : IDisposable
     }
 
     /// <summary>
-    /// T1.9 must run the consumer and the nudge tick as one serialized loop. Nothing hosted is
-    /// registered yet, so it inherits a clean slate rather than an existing service to sit
-    /// beside — which is how two racing loops would come about.
+    /// T1.9 must run the event consumer and the nudge tick as one serialized loop. No hosted
+    /// service of ours exists yet, so it inherits a clean slate rather than an existing service
+    /// to sit beside — which is how two racing loops come about.
     /// </summary>
+    /// <remarks>
+    /// Filtered to this solution's own assemblies. Since T1.8 the host is a
+    /// <c>WebApplication</c>, so the framework registers a hosted service of its own to run
+    /// Kestrel; that one is expected. A second of <em>ours</em> is what would race.
+    /// </remarks>
     [Fact]
-    public void No_hosted_service_is_registered_yet()
+    public void No_hosted_service_of_our_own_is_registered_yet()
     {
         using var host = AppHost.Build(_paths);
 
-        Assert.Empty(host.Services.GetServices<IHostedService>());
+        var ours = host.Services.GetServices<IHostedService>()
+            .Where(service => service.GetType().Assembly.GetName().Name?
+                .StartsWith("ClaudeDashboard", StringComparison.Ordinal) == true)
+            .ToList();
+
+        Assert.Empty(ours);
     }
 
     // ---- Settings reach the host ----------------------------------------------------------------
@@ -134,11 +163,19 @@ public sealed class AppHostTests : IDisposable
     [Fact]
     public void A_missing_settings_file_is_logged_and_defaults_are_used()
     {
-        using (AppHost.Build(_paths))
+        // This fixture writes a settings file so its host binds a free port; remove it, and use
+        // a fresh root so the default port is never actually bound.
+        var fresh = new DashboardPaths(Path.Combine(_root, "no-settings"));
+
+        using (AppHost.Build(fresh))
         {
         }
 
-        Assert.Contains("using defaults", ReadAllLogs(), StringComparison.Ordinal);
+        Log.CloseAndFlush();
+        var logs = string.Concat(
+            Directory.EnumerateFiles(fresh.LogFolder, "*.log").Select(File.ReadAllText));
+
+        Assert.Contains("using defaults", logs, StringComparison.Ordinal);
     }
 
     /// <summary>
