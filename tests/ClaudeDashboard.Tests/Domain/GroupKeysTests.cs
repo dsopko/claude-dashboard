@@ -45,6 +45,21 @@ public sealed class GroupKeysTests
         Assert.Equal(GroupKeys.ForWorkspace(one), GroupKeys.ForWorkspace(other));
     }
 
+    /// <summary>
+    /// Trimming <c>/</c> as well as <c>\</c> concedes that both spellings reach this rule, so
+    /// leaving interior separators distinct would be half a rule — <c>C:\Projects\x</c> and
+    /// <c>C:/Projects/x</c> name one directory, and two keys for it split a workspace into two
+    /// groups that look entirely legitimate on screen.
+    /// </summary>
+    [Theory]
+    [InlineData(@"C:\Projects\x", "C:/Projects/x")]
+    [InlineData(@"C:\Projects\x", "c:/projects/x/")]
+    [InlineData(@"C:\a\b\c", "C:/a/b/c")]
+    public void Separator_spelling_does_not_split_a_workspace(string one, string other)
+    {
+        Assert.Equal(GroupKeys.ForWorkspace(one), GroupKeys.ForWorkspace(other));
+    }
+
     [Fact]
     public void Casing_and_a_trailing_separator_together_do_not_split_a_workspace()
     {

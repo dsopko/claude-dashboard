@@ -39,20 +39,26 @@ public enum GroupKeyKind
 /// <see cref="GroupKey"/> compares ordinally, so <c>C:\Projects\x</c> and <c>C:\projects\x</c>
 /// would otherwise be two groups and would split a workspace on screen. This is not
 /// hypothetical: this repository's own build emitted both spellings of its own path inside a
-/// single run. So a workspace key is compared with trailing separators removed and casing
-/// folded, and the rule is stated in string terms — trim <c>\</c> and <c>/</c>, then fold case
-/// invariantly — rather than by calling a path API whose behavior changes with the OS. Core
-/// therefore still reasons about strings, not about Windows paths.
+/// single run. So a workspace key is compared with separators unified, trailing separators
+/// removed and casing folded, and the rule is stated in string terms rather than by calling a
+/// path API whose behavior changes with the OS. Core therefore still reasons about strings, not
+/// about Windows paths.
 /// </para>
 /// <para>
 /// <strong>What that costs.</strong> On a case-sensitive filesystem, <c>/home/x/Work</c> and
-/// <c>/home/x/work</c> are genuinely different directories and this rule would merge them into
-/// one group — showing together two sessions that are not together. That is not reachable in
-/// any planned deployment: the host is a Windows tray app pinned to <c>win-x64</c> (Impl §1.1)
-/// and the Phase 7 remote surface is a second consumer of Core on the same machine, not a
-/// second platform. If that ever changes, the fix is to inject the comparison as a port and
-/// let the host supply it — a contained change, because the rule lives only in
-/// <see cref="Canonical"/>.
+/// <c>/home/x/work</c> are genuinely different directories and this rule merges them into one
+/// group — showing together two sessions that are not together.
+/// </para>
+/// <para>
+/// The bound on that risk is the filesystem of the sessions being <em>observed</em>, not the
+/// architecture of the host: the dashboard being pinned to <c>win-x64</c> (Impl §1.1) governs
+/// where it runs, not what <c>cwd</c> values reach it. A Claude Code session running under WSL
+/// on the same machine reports POSIX, case-sensitive paths, and its hooks post to the same
+/// loopback endpoint — so a case-sensitive <c>cwd</c> is reachable today. Accepting the cost is
+/// still the right call, because triggering it needs two directories differing <em>only</em> by
+/// case with live sessions in both, and the result is visible on screen rather than silent. If
+/// it ever needs fixing, the fix is to inject the comparison as a port and let the host supply
+/// it — a contained change, because the rule lives only in <see cref="Canonical"/>.
 /// </para>
 /// <para>
 /// A key is not a display string. The canonical form has folded casing, so anything rendering
@@ -112,14 +118,32 @@ public static class GroupKeys
     };
 
     /// <summary>
-    /// The comparison rule for workspaces: trailing separators are meaningless and casing does
-    /// not distinguish directories. See the remarks on this type for what that costs.
+    /// The comparison rule for workspaces: separator spelling, trailing separators and casing
+    /// none of them distinguish directories. See the remarks on this type for what that costs.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Interior separators are unified as well as trailing ones. Handling one without the other
+    /// would be half a rule: <c>C:\Projects\x</c> and <c>C:/Projects/x</c> name one directory,
+    /// and leaving them as two keys splits a workspace into two groups that look entirely
+    /// legitimate on screen — the failure is invisible, which is what makes it worth closing.
+    /// The direction of the unification is arbitrary, since a key is an identity and never
+    /// rendered.
+    /// </para>
+    /// <para>
+    /// Unifying separators can in principle merge two distinct directories — a POSIX
+    /// <c>/home/x</c> and a drive-relative Windows <c>\home\x</c> canonicalize alike. That needs
+    /// live sessions in both, on one machine, at paths identical but for separator spelling;
+    /// it is a far smaller risk than the workspace-splitting it prevents.
+    /// </para>
+    /// </remarks>
     private static string Canonical(string cwd)
     {
         var trimmed = cwd.TrimEnd('\\', '/');
 
-        // A path that is nothing but separators is the root, not nothing.
-        return (trimmed.Length == 0 ? cwd : trimmed).ToUpperInvariant();
+        // A path that is nothing but separators is the root, not nothing. Note the asymmetry
+        // this leaves: "C:\" canonicalizes to "C:" but a bare "\" stays "\", because the
+        // fallback returns the original. Harmless — each spelling still agrees with itself.
+        return (trimmed.Length == 0 ? cwd : trimmed).Replace('/', '\\').ToUpperInvariant();
     }
 }

@@ -81,6 +81,23 @@ public sealed class GroupResolverTests
         Assert.Single(groups);
     }
 
+    /// <summary>
+    /// The third normalization case, at the level where its failure is actually visible: two
+    /// spellings of one directory would show as two entirely legitimate-looking groups.
+    /// </summary>
+    [Fact]
+    public void Separator_spelling_does_not_split_a_workspace_into_two_groups()
+    {
+        var groups = GroupResolver.Resolve(
+        [
+            Session("s-1", @"C:\projects\dashboard"),
+            Session("s-2", "C:/projects/dashboard"),
+        ]);
+
+        var group = Assert.Single(groups);
+        Assert.Equal(2, group.Members.Count);
+    }
+
     [Fact]
     public void Sessions_without_a_workspace_each_group_alone()
     {
