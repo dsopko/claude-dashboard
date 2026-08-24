@@ -18,6 +18,12 @@ This plan is written to be consumed by a **director agent** that turns it into p
 > mechanism-to-phase map), and built the UI from the mockups alone — without the row
 > anatomy or the motion rule. Note also that the Design Document was **not listed among
 > the authoritative documents in `CLAUDE.md`**, so it would not have been read at all.
+>
+> **Swept 2026-08-24.** Every `TS §<roman>` reference in this plan resolves to a real
+> section. The broken ones were exactly those written with **Arabic** numerals, and all
+> five are now corrected to `Design §…`: T1.1 (§4), T1.10 (§5, §7), T1.11 (§5–§9),
+> T1.12 (§4), T1.13 (§9). **Rule of thumb for future edits: the TS is cited `TS §I.2`
+> style, the Design Document `Design §4` style. An Arabic numeral after "TS" is a bug.**
 
 **The director's loop, per task:**
 
@@ -90,7 +96,7 @@ Grouped into four sub-milestones. Each task lists Goal · Depends · Realizes ·
 **T1.1 — Core domain types**
 - **Goal:** the immutable domain vocabulary.
 - **Depends:** T1.0
-- **Realizes:** TS §4; Impl §2.1
+- **Realizes:** Design §4; Impl §2.1
 - **Deliverables:** `SessionId`, `Exchange`, `SessionState` enum, `Session`, `Group`, and the `InboundEvent` record hierarchy (one variant per consumed event, Impl §9.1).
 - **Acceptance:** tests for construction, value-equality, and the `InboundEvent` variants carrying the fields from Impl §9.1.
 - **Guardrails:** Core-only; no behavior yet.
@@ -182,7 +188,7 @@ Grouped into four sub-milestones. Each task lists Goal · Depends · Realizes ·
 **T1.12 — Ack tiers 1–2**
 - **Goal:** mark results seen.
 - **Depends:** T1.11, T1.9
-- **Realizes:** TS §4 (Acknowledgment), §IV.1
+- **Realizes:** Design §4 (Acknowledgment — the three tiers); TS §I.3 (all ack sources travel one path); TS §IV.1
 - **Deliverables:** auto-ack (already in the state machine via next `UserPromptSubmit`) verified end-to-end; **manual ack** via the row/expanded button emitting a synthetic ack `InboundEvent` into the Channel.
 - **Acceptance:** manual ack → Acked and the row greys/collapses; a new prompt auto-acks a prior Unread; both travel the same pipeline.
 - **Guardrails:** ack is an event through the Channel, not a direct Registry poke from the UI.
