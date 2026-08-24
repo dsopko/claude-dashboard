@@ -40,7 +40,7 @@ public sealed class SoundPolicyEngineTests
     private readonly FakeClock _clock = new();
     private readonly SoundPolicyEngine _engine;
 
-    public SoundPolicyEngineTests() => _engine = new SoundPolicyEngine(_player, _clock);
+    public SoundPolicyEngineTests() => _engine = new SoundPolicyEngine(_player, _clock, new SingleWriterGuard());
 
     // ---- Distinguishing the two kinds of sound ------------------------------------------------
 
@@ -305,7 +305,7 @@ public sealed class SoundPolicyEngineTests
     [Fact]
     public void An_errored_session_can_be_configured_not_to_nudge()
     {
-        var engine = new SoundPolicyEngine(_player, _clock, new SoundPolicyOptions { NudgeOnError = false });
+        var engine = new SoundPolicyEngine(_player, _clock, new SingleWriterGuard(), new SoundPolicyOptions { NudgeOnError = false });
 
         engine.OnSessionChanged(SessionIn(SessionState.Error, Start));
         engine.Evaluate(Start.AddMinutes(60));
@@ -430,7 +430,7 @@ public sealed class SoundPolicyEngineTests
     public void The_unread_nudge_can_be_turned_off_entirely()
     {
         var engine = new SoundPolicyEngine(
-            _player, _clock, new SoundPolicyOptions { UnreadNudgeAfter = null });
+            _player, _clock, new SingleWriterGuard(), new SoundPolicyOptions { UnreadNudgeAfter = null });
 
         engine.OnSessionChanged(SessionIn(SessionState.Unread, Start));
         engine.Evaluate(Start.AddMinutes(600));
@@ -669,10 +669,11 @@ public sealed class SoundPolicyEngineTests
     // ---- Construction ------------------------------------------------------------------------------------------
 
     [Fact]
-    public void The_engine_needs_a_player_and_a_clock()
+    public void The_engine_needs_a_player_a_clock_and_the_shared_guard()
     {
-        Assert.Throws<ArgumentNullException>(() => new SoundPolicyEngine(null!, _clock));
-        Assert.Throws<ArgumentNullException>(() => new SoundPolicyEngine(_player, null!));
+        Assert.Throws<ArgumentNullException>(() => new SoundPolicyEngine(null!, _clock, new SingleWriterGuard()));
+        Assert.Throws<ArgumentNullException>(() => new SoundPolicyEngine(_player, null!, new SingleWriterGuard()));
+        Assert.Throws<ArgumentNullException>(() => new SoundPolicyEngine(_player, _clock, null!));
     }
 
     [Fact]
@@ -687,7 +688,7 @@ public sealed class SoundPolicyEngineTests
     {
         var louder = new SoundPolicyOptions { NoticeGain = 0.5, NudgeGain = 0.9 };
 
-        Assert.Throws<ArgumentException>(() => new SoundPolicyEngine(_player, _clock, louder));
+        Assert.Throws<ArgumentException>(() => new SoundPolicyEngine(_player, _clock, new SingleWriterGuard(), louder));
     }
 
     [Fact]
@@ -696,6 +697,7 @@ public sealed class SoundPolicyEngineTests
         var engine = new SoundPolicyEngine(
             _player,
             _clock,
+            new SingleWriterGuard(),
             new SoundPolicyOptions { NudgeLadder = [TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(3)] });
 
         engine.OnSessionChanged(SessionIn(SessionState.NeedsPermission, Start));

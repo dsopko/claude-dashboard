@@ -53,7 +53,7 @@ namespace ClaudeDashboard.Core;
 /// </description></item>
 /// </list>
 /// </remarks>
-public sealed class SessionRegistry(SingleWriterGuard? guard = null)
+public sealed class SessionRegistry(SingleWriterGuard guard)
 {
     private readonly Dictionary<SessionId, Session> _sessions = [];
 
@@ -65,7 +65,7 @@ public sealed class SessionRegistry(SingleWriterGuard? guard = null)
     /// cannot be inside the other. A Registry built without one gets its own, which is what an
     /// isolated unit test wants.
     /// </remarks>
-    private readonly SingleWriterGuard _guard = guard ?? new SingleWriterGuard();
+    private readonly SingleWriterGuard _guard = guard ?? throw new ArgumentNullException(nameof(guard));
 
     /// <summary>
     /// Every session the Registry has seen, keyed by <c>session_id</c>.

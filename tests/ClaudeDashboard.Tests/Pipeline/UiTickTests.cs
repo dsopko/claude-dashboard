@@ -35,7 +35,7 @@ public sealed class UiTickTests : IAsyncLifetime
     private readonly FakeClock _clock = new();
     private readonly RecordingSoundPlayer _player = new();
     private readonly SingleWriterGuard _guard = new();
-    private readonly SessionRegistry _registry = new();
+    private readonly SessionRegistry _registry = new(new SingleWriterGuard());
     private readonly EventPipeline _pipeline = new(Logger.None);
     private readonly QueueingDispatcher _dispatcher = new();
 
@@ -53,7 +53,7 @@ public sealed class UiTickTests : IAsyncLifetime
         _consumer = new EventConsumer(
             _pipeline,
             _registry,
-            new SoundPolicyEngine(_player, _clock),
+            new SoundPolicyEngine(_player, _clock, _guard),
             _clock,
             _guard,
             Logger.None,
@@ -219,7 +219,7 @@ public sealed class UiTickTests : IAsyncLifetime
         using var consumer = new EventConsumer(
             _pipeline,
             _registry,
-            new SoundPolicyEngine(_player, _clock),
+            new SoundPolicyEngine(_player, _clock, _guard),
             _clock,
             _guard,
             Logger.None,

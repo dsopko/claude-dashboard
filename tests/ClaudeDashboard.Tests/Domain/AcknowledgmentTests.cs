@@ -70,7 +70,7 @@ public sealed class AcknowledgmentTests
     [Fact]
     public void The_event_names_its_session_and_its_source()
     {
-        var session = Reach(new SessionRegistry(), "s-1", SessionState.Unread);
+        var session = Reach(new SessionRegistry(new SingleWriterGuard()), "s-1", SessionState.Unread);
 
         var ack = Acknowledgment.For(session, At.AddMinutes(5), AckSource.Manual);
 
@@ -94,7 +94,7 @@ public sealed class AcknowledgmentTests
     [Fact]
     public void The_event_carries_the_sessions_workspace()
     {
-        var registry = new SessionRegistry();
+        var registry = new SessionRegistry(new SingleWriterGuard());
         var before = Reach(registry, "s-1", SessionState.Unread);
 
         var ack = Acknowledgment.For(before, At.AddMinutes(1), AckSource.Manual);
@@ -124,7 +124,7 @@ public sealed class AcknowledgmentTests
     /// </remarks>
     private static bool AcknowledgedManually(SessionState state)
     {
-        var registry = new SessionRegistry();
+        var registry = new SessionRegistry(new SingleWriterGuard());
         var session = Reach(registry, "s-1", state);
 
         var outcome = registry.Apply(Acknowledgment.For(session, At.AddMinutes(30), AckSource.Manual));
@@ -139,7 +139,7 @@ public sealed class AcknowledgmentTests
     /// </summary>
     private static bool AcknowledgedByTheNextPrompt(SessionState state)
     {
-        var registry = new SessionRegistry();
+        var registry = new SessionRegistry(new SingleWriterGuard());
         var session = Reach(registry, "s-1", state);
 
         registry.Apply(new UserPromptSubmit

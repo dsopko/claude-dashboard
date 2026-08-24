@@ -28,7 +28,7 @@ public sealed class MainViewModelTests : IDisposable
 {
     private static readonly DateTimeOffset At = FakeClock.DefaultStart;
 
-    private readonly SessionRegistry _registry = new();
+    private readonly SessionRegistry _registry = new(new SingleWriterGuard());
     private readonly QueueingDispatcher _dispatcher = new();
     private readonly SessionProjection _projection;
     private readonly MainViewModel _viewModel;

@@ -346,8 +346,8 @@ public sealed class SingleWriterInvariantTests
     [Fact]
     public void Independently_constructed_registries_do_not_contend()
     {
-        var first = new SessionRegistry();
-        var second = new SessionRegistry();
+        var first = new SessionRegistry(new SingleWriterGuard());
+        var second = new SessionRegistry(new SingleWriterGuard());
 
         Assert.Equal(ApplyOutcome.Applied, first.Apply(Prompt("s-1", At)));
         Assert.Null(OnAnotherThread(() => second.Apply(Prompt("s-2", At))));

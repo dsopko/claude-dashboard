@@ -52,7 +52,7 @@ public sealed class DeclineLoggingTests : IAsyncLifetime
     private readonly FakeClock _clock = new();
     private readonly CapturingSink _sink = new();
     private readonly SingleWriterGuard _guard = new();
-    private readonly SessionRegistry _registry = new();
+    private readonly SessionRegistry _registry = new(new SingleWriterGuard());
     private readonly EventPipeline _pipeline = new(Logger.None);
 
     private Logger _logger = null!;
@@ -71,10 +71,11 @@ public sealed class DeclineLoggingTests : IAsyncLifetime
         _consumer = new EventConsumer(
             _pipeline,
             _registry,
-            new SoundPolicyEngine(new RecordingSoundPlayer(), _clock),
+            new SoundPolicyEngine(new RecordingSoundPlayer(), _clock, _guard),
             _clock,
             _guard,
             _logger,
+            new RecordingUiTick(),
             tickInterval: TimeSpan.FromMinutes(5));
 
         return _consumer.StartAsync(CancellationToken.None);

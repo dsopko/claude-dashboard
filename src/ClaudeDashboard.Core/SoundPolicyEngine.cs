@@ -62,17 +62,18 @@ public sealed class SoundPolicyEngine
     public SoundPolicyEngine(
         ISoundPlayer player,
         IClock clock,
-        SoundPolicyOptions? options = null,
-        SingleWriterGuard? guard = null)
+        SingleWriterGuard guard,
+        SoundPolicyOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(player);
         ArgumentNullException.ThrowIfNull(clock);
+        ArgumentNullException.ThrowIfNull(guard);
 
         _player = player;
         _clock = clock;
         _options = options ?? new SoundPolicyOptions();
         _options.Validate();
-        _guard = guard ?? new SingleWriterGuard();
+        _guard = guard;
     }
 
     /// <summary>

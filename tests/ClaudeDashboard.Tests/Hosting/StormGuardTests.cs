@@ -428,4 +428,16 @@ public sealed class StormGuardTests
     {
         Assert.Throws<ArgumentNullException>(() => _policy.HandleDispatcherException(null!));
     }
+
+    /// <summary>
+    /// …and it needs a logger and a clock. The clock used to default to a private
+    /// <c>SystemClock</c>, which is behaviourally identical and therefore exactly the kind of
+    /// benign case that makes an exemption list start (T1.12b).
+    /// </summary>
+    [Fact]
+    public void The_policy_needs_a_logger_and_a_clock()
+    {
+        Assert.Throws<ArgumentNullException>(() => new UnhandledExceptionPolicy(null!, _clock));
+        Assert.Throws<ArgumentNullException>(() => new UnhandledExceptionPolicy(Serilog.Core.Logger.None, null!));
+    }
 }

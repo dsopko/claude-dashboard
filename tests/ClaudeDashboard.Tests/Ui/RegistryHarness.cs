@@ -27,7 +27,7 @@ internal sealed class RegistryHarness : IDisposable
         Projection = new SessionProjection(Registry, _dispatcher);
     }
 
-    public SessionRegistry Registry { get; } = new();
+    public SessionRegistry Registry { get; } = new(new SingleWriterGuard());
 
     public SessionProjection Projection { get; }
 

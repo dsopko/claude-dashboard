@@ -36,7 +36,7 @@ public sealed class AckPipelineTests : IAsyncLifetime
     private readonly FakeClock _clock = new();
     private readonly RecordingSoundPlayer _player = new();
     private readonly SingleWriterGuard _guard = new();
-    private readonly SessionRegistry _registry = new();
+    private readonly SessionRegistry _registry = new(new SingleWriterGuard());
     private readonly EventPipeline _pipeline = new(Logger.None);
     private readonly QueueingDispatcher _dispatcher = new();
 
@@ -55,10 +55,11 @@ public sealed class AckPipelineTests : IAsyncLifetime
         _consumer = new EventConsumer(
             _pipeline,
             _registry,
-            new SoundPolicyEngine(_player, _clock),
+            new SoundPolicyEngine(_player, _clock, _guard),
             _clock,
             _guard,
             Logger.None,
+            new RecordingUiTick(),
             tickInterval: TimeSpan.FromMilliseconds(25));
 
         return _consumer.StartAsync(CancellationToken.None);

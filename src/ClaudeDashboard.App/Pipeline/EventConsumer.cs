@@ -53,7 +53,7 @@ public sealed class EventConsumer : BackgroundService
     private readonly SingleWriterGuard _guard;
     private readonly ILogger _logger;
     private readonly TimeSpan _tickInterval;
-    private readonly IUiTick? _uiTick;
+    private readonly IUiTick _uiTick;
 
     /// <summary>Creates the consumer.</summary>
     /// <param name="uiTick">
@@ -67,8 +67,8 @@ public sealed class EventConsumer : BackgroundService
         IClock clock,
         SingleWriterGuard guard,
         ILogger logger,
-        TimeSpan? tickInterval = null,
-        IUiTick? uiTick = null)
+        IUiTick uiTick,
+        TimeSpan? tickInterval = null)
     {
         ArgumentNullException.ThrowIfNull(pipeline);
         ArgumentNullException.ThrowIfNull(registry);
@@ -76,6 +76,7 @@ public sealed class EventConsumer : BackgroundService
         ArgumentNullException.ThrowIfNull(clock);
         ArgumentNullException.ThrowIfNull(guard);
         ArgumentNullException.ThrowIfNull(logger);
+        ArgumentNullException.ThrowIfNull(uiTick);
 
         _pipeline = pipeline;
         _registry = registry;
@@ -108,7 +109,7 @@ public sealed class EventConsumer : BackgroundService
     /// silently stop advancing, which is the failure T1.11's wiring exists to prevent and the
     /// kind a green suite hides best.
     /// </remarks>
-    internal IUiTick? UiTick => _uiTick;
+    internal IUiTick UiTick => _uiTick;
 
     /// <inheritdoc/>
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -314,7 +315,7 @@ public sealed class EventConsumer : BackgroundService
 
         try
         {
-            _uiTick?.Tick(now);
+            _uiTick.Tick(now);
         }
         catch (Exception ex)
         {

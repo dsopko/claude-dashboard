@@ -108,6 +108,14 @@ public static class AppHost
         builder.Services.AddHostedService(sp => sp.GetRequiredService<EventConsumer>());
         builder.Services.AddSingleton<EventConsumer>();
 
+        // The seam the composition guard reads (T1.12b; ServiceCompositionTests). A built
+        // WebApplication does not publish its own descriptors — measured on a clean host, not
+        // assumed — and without them the guard cannot see any type registered behind an
+        // interface, which is most of them. Deferred so the snapshot is taken after every
+        // registration above, and typed read-only so nothing can reach through it to mutate the
+        // container.
+        builder.Services.AddSingleton<IReadOnlyList<ServiceDescriptor>>(_ => [.. builder.Services]);
+
         var app = builder.Build();
 
         // Resolving the projection subscribes it to the Registry, and the sound engine has to

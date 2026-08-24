@@ -18,7 +18,7 @@ public sealed class SessionRegistryTests
     private static readonly SessionId Id = new("s-1");
 
     private readonly FakeClock _clock = new();
-    private readonly SessionRegistry _registry = new();
+    private readonly SessionRegistry _registry = new(new SingleWriterGuard());
     private readonly List<SessionChangedEventArgs> _changes = [];
 
     public SessionRegistryTests() => _registry.SessionChanged += (_, e) => _changes.Add(e);
@@ -851,6 +851,21 @@ public sealed class SessionRegistryTests
         Assert.Equal("other", _registry.Sessions[new SessionId("s-2")].Latest.Prompt);
     }
 
+    /// <summary>
+    /// The Registry needs the shared guard; it will not quietly make its own.
+    /// </summary>
+    /// <remarks>
+    /// It used to default to a private one, which meant deleting the single registration in
+    /// <c>AppHost</c> left the Registry and the sound engine each holding a guard of their own —
+    /// mutual exclusion between them silently gone, and every test that built its own still
+    /// green. The lock-free design rests on one shared region (T1.12b).
+    /// </remarks>
+    [Fact]
+    public void A_registry_needs_the_shared_guard()
+    {
+        Assert.Throws<ArgumentNullException>(() => new SessionRegistry(null!));
+    }
+
     [Fact]
     public void Applying_null_is_rejected()
     {
@@ -860,7 +875,7 @@ public sealed class SessionRegistryTests
     [Fact]
     public void A_new_registry_holds_nothing()
     {
-        Assert.Empty(new SessionRegistry().Sessions);
+        Assert.Empty(new SessionRegistry(new SingleWriterGuard()).Sessions);
     }
 
     /// <summary>The log is what explains how a row got the way it is.</summary>

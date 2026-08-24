@@ -288,7 +288,7 @@ public sealed class StubAckPublisherTests
 
     private static Session AnySession()
     {
-        var registry = new SessionRegistry();
+        var registry = new SessionRegistry(new SingleWriterGuard());
         var id = new SessionId("s-1");
 
         registry.Apply(new UserPromptSubmit

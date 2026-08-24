@@ -1,3 +1,4 @@
+using ClaudeDashboard.App.Adapters;
 using System.Runtime.ExceptionServices;
 using System.Windows;
 using System.Windows.Media;
@@ -239,7 +240,7 @@ public sealed class StaHarness : IDisposable
     {
         try
         {
-            var app = new ClaudeDashboard.App.App(new UnhandledExceptionPolicy(Logger.None));
+            var app = new ClaudeDashboard.App.App(new UnhandledExceptionPolicy(Logger.None, new SystemClock()));
             _application = app;
             app.Startup += (_, _) => _ready.Set();
             app.Run();

@@ -79,10 +79,10 @@ public sealed class UnhandledExceptionPolicy
     /// <see cref="DefaultSuppressionWindow"/>.
     /// </param>
     /// <exception cref="ArgumentNullException"><paramref name="logger"/> is null.</exception>
-    public UnhandledExceptionPolicy(ILogger logger, IClock? clock = null, TimeSpan? suppressionWindow = null)
+    public UnhandledExceptionPolicy(ILogger logger, IClock clock, TimeSpan? suppressionWindow = null)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        _clock = clock ?? new SystemClock();
+        _clock = clock ?? throw new ArgumentNullException(nameof(clock));
         _window = suppressionWindow ?? DefaultSuppressionWindow;
     }
 

@@ -19,7 +19,8 @@ public sealed class EventConsumerTests : IAsyncLifetime
     private readonly FakeClock _clock = new();
     private readonly RecordingSoundPlayer _player = new();
     private readonly SingleWriterGuard _guard = new();
-    private readonly SessionRegistry _registry = new();
+    private readonly RecordingUiTick _tick = new();
+    private readonly SessionRegistry _registry = new(new SingleWriterGuard());
     private readonly EventPipeline _pipeline = new(Logger.None);
 
     private SoundPolicyEngine _sound = null!;
@@ -27,7 +28,7 @@ public sealed class EventConsumerTests : IAsyncLifetime
 
     public Task InitializeAsync()
     {
-        _sound = new SoundPolicyEngine(_player, _clock);
+        _sound = new SoundPolicyEngine(_player, _clock, _guard);
         _registry.SessionChanged += (_, e) => _sound.OnSessionChanged(e.Session);
 
         _consumer = new EventConsumer(
@@ -37,6 +38,7 @@ public sealed class EventConsumerTests : IAsyncLifetime
             _clock,
             _guard,
             Logger.None,
+            _tick,
             tickInterval: TimeSpan.FromMilliseconds(25));
 
         return _consumer.StartAsync(CancellationToken.None);
@@ -272,17 +274,19 @@ public sealed class EventConsumerTests : IAsyncLifetime
     public void The_consumer_needs_all_of_its_collaborators()
     {
         Assert.Throws<ArgumentNullException>(() =>
-            new EventConsumer(null!, _registry, _sound, _clock, _guard, Logger.None));
+            new EventConsumer(null!, _registry, _sound, _clock, _guard, Logger.None, _tick));
         Assert.Throws<ArgumentNullException>(() =>
-            new EventConsumer(_pipeline, null!, _sound, _clock, _guard, Logger.None));
+            new EventConsumer(_pipeline, null!, _sound, _clock, _guard, Logger.None, _tick));
         Assert.Throws<ArgumentNullException>(() =>
-            new EventConsumer(_pipeline, _registry, null!, _clock, _guard, Logger.None));
+            new EventConsumer(_pipeline, _registry, null!, _clock, _guard, Logger.None, _tick));
         Assert.Throws<ArgumentNullException>(() =>
-            new EventConsumer(_pipeline, _registry, _sound, null!, _guard, Logger.None));
+            new EventConsumer(_pipeline, _registry, _sound, null!, _guard, Logger.None, _tick));
         Assert.Throws<ArgumentNullException>(() =>
-            new EventConsumer(_pipeline, _registry, _sound, _clock, null!, Logger.None));
+            new EventConsumer(_pipeline, _registry, _sound, _clock, null!, Logger.None, _tick));
         Assert.Throws<ArgumentNullException>(() =>
-            new EventConsumer(_pipeline, _registry, _sound, _clock, _guard, null!));
+            new EventConsumer(_pipeline, _registry, _sound, _clock, _guard, null!, _tick));
+        Assert.Throws<ArgumentNullException>(() =>
+            new EventConsumer(_pipeline, _registry, _sound, _clock, _guard, Logger.None, null!));
     }
 
     [Fact]
