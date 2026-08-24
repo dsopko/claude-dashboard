@@ -86,7 +86,9 @@ Mutation happens on exactly one thread (Part 4), so the Registry needs no intern
 
 ### 2.3 Attention engine
 
-A pure function `Order(sessions) → banded, ordered list`, realizing TS §IV.2 exactly — Needs-You oldest-first, Unread newest-first, then Working, Quiet, Ended. Pure and deterministic, so it is straightforward to unit-test the ordering asymmetry that is the heart of the model.
+A pure function `Order(sessions) → banded, ordered list`, realizing TS §IV.2 exactly — Needs-You **by kind first (Permission > Error > Question), then oldest-first within each kind**; Unread newest-first; then Working, Quiet, Ended. Pure and deterministic, so it is straightforward to unit-test the ordering asymmetry that is the heart of the model.
+
+> **Correction (2026-08-24, found at T1.3).** This section previously read "Needs-You oldest-first", which was the pre-ruling rule and survived the TS amendments in `e645fd8`/`2860e14` because those touched TS §IV.2/§IV.3 and Impl §1.3/§2.1 but not this section. It therefore contradicted the very TS §IV.2 it claims to realize — and being the C# shape section for this task, it would have led anyone implementing or reviewing against it to the wrong ordering while correctly following the document. The severity order is defined once in code (`AttentionOrder`) and consumed by both the attention engine and `Group.WorstState`; see TS §IV.3 for the rationale.
 
 ### 2.4 Sound-policy engine
 
