@@ -2,6 +2,9 @@ using System.Globalization;
 using ClaudeDashboard.App.Adapters;
 using ClaudeDashboard.App.Configuration;
 using ClaudeDashboard.App.Ingress;
+using ClaudeDashboard.App.Pipeline;
+using ClaudeDashboard.App.Ui;
+using ClaudeDashboard.Core;
 using ClaudeDashboard.Core.Ports;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.AspNetCore.Builder;
@@ -23,13 +26,13 @@ namespace ClaudeDashboard.App.Hosting;
 /// sound — that all lives in Core and reaches this layer as registrations.
 /// </para>
 /// <para>
-/// <strong>For T1.9.</strong> No hosted service is registered yet, deliberately. The event
-/// consumer and the nudge tick must run as <em>one</em> serialized loop, because the Registry
-/// and the sound engine are lock-free on the assumption that a single thread touches them
-/// (Impl §2.2, §4) — two independent <c>BackgroundService</c>s would race, and the reviewer
-/// demonstrated that race against T1.5's engine. Impl §4's wording invites a separate
-/// <c>PeriodicTimer</c> loop; it should not be a separate service. Register one hosted service
-/// that owns both the channel read and the tick.
+/// <strong>Exactly one hosted service of ours, and that is a correctness requirement.</strong>
+/// <see cref="EventConsumer"/> owns both the channel read and the nudge tick on one loop,
+/// because the Registry and the sound engine are lock-free on the assumption that a single
+/// thread touches them (Impl §2.2, §4). A second <c>BackgroundService</c> — or a separate
+/// <c>PeriodicTimer</c> loop, which Impl §4's wording invites — would race, and the T1.5 review
+/// demonstrated that race concretely. A test pins the count at one; do not add another without
+/// reading <see cref="SingleWriterGuard"/> first.
 /// </para>
 /// </remarks>
 public static class AppHost
@@ -74,9 +77,29 @@ public static class AppHost
         builder.Services.AddSingleton<IClock, SystemClock>();
         builder.Services.AddSingleton<IngressToken>();
         builder.Services.AddSingleton<HookEventMapper>();
-        builder.Services.AddSingleton<IEventSink, LoggingEventSink>();
+
+        // The pipeline (Impl §4). Exactly one hosted service reads the channel and runs the
+        // nudge tick, on one loop — see EventConsumer for why that is a correctness
+        // requirement rather than a simplification.
+        builder.Services.AddSingleton<SingleWriterGuard>();
+        builder.Services.AddSingleton<EventPipeline>();
+        builder.Services.AddSingleton<IEventSink>(sp => sp.GetRequiredService<EventPipeline>().Sink);
+        builder.Services.AddSingleton<SessionRegistry>();
+        builder.Services.AddSingleton<ISoundPlayer, SilentSoundPlayer>();
+        builder.Services.AddSingleton<SoundPolicyEngine>();
+        builder.Services.AddSingleton<IUiDispatcher, WpfDispatcher>();
+        builder.Services.AddSingleton<SessionProjection>();
+        builder.Services.AddHostedService(sp => sp.GetRequiredService<EventConsumer>());
+        builder.Services.AddSingleton<EventConsumer>();
 
         var app = builder.Build();
+
+        // Resolving the projection subscribes it to the Registry, and the sound engine has to
+        // hear about changes on the consumer thread that raised them.
+        var registry = app.Services.GetRequiredService<SessionRegistry>();
+        var sound = app.Services.GetRequiredService<SoundPolicyEngine>();
+        registry.SessionChanged += (_, e) => sound.OnSessionChanged(e.Session);
+        _ = app.Services.GetRequiredService<SessionProjection>();
         app.MapIngress(onShow);
 
         logger.Information(

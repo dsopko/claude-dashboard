@@ -1,6 +1,7 @@
 using System.IO;
 using ClaudeDashboard.App.Configuration;
 using ClaudeDashboard.App.Hosting;
+using ClaudeDashboard.App.Pipeline;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Serilog;
@@ -126,17 +127,21 @@ public sealed class AppHostTests : IDisposable
     }
 
     /// <summary>
-    /// T1.9 must run the event consumer and the nudge tick as one serialized loop. No hosted
-    /// service of ours exists yet, so it inherits a clean slate rather than an existing service
-    /// to sit beside — which is how two racing loops come about.
+    /// <strong>Exactly one</strong> hosted service of ours, and it is the event consumer.
     /// </summary>
     /// <remarks>
-    /// Filtered to this solution's own assemblies. Since T1.8 the host is a
-    /// <c>WebApplication</c>, so the framework registers a hosted service of its own to run
-    /// Kestrel; that one is expected. A second of <em>ours</em> is what would race.
+    /// The Registry and the sound engine are lock-free on the assumption that one thread
+    /// mutates them (Impl §2.2, §4), and the consumer keeps that true by reading the channel and
+    /// running the nudge tick on a single loop. A second <c>BackgroundService</c> — the obvious
+    /// way to add a periodic job, and what Impl §4's wording suggests — would give the engine a
+    /// second driver, and the resulting race is intermittent and invisible in a green suite.
+    /// This is the cheap guard: adding one turns that into a failing test.
+    ///
+    /// Filtered to our own assemblies, since the framework registers its own service to run
+    /// Kestrel.
     /// </remarks>
     [Fact]
-    public void No_hosted_service_of_our_own_is_registered_yet()
+    public void Exactly_one_hosted_service_of_our_own_is_registered()
     {
         using var host = AppHost.Build(_paths);
 
@@ -145,7 +150,8 @@ public sealed class AppHostTests : IDisposable
                 .StartsWith("ClaudeDashboard", StringComparison.Ordinal) == true)
             .ToList();
 
-        Assert.Empty(ours);
+        Assert.Single(ours);
+        Assert.IsType<EventConsumer>(ours[0]);
     }
 
     // ---- Settings reach the host ----------------------------------------------------------------
