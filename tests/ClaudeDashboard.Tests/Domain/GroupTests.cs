@@ -82,9 +82,9 @@ public sealed class GroupTests
     [Theory]
     [InlineData(SessionState.Acked, SessionState.Working, SessionState.Working)]
     [InlineData(SessionState.Working, SessionState.Unread, SessionState.Unread)]
-    [InlineData(SessionState.Unread, SessionState.Error, SessionState.Error)]
+    [InlineData(SessionState.Unread, SessionState.NeedsQuestion, SessionState.NeedsQuestion)]
+    [InlineData(SessionState.NeedsQuestion, SessionState.Error, SessionState.Error)]
     [InlineData(SessionState.Error, SessionState.NeedsPermission, SessionState.NeedsPermission)]
-    [InlineData(SessionState.Error, SessionState.NeedsQuestion, SessionState.NeedsQuestion)]
     [InlineData(SessionState.Ended, SessionState.Acked, SessionState.Acked)]
     public void Worst_state_ranks_by_TS_IV_3_severity(
         SessionState quieter,
@@ -126,7 +126,7 @@ public sealed class GroupTests
     /// other, so the tie resolves by member order rather than by an invented preference.
     /// </summary>
     [Fact]
-    public void Worst_state_breaks_a_needs_you_tie_by_member_order()
+    public void Worst_state_ranks_permission_above_question_regardless_of_member_order()
     {
         var permissionFirst = new Group(Key, [
             Member("s-1", SessionState.NeedsPermission),
@@ -138,7 +138,28 @@ public sealed class GroupTests
         ]);
 
         Assert.Equal(SessionState.NeedsPermission, permissionFirst.WorstState);
-        Assert.Equal(SessionState.NeedsQuestion, questionFirst.WorstState);
+        Assert.Equal(SessionState.NeedsPermission, questionFirst.WorstState);
+    }
+
+    /// <summary>
+    /// The ratified order is total, so members can only tie when they share a state — and then
+    /// the answer is that state whichever is examined first. Member order cannot change a
+    /// roll-up.
+    /// </summary>
+    [Fact]
+    public void Worst_state_does_not_depend_on_member_order()
+    {
+        SessionState[] states =
+        [
+            SessionState.Ended, SessionState.Acked, SessionState.Working,
+            SessionState.Unread, SessionState.NeedsQuestion, SessionState.Error,
+        ];
+
+        var forward = new Group(Key, states.Select((s, i) => Member($"s-{i}", s)));
+        var reversed = new Group(Key, states.Reverse().Select((s, i) => Member($"s-{i}", s)));
+
+        Assert.Equal(SessionState.Error, forward.WorstState);
+        Assert.Equal(SessionState.Error, reversed.WorstState);
     }
 
     /// <summary>TS §IV.3: "Group recency = most recent member event."</summary>

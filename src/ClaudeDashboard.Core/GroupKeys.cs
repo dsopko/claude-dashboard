@@ -118,8 +118,9 @@ public static class GroupKeys
     };
 
     /// <summary>
-    /// The comparison rule for workspaces: separator spelling, trailing separators and casing
-    /// none of them distinguish directories. See the remarks on this type for what that costs.
+    /// The comparison rule for workspaces: none of separator spelling, trailing separators or
+    /// casing distinguishes one directory from another. See the remarks on this type for what
+    /// that costs.
     /// </summary>
     /// <remarks>
     /// <para>
