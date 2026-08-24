@@ -166,11 +166,17 @@ Precedence (top wins), color carries state:
 
 | Color | Meaning |
 |---|---|
-| **Red** | ≥1 session in Needs-You (question or permission) |
-| **Amber** | ≥1 session in Error (distinct from red so "a turn died" reads differently from "it's asking you") |
+| **Red** | ≥1 session in `NeedsPermission` |
+| **Amber** | ≥1 session in `Error` **or** `NeedsQuestion`; nothing above |
 | **Green** | ≥1 Unread finish waiting; nothing above |
 | **Blue** | ≥1 Working; nothing above |
 | **Grey** | all quiet |
+
+> **Correction (2026-08-24, ratified by the operator).** This table previously read **Red** = "question or permission" and **Amber** = "Error", while the section simultaneously claimed the tray uses the "same *worst wins* as groups (TS §IV.3)". After the Needs-You ratification (`e645fd8`, `2860e14`) those two statements contradict each other: §IV.3 ranks **Permission > Error > Question**, so a dashboard holding one `Error` and one `NeedsQuestion` rolls up as `Error` — but the old table showed **Red**, because Question shared Red and Red outranked Amber.
+>
+> **Ruled: the tray mirrors §IV.3.** `Error` + `NeedsQuestion` now shows **Amber**, as does `Error` alone. Achieved by moving `NeedsQuestion` down to share Amber with `Error`, rather than by inventing a sixth colour: that keeps the precedence linear, needs no palette the mockups lack, and preserves the original intent that Red means *"it is asking you for something only you can give"*.
+>
+> The tray is still a **coarsening** — five colours for seven states — so `Error` and `NeedsQuestion` are indistinguishable in the glyph. That is what the tooltip counts are for; the distinction stays available where there is room to render it.
 
 - **Counts live in the tooltip**, not the glyph ("3 need you · 2 unread · 1 working") — a 16px icon can't render legible digits. H.NotifyIcon can generate the icon bitmap per state; if a digit is drawn, cap at `9+`.
 - **No animation.** The tray is static per state (TS reserves motion for needs-you rows inside the window, not the tray).
