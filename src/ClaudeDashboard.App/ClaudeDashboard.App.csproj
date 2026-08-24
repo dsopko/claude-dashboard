@@ -13,15 +13,19 @@
     <AssemblyName>ClaudeDashboard.App</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
 
-    <StartupObject>ClaudeDashboard.App.Program</StartupObject>
   </PropertyGroup>
 
   <!--
-    App.xaml is compiled as a Page rather than as the ApplicationDefinition. As an
-    ApplicationDefinition, WPF generates its own entry point that constructs `new App()` —
-    which collides with Program.Main (CS0017) and does not compile at all once App takes a
-    constructor argument. As a Page it still generates InitializeComponent and the resource
-    loading T1.11 will use, and the entry point stays ours. See Program's remarks.
+    App.xaml is compiled as a Page rather than as the ApplicationDefinition, which is what
+    leaves Program.Main as the only entry point in the assembly. As an ApplicationDefinition,
+    WPF generates an entry point of its own that constructs `new App()` — which collides with
+    ours (CS0017) and stops compiling altogether once App takes a constructor argument. As a
+    Page it still generates InitializeComponent and the resource loading T1.11 will use.
+
+    There is deliberately no <StartupObject>: with one Main there is nothing to disambiguate,
+    and naming one would imply it is what prevents the collision. It is not — StartupObject
+    chooses between entry points, it does not stop the generated one from failing to compile.
+    See Program's remarks.
   -->
   <ItemGroup>
     <ApplicationDefinition Remove="App.xaml" />

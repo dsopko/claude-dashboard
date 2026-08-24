@@ -16,10 +16,15 @@ namespace ClaudeDashboard.App;
 /// half-built container.
 /// </para>
 /// <para>
-/// <c>App.xaml</c> is an <c>ApplicationDefinition</c>, so WPF also generates an entry point;
-/// <c>StartupObject</c> in the .csproj names this one, which is what keeps CS0017 away without
-/// giving up the generated <c>InitializeComponent</c> and resource loading that T1.11 will use.
-/// (T1.0's placeholder <c>Program.Main</c> is gone — this replaces it.)
+/// <strong>This is the only entry point, and that took arranging.</strong> As an
+/// <c>ApplicationDefinition</c>, <c>App.xaml</c> makes WPF generate a <c>Main</c> of its own
+/// that constructs <c>new App()</c> — which collides with this one (CS0017) and, once
+/// <see cref="App"/> takes a constructor argument, does not compile at all. Naming this method
+/// in <c>StartupObject</c> would not have been enough: it resolves which <c>Main</c> runs, not
+/// whether the generated one compiles. So the .csproj compiles <c>App.xaml</c> as a
+/// <c>Page</c> instead, which still generates <c>InitializeComponent</c> and the resource
+/// loading T1.11 will use, but generates no entry point. (T1.0's placeholder
+/// <c>Program.Main</c> is gone — this replaces it.)
 /// </para>
 /// <para>
 /// <strong>Synchronous on purpose.</strong> An <c>async Task Main</c> under
