@@ -47,6 +47,17 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!--
+      A view model's backing record is set by MainViewModel and by nothing else in production,
+      so those setters are internal. Tests need to drive them directly to assert what a row does
+      when its record is replaced; widening them to public to make that possible would put a
+      mutator on the API surface purely for the benefit of the tests.
+    -->
+    <InternalsVisibleTo Include="ClaudeDashboard.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <PackageReference Include="Serilog" Version="4.4.0" />
     <PackageReference Include="Serilog.Extensions.Hosting" Version="10.0.0" />
     <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
