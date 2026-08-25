@@ -9,7 +9,9 @@ Planning docs live in `docs/`:
 - `docs/claude-dashboard-spec.md` — **Technical Specification** (TS): technology-agnostic architecture and the *why*.
 - `docs/claude-dashboard-impl-spec.md` — **Implementation Specification** (Impl): the C#/.NET/WPF *how*, libraries, and the Claude Code hook contract.
 - `docs/claude-dashboard-execution-plan.md` — **Execution Plan**: the phased task graph and acceptance criteria, the agent role prompts (Appendix B), and the orchestration runbook (Appendix C).
-- `docs/claude-dashboard-mockups.html` — UI reference.
+- `docs/claude-dashboard-design.md` — **Design Document**: the product shape and the *what*. §9 is the authority on row anatomy and the motion rule.
+- `docs/claude-code-hooks-reference.md` — **Hook events reference**: all 31 Claude Code hook events transcribed from the source documentation, the seven we consume first. Consult this before asserting anything about what a hook does or what fields it carries — including the Discrepancies section, which records where our code and the documentation disagree.
+- `docs/claude-dashboard-mockups.html` — UI reference. **Visuals only, never ordering** — its flat view is drawn in the superseded pre-ruling order.
 
 ## How this repo is built
 
