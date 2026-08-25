@@ -55,7 +55,7 @@ public sealed class AckPipelineTests : IAsyncLifetime
         _consumer = new EventConsumer(
             _pipeline,
             _registry,
-            new SoundPolicyEngine(_player, _clock, _guard),
+            new SoundPolicyEngine(_player, _clock, _guard, new SoundPolicyOptions()),
             _clock,
             _guard,
             Logger.None,

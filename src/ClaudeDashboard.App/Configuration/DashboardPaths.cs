@@ -46,6 +46,27 @@ public sealed class DashboardPaths
     /// <summary>The rolling log file template; Serilog appends the date and any size-roll suffix.</summary>
     public string LogFile => Path.Combine(LogFolder, "dashboard-.log");
 
+    /// <summary>
+    /// Where the operator's own sound files go, overriding the ones that ship (Impl Part 8).
+    /// </summary>
+    /// <remarks>
+    /// A file here named for a <c>SoundId</c> — <c>finished.wav</c>, <c>error.wav</c> — replaces
+    /// the shipped one. This folder is not created at startup: its absence is the ordinary case
+    /// and means "no overrides", which is a different thing from a folder that failed to appear.
+    /// </remarks>
+    public string SoundFolder => Path.Combine(Root, "sounds");
+
+    /// <summary>
+    /// Where the sounds that ship with the app live — beside the executable, not under the
+    /// operator's data folder.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="AppContext.BaseDirectory"/> rather than the current directory, which for a
+    /// tray app started from a shortcut is wherever the shell felt like. It is a property rather
+    /// than a constant so a test can see the same value the app does.
+    /// </remarks>
+    public static string ShippedSoundFolder => Path.Combine(AppContext.BaseDirectory, "sounds");
+
     /// <summary>Creates the data and log folders if they do not exist.</summary>
     /// <remarks>
     /// Returns false rather than throwing if they cannot be created. A dashboard that cannot

@@ -57,8 +57,19 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!--
+      The sounds that ship with the app (Impl Part 7). Copied beside the executable rather than
+      embedded, because Part 8 lets the operator replace one by dropping a like-named file into
+      the config folder — a resource compiled into the assembly could not be compared with, or
+      shadowed by, a file on disk.
+    -->
+    <Content Include="Assets\sounds\*.wav" Link="sounds\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <PackageReference Include="H.NotifyIcon.Wpf" Version="2.4.1" />
+    <PackageReference Include="NAudio" Version="3.0.1" />
     <PackageReference Include="Serilog" Version="4.4.0" />
     <PackageReference Include="Serilog.Extensions.Hosting" Version="10.0.0" />
     <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />

@@ -86,7 +86,13 @@ public static class AppHost
         builder.Services.AddSingleton<EventPipeline>();
         builder.Services.AddSingleton<IEventSink>(sp => sp.GetRequiredService<EventPipeline>().Sink);
         builder.Services.AddSingleton<SessionRegistry>();
-        builder.Services.AddSingleton<ISoundPlayer, SilentSoundPlayer>();
+        builder.Services.AddSingleton<SoundCatalog>();
+        builder.Services.AddSingleton<ISoundPlayer, NAudioSoundPlayer>();
+
+        // The engine's options are Core's defaults with the operator's file layered on, one way
+        // only (Impl Part 7, Part 8). This is the first setting anything consumes, and the
+        // direction is the whole point: Core owns the defaults and never learns a file exists.
+        builder.Services.AddSingleton(loaded.Settings.Sound.Apply());
         builder.Services.AddSingleton<SoundPolicyEngine>();
         builder.Services.AddSingleton<IUiDispatcher, WpfDispatcher>();
         builder.Services.AddSingleton<SessionProjection>();

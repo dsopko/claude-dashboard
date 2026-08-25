@@ -46,7 +46,7 @@ public sealed class SoundCommandPipelineTests : IAsyncLifetime
 
     public Task InitializeAsync()
     {
-        _sound = new SoundPolicyEngine(_player, _clock, _guard);
+        _sound = new SoundPolicyEngine(_player, _clock, _guard, new SoundPolicyOptions());
         _registry.SessionChanged += (_, e) => _sound.OnSessionChanged(e.Session);
 
         _consumer = new EventConsumer(

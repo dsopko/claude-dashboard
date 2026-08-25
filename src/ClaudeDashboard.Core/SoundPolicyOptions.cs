@@ -23,9 +23,13 @@ public sealed record SoundPolicyOptions
     /// <summary>Softer than a notice, per TS §IV.5's "same melody, softer and quieter".</summary>
     public const double DefaultNudgeGain = 0.6;
 
+    /// <summary>Full volume: the shipped default multiplies nothing.</summary>
+    public const double DefaultMasterVolume = 1.0;
+
     private readonly IReadOnlyList<TimeSpan> _nudgeLadder = DefaultNudgeLadder;
     private readonly double _noticeGain = DefaultNoticeGain;
     private readonly double _nudgeGain = DefaultNudgeGain;
+    private readonly double _masterVolume = DefaultMasterVolume;
 
     /// <summary>
     /// The gaps between nudges for a session that stays blocked: the first entry is TS §IV.5's
@@ -100,6 +104,35 @@ public sealed record SoundPolicyOptions
     /// softer rather than merely quieter. A notice never fades.
     /// </summary>
     public TimeSpan NudgeFadeIn { get; init; } = TimeSpan.FromMilliseconds(150);
+
+    /// <summary>
+    /// How loud everything is, as a multiplier on whatever gain a sound would otherwise play at.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>The one quantity the audio adapter does not own.</strong> Impl Part 7's
+    /// clarification: master volume belongs beside the other gains, in Core, folded into the gain
+    /// the engine passes — the adapter plays a number and does not compute one. Putting it in the
+    /// adapter would mean two places decided how loud a sound is, and the relationship between
+    /// them would only be visible by listening.
+    /// </para>
+    /// <para>
+    /// It is a multiplier rather than a ceiling, so it scales the notice-to-nudge relationship
+    /// instead of flattening it: at half volume a nudge is still softer than a notice by the same
+    /// proportion, which is the relationship TS §IV.5 actually specifies. A ceiling would make
+    /// them converge as it came down.
+    /// </para>
+    /// <para>
+    /// Zero is silence and is deliberately allowed — it is not the same thing as mute, which
+    /// stops a sound being emitted at all. This one still emits, at nothing.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="ArgumentOutOfRangeException">Outside 0…1.</exception>
+    public double MasterVolume
+    {
+        get => _masterVolume;
+        init => _masterVolume = InRange(value);
+    }
 
     /// <summary>
     /// Throws if these options describe a policy TS §IV.5 forbids. Called by the engine, so a

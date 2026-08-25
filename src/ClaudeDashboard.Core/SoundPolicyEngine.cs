@@ -89,15 +89,16 @@ public sealed class SoundPolicyEngine : ISoundModeReader
         ISoundPlayer player,
         IClock clock,
         SingleWriterGuard guard,
-        SoundPolicyOptions? options = null)
+        SoundPolicyOptions options)
     {
         ArgumentNullException.ThrowIfNull(player);
         ArgumentNullException.ThrowIfNull(clock);
         ArgumentNullException.ThrowIfNull(guard);
+        ArgumentNullException.ThrowIfNull(options);
 
         _player = player;
         _clock = clock;
-        _options = options ?? new SoundPolicyOptions();
+        _options = options;
         _options.Validate();
         _guard = guard;
     }
@@ -343,7 +344,10 @@ public sealed class SoundPolicyEngine : ISoundModeReader
             return;
         }
 
-        _player.Play(sound, gain, fade);
+        // Master volume is folded in here and nowhere else (Impl Part 7). The adapter receives a
+        // finished number; it does not know there is such a thing as a master volume, which is
+        // what keeps "how loud is this" answerable by reading one method.
+        _player.Play(sound, gain * _options.MasterVolume, fade);
     }
 
     /// <summary>The sound a state announces itself with, or null if it announces nothing.</summary>

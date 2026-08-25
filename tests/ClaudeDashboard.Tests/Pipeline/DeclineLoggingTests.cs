@@ -71,7 +71,7 @@ public sealed class DeclineLoggingTests : IAsyncLifetime
         _consumer = new EventConsumer(
             _pipeline,
             _registry,
-            new SoundPolicyEngine(new RecordingSoundPlayer(), _clock, _guard),
+            new SoundPolicyEngine(new RecordingSoundPlayer(), _clock, _guard, new SoundPolicyOptions()),
             _clock,
             _guard,
             _logger,

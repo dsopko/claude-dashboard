@@ -36,7 +36,7 @@ public sealed class SingleWriterInvariantTests
     public SingleWriterInvariantTests()
     {
         _registry = new SessionRegistry(_guard);
-        _sound = new SoundPolicyEngine(_player, _clock, options: null, guard: _guard);
+        _sound = new SoundPolicyEngine(_player, _clock, _guard, new SoundPolicyOptions());
     }
 
     private static UserPromptSubmit Prompt(string sessionId, DateTimeOffset stamp, string promptId = "p-1") => new()

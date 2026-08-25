@@ -40,7 +40,7 @@ public sealed class SoundPolicyEngineTests
     private readonly FakeClock _clock = new();
     private readonly SoundPolicyEngine _engine;
 
-    public SoundPolicyEngineTests() => _engine = new SoundPolicyEngine(_player, _clock, new SingleWriterGuard());
+    public SoundPolicyEngineTests() => _engine = new SoundPolicyEngine(_player, _clock, new SingleWriterGuard(), new SoundPolicyOptions());
 
     // ---- Distinguishing the two kinds of sound ------------------------------------------------
 
@@ -671,9 +671,12 @@ public sealed class SoundPolicyEngineTests
     [Fact]
     public void The_engine_needs_a_player_a_clock_and_the_shared_guard()
     {
-        Assert.Throws<ArgumentNullException>(() => new SoundPolicyEngine(null!, _clock, new SingleWriterGuard()));
-        Assert.Throws<ArgumentNullException>(() => new SoundPolicyEngine(_player, null!, new SingleWriterGuard()));
-        Assert.Throws<ArgumentNullException>(() => new SoundPolicyEngine(_player, _clock, null!));
+        Assert.Throws<ArgumentNullException>(() => new SoundPolicyEngine(null!, _clock, new SingleWriterGuard(), new SoundPolicyOptions()));
+        Assert.Throws<ArgumentNullException>(() => new SoundPolicyEngine(_player, null!, new SingleWriterGuard(), new SoundPolicyOptions()));
+        Assert.Throws<ArgumentNullException>(
+            () => new SoundPolicyEngine(_player, _clock, null!, new SoundPolicyOptions()));
+        Assert.Throws<ArgumentNullException>(
+            () => new SoundPolicyEngine(_player, _clock, new SingleWriterGuard(), null!));
     }
 
     [Fact]
@@ -817,6 +820,71 @@ public sealed class SoundPolicyEngineTests
         Assert.Single(Notices);
     }
 
+
+    // ---- Master volume (T1.14; Impl Part 7) -------------------------------------------------------
+
+    /// <summary>
+    /// Master volume multiplies whatever gain a sound would otherwise play at.
+    /// </summary>
+    /// <remarks>
+    /// Asserted as a <em>multiplier</em> rather than as a pair of numbers: at half volume the
+    /// notice and the nudge both halve, so a nudge stays softer than a notice by the same
+    /// proportion. A ceiling would make them converge as it came down, which is not what TS §IV.5
+    /// describes.
+    /// </remarks>
+    [Fact]
+    public void Master_volume_scales_every_gain()
+    {
+        var engine = new SoundPolicyEngine(
+            _player,
+            _clock,
+            new SingleWriterGuard(),
+            new SoundPolicyOptions { MasterVolume = 0.5 });
+
+        engine.OnSessionChanged(SessionIn(SessionState.NeedsPermission, Start));
+        engine.Evaluate(Start.AddMinutes(2));
+
+        Assert.Equal(2, _player.Played.Count);
+
+        // The notice at half of 1.0, the nudge at half of 0.6 — and the nudge still softer.
+        Assert.Equal(0.5, _player.Played[0].Gain, 3);
+        Assert.Equal(0.3, _player.Played[1].Gain, 3);
+        Assert.True(_player.Played[1].Gain < _player.Played[0].Gain);
+    }
+
+    /// <summary>
+    /// <strong>Silence by volume is not the same thing as mute.</strong>
+    /// </summary>
+    /// <remarks>
+    /// A master volume of zero still emits — the port is called, at nothing — while a mute stops
+    /// the call being made at all. They are different mechanisms with different meanings, and the
+    /// distinction is exactly what would be lost if the adapter grew its own mute: "no Play call"
+    /// is T1.13's invariant and the only thing that proves mute is policy rather than volume.
+    /// </remarks>
+    [Fact]
+    public void A_zero_master_volume_still_plays_while_a_mute_does_not()
+    {
+        var silentByVolume = new SoundPolicyEngine(
+            _player,
+            _clock,
+            new SingleWriterGuard(),
+            new SoundPolicyOptions { MasterVolume = 0.0 });
+
+        silentByVolume.OnSessionChanged(SessionIn(SessionState.NeedsPermission, Start));
+
+        // Emitted, at nothing.
+        Assert.Single(_player.Played);
+        Assert.Equal(0.0, _player.Played[0].Gain);
+
+        _player.Clear();
+
+        // Muted: not emitted at all. Same session, same state, same player.
+        var muted = new SoundPolicyEngine(_player, _clock, new SingleWriterGuard(), new SoundPolicyOptions());
+        muted.SetAllMuted(muted: true);
+        muted.OnSessionChanged(SessionIn(SessionState.NeedsPermission, Start));
+
+        Assert.Empty(_player.Played);
+    }
     /// <summary>The modes read back, so the tray can render them.</summary>
     [Fact]
     public void The_modes_are_readable()

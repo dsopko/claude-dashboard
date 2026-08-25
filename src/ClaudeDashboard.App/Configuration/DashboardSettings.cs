@@ -45,6 +45,10 @@ public sealed record DashboardSettings
     /// <summary>How the rolling log files are kept (Impl Part 8).</summary>
     [JsonPropertyName("logging")]
     public LoggingSettings Logging { get; init; } = new();
+
+    /// <summary>How loud, and how insistent, the sounds are (Impl Part 7, Part 8).</summary>
+    [JsonPropertyName("sound")]
+    public SoundSettings Sound { get; init; } = new();
 }
 
 /// <summary>Rolling-file log retention (Impl Part 8).</summary>

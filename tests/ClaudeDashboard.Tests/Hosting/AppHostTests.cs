@@ -1,4 +1,5 @@
 using System.IO;
+using ClaudeDashboard.App.Adapters;
 using ClaudeDashboard.App.Configuration;
 using ClaudeDashboard.App.Hosting;
 using ClaudeDashboard.App.Pipeline;
@@ -488,5 +489,71 @@ public sealed class AppHostTests : IDisposable
         var engine = host.Services.GetRequiredService<SoundPolicyEngine>();
 
         Assert.Same(engine, host.Services.GetRequiredService<ISoundModeReader>());
+    }
+
+    /// <summary>
+    /// <strong>The resolved sound player IS the NAudio adapter.</strong>
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Asserted on <em>identity</em>, deliberately, and not on a sound being played. The
+    /// placeholder this replaces — <c>SilentSoundPlayer</c> — failed as silence, and silence is
+    /// indistinguishable from a quiet afternoon, from a working mute, and from a machine with no
+    /// speakers. There is no observable behaviour that separates "the real adapter is wired" from
+    /// "the placeholder came back"; only the type does.
+    /// </para>
+    /// <para>
+    /// The file was deleted rather than registered over, for the reason T1.8 gave about its
+    /// sibling: a superseded-but-present implementation is the kind that comes back. This is what
+    /// notices if it does.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void The_sound_player_is_the_real_adapter()
+    {
+        using var host = AppHost.Build(_paths);
+
+        var player = host.Services.GetRequiredService<ISoundPlayer>();
+
+        Assert.IsType<NAudioSoundPlayer>(player);
+
+        // …and it is the one the engine will actually call, not a second instance.
+        Assert.Same(player, host.Services.GetRequiredService<ISoundPlayer>());
+    }
+
+    /// <summary>
+    /// The placeholder is gone from the assembly, not merely unregistered.
+    /// </summary>
+    /// <remarks>
+    /// Registering over a placeholder leaves it one line away from returning, and the line that
+    /// would bring it back looks like a fix. Asserted by name so the check survives the type
+    /// being renamed into something equally silent.
+    /// </remarks>
+    [Fact]
+    public void No_silent_sound_player_remains_in_the_assembly()
+    {
+        var silent = typeof(AppHost).Assembly
+            .GetTypes()
+            .Where(type => typeof(ISoundPlayer).IsAssignableFrom(type) && !type.IsInterface)
+            .Select(type => type.Name)
+            .ToList();
+
+        Assert.Equal([nameof(NAudioSoundPlayer)], silent);
+    }
+
+    /// <summary>
+    /// The engine's options come from the file, mapped one way onto Core's defaults.
+    /// </summary>
+    [Fact]
+    public void The_sound_options_are_registered_from_the_settings()
+    {
+        using var host = AppHost.Build(_paths);
+
+        var options = host.Services.GetRequiredService<SoundPolicyOptions>();
+
+        // No settings file was written, so this is Core's defaults arriving through the mapping
+        // rather than the mapping being skipped.
+        Assert.Equal(SoundPolicyOptions.DefaultMasterVolume, options.MasterVolume);
+        Assert.Equal(SoundPolicyOptions.DefaultNoticeGain, options.NoticeGain);
     }
 }
