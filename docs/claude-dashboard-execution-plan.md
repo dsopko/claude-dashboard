@@ -212,6 +212,14 @@ Grouped into four sub-milestones. Each task lists Goal · Depends · Realizes ·
 - **Acceptance:** icon color tracks the worst current state; **the colour is derived from `AttentionOrder.Rank`, not from a second `SessionState` → colour table** — pinned by a test that enumerates `SessionState` (so a state added later fails rather than defaulting to Grey) and asserts the mapping is a **monotone coarsening of `Rank`**; the mixed case — one `Error` plus one `NeedsQuestion` — shows **Amber**; tooltip breaks out the Needs-You kinds; close hides; Quit exits; menu items wired (Settings may be a stub until Phase 6).
 - **Guardrails:** color carries state, not digits; no elevation; **`RowVisuals.AccentOf` is not the tray palette** and must not be reused for it (Impl §5.2).
 
+**T1.13a — The intermittent tick test** *(added 2026-08-24; scheduled ahead of T1.14)*
+- **Goal:** find out whether `UiTickTests.The_tick_is_posted_rather_than_run_on_the_consumer_thread` is a racy test or a real race in `UiTick`, and fix whichever it is.
+- **Depends:** T1.11 (whose test it is), T1.13
+- **Why it jumps the queue:** it failed once on a clean tree at 1908deb and did not reproduce in 5 isolated and 8 full-suite runs. **Every verdict in this build rests on "N green"**, so one intermittent test puts an asterisk on all of them and will eventually redden an unrelated run and cost a phantom investigation — the same currency as the contaminated measurement and the `ZzSeamProbe` scare. Cheaper to chase now than to have it surface inside T1.14's evidence.
+- **Deliverables:** the **failure message first** — loop the suite with output captured rather than reasoning about the test; then the diagnosis, then the fix. **Which it is decides everything**: a racy assertion is a test defect, but a real posting race in `UiTick` is a product defect in the one loop that drives ages, the collapse rule, and now the tray tooltip.
+- **Acceptance:** the cause is named on evidence, not hypothesis; the fix is demonstrated against a reproduction rather than against the absence of one; and if it is a test defect, the assertion is replaced with one that is not racy by construction — **not** widened, retried, or given a tolerance.
+- **Guardrails:** do not delete or weaken the property being asserted. A negative about a queue ("delivered, but not yet run") measured against a producer free-running at 25ms is racy whatever this failure was; that is the structural observation to design against.
+
 **T1.14 — Sound adapter (NAudio)**
 - **Goal:** play notices and nudges with volume.
 - **Depends:** T1.5, T1.7
