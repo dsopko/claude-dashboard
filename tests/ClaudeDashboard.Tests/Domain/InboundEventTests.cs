@@ -70,7 +70,7 @@ public sealed class InboundEventTests
 
         Assert.Equal(
             [
-                "Ack", "CwdChanged", "Notification", "SessionEnd", "SessionStart",
+                "Ack", "CwdChanged", "Notification", "PostToolBatch", "SessionEnd", "SessionStart",
                 "SoundCommand", "Stop", "StopFailure", "UserPromptSubmit",
             ],
             variants);

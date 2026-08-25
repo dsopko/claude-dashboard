@@ -50,6 +50,9 @@ public static class HookEventNames
     /// <summary>The working directory moved.</summary>
     public const string CwdChanged = "CwdChanged";
 
+    /// <summary>A batch of tool calls resolved — the turn is running (TS §IV.1; issue #2).</summary>
+    public const string PostToolBatch = "PostToolBatch";
+
     /// <summary>
     /// Every accepted name. Anything else — including <c>Ack</c> — is refused before it can
     /// reach the pipeline.
@@ -63,6 +66,7 @@ public static class HookEventNames
         StopFailure,
         SessionEnd,
         CwdChanged,
+        PostToolBatch,
     };
 
     /// <summary>Whether ingress will map <paramref name="hookEventName"/> at all.</summary>

@@ -1027,6 +1027,167 @@ public sealed class SessionRegistryTests
             Current.Transitions.Select(t => t.To));
     }
 
+
+    // ---- PostToolBatch: the turn resumed (TS §IV.1, 2026-08-25; issue #2) ------------------------
+
+    /// <summary>
+    /// <strong>The regression the operator hit (issue #2).</strong> A session blocked on a
+    /// permission returns to Working when the turn is seen doing work again.
+    /// </summary>
+    /// <remarks>
+    /// The operator answered the permission, Claude carried on, and the row stayed red at the top
+    /// of Needs You for the rest of the turn — claiming to be blocked on someone who had already
+    /// unblocked it. Nothing fires when a permission is approved, so resumption is inferred from
+    /// the session executing again.
+    /// </remarks>
+    [Fact]
+    public void A_resolved_permission_returns_to_Working_when_the_turn_resumes()
+    {
+        GivenInState(SessionState.NeedsPermission);
+        _clock.AdvanceMinutes(1);
+
+        Assert.Equal(ApplyOutcome.Applied, Apply(Batched()));
+        Assert.Equal(SessionState.Working, Current.State);
+    }
+
+    /// <summary>The same defect by a different entry: a resolved question resumes too.</summary>
+    [Fact]
+    public void A_resolved_question_returns_to_Working_when_the_turn_resumes()
+    {
+        GivenInState(SessionState.NeedsQuestion);
+        _clock.AdvanceMinutes(1);
+
+        Assert.Equal(ApplyOutcome.Applied, Apply(Batched()));
+        Assert.Equal(SessionState.Working, Current.State);
+    }
+
+    /// <summary>
+    /// An errored turn that recovers on retry resumes, and stops reporting the error kind.
+    /// </summary>
+    /// <remarks>
+    /// A <c>StopFailure</c> that the agent retries produces tool activity with no new prompt, so
+    /// without this the session would sit in Error until the turn ended. The error kind is
+    /// cleared with it: a session that is working again is not still failing for that reason, and
+    /// leaving the kind behind would put a stale cause on a live row.
+    /// </remarks>
+    [Fact]
+    public void An_errored_turn_that_retries_returns_to_Working()
+    {
+        GivenInState(SessionState.Error);
+        Assert.NotNull(Current.ErrorKind);
+
+        _clock.AdvanceMinutes(1);
+
+        Assert.Equal(ApplyOutcome.Applied, Apply(Batched()));
+        Assert.Equal(SessionState.Working, Current.State);
+        Assert.Null(Current.ErrorKind);
+    }
+
+    /// <summary>
+    /// <strong>An unread result is never un-read.</strong> This is the control that makes the
+    /// three above mean something.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// "It became Working" is satisfied by a handler that moves <em>everything</em> to Working,
+    /// which would drag finished-but-unseen results back into the working band — issue #1's
+    /// failure mirrored, and the worse direction: #1 was loud and wrong, this would be quiet and
+    /// wrong. A late batch arriving after a <c>Stop</c> is exactly the shape that would do it.
+    /// </para>
+    /// <para>
+    /// Asserted as a decline as well as an unchanged state, so a handler that "changed it to
+    /// Unread again" — leaving the state right and the recency wrong — is caught too.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void An_unread_result_is_never_resumed()
+    {
+        GivenInState(SessionState.Unread);
+        var before = Current;
+
+        _clock.AdvanceMinutes(1);
+
+        Assert.Equal(ApplyOutcome.Ignored, Apply(Batched()));
+        Assert.Equal(SessionState.Unread, Current.State);
+        Assert.True(Current.Latest.IsAnswered);
+        Assert.Equal(before.LastActivity, Current.LastActivity);
+    }
+
+    /// <summary>
+    /// A session already Working is left exactly as it is — the overwhelmingly common case.
+    /// </summary>
+    /// <remarks>
+    /// One of these arrives per tool batch for the whole life of a turn, so it must not record a
+    /// transition or advance recency each time. Asserted on the transition log, because "still
+    /// Working" alone is satisfied by a handler that rewrites the session to the same state and
+    /// quietly bumps it up the ordering the UI sorts by.
+    /// </remarks>
+    [Fact]
+    public void A_working_session_is_untouched_by_its_own_tool_batches()
+    {
+        GivenInState(SessionState.Working);
+        var before = Current;
+
+        _clock.AdvanceMinutes(1);
+        Assert.Equal(ApplyOutcome.Ignored, Apply(Batched()));
+        _clock.AdvanceMinutes(1);
+        Assert.Equal(ApplyOutcome.Ignored, Apply(Batched()));
+
+        Assert.Equal(SessionState.Working, Current.State);
+        Assert.Equal(before.LastActivity, Current.LastActivity);
+        Assert.Equal(before.Transitions.Count, Current.Transitions.Count);
+    }
+
+    /// <summary>
+    /// Every state is classified as one a resumed turn recovers or one it leaves alone.
+    /// </summary>
+    /// <remarks>
+    /// Driven from <see cref="SessionState"/> so a state added later must be classified rather
+    /// than defaulting quietly into the untouched half. This shape has now earned its keep three
+    /// times: <c>AttentionOrder</c>, the tray palette, and the notification kinds.
+    /// </remarks>
+    [Fact]
+    public void Every_state_is_classified_for_a_resumed_turn()
+    {
+        var resumes = new Dictionary<SessionState, bool>
+        {
+            [SessionState.NeedsPermission] = true,
+            [SessionState.NeedsQuestion] = true,
+            [SessionState.Error] = true,
+
+            // Working is already right; Unread must never be un-read; Acked and Ended are over.
+            [SessionState.Working] = false,
+            [SessionState.Unread] = false,
+            [SessionState.Acked] = false,
+            [SessionState.Ended] = false,
+        };
+
+        Assert.Equal(Enum.GetValues<SessionState>().Length, resumes.Count);
+
+        foreach (var (state, expected) in resumes)
+        {
+            var fixture = new SessionRegistryTests();
+            fixture.GivenInState(state);
+            fixture._clock.AdvanceMinutes(1);
+
+            var outcome = fixture.Apply(fixture.Batched());
+            var resumed = outcome == ApplyOutcome.Applied
+                && fixture.Current.State == SessionState.Working;
+
+            Assert.True(
+                resumed == expected,
+                $"{state}: expected resume={expected} but the batch produced {outcome} "
+                + $"leaving {fixture.Current.State}.");
+        }
+    }
+
+    /// <summary>A tool batch, carrying nothing about the batch.</summary>
+    private PostToolBatch Batched() => new()
+    {
+        SessionId = Id,
+        Timestamp = _clock.Now,
+        Cwd = Cwd,
+    };
     /// <summary>Drives the session into <paramref name="state"/> using ordinary events.</summary>
     private void GivenInState(SessionState state)
     {

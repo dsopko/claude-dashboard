@@ -280,7 +280,7 @@ public sealed class HookEventMapperTests
         [
             HookEventNames.SessionStart, HookEventNames.UserPromptSubmit, HookEventNames.Notification,
             HookEventNames.Stop, HookEventNames.StopFailure, HookEventNames.SessionEnd,
-            HookEventNames.CwdChanged,
+            HookEventNames.CwdChanged, HookEventNames.PostToolBatch,
         ];
 
         var synthetic = typeof(InboundEvent).Assembly
@@ -353,11 +353,11 @@ public sealed class HookEventMapperTests
     /// among them.
     /// </summary>
     [Fact]
-    public void The_allow_list_is_exactly_section_9_1_s_seven_events()
+    public void The_allow_list_is_exactly_the_consumed_events()
     {
         Assert.Equal(
             [
-                "CwdChanged", "Notification", "SessionEnd", "SessionStart",
+                "CwdChanged", "Notification", "PostToolBatch", "SessionEnd", "SessionStart",
                 "Stop", "StopFailure", "UserPromptSubmit",
             ],
             HookEventNames.Accepted.Order(StringComparer.Ordinal));

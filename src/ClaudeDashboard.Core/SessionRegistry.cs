@@ -253,8 +253,45 @@ public sealed class SessionRegistry(SingleWriterGuard guard)
         SessionEnd end => ApplySessionEnd(current, end),
         CwdChanged cwd => ApplyCwdChanged(current, cwd),
         Ack ack => ApplyAck(current, ack),
+        PostToolBatch batch => ApplyPostToolBatch(current, batch),
         _ => Transitioned.Declined(ApplyOutcome.Ignored),
     };
+
+    /// <summary>
+    /// The turn is running again: a session blocked on the operator, or stopped by an error,
+    /// returns to <see cref="SessionState.Working"/> (TS §IV.1, 2026-08-25; issue #2).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>Only the three states that were waiting.</strong> A batch of tool calls resolving
+    /// proves the session is executing, which contradicts "blocked on the operator" and
+    /// "stopped" — but it says nothing about a session that has already finished.
+    /// </para>
+    /// <para>
+    /// <strong><see cref="SessionState.Unread"/> must never resume, and that is the load-bearing
+    /// half.</strong> Un-reading a finished result is issue #1's failure mirrored, and the worse
+    /// direction: #1 was loud and wrong — everything turned red — whereas this would be quiet and
+    /// wrong, quietly emptying the band the dashboard exists to fill. A late batch arriving after
+    /// a <c>Stop</c> is exactly the shape that would do it.
+    /// </para>
+    /// <para>
+    /// <strong>Accepted residual, written down rather than noticed later.</strong> Nothing fires
+    /// when the operator approves — there is no <c>PermissionGranted</c> hook — so the row stays
+    /// red from the approval until the tool <em>finishes</em>. This shortens the gap from "the
+    /// rest of the turn" to "the rest of this tool call"; with the hooks that exist it cannot be
+    /// closed further, only shortened again if a signal that fires at the decision ever appears.
+    /// </para>
+    /// <para>
+    /// Every other state declines as <see cref="ApplyOutcome.Ignored"/>, which is the common case
+    /// by a wide margin: an already-<see cref="SessionState.Working"/> session produces one of
+    /// these per tool batch and must go on being Working without a transition being recorded for
+    /// each.
+    /// </para>
+    /// </remarks>
+    private static Transitioned ApplyPostToolBatch(Session current, PostToolBatch batch) =>
+        current.State is SessionState.NeedsPermission or SessionState.NeedsQuestion or SessionState.Error
+            ? Transitioned.FromMove(Moved(current, SessionState.Working, batch))
+            : Transitioned.Declined(ApplyOutcome.Ignored);
 
     /// <summary>
     /// <c>SessionStart</c> refreshes an existing session without disturbing its state — a

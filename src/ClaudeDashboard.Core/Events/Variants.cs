@@ -262,3 +262,42 @@ public sealed record SoundCommand : InboundEvent
     /// </summary>
     public DateTimeOffset? Until { get; init; }
 }
+
+/// <summary>
+/// A batch of tool calls finished and the agent is about to make its next model call — so the
+/// turn is <em>running</em> (TS §IV.1, addition of 2026-08-25; Impl §9.1).
+/// </summary>
+/// <remarks>
+/// <para>
+/// <strong>Why this event exists at all.</strong> <see cref="SessionState.Working"/> was only
+/// ever entered from <see cref="UserPromptSubmit"/>, so once a session left it for a Needs-You
+/// state the only road back was the turn ending. The operator answered a permission, Claude
+/// carried on, and the row stayed red at the top of Needs You for the rest of the turn —
+/// claiming to be blocked on someone who had already unblocked it (issue #2).
+/// </para>
+/// <para>
+/// <strong>Resumption is inferred, because nothing announces it.</strong> There is no
+/// <c>PermissionGranted</c> hook: <c>PermissionRequest</c> fires when a decision is needed and
+/// <c>PermissionDenied</c> when auto mode denies one, and approval fires nothing at all. So the
+/// evidence has to be the session doing work again, and this is that — the agent is between
+/// model calls, therefore executing.
+/// </para>
+/// <para>
+/// <strong>Once per batch, not once per tool</strong>, which is what makes it affordable at
+/// fifteen concurrent sessions; <c>PostToolUse</c> would carry more traffic than every other
+/// hook combined. And it is deliberately the general fix rather than a permission-specific one:
+/// it recovers a resolved question and an errored turn that retries, both of which a
+/// permission-shaped signal would have missed.
+/// </para>
+/// <para>
+/// <strong>It carries none of the batch's payload.</strong> <c>tool_calls</c> and
+/// <c>batch_id</c> are deliberately not read — the common fields carry everything this needs,
+/// and <c>tool_input</c> in particular is user content that has no business in the domain or in
+/// a log. The event's whole meaning is that it happened.
+/// </para>
+/// </remarks>
+public sealed record PostToolBatch : InboundEvent
+{
+    /// <inheritdoc/>
+    public override string HookEventName => "PostToolBatch";
+}

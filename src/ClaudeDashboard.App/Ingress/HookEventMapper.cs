@@ -130,7 +130,16 @@ public sealed class HookEventMapper(IClock clock)
                 PromptId = promptId, TranscriptPath = transcript,
             },
 
-            // Unreachable: the allow-list above is the same seven names. Present so that adding
+            // Nothing batch-specific is read. tool_calls and batch_id are deliberately left on
+            // the wire — the event's whole meaning is that it happened, and tool_input is user
+            // content that has no business in the domain (issue #2).
+            HookEventNames.PostToolBatch => new PostToolBatch
+            {
+                SessionId = sessionId, Timestamp = timestamp, Cwd = cwd,
+                PromptId = promptId, TranscriptPath = transcript,
+            },
+
+            // Unreachable: the allow-list above is the same eight names. Present so that adding
             // a name to one and not the other is a loud failure rather than a silently
             // unmapped event.
             _ => throw new InvalidOperationException(
