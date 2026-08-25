@@ -241,6 +241,7 @@ Transitions are triggered by events (Part II) and by acknowledgment sources (Par
  Unread        ──Ack*────────────▶ Acked
  NeedsYou.*     ──Ack*────────────▶ Acked          (rare; usually a new prompt supersedes)
  NeedsYou.* / Error ──UserPromptSubmit─▶ Working    (operator answered/retried)
+ NeedsYou.* / Error ──PostToolBatch──▶ Working      (the turn resumed — see below)
  (any)   ──SessionEnd────────────▶ Ended ──(timer)──▶ removed
 
  Ack* = { new UserPromptSubmit in session | manual Ack | inferred focus (Phase 3) }
@@ -257,6 +258,16 @@ Transitions are triggered by events (Part II) and by acknowledgment sources (Par
 > finished, with no escape until the operator happened to type something new. Found
 > at T1.2 and reproduced independently; these transitions now originate from any
 > live (non-`Ended`) state.
+
+> **Addition (2026-08-25, found by dogfooding — [issue #2](https://github.com/dsopko/claude-dashboard/issues/2)).** The correction above fixed a session stranded *after the turn ended*. It did not fix the same session stranded *while the turn is still running*, and that is a separate gap in this diagram: **`Working` was only ever entered from `UserPromptSubmit`.**
+>
+> So once a session left `Working` for any Needs-You state, the only road back was the turn ending. Observed: the operator answers a permission, Claude carries on working, and **the row stays red at the top of Needs You for the rest of the turn** — still claiming to be blocked on someone who has already unblocked it. A cleared item that stays on the to-do list is the terminal-hunting this product exists to remove, and it corrupts §IV.2's ordering, since a resolved permission sorts *higher* the longer it has been resolved.
+>
+> **There is no hook for "the operator answered."** `PermissionRequest` fires when a decision is needed and `PermissionDenied` when auto mode denies one; approval fires nothing (see `claude-code-hooks-reference.md`). Resumption must therefore be **inferred from the session doing work again**, and `PostToolBatch` — which fires once after a batch of tool calls resolves, before the next model call — is that evidence. It is deliberately the general fix: it covers a resolved question and a recovered error as well as a permission.
+>
+> **`Unread` must never be resumed this way.** Un-reading a finished session is issue #1's failure mirrored, and the worse direction — #1 was loud and wrong, this would be quiet and wrong.
+>
+> **Accepted residual:** between approval and the tool *finishing*, the row stays red. Nothing fires at the moment of approval, so with the hooks that exist this gap cannot be closed — only shortened from "the rest of the turn" to "the rest of this tool call".
 
 Every state carries: the latest exchange (prompt text; answer text once known), entry timestamp (for age display and nudge timing), workspace, and derived group.
 

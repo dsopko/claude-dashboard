@@ -318,6 +318,7 @@ Common fields on every event: `session_id`, `prompt_id`, `transcript_path`, `cwd
 | `Stop` | → **Unread**; store the answer | **`last_assistant_message`** (final answer text, inline — preferred over the transcript) |
 | `StopFailure` (`rate_limit`,`overloaded`,`authentication_failed`,…) | → **Error**; record kind | error type (from matcher) |
 | `SessionEnd` (`clear`,`resume`,`logout`,`prompt_input_exit`,`other`) | → **Ended**; schedule removal | end reason (from matcher) |
+| `PostToolBatch` | **`NeedsPermission`/`NeedsQuestion`/`Error` → Working** — the turn resumed. Never from `Unread`. See TS §IV.1's 2026-08-25 addition | *(common fields only — `tool_calls`/`batch_id` are not read)* |
 | `CwdChanged` *(optional)* | re-derive the session's **Group** | `cwd` |
 | `SubagentStart` / `SubagentStop` *(optional)* | subagent roll-up, if surfaced | `agent_id`, `agent_type` |
 
