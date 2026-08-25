@@ -1,11 +1,33 @@
 namespace ClaudeDashboard.App.Ui;
 
 /// <summary>
-/// Carries the event consumer's periodic tick across to the UI thread (T1.9 → Impl §4 → T1.11).
+/// Something that wants to know the clock moved, even though nothing happened.
 /// </summary>
 /// <remarks>
-/// An interface so the consumer depends on "something wants the time" rather than on the WPF
-/// layer — and so the wiring can be asserted without a dispatcher.
+/// Two things need this and they need it for the same reason. A row's age advances while no
+/// event arrives (T1.11), and the tray's tooltip has to notice a global mute lapsing — which
+/// raises no event at all, because the mute is a predicate rather than a timer (Impl §5.2). In
+/// both cases the truth changes with time alone, so something has to ask.
+/// </remarks>
+public interface IUiTickTarget
+{
+    /// <summary>The clock has advanced to <paramref name="now"/>.</summary>
+    void Tick(DateTimeOffset now);
+}
+
+/// <summary>
+/// Where the consumer's tick is echoed to the UI thread.
+/// </summary>
+/// <remarks>
+/// <para>
+/// Called on the consumer thread; every target is invoked through <see cref="IUiDispatcher"/>,
+/// so nothing here touches UI-thread state. Implementations must post and return.
+/// </para>
+/// <para>
+/// Targets are attached rather than resolved, so that the consumer thread can never construct
+/// UI-thread state: <c>Program</c> builds the window and the tray on the UI thread and hands
+/// them over.
+/// </para>
 /// </remarks>
 public interface IUiTick
 {
@@ -14,69 +36,51 @@ public interface IUiTick
     void Tick(DateTimeOffset now);
 }
 
-/// <summary>
-/// The one thing that makes an age advance while nothing is happening.
-/// </summary>
-/// <remarks>
-/// <para>
-/// <strong>Why this exists at all.</strong> A dashboard whose whole job is to show how long an
-/// agent has been blocked must count while nothing arrives — that is precisely the situation it
-/// is reporting on. <see cref="MainViewModel.Tick"/> does the counting, and nothing called it:
-/// the view model deliberately starts no timer, because the event consumer owns the only
-/// periodic loop in the process and a second one is what that design exists to prevent (T1.9,
-/// Impl §2.2 and §4). This is the wire between them, and it is one wire on purpose.
-/// </para>
-/// <para>
-/// The same tick decides staleness — Design Document §6's "quiet for N minutes" — so a second
-/// timer for the collapse rules would have been the same mistake in a different file.
-/// </para>
-/// <para>
-/// <strong>It touches nothing shared.</strong> The consumer thread does one volatile read and a
-/// post; the work runs on the UI thread against rows the UI thread owns. It never reads the
-/// Registry, the projection, or the sound engine, so it raises no single-writer question at
-/// either end.
-/// </para>
-/// <para>
-/// <strong>Before there is a window, ticks are dropped</strong> — the dashboard starts headless
-/// (T1.7) and there is nothing whose age could be wrong. This is the same degrade as
-/// <see cref="WpfDispatcher"/>'s, for the same reason.
-/// </para>
-/// </remarks>
+/// <inheritdoc cref="IUiTick"/>
 public sealed class UiTick(IUiDispatcher dispatcher) : IUiTick
 {
     private readonly IUiDispatcher _dispatcher =
         dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
 
-    private MainViewModel? _target;
+    /// <summary>
+    /// Everything being ticked. Swapped whole rather than mutated, so the consumer thread
+    /// always reads a complete array while the UI thread is attaching.
+    /// </summary>
+    private IUiTickTarget[] _targets = [];
 
-    /// <summary>How many ticks reached a view model. Diagnostic only.</summary>
+    /// <summary>How many ticks have been posted. Diagnostic only.</summary>
     public long DeliveredCount { get; private set; }
 
-    /// <summary>
-    /// Names the view model the tick drives, once the UI exists.
-    /// </summary>
+    /// <summary>Starts ticking <paramref name="target"/>.</summary>
     /// <remarks>
-    /// Attached rather than injected because the view model is built on the UI thread while this
-    /// is resolved on the host's, and constructing it from the consumer would touch a
-    /// UI-thread-owned collection from the wrong thread — the exact failure the marshalling
-    /// point exists to prevent.
+    /// Called on the UI thread during startup. Attaching more than one is the ordinary case —
+    /// the window and the tray both advance with the clock.
     /// </remarks>
-    /// <exception cref="ArgumentNullException"><paramref name="viewModel"/> is null.</exception>
-    public void Attach(MainViewModel viewModel)
+    /// <exception cref="ArgumentNullException"><paramref name="target"/> is null.</exception>
+    public void Attach(IUiTickTarget target)
     {
-        ArgumentNullException.ThrowIfNull(viewModel);
-        Volatile.Write(ref _target, viewModel);
+        ArgumentNullException.ThrowIfNull(target);
+
+        Volatile.Write(ref _targets, [.. Volatile.Read(ref _targets), target]);
     }
 
     /// <inheritdoc/>
     public void Tick(DateTimeOffset now)
     {
-        if (Volatile.Read(ref _target) is not { } target)
+        var targets = Volatile.Read(ref _targets);
+
+        if (targets.Length == 0)
         {
             return;
         }
 
+        // One delivery per tick, not per target: this counts how often the UI was told the clock
+        // moved, which is what the composition tests are asking about.
         DeliveredCount++;
-        _dispatcher.Post(() => target.Tick(now));
+
+        foreach (var target in targets)
+        {
+            _dispatcher.Post(() => target.Tick(now));
+        }
     }
 }

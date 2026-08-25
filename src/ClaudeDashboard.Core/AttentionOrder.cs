@@ -94,4 +94,45 @@ public static class AttentionOrder
         SessionState.Ended => AttentionBand.Ended,
         _ => AttentionBand.Quiet,
     };
+
+    /// <summary>
+    /// The most severe state in <paramref name="states"/>, or <see cref="SessionState.Ended"/>
+    /// when there are none.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The one roll-up. <see cref="Group.WorstState"/> answers this question for a group's
+    /// members and the tray answers it for every session at once (Impl §5.2), and they are the
+    /// same question — "worst wins", over <see cref="Rank"/>, which is why the ranking is not
+    /// copied a third time. Because <see cref="Rank"/> is total, states can only tie when they
+    /// are equal, so the order <paramref name="states"/> arrives in cannot change the answer.
+    /// </para>
+    /// <para>
+    /// Empty answers <see cref="SessionState.Ended"/> because it is rank 0: a dashboard with no
+    /// sessions is as quiet as one whose sessions have all finished, and nothing that ranks
+    /// above nothing would be true.
+    /// </para>
+    /// </remarks>
+    /// <param name="states">The states to roll up.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="states"/> is null.</exception>
+    public static SessionState WorstOf(IEnumerable<SessionState> states)
+    {
+        ArgumentNullException.ThrowIfNull(states);
+
+        var worst = SessionState.Ended;
+        var worstRank = Rank(worst);
+
+        foreach (var state in states)
+        {
+            var rank = Rank(state);
+
+            if (rank > worstRank)
+            {
+                worst = state;
+                worstRank = rank;
+            }
+        }
+
+        return worst;
+    }
 }

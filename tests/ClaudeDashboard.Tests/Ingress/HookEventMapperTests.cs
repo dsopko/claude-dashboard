@@ -258,14 +258,49 @@ public sealed class HookEventMapperTests
     /// by allow-list would let anything reaching the endpoint mark a session as seen — and that
     /// failure is silent, because a session that needed the operator simply goes quiet.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Enumerated from the hierarchy rather than listed, so a synthetic variant added later is
+    /// covered the day it appears instead of the day somebody remembers. That is not
+    /// hypothetical: T1.13 added <c>SoundCommand</c>, and a forged one is strictly worse than a
+    /// forged <c>Ack</c> — an ack silences one session, a <c>PauseMonitoring</c> silences the
+    /// whole dashboard until the operator notices the glyph has gone grey.
+    /// </para>
+    /// <para>
+    /// The mapper rejects both by construction, because it dispatches on an allow-list of the
+    /// seven literal wire names rather than by matching a variant. This asserts that property
+    /// holds for every synthetic variant there is, and the first assertion pins the set itself,
+    /// so a variant that stopped being synthetic could not slip out of the check quietly.
+    /// </para>
+    /// </remarks>
     [Fact]
-    public void A_forged_Ack_is_rejected()
+    public void No_synthetic_variant_can_be_forged()
     {
-        var mapping = MapJson("""{"hook_event_name":"Ack","session_id":"s-1","source":"Manual"}""");
+        string[] wireNames =
+        [
+            HookEventNames.SessionStart, HookEventNames.UserPromptSubmit, HookEventNames.Notification,
+            HookEventNames.Stop, HookEventNames.StopFailure, HookEventNames.SessionEnd,
+            HookEventNames.CwdChanged,
+        ];
 
-        Assert.False(mapping.Mapped);
-        Assert.Equal(HookRejection.UnknownEvent, mapping.Rejection);
-        Assert.Null(mapping.Event);
+        var synthetic = typeof(InboundEvent).Assembly
+            .GetTypes()
+            .Where(type => type.IsSubclassOf(typeof(InboundEvent)))
+            .Select(type => type.Name)
+            .Where(name => !wireNames.Contains(name, StringComparer.Ordinal))
+            .Order(StringComparer.Ordinal)
+            .ToList();
+
+        Assert.Equal(["Ack", "SoundCommand"], synthetic);
+
+        foreach (var name in synthetic)
+        {
+            var mapping = MapJson($$"""{"hook_event_name":"{{name}}","session_id":"s-1"}""");
+
+            Assert.False(mapping.Mapped, $"a forged {name} was mapped.");
+            Assert.Equal(HookRejection.UnknownEvent, mapping.Rejection);
+            Assert.Null(mapping.Event);
+        }
     }
 
     [Theory]

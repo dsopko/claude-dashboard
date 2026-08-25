@@ -711,6 +711,144 @@ public sealed class SoundPolicyEngineTests
         engine.Evaluate(Start.AddMinutes(7));
         Assert.Equal(3, Nudges.Count);
     }
+
+    // ---- Global mute and pause (T1.13; Impl §5.2) -------------------------------------------------
+
+    /// <summary>
+    /// <strong>Muted, the port is never called at all.</strong>
+    /// </summary>
+    /// <remarks>
+    /// The proof is here rather than at the speaker. Nothing is audible in Phase 1 —
+    /// <c>SilentSoundPlayer</c> until T1.14 — so "mute silences" is not observable, and asserting
+    /// on a gain of zero would be asserting on a number nobody hears. What is observable, and what
+    /// actually matters, is that no intent is emitted: <see cref="ISoundPlayer.Play"/> is not
+    /// reached. <see cref="ISoundPlayer"/>'s own contract puts mute on this side of the port —
+    /// it is policy, not playback.
+    /// </remarks>
+    [Fact]
+    public void A_global_mute_stops_the_port_being_called()
+    {
+        _engine.SetAllMuted(muted: true);
+
+        _engine.OnSessionChanged(SessionIn(SessionState.NeedsPermission, Start));
+        EvaluateAt(2);
+        EvaluateAt(7);
+        EvaluateAt(60);
+
+        Assert.Empty(_player.Played);
+    }
+
+    /// <summary>Paused, likewise — same silence, different reason.</summary>
+    [Fact]
+    public void Pausing_stops_the_port_being_called()
+    {
+        _engine.SetMonitoringPaused(paused: true);
+
+        _engine.OnSessionChanged(SessionIn(SessionState.Error, Start));
+        EvaluateAt(2);
+        EvaluateAt(60);
+
+        Assert.Empty(_player.Played);
+    }
+
+    /// <summary>
+    /// A timed mute lapses on its own, with nothing scheduled to end it.
+    /// </summary>
+    /// <remarks>
+    /// This is what "a predicate, not a timer" buys: no callback fires at the thirty-minute mark,
+    /// and the mute simply stops being true the next time a sound would be emitted. A timer that
+    /// unmuted exactly when a nudge fell due would be a beep out of nowhere.
+    /// </remarks>
+    [Fact]
+    public void A_timed_mute_lapses_without_anything_firing()
+    {
+        _engine.SetAllMuted(muted: true, Start.AddMinutes(30));
+
+        _engine.OnSessionChanged(SessionIn(SessionState.NeedsPermission, Start));
+        _clock.AdvanceMinutes(2);
+        EvaluateAt(2);
+        Assert.Empty(_player.Played);
+
+        // Past the expiry: the same schedule now sounds, because the predicate stopped holding.
+        _clock.AdvanceMinutes(40);
+        EvaluateAt(42);
+
+        Assert.NotEmpty(_player.Played);
+    }
+
+    /// <summary>
+    /// Unmuting does not release a backlog.
+    /// </summary>
+    /// <remarks>
+    /// Mute filters the output and does not freeze the ladder, so a session muted through three
+    /// rungs does not fire three nudges when it comes back — it resumes at the natural cadence.
+    /// The operator asked not to be disturbed; being disturbed three times at once for having
+    /// asked would be worse than never muting.
+    /// </remarks>
+    [Fact]
+    public void Unmuting_does_not_release_a_backlog()
+    {
+        _engine.SetAllMuted(muted: true);
+        _engine.OnSessionChanged(SessionIn(SessionState.NeedsPermission, Start));
+
+        EvaluateAt(2);
+        EvaluateAt(7);
+        EvaluateAt(17);
+        Assert.Empty(_player.Played);
+
+        _engine.SetAllMuted(muted: false);
+        EvaluateAt(18);
+
+        // Nothing was owed: the rungs that fell due while muted were spent, not stored.
+        Assert.Empty(_player.Played);
+    }
+
+    /// <summary>Unmuting lets the next thing be heard.</summary>
+    [Fact]
+    public void Unmuting_lets_the_next_notice_through()
+    {
+        _engine.SetAllMuted(muted: true);
+        _engine.OnSessionChanged(SessionIn(SessionState.NeedsPermission, Start));
+        Assert.Empty(_player.Played);
+
+        _engine.SetAllMuted(muted: false);
+        _engine.OnSessionChanged(SessionIn(SessionState.Error, Start.AddMinutes(1), "s-2"));
+
+        Assert.Single(Notices);
+    }
+
+    /// <summary>The modes read back, so the tray can render them.</summary>
+    [Fact]
+    public void The_modes_are_readable()
+    {
+        Assert.Null(_engine.AllMutedUntil);
+        Assert.False(_engine.IsMonitoringPaused);
+        Assert.False(_engine.IsSilenced(Start));
+
+        _engine.SetAllMuted(muted: true, Start.AddMinutes(30));
+        Assert.Equal(Start.AddMinutes(30), _engine.AllMutedUntil);
+        Assert.True(_engine.IsSilenced(Start));
+        Assert.False(_engine.IsSilenced(Start.AddMinutes(31)));
+
+        _engine.SetAllMuted(muted: false);
+        Assert.Null(_engine.AllMutedUntil);
+
+        _engine.SetMonitoringPaused(paused: true);
+        Assert.True(_engine.IsMonitoringPaused);
+
+        // Pause has no expiry: it is still silent an hour later, unlike a timed mute.
+        Assert.True(_engine.IsSilenced(Start.AddHours(1)));
+    }
+
+    /// <summary>An indefinite mute is not confused with no mute at all.</summary>
+    [Fact]
+    public void An_indefinite_mute_never_lapses()
+    {
+        _engine.SetAllMuted(muted: true);
+
+        Assert.Equal(DateTimeOffset.MaxValue, _engine.AllMutedUntil);
+        Assert.True(_engine.IsSilenced(Start.AddYears(1)));
+    }
 }
 
 public sealed class SoundPolicyOptionsTests

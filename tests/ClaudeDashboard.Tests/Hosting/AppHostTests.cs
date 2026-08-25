@@ -5,6 +5,7 @@ using ClaudeDashboard.App.Pipeline;
 using ClaudeDashboard.App.Ui;
 using ClaudeDashboard.Core;
 using ClaudeDashboard.Core.Events;
+using ClaudeDashboard.Core.Ports;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Serilog;
@@ -434,5 +435,58 @@ public sealed class AppHostTests : IDisposable
     {
         _ = Task.Run(static () => throw new InvalidOperationException("deliberate dropped fault"));
         Thread.Sleep(50);
+    }
+
+    /// <summary>
+    /// The tick the container registered is the one the consumer holds, and it reaches every
+    /// attached target rather than only the first.
+    /// </summary>
+    /// <remarks>
+    /// The tray advances on this tick and on nothing else: a global mute lapses by predicate and
+    /// raises no event, so without it the tooltip would be correct exactly once, at startup. That
+    /// the tray actually responds is asserted in <c>TrayCompositionTests</c>, on a thread with a
+    /// real dispatcher.
+    /// </remarks>
+    [Fact]
+    public void The_trays_tick_is_the_one_the_consumer_drives()
+    {
+        using var host = AppHost.Build(_paths);
+
+        var tick = host.Services.GetRequiredService<UiTick>();
+
+        Assert.Same(tick, host.Services.GetRequiredService<IUiTick>());
+        Assert.Same(tick, host.Services.GetRequiredService<EventConsumer>().UiTick);
+
+        // …and it reaches everything attached, not just the first thing.
+        var tray = host.Services.GetRequiredService<TrayViewModel>();
+        var window = host.Services.GetRequiredService<MainViewModel>();
+
+        tick.Attach(window);
+        tick.Attach(tray);
+
+        var before = tick.DeliveredCount;
+        tick.Tick(DateTimeOffset.UtcNow);
+
+        Assert.Equal(before + 1, tick.DeliveredCount);
+    }
+
+    /// <summary>
+    /// The tray's global sound modes come from the engine the consumer mutates — one engine, not
+    /// a second one built for the display.
+    /// </summary>
+    /// <remarks>
+    /// If <c>ISoundModeReader</c> resolved to its own instance, every mode would read false
+    /// forever: the operator would mute, the sound would stop, and the tooltip would never say
+    /// so. Resolving is not enough to catch that — the two would both exist — so this asserts
+    /// they are the same object.
+    /// </remarks>
+    [Fact]
+    public void The_tray_reads_the_engine_the_consumer_writes()
+    {
+        using var host = AppHost.Build(_paths);
+
+        var engine = host.Services.GetRequiredService<SoundPolicyEngine>();
+
+        Assert.Same(engine, host.Services.GetRequiredService<ISoundModeReader>());
     }
 }

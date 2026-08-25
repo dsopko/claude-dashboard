@@ -105,6 +105,9 @@ public static class AppHost
         builder.Services.AddSingleton<IUiTick>(sp => sp.GetRequiredService<UiTick>());
         builder.Services.AddSingleton<MainViewModel>();
         builder.Services.AddSingleton<MainWindow>();
+        builder.Services.AddSingleton<ISoundModeReader>(sp => sp.GetRequiredService<SoundPolicyEngine>());
+        builder.Services.AddSingleton<TrayViewModel>();
+        builder.Services.AddSingleton<TrayIcon>();
         builder.Services.AddHostedService(sp => sp.GetRequiredService<EventConsumer>());
         builder.Services.AddSingleton<EventConsumer>();
 

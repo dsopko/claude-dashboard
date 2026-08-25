@@ -38,7 +38,7 @@ namespace ClaudeDashboard.App.Ui;
 /// touches only what actually moved.
 /// </para>
 /// </remarks>
-public sealed partial class MainViewModel : ObservableObject, IDisposable
+public sealed partial class MainViewModel : ObservableObject, IUiTickTarget, IDisposable
 {
     /// <summary>
     /// How long a group must be entirely quiet before it collapses to one line

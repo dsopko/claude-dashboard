@@ -205,3 +205,60 @@ public sealed record Ack : InboundEvent
     /// <summary>Which acknowledgment source raised this.</summary>
     public required AckSource Source { get; init; }
 }
+
+/// <summary>Which global sound mode the operator asked for (Impl §5.2).</summary>
+public enum SoundCommandKind
+{
+    /// <summary>Silence everything, optionally until an expiry. The glyph stays truthful.</summary>
+    MuteAll = 1,
+
+    /// <summary>Let everything be heard again.</summary>
+    UnmuteAll = 2,
+
+    /// <summary>Go off duty: silence everything, and grey the glyph, until the operator resumes.</summary>
+    PauseMonitoring = 3,
+
+    /// <summary>Come back on duty.</summary>
+    ResumeMonitoring = 4,
+}
+
+/// <summary>
+/// The operator changed a global sound mode from the tray menu (Impl §5.2).
+/// </summary>
+/// <remarks>
+/// <para>
+/// <strong>Why this is an event rather than a method call.</strong> The tray menu runs on the
+/// Dispatcher, and <see cref="SoundPolicyEngine"/>'s mutators enter the single-writer region.
+/// T1.2b made that region mutual exclusion rather than thread affinity, so calling a mutator
+/// straight from a click <em>succeeds</em> whenever the consumer happens to be idle and throws
+/// only when the two overlap — which is to say it passes in testing and fails in front of the
+/// operator. Sending it down the Channel puts the change on the consumer thread with everything
+/// else, in order.
+/// </para>
+/// <para>
+/// That is a preference about <em>ordering</em>, not a race being fixed: the guard would catch
+/// an overlap loudly if one happened. The stronger reason is T1.7's — the dispatcher exception
+/// handler marks every fault handled on the premise that the domain never mutates on the
+/// Dispatcher, so a mutation there would quietly undermine a decision taken elsewhere.
+/// </para>
+/// <para>
+/// <strong>It names no session.</strong> These are global, so <see cref="InboundEvent.SessionId"/>
+/// is left default and reads <see cref="SessionId.IsEmpty"/>. The Registry never sees one of
+/// these — the consumer routes it to the sound engine — so no session state is implied by the
+/// gap.
+/// </para>
+/// </remarks>
+public sealed record SoundCommand : InboundEvent
+{
+    /// <inheritdoc/>
+    public override string HookEventName => "SoundCommand";
+
+    /// <summary>Which mode the operator asked for.</summary>
+    public required SoundCommandKind Kind { get; init; }
+
+    /// <summary>
+    /// When a <see cref="SoundCommandKind.MuteAll"/> lapses; null mutes with no expiry. Ignored
+    /// by every other kind.
+    /// </summary>
+    public DateTimeOffset? Until { get; init; }
+}

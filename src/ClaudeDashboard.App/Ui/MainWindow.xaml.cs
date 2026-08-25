@@ -48,6 +48,26 @@ public partial class MainWindow : Window
     }
 
     /// <inheritdoc/>
+    /// <summary>
+    /// Shows the dashboard if it is hidden, hides it if it is showing (Impl §5.2, left-click).
+    /// </summary>
+    /// <remarks>
+    /// A minimised window counts as hidden, not as showing: the operator who clicked the tray
+    /// wants to see it, and restoring is what they meant. Only a window that is genuinely up and
+    /// visible is hidden by a second click.
+    /// </remarks>
+    public void ToggleDashboard()
+    {
+        if (IsVisible && WindowState != WindowState.Minimized)
+        {
+            Hide();
+
+            return;
+        }
+
+        ShowDashboard();
+    }
+
     protected override void OnClosing(CancelEventArgs e)
     {
         ArgumentNullException.ThrowIfNull(e);

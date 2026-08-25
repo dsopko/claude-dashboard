@@ -222,7 +222,7 @@ public sealed class SingleWriterInvariantTests
     {
         // Queries: they read and do not mutate, so they do not enter the region. See
         // SingleWriterGuard for why reads are documented rather than guarded.
-        string[] queries = ["IsMuted", "NextNudgeAt"];
+        string[] queries = ["IsMuted", "NextNudgeAt", "IsSilenced"];
 
         var classified = Mutators
             .Select(mutator => mutator.Name.Split('.')[^1])
@@ -247,6 +247,80 @@ public sealed class SingleWriterInvariantTests
     }
 
     /// <summary>
+    /// …and a public <em>property setter</em> does not escape it either.
+    /// </summary>
+    /// <remarks>
+    /// <c>IsSpecialName</c> filters out <c>get_</c> and <c>set_</c>, so the classification above
+    /// sees methods and nothing else. A public settable property would therefore be an
+    /// unguarded mutator that the guard reports as fully classified. Neither type has one today
+    /// and one would be a smell, which is exactly why this is cheap: it stays green until
+    /// somebody adds the thing nobody should add.
+    /// </remarks>
+    [Fact]
+    public void No_public_property_setter_escapes_classification()
+    {
+        foreach (var type in new[] { typeof(SessionRegistry), typeof(SoundPolicyEngine) })
+        {
+            var settable = type
+                .GetProperties(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
+                .Where(property => property.SetMethod?.IsPublic == true)
+                .Select(property => property.Name)
+                .ToList();
+
+            Assert.True(
+                settable.Count == 0,
+                $"{type.Name} exposes a public setter: {string.Join(", ", settable)}. A setter mutates "
+                + "without entering the region and is invisible to the method classification, which "
+                + "filters accessors out. Make it a method that enters the guard, or make it read-only.");
+        }
+    }
+
+    /// <summary>
+    /// …and a new <em>overload</em> of an already-classified name does not inherit its
+    /// classification.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Classification is by name, so <c>Evaluate()</c> and <c>Evaluate(now)</c> are one entry —
+    /// which is what lets the list stay readable, and also means an overload added tomorrow is
+    /// covered by a proof that was only ever run against its sibling. Pinning the count per name
+    /// turns that into a failure that says so.
+    /// </para>
+    /// <para>
+    /// Counts rather than signatures, deliberately. Matching signatures would force this guard
+    /// to synthesise an argument for every parameter list in order to prove entry, which is the
+    /// fragility the name-based design was chosen to avoid. A count is enough: it cannot say
+    /// which overload is new, but it cannot fail to notice that one is.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void No_new_overload_inherits_a_classification()
+    {
+        var expected = new Dictionary<string, int>(StringComparer.Ordinal)
+        {
+            ["Apply"] = 1,
+            ["OnSessionChanged"] = 1,
+            ["Evaluate"] = 2,
+            ["SetSessionMuted"] = 1,
+            ["SetGroupMuted"] = 1,
+            ["SetAllMuted"] = 1,
+            ["SetMonitoringPaused"] = 1,
+            ["IsMuted"] = 1,
+            ["IsSilenced"] = 1,
+            ["NextNudgeAt"] = 1,
+        };
+
+        var actual = new[] { typeof(SessionRegistry), typeof(SoundPolicyEngine) }
+            .SelectMany(type => type.GetMethods(
+                BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly))
+            .Where(method => !method.IsSpecialName)
+            .GroupBy(method => method.Name, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.Count(), StringComparer.Ordinal);
+
+        Assert.Equal(expected.OrderBy(pair => pair.Key, StringComparer.Ordinal), actual.OrderBy(pair => pair.Key, StringComparer.Ordinal));
+    }
+
+    /// <summary>
     /// The methods that mutate shared state and must therefore enter the single-writer region.
     /// </summary>
     /// <remarks>
@@ -260,6 +334,8 @@ public sealed class SingleWriterInvariantTests
         ("SoundPolicyEngine.Evaluate", () => _sound.Evaluate(_clock.Now)),
         ("SoundPolicyEngine.SetSessionMuted", () => _sound.SetSessionMuted(new SessionId("s-9"), true)),
         ("SoundPolicyEngine.SetGroupMuted", () => _sound.SetGroupMuted(GroupKeys.ForWorkspace(@"C:\w"), true)),
+        ("SoundPolicyEngine.SetAllMuted", () => _sound.SetAllMuted(muted: true)),
+        ("SoundPolicyEngine.SetMonitoringPaused", () => _sound.SetMonitoringPaused(paused: true)),
     ];
 
     // ---- What must NOT be caught ----------------------------------------------------------------

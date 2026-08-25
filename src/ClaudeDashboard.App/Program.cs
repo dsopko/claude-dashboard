@@ -60,7 +60,16 @@ public static class Program
             // built. Attaching the tick here rather than inside the container is what keeps the
             // consumer thread from ever constructing UI-thread state (see UiTick).
             var window = host.Services.GetRequiredService<MainWindow>();
-            host.Services.GetRequiredService<UiTick>().Attach(window.ViewModel);
+            var tick = host.Services.GetRequiredService<UiTick>();
+            tick.Attach(window.ViewModel);
+
+            // The tray is a Win32 shell notification and a WPF ContextMenu, so it belongs on
+            // this thread with the window. Constructing it also puts it on the clock — see
+            // TrayIcon, which attaches itself so that being registered and being driven cannot
+            // come apart the way T1.6's and T1.11's ticks did.
+            using var tray = host.Services.GetRequiredService<TrayIcon>();
+            tray.ViewModel.OpenRequested += (_, _) => window.ToggleDashboard();
+            tray.ViewModel.QuitRequested += (_, _) => app.Shutdown();
 
             var exitCode = app.Run(window);
 

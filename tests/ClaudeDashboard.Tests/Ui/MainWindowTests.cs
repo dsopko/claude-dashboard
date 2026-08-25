@@ -524,6 +524,87 @@ public sealed class MainWindowTests(StaHarness harness)
         Assert.True(state.AfterShow);
     }
 
+    /// <summary>
+    /// Impl §5.2: a left-click on the tray toggles the dashboard rather than only showing it.
+    /// </summary>
+    /// <remarks>
+    /// Asserted as a round trip — hidden, shown, hidden again — because "toggles" is exactly the
+    /// property a <c>Show()</c> would satisfy on the first click and fail on the second. A
+    /// one-click test would pass against a tray that could open the window and never close it.
+    /// </remarks>
+    [Fact]
+    public void A_left_click_toggles_the_dashboard()
+    {
+        var state = _harness.Invoke(() =>
+        {
+            using var registry = new RegistryHarness();
+            using var viewModel = new MainViewModel(
+                registry.Projection,
+                new MotionPolicy(() => false, observeChanges: false),
+                new StubAckPublisher());
+            var window = new MainWindow(viewModel);
+            window.Left = -32000;
+            window.Top = -32000;
+            window.ShowActivated = false;
+            window.ShowInTaskbar = false;
+
+            var atStart = window.IsVisible;
+
+            window.ToggleDashboard();
+            var afterFirst = window.IsVisible;
+
+            window.ToggleDashboard();
+            var afterSecond = window.IsVisible;
+
+            window.Hide();
+
+            return (AtStart: atStart, AfterFirst: afterFirst, AfterSecond: afterSecond);
+        });
+
+        Assert.False(state.AtStart);
+        Assert.True(state.AfterFirst);
+        Assert.False(state.AfterSecond);
+    }
+
+    /// <summary>
+    /// A minimised window counts as hidden, so the click that was meant to reveal it does.
+    /// </summary>
+    /// <remarks>
+    /// Without this, an operator who minimised the dashboard and then clicked the tray to get it
+    /// back would minimise it again — the window is technically visible, so a naive toggle hides
+    /// it. Restoring is what the click meant.
+    /// </remarks>
+    [Fact]
+    public void Toggling_a_minimised_window_restores_it()
+    {
+        var state = _harness.Invoke(() =>
+        {
+            using var registry = new RegistryHarness();
+            using var viewModel = new MainViewModel(
+                registry.Projection,
+                new MotionPolicy(() => false, observeChanges: false),
+                new StubAckPublisher());
+            var window = new MainWindow(viewModel);
+            window.Left = -32000;
+            window.Top = -32000;
+            window.ShowActivated = false;
+            window.ShowInTaskbar = false;
+
+            window.ShowDashboard();
+            window.WindowState = WindowState.Minimized;
+
+            window.ToggleDashboard();
+            var result = (window.IsVisible, window.WindowState);
+
+            window.Hide();
+
+            return result;
+        });
+
+        Assert.True(state.IsVisible);
+        Assert.Equal(WindowState.Normal, state.WindowState);
+    }
+
     // ---- The templates, as markup ------------------------------------------------------------------
 
     /// <summary>

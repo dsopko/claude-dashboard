@@ -57,8 +57,9 @@ public sealed class EventConsumer : BackgroundService
 
     /// <summary>Creates the consumer.</summary>
     /// <param name="uiTick">
-    /// Where the tick is echoed for the UI's age and staleness display (T1.11), or null when
-    /// there is no UI — the nudge schedule runs either way.
+    /// Where the tick is echoed for the UI's age and staleness display (T1.11) and the tray's
+    /// tooltip (T1.13). Required since T1.12b: it used to be optional, which meant a lost
+    /// registration left every age on screen frozen with the suite still green.
     /// </param>
     public EventConsumer(
         EventPipeline pipeline,
@@ -100,9 +101,10 @@ public sealed class EventConsumer : BackgroundService
     /// <summary>How many nudge evaluations have run. Diagnostic only.</summary>
     public long TickCount { get; private set; }
 
-    /// <summary>
-    /// Where the tick is echoed for the UI, or null when nothing asked for it.
-    /// </summary>
+    /// <summary>How many global sound commands have been applied. Diagnostic only.</summary>
+    public long SoundCommandCount { get; private set; }
+
+    /// <summary>Where the tick is echoed for the UI.</summary>
     /// <remarks>
     /// Exposed so the composition can be asserted. If this were left unregistered the process
     /// would behave exactly as it does now in every other respect — and every age on screen would
@@ -200,6 +202,15 @@ public sealed class EventConsumer : BackgroundService
         {
             using (_guard.Enter("applying an event"))
             {
+                if (inboundEvent is SoundCommand command)
+                {
+                    // Global sound modes ride the same Channel as hooks so they land on this
+                    // thread, in order with the events they silence — but they are not session
+                    // state, so the Registry never sees one. See SoundCommand's remarks.
+                    ApplySoundCommand(command);
+                    return;
+                }
+
                 Report(inboundEvent, _registry.Apply(inboundEvent));
             }
         }
@@ -218,6 +229,40 @@ public sealed class EventConsumer : BackgroundService
                 inboundEvent.HookEventName,
                 inboundEvent.SessionId.Value);
         }
+    }
+
+    /// <summary>Applies a global sound mode. Already inside the single-writer region.</summary>
+    private void ApplySoundCommand(SoundCommand command)
+    {
+        switch (command.Kind)
+        {
+            case SoundCommandKind.MuteAll:
+                _sound.SetAllMuted(muted: true, command.Until);
+                break;
+
+            case SoundCommandKind.UnmuteAll:
+                _sound.SetAllMuted(muted: false);
+                break;
+
+            case SoundCommandKind.PauseMonitoring:
+                _sound.SetMonitoringPaused(paused: true);
+                break;
+
+            case SoundCommandKind.ResumeMonitoring:
+                _sound.SetMonitoringPaused(paused: false);
+                break;
+
+            default:
+                // A kind this build does not know is a newer dashboard's command, not a reason
+                // to stop consuming. Logged rather than thrown, like every other decline.
+                _logger.Warning(
+                    "Ignored an unrecognised sound command {Kind}.",
+                    command.Kind);
+                return;
+        }
+
+        SoundCommandCount++;
+        _logger.Debug("Applied sound command {Kind}.", command.Kind);
     }
 
     /// <summary>

@@ -46,7 +46,7 @@ namespace ClaudeDashboard.Core;
 /// is visible and reversible rather than buried. Flagged to the director as a gap in §IV.5.
 /// </para>
 /// </remarks>
-public sealed class SoundPolicyEngine
+public sealed class SoundPolicyEngine : ISoundModeReader
 {
     private readonly ISoundPlayer _player;
     private readonly IClock _clock;
@@ -55,6 +55,32 @@ public sealed class SoundPolicyEngine
     private readonly HashSet<SessionId> _mutedSessions = [];
     private readonly HashSet<GroupKey> _mutedGroups = [];
     private readonly SingleWriterGuard _guard;
+
+    /// <summary>
+    /// When the global mute lapses, in ticks: <c>0</c> when nothing is globally muted, and
+    /// <see cref="DateTimeOffset.MaxValue"/>'s ticks for a mute with no expiry (Impl §5.2).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>A predicate, not a timer.</strong> "Muted until T" is evaluated where a sound
+    /// would be emitted, and nothing is scheduled to re-enable it — the same ruling as the
+    /// Ended-removal sweep. An armed timer fires against state that has since changed, and a
+    /// timer that unmutes exactly when a nudge falls due is a beep out of nowhere. The cost is
+    /// that a lapse produces no event, which is why the host recomputes its tooltip on the tick
+    /// rather than only on change.
+    /// </para>
+    /// <para>
+    /// <strong>Why a <see cref="long"/> and why volatile.</strong> These two are the only engine
+    /// state read from outside the consumer thread: the tray renders the mute and pause modes
+    /// into its tooltip on the UI thread. A <see cref="DateTimeOffset"/> is wider than a word
+    /// and could tear; a <see cref="long"/> cannot, and <see cref="Volatile"/> makes the write
+    /// visible. Writes still happen only inside the single-writer region, so this adds a safe
+    /// reader rather than a second writer.
+    /// </para>
+    /// </remarks>
+    private long _allMutedUntilTicks;
+
+    private volatile bool _monitoringPaused;
 
     /// <summary>Builds an engine that plays through <paramref name="player"/>.</summary>
     /// <exception cref="ArgumentNullException"><paramref name="player"/> or <paramref name="clock"/> is null.</exception>
@@ -198,7 +224,92 @@ public sealed class SoundPolicyEngine
         Set(_mutedGroups, group, muted);
     }
 
+    /// <summary>
+    /// Silences every session until <paramref name="until"/>, or indefinitely when it is null
+    /// (Impl §5.2, "Mute all"). Passing <see langword="false"/> unmutes at once.
+    /// </summary>
+    /// <remarks>
+    /// The volume knob. Sound stops; the glyph goes on telling the truth, so an operator who
+    /// silenced the room can still glance at a burning red icon and know. Contrast
+    /// <see cref="SetMonitoringPaused"/>.
+    /// </remarks>
+    /// <param name="muted">Whether everything is silenced.</param>
+    /// <param name="until">
+    /// When the mute lapses. Null mutes with no expiry. Ignored when <paramref name="muted"/>
+    /// is false.
+    /// </param>
+    public void SetAllMuted(bool muted, DateTimeOffset? until = null)
+    {
+        using var writing = _guard.Enter("muting or unmuting everything");
+
+        Volatile.Write(
+            ref _allMutedUntilTicks,
+            muted ? (until ?? DateTimeOffset.MaxValue).UtcTicks : 0L);
+    }
+
+    /// <summary>
+    /// Goes off duty: silences everything, with no expiry, until the operator resumes
+    /// (Impl §5.2, "Pause monitoring").
+    /// </summary>
+    /// <remarks>
+    /// Distinct from <see cref="SetAllMuted"/> in what the operator sees, not in what they
+    /// hear: the host greys the tray glyph while this is set, which is the one deliberate
+    /// exception to "the tray tells the truth" (Design §9) — they turned it off on purpose,
+    /// from that menu, this second. The engine's part is only the silence; the glyph is the
+    /// host's, which is why this is a separate flag rather than a mute with a longer expiry.
+    /// </remarks>
+    /// <param name="paused">Whether monitoring is off duty.</param>
+    public void SetMonitoringPaused(bool paused)
+    {
+        using var writing = _guard.Enter("pausing or resuming monitoring");
+
+        _monitoringPaused = paused;
+    }
+
+    /// <inheritdoc/>
+    public bool IsMonitoringPaused => _monitoringPaused;
+
+    /// <summary>
+    /// When the global mute lapses; null when nothing is globally muted, and
+    /// <see cref="DateTimeOffset.MaxValue"/> when it has no expiry. Safe to read from any thread.
+    /// </summary>
+    public DateTimeOffset? AllMutedUntil
+    {
+        get
+        {
+            var ticks = Volatile.Read(ref _allMutedUntilTicks);
+
+            return ticks == 0 ? null : new DateTimeOffset(ticks, TimeSpan.Zero);
+        }
+    }
+
+    /// <summary>
+    /// Whether everything is silenced at <paramref name="now"/> — by pause, or by a global mute
+    /// that has not yet lapsed. Safe to read from any thread.
+    /// </summary>
+    /// <remarks>
+    /// This is the predicate the lapse is evaluated by. A mute set to expire in thirty minutes
+    /// simply stops being true; nothing fires, nothing is scheduled, and nothing needs undoing.
+    /// </remarks>
+    /// <param name="now">The instant to judge.</param>
+    public bool IsSilenced(DateTimeOffset now)
+    {
+        if (_monitoringPaused)
+        {
+            return true;
+        }
+
+        var ticks = Volatile.Read(ref _allMutedUntilTicks);
+
+        return ticks != 0 && now.UtcTicks < ticks;
+    }
+
     /// <summary>Whether anything would be heard for this session right now.</summary>
+    /// <remarks>
+    /// Per-session and per-group mute only. The global modes are time-dependent and are asked
+    /// separately, through <see cref="IsSilenced"/>, so that a caller holding an instant judges
+    /// against that instant rather than against the clock's idea of "now" a moment later.
+    /// </remarks>
     public bool IsMuted(SessionId session, GroupKey group) =>
         _mutedSessions.Contains(session) || _mutedGroups.Contains(group);
 
@@ -222,7 +333,12 @@ public sealed class SoundPolicyEngine
     /// </remarks>
     private void Play(SessionId session, GroupKey group, SoundId sound, double gain, TimeSpan fade)
     {
-        if (IsMuted(session, group))
+        // Global mute and pause fold in here, exactly as this method's remarks anticipated: one
+        // more clause at the point of emission, and no change to scheduling. The ladder goes on
+        // advancing silently, so resuming picks up the natural cadence instead of releasing a
+        // backlog of reminders the operator asked not to hear — which matters most for pause,
+        // which has no expiry and can span hours.
+        if (IsSilenced(_clock.Now) || IsMuted(session, group))
         {
             return;
         }
