@@ -1117,10 +1117,52 @@ public sealed class SessionRegistryTests
     /// A session already Working is left exactly as it is — the overwhelmingly common case.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// One of these arrives per tool batch for the whole life of a turn, so it must not record a
-    /// transition or advance recency each time. Asserted on the transition log, because "still
-    /// Working" alone is satisfied by a handler that rewrites the session to the same state and
-    /// quietly bumps it up the ordering the UI sorts by.
+    /// transition or advance recency each time.
+    /// </para>
+    /// <para>
+    /// <strong>Which assertion catches what, because they are not interchangeable and the
+    /// obvious reading of this test is wrong.</strong>
+    /// </para>
+    /// <list type="bullet">
+    /// <item><description>
+    /// The <strong>outcome</strong> assertion catches a handler that classifies
+    /// <see cref="SessionState.Working"/> as resumable. Adding it to the resume predicate fails
+    /// here and only here, with <c>Expected: Ignored, Actual: Duplicate</c> — "Working is not a
+    /// resumable state" and "Working happens to re-apply to itself" are different claims, and
+    /// T1.9 logs the two declines differently.
+    /// </description></item>
+    /// <item><description>
+    /// The <strong>recency and transition-count</strong> assertions catch a handler that bypasses
+    /// <c>Moved</c> and mutates the session directly.
+    /// </description></item>
+    /// </list>
+    /// <para>
+    /// <strong>Neither substitutes for the other, and in this test the second pair cannot fire
+    /// first</strong> — any change that moves <c>LastActivity</c> also moves the outcome away
+    /// from <see cref="ApplyOutcome.Ignored"/>. So an earlier version of this remark, which said
+    /// the transition log was doing the work because "still Working" is satisfied by a handler
+    /// that quietly bumps recency, was <em>false</em>: that handler cannot exist while the path
+    /// runs through <c>Moved</c>, whose idempotence guard returns null when state, exchange and
+    /// error kind are all unchanged — "a redelivery cannot bump the session up the recency
+    /// ordering", T1.2. The recency bump is already impossible one layer down.
+    /// </para>
+    /// <para>
+    /// The correction matters because the wrong reason invites the wrong edit: a reader who
+    /// believed the transition log carried this test would delete the outcome assertion as
+    /// redundant, and the Working mutation would then pass as <c>Duplicate</c>. Same harm path as
+    /// the <c>Pump</c> and <c>WorstOf</c> remarks — an assertion resting on a defence one layer
+    /// down, where the defence is real and load-bearing and simply is not the one being named.
+    /// </para>
+    /// <para>
+    /// <strong>Read as a pair with <see cref="Every_state_is_classified_for_a_resumed_turn"/>.</strong>
+    /// That one's <c>[Working] = false</c> is satisfied by a decline <em>or</em> a deduplication,
+    /// since it asks only whether the session ended up Applied-and-Working — so it does not fire
+    /// under this mutation, correctly. Two tests, two different questions; only together do they
+    /// pin <see cref="SessionState.Working"/>, which is why neither should be trimmed as covering
+    /// the other.
+    /// </para>
     /// </remarks>
     [Fact]
     public void A_working_session_is_untouched_by_its_own_tool_batches()
