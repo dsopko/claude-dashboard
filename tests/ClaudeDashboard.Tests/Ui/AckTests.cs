@@ -315,7 +315,7 @@ public sealed class AckTests : IDisposable
                 _harness.Blocked(
                     id,
                     At.AddMinutes(1),
-                    state == SessionState.NeedsPermission ? "permission_prompt" : "idle_prompt");
+                    state == SessionState.NeedsPermission ? "permission_prompt" : "agent_needs_input");
                 break;
 
             case SessionState.Acked:

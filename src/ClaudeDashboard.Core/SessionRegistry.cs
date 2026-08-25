@@ -303,8 +303,8 @@ public sealed class SessionRegistry(SingleWriterGuard guard)
             return Transitioned.Declined(ApplyOutcome.Ignored);
         }
 
-        // agent_completed is corroboration only — Stop is the authoritative "finished" signal
-        // (Impl §9.1 marks it optional). An unrecognized type degrades to no effect.
+        // A notification that moves nothing is declined rather than applied: idle_prompt and
+        // agent_completed by design, an unrecognised type by degradation. See TargetOf.
         return TargetOf(notification) is { } target
             ? Transitioned.FromMove(Moved(current, target, notification))
             : Transitioned.Declined(ApplyOutcome.Ignored);
@@ -466,10 +466,42 @@ public sealed class SessionRegistry(SingleWriterGuard guard)
 
     // ---- Predicates -------------------------------------------------------------------------
 
+    /// <summary>
+    /// The state a notification moves a session to, or null if it moves it nowhere.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>Two kinds are recognised and deliberately inert, which is not the same as
+    /// unrecognised.</strong> They are named rather than left to the catch-all because the
+    /// catch-all means "this build does not know what this is" — a genuinely different claim, and
+    /// the next reader has no way to tell a considered no-op from an oversight if both arrive at
+    /// the same line.
+    /// </para>
+    /// <para>
+    /// <strong><see cref="NotificationKind.IdlePrompt"/> is not a question (TS §II.2, corrected
+    /// 2026-08-24 — issue #1).</strong> <c>agent_needs_input</c> is a request; <c>idle_prompt</c>
+    /// is the absence of one. Claude Code emits it because a session has been sitting untouched,
+    /// and every session that finishes eventually is — so treating it as a question promoted
+    /// every Unread to red-and-blinking Needs You about ninety seconds after it finished. On one
+    /// day of real use that was 207 notifications against 13 permission requests, so it was the
+    /// steady state rather than an edge. Idleness is already modelled: an unread result is
+    /// <see cref="SessionState.Unread"/> and a read one is quiet, and neither is a question.
+    /// </para>
+    /// <para>
+    /// <see cref="NotificationKind.AgentCompleted"/> is corroboration only —
+    /// <see cref="Stop"/> is the authoritative "finished" signal (Impl §9.1 marks it optional) —
+    /// so it moves nothing either, and now says so.
+    /// </para>
+    /// </remarks>
     private static SessionState? TargetOf(Notification notification) => notification.Kind switch
     {
         NotificationKind.PermissionPrompt => SessionState.NeedsPermission,
-        NotificationKind.IdlePrompt or NotificationKind.AgentNeedsInput => SessionState.NeedsQuestion,
+        NotificationKind.AgentNeedsInput => SessionState.NeedsQuestion,
+
+        // Recognised, and deliberately moves nothing. See the remarks.
+        NotificationKind.IdlePrompt or NotificationKind.AgentCompleted => null,
+
+        // Unrecognised: degrade rather than guess.
         _ => null,
     };
 

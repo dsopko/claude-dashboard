@@ -106,7 +106,6 @@ public sealed class SessionRegistryTests
 
     [Theory]
     [InlineData("permission_prompt", SessionState.NeedsPermission)]
-    [InlineData("idle_prompt", SessionState.NeedsQuestion)]
     [InlineData("agent_needs_input", SessionState.NeedsQuestion)]
     public void Working_moves_to_the_needs_you_state_on_Notification(string type, SessionState expected)
     {
@@ -117,6 +116,141 @@ public sealed class SessionRegistryTests
 
         Assert.Equal(expected, Current.State);
     }
+
+    /// <summary>
+    /// <strong>The regression the operator hit (issue #1).</strong> A finished result that
+    /// nobody has read stays Unread when the session goes idle.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>Stop</c> → Unread, green, correct; ninety seconds later an <c>idle_prompt</c> turned
+    /// the row red and blinking at the top of NEEDS YOU, needing nothing. Every session that
+    /// finishes eventually sits idle, so this was the steady state rather than an edge — 207
+    /// notifications against 13 permission requests in one day of real use.
+    /// </para>
+    /// <para>
+    /// <strong>The controls are not decoration.</strong> "The state did not change" is satisfied
+    /// by a <c>TargetOf</c> that returns null for everything, which would take the two real
+    /// notifications down with the inert one and would look exactly like this test passing. So
+    /// the same starting state is driven with <c>agent_needs_input</c> and with
+    /// <c>permission_prompt</c>, both of which must still move.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void An_idle_prompt_leaves_an_unread_result_where_it_is()
+    {
+        GivenWorking();
+        Apply(Finished());
+        Assert.Equal(SessionState.Unread, Current.State);
+
+        _clock.AdvanceMinutes(2);
+        var outcome = Apply(Notified("idle_prompt"));
+
+        // Declined, not applied — and the session is exactly where it was.
+        Assert.Equal(ApplyOutcome.Ignored, outcome);
+        Assert.Equal(SessionState.Unread, Current.State);
+
+        // …and the answer is still there to read, which is the point of the band.
+        Assert.True(Current.Latest.IsAnswered);
+    }
+
+    /// <summary>The control: a real question still reaches Needs You from the same state.</summary>
+    [Fact]
+    public void A_needs_input_notification_still_moves_an_unread_result()
+    {
+        GivenWorking();
+        Apply(Finished());
+
+        _clock.AdvanceMinutes(2);
+
+        Assert.Equal(ApplyOutcome.Applied, Apply(Notified("agent_needs_input")));
+        Assert.Equal(SessionState.NeedsQuestion, Current.State);
+    }
+
+    /// <summary>The other control: a permission still reaches Needs You from the same state.</summary>
+    [Fact]
+    public void A_permission_notification_still_moves_an_unread_result()
+    {
+        GivenWorking();
+        Apply(Finished());
+
+        _clock.AdvanceMinutes(2);
+
+        Assert.Equal(ApplyOutcome.Applied, Apply(Notified("permission_prompt")));
+        Assert.Equal(SessionState.NeedsPermission, Current.State);
+    }
+
+    /// <summary>
+    /// Every notification kind is classified as one that moves the session or one that does not.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Driven from <see cref="NotificationKind"/> rather than listed, so a kind added later has
+    /// to be classified rather than falling quietly into the inert half. That is the failure this
+    /// issue was: <c>idle_prompt</c> was classified, just wrongly, and nothing said which side of
+    /// the line each kind was meant to be on.
+    /// </para>
+    /// <para>
+    /// It earns its keep beyond the three tests above because it is the one that fails on
+    /// <em>addition</em> rather than on change — the direction none of the others cover.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void Every_notification_kind_is_classified()
+    {
+        var moves = new Dictionary<NotificationKind, SessionState?>
+        {
+            [NotificationKind.PermissionPrompt] = SessionState.NeedsPermission,
+            [NotificationKind.AgentNeedsInput] = SessionState.NeedsQuestion,
+
+            // Recognised and deliberately inert: idleness is not a request, and agent_completed
+            // is corroboration for a Stop that is authoritative on its own.
+            [NotificationKind.IdlePrompt] = null,
+            [NotificationKind.AgentCompleted] = null,
+
+            // Not a wire value; nothing can produce it but the mapper's fallback.
+            [NotificationKind.Unknown] = null,
+        };
+
+        Assert.Equal(Enum.GetValues<NotificationKind>().Length, moves.Count);
+
+        foreach (var (kind, expected) in moves)
+        {
+            var registry = new SessionRegistry(new SingleWriterGuard());
+            var id = new SessionId($"s-{kind}");
+
+            registry.Apply(new UserPromptSubmit
+            {
+                SessionId = id,
+                Timestamp = FakeClock.DefaultStart,
+                Cwd = Cwd,
+                PromptId = "p-1",
+                Prompt = "run the tests",
+            });
+
+            registry.Apply(new Notification
+            {
+                SessionId = id,
+                Timestamp = FakeClock.DefaultStart.AddMinutes(1),
+                Cwd = Cwd,
+                NotificationType = Wire(kind),
+            });
+
+            var actual = registry.Sessions[id].State;
+
+            Assert.Equal(expected ?? SessionState.Working, actual);
+        }
+    }
+
+    /// <summary>The wire spelling Claude Code sends for a kind (Impl §9.1).</summary>
+    private static string Wire(NotificationKind kind) => kind switch
+    {
+        NotificationKind.PermissionPrompt => "permission_prompt",
+        NotificationKind.IdlePrompt => "idle_prompt",
+        NotificationKind.AgentNeedsInput => "agent_needs_input",
+        NotificationKind.AgentCompleted => "agent_completed",
+        _ => "something-no-build-recognises",
+    };
 
     /// <summary>
     /// Impl §9.1 marks <c>agent_completed</c> as an optional corroborating signal; <c>Stop</c>
@@ -326,7 +460,7 @@ public sealed class SessionRegistryTests
 
     [Theory]
     [InlineData("permission_prompt")]
-    [InlineData("idle_prompt")]
+    [InlineData("agent_needs_input")]
     public void The_same_notification_applied_twice_has_one_effect(string type)
     {
         GivenWorking();
@@ -910,7 +1044,7 @@ public sealed class SessionRegistryTests
                 Apply(Notified("permission_prompt"));
                 break;
             case SessionState.NeedsQuestion:
-                Apply(Notified("idle_prompt"));
+                Apply(Notified("agent_needs_input"));
                 break;
             case SessionState.Error:
                 Apply(Failed());

@@ -122,7 +122,7 @@ public sealed class MainViewModelTests : IDisposable
         _viewModel.IsGrouped = false;
 
         Apply(Prompt("question-old", At));
-        Apply(Blocked("question-old", At.AddMinutes(1), "idle_prompt"));
+        Apply(Blocked("question-old", At.AddMinutes(1), "agent_needs_input"));
 
         Apply(Prompt("permission-new", At.AddMinutes(2)));
         Apply(Blocked("permission-new", At.AddMinutes(20), "permission_prompt"));
@@ -311,7 +311,7 @@ public sealed class MainViewModelTests : IDisposable
 
         for (var i = 1; i <= 10; i++)
         {
-            Apply(Blocked("s-1", At.AddMinutes(i), i % 2 == 0 ? "permission_prompt" : "idle_prompt"));
+            Apply(Blocked("s-1", At.AddMinutes(i), i % 2 == 0 ? "permission_prompt" : "agent_needs_input"));
         }
 
         Assert.Same(row, Assert.Single(SessionRows));

@@ -33,10 +33,19 @@ public enum NotificationKind
     /// <summary>A permission dialog is up — the session is blocked on approval.</summary>
     PermissionPrompt = 1,
 
-    /// <summary>Claude is idle, waiting on the operator.</summary>
+    /// <summary>
+    /// Nothing has happened in this session for a while. <strong>Changes no state</strong>
+    /// (TS §II.2, corrected 2026-08-24 — issue #1).
+    /// </summary>
+    /// <remarks>
+    /// This used to be read as a question, alongside <see cref="AgentNeedsInput"/>. It is the
+    /// opposite: <c>agent_needs_input</c> is a request and this is the absence of one. Every
+    /// session that finishes eventually sits idle, so treating it as a question turned every
+    /// unread result red about ninety seconds after it arrived.
+    /// </remarks>
     IdlePrompt = 2,
 
-    /// <summary>An agent needs input.</summary>
+    /// <summary>An agent is blocked on an answer — the one notification that is a question.</summary>
     AgentNeedsInput = 3,
 
     /// <summary>A corroborating "finished" signal (Impl §9.1 marks it optional).</summary>

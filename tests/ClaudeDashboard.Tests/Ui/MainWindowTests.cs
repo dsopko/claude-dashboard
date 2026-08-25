@@ -716,7 +716,7 @@ public sealed class MainWindowTests(StaHarness harness)
 
             case SessionState.NeedsQuestion:
                 registry.Working(id, At);
-                registry.Blocked(id, At.AddMinutes(1), "idle_prompt");
+                registry.Blocked(id, At.AddMinutes(1), "agent_needs_input");
                 break;
 
             case SessionState.Error:

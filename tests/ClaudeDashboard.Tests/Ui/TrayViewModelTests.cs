@@ -58,7 +58,7 @@ public sealed class TrayViewModelTests : IDisposable
         _harness.Working("busy", At);
         Assert.Equal(TrayColour.Blue, _tray.Colour);
 
-        _harness.Blocked("asking", At.AddMinutes(1), "idle_prompt");
+        _harness.Blocked("asking", At.AddMinutes(1), "agent_needs_input");
         Assert.Equal(TrayColour.Amber, _tray.Colour);
 
         _harness.Blocked("permission", At.AddMinutes(2), "permission_prompt");
@@ -77,7 +77,7 @@ public sealed class TrayViewModelTests : IDisposable
     public void A_lone_question_is_amber_in_the_tray_and_red_in_its_row()
     {
         _harness.Working("asking", At);
-        _harness.Blocked("asking", At.AddMinutes(1), "idle_prompt");
+        _harness.Blocked("asking", At.AddMinutes(1), "agent_needs_input");
 
         Assert.Equal(TrayColour.Amber, _tray.Colour);
         Assert.Equal(Accent.Red, RowVisuals.AccentOf(SessionState.NeedsQuestion));
@@ -89,7 +89,7 @@ public sealed class TrayViewModelTests : IDisposable
     {
         _harness.Working("busy", At);
         _harness.Working("asking", At);
-        _harness.Blocked("asking", At.AddMinutes(1), "idle_prompt");
+        _harness.Blocked("asking", At.AddMinutes(1), "agent_needs_input");
 
         Assert.Equal("1 question · 1 working", _tray.Tooltip);
     }

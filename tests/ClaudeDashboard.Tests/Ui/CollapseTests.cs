@@ -233,7 +233,7 @@ public sealed class CollapseTests : IDisposable
 
     [Theory]
     [InlineData("permission_prompt")]
-    [InlineData("idle_prompt")]
+    [InlineData("agent_needs_input")]
     public void A_blocked_row_is_never_collapsed(string notification)
     {
         _harness.Working("blocked", At);

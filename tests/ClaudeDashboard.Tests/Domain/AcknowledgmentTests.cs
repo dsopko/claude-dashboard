@@ -210,7 +210,7 @@ public sealed class AcknowledgmentTests
                     Cwd = Cwd,
                     NotificationType = state == SessionState.NeedsPermission
                         ? "permission_prompt"
-                        : "idle_prompt",
+                        : "agent_needs_input",
                 });
                 break;
 
