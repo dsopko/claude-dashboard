@@ -276,6 +276,10 @@ The process runs at the user's **normal integrity, never elevated** — elevated
 - Master volume plus per-session/per-group mute, all as gain — the reason NAudio is required over `System.Media.SoundPlayer`, which has no volume control at all.
 - Sound files ship in the app directory; user overrides live under the config directory (Part 8).
 
+> **Clarification (2026-08-24, drafting T1.14).** The gain line above is a **rationale for requiring NAudio**, not a division of responsibility, and read as the latter it puts mute in the wrong place. **The adapter does not implement mute and knows nothing of sessions or groups** — `ISoundPlayer.Play(SoundId, gain, fade)` is the whole surface, and its own contract says master volume and per-session/per-group mute *"are folded in by the caller, since they are policy, not playback"*. The adapter literally cannot do per-session mute: it has no session.
+>
+> This matters because **T1.13 already implemented mute in `SoundPolicyEngine`**, and proved it by asserting the recording player sees **no `Play` call at all**. A second mute inside the adapter would be the same rule in two code paths — the failure mode this spec has been amended three times to avoid. Master volume is the one genuinely new quantity and belongs beside the other gains, in Core's `SoundPolicyOptions`, folded into the gain the engine passes. One place computes a final gain; the adapter plays it.
+
 ---
 
 ## Part 8 — Storage and configuration

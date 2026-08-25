@@ -224,8 +224,8 @@ Grouped into four sub-milestones. Each task lists Goal · Depends · Realizes ·
 - **Goal:** play notices and nudges with volume.
 - **Depends:** T1.5, T1.7
 - **Realizes:** TS §IV.5; Impl §7
-- **Deliverables:** `ISoundPlayer` over NAudio — per-sound gain (notice vs nudge), fade-in for nudges, a mixer to coalesce bursts, master volume + per-session/group mute; sound files in the app dir with user-override under the config dir.
-- **Acceptance:** notice and nudge play at different gains from the **same** file; a burst coalesces rather than stacking; mute silences.
+- **Deliverables:** `ISoundPlayer` over NAudio — per-sound gain (notice vs nudge), fade-in for nudges, a mixer to coalesce bursts; sound files in the app dir with user-override under the config dir. **`MasterVolume` goes in Core's `SoundPolicyOptions`, folded into the gain the engine passes — the adapter implements neither mute nor volume policy (see the clarification in Impl Part 7); mute already lives in `SoundPolicyEngine` as of T1.13.** Also **delete `SilentSoundPlayer.cs`** rather than register over it.
+- **Acceptance:** notice and nudge play at different gains from the **same** file; a burst coalesces rather than stacking; mute still means **no `Play` call at all**; the resolved `ISoundPlayer` **is** the NAudio adapter (one `Assert.IsType` against the container — its failure mode is silence, which is indistinguishable from a quiet afternoon and from a working mute); a missing file, an absent output device, and an undecodable file each degrade to silence plus a log line, never a throw, each paired with a positive control; and **the app is actually run and heard** — NAudio plays on threads it owns, so green is not evidence (Part 1).
 - **Guardrails:** driven by the policy engine's intents.
 
 **T1.15 — Single instance**
