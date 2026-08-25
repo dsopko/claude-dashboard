@@ -43,12 +43,18 @@ Fifteen terminals across multiple virtual desktops, each running an agent on a d
 | State | Meaning | Entered when | Color language |
 |---|---|---|---|
 | **Working** | Claude is processing a prompt | operator submits a prompt | blue, breathing |
-| **Needs You — Question** | Claude asked something / is idle waiting for input | Claude requests input | red, blinking |
+| **Needs You — Question** | Claude asked something and is blocked on the answer | Claude requests input (see the correction below) | red, blinking |
 | **Needs You — Permission** | Claude wants approval for an action | permission request raised | red, blinking |
 | **Error** | the turn died (rate limit, auth, server) | turn fails | amber, steady |
 | **Unread** | Claude finished; result not yet seen | response completes | green, steady |
 | **Acked** | result seen and acknowledged | see *Acknowledgment* | grey |
 | **Ended** | session exited | session ends | dim grey, then removed |
+
+> **Correction (2026-08-24, found by dogfooding — [issue #1](https://github.com/dsopko/claude-dashboard/issues/1)).** The Question row previously read "Claude asked something **/ is idle waiting for input**". That "or" bundled two unrelated things, and the second one is not a request: Claude Code's `idle_prompt` fires because a session has been sitting untouched, which every finished session eventually is. The result on screen was that **an Unread row turned red and blinking about ninety seconds after it finished**, needing nothing.
+>
+> **Only "Claude asked something and is blocked" is a Question.** Idleness is already the **Quiet** band's job (§5), and §4's own three-tier Acknowledgment is what moves a session there. The authority for the event mapping is **TS §II.2**; this table is a summary of it.
+>
+> Worth keeping as a principle, because it is the second time this has bitten: **an absence of activity must never escalate a session.** Motion and alarm are for sessions that need a human (§3), and nothing-happened is the opposite of that.
 
 **Acknowledgment** — the transition from Unread (or Needs You) to Acked. Three tiers:
 

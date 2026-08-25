@@ -312,13 +312,22 @@ Common fields on every event: `session_id`, `prompt_id`, `transcript_path`, `cwd
 | `SessionStart` (`startup`,`resume`,`fork`) | create/refresh session; `resume`/`fork` surface a pre-existing one | `source`, `session_title`, `cwd` |
 | `UserPromptSubmit` | → **Working**; store `prompt` as the context line; **auto-ack** prior Unread/Needs-You | **`prompt`** (submitted text), `prompt_id`, `cwd` |
 | `Notification` (`permission_prompt`) | → **NeedsPermission** | notification type |
-| `Notification` (`idle_prompt`, `agent_needs_input`) | → **NeedsQuestion** | notification type |
+| `Notification` (`agent_needs_input`) | → **NeedsQuestion** | notification type |
+| `Notification` (`idle_prompt`) | **no state change** — observed and inert (see the correction after this table) | notification type |
 | `Notification` (`agent_completed`) | corroborating "finished" signal (optional) | notification type |
 | `Stop` | → **Unread**; store the answer | **`last_assistant_message`** (final answer text, inline — preferred over the transcript) |
 | `StopFailure` (`rate_limit`,`overloaded`,`authentication_failed`,…) | → **Error**; record kind | error type (from matcher) |
 | `SessionEnd` (`clear`,`resume`,`logout`,`prompt_input_exit`,`other`) | → **Ended**; schedule removal | end reason (from matcher) |
 | `CwdChanged` *(optional)* | re-derive the session's **Group** | `cwd` |
 | `SubagentStart` / `SubagentStop` *(optional)* | subagent roll-up, if surfaced | `agent_id`, `agent_type` |
+
+> **Correction (2026-08-24, found by dogfooding — [issue #1](https://github.com/dsopko/claude-dashboard/issues/1)).** The `Notification` row previously read **`idle_prompt`, `agent_needs_input` → NeedsQuestion**. `idle_prompt` is not a question and must change no state; see the reasoning in TS §II.2's correction, which is the authority. In short: `idle_prompt` fires because a session has been sitting there, every finished session eventually sits there, and so **every Unread was being promoted to red-and-blinking Needs You about ninety seconds after it finished.**
+>
+> Confirmed against live Claude Code, not inferred: one day's hook log carried **207 `Notification`s against 13 `PermissionRequest`s**, and the flip was traced to a `Notification` at `22:48:00` with no permission request before it.
+>
+> Two things this measurement settled in passing, both previously open since 2026-08-22 and both blocking T1.18:
+> - **`notification_type` is real and carries the spellings this table expects.** `idle_prompt` parsed, which is the only way `NeedsQuestion` was reachable.
+> - **`permission_prompt` arrives as a `Notification`, so `NeedsPermission` is reachable and the tray's Red is live.** Every `PermissionRequest` in the log is followed ~6s later by a `Notification`, and the dashboard was observed entering `NeedsPermission` correctly. **`PermissionRequest` is therefore corroboration, not the primary path, and ingress is right not to consume it.**
 
 Notes:
 - `Notification`, `StopFailure`, `SessionEnd`, `CwdChanged` have **no decision control** — pure observation, which is exactly what the dashboard wants (§3.3).

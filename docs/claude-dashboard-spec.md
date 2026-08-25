@@ -87,10 +87,19 @@ The dashboard subscribes to a small subset of the available lifecycle events. Ea
 | **SessionStart** | a session begins or resumes | create/refresh a Registry entry; on resume, surface a pre-existing session | `session_id`, `cwd`, `source` (startup/resume/clear/compact/fork), `transcript_path` |
 | **UserPromptSubmit** | operator submits a prompt, before processing | state → **Working**; store the prompt text as the session's context line; **auto-acknowledge** any prior unread/needs-you state (proof the answer was seen) | `session_id`, prompt text, `cwd`, `prompt_id` |
 | **Notification** (matcher: `permission_prompt`) | a permission dialog is raised | state → **Needs You — Permission** | `session_id`, notification type |
-| **Notification** (matcher: `idle_prompt` / agent-needs-input) | Claude is waiting on the operator | state → **Needs You — Question** | `session_id`, notification type |
+| **Notification** (matcher: `agent_needs_input`) | Claude is blocked on an answer | state → **Needs You — Question** | `session_id`, notification type |
+| **Notification** (matcher: `idle_prompt`) | nothing has happened in this session for a while | **no state change** — see the correction below | `session_id`, notification type |
 | **Stop** | Claude finishes responding | state → **Unread**; store the answer text as the exchange result | `session_id`, `last_assistant_message` (final answer text, provided so the handler need not read the transcript) |
 | **StopFailure** (matchers: `rate_limit`, `overloaded`, `authentication_failed`, …) | the turn dies on an error | state → **Error**; store the reason | `session_id`, error type |
 | **SessionEnd** | a session terminates | state → **Ended**; schedule removal | `session_id`, end reason |
+
+> **Correction (2026-08-24, found by dogfooding — [issue #1](https://github.com/dsopko/claude-dashboard/issues/1)).** This row previously read **"`idle_prompt` / agent-needs-input | Claude is waiting on the operator | → Needs You — Question"**, bundling two unrelated events into one state. It is wrong, and the way it is wrong is systematic rather than marginal.
+>
+> **`agent_needs_input` is a request. `idle_prompt` is the absence of one.** Claude Code emits `idle_prompt` when a session has simply been sitting there — and *every session that finishes eventually sits there*. So a session went `Stop` → **Unread** (green, correct), and about ninety seconds later an `idle_prompt` promoted it to **Needs You — Question**: red, blinking, top of the band, needing nothing. Measured on one day of real use: **207 `Notification`s against 13 `PermissionRequest`s**, so the overwhelming majority of notifications are this.
+>
+> Three things break at once. Red and the blink are reserved for *"it is asking you for something only you can give"* (Impl §5.2), and this spends them on *nobody typed for a minute*. The **Unread band empties**, which defeats the second of the three questions the dashboard exists to answer and contradicts Design §6's rule that Unread is "never summarized away". And §IV.2's ratified Permission > Error > Question ordering, justified by *cheapest-to-clear blocker first*, fills with sessions that have no blocker at all.
+>
+> **Ruled: `idle_prompt` changes no state.** It joins `agent_completed` as observed-but-inert. Idleness is already modelled — TS §IV.2's **Quiet** band is exactly "this session is not doing anything", and the 2026-08-24 ruling that `Acked` covers "started, nothing typed yet" was the same judgement made once already. A finished session that nobody has read is **Unread**; a finished session that has been read is **Quiet**. Neither is a question.
 
 Two payload properties make the product possible and deserve emphasis:
 
@@ -226,7 +235,8 @@ Transitions are triggered by events (Part II) and by acknowledgment sources (Par
    (any) ───────────────────────▶ Working        [also: auto-ack prior Unread/NeedsYou]
  (live) ──Stop───────────────────▶ Unread
  (live) ──Notification(perm)─────▶ NeedsYou.Permission
- (live) ──Notification(idle)─────▶ NeedsYou.Question
+ (live) ──Notification(needs_input)▶ NeedsYou.Question
+        Notification(idle) is inert — it changes no state (§II.2 correction)
  (live) ──StopFailure────────────▶ Error
  Unread        ──Ack*────────────▶ Acked
  NeedsYou.*     ──Ack*────────────▶ Acked          (rare; usually a new prompt supersedes)
