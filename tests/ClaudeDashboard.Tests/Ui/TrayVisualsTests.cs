@@ -163,10 +163,19 @@ public sealed class TrayVisualsTests
     /// The roll-up cannot depend on the order the sessions arrive in.
     /// </summary>
     /// <remarks>
-    /// <see cref="AttentionOrder.Rank"/> is total, so states can only tie when they are equal —
-    /// but that is an argument, and an implementation that kept the <em>last</em> maximum rather
-    /// than the first would satisfy it while still being order-dependent if the comparison were
-    /// ever loosened to <c>&gt;=</c>. Asserted rather than reasoned.
+    /// <para>
+    /// The property holds because ties go to the first arrival, not because ties cannot happen:
+    /// <see cref="AttentionOrder.Rank"/> is total but <strong>not injective</strong>, and
+    /// <see cref="SessionState.Ended"/> shares rank 0 with any unrecognised value.
+    /// </para>
+    /// <para>
+    /// <strong>What this test does not cover, stated so nobody mistakes it for coverage.</strong>
+    /// Every state here is a real one, so every tie is between equal states and the assertion
+    /// passes under <c>&gt;=</c> as well as <c>&gt;</c>. The case that separates them needs an
+    /// unrecognised value, which nothing can reach through the Registry — so it is left
+    /// unasserted deliberately, and the reasoning is recorded on <c>WorstOf</c> instead of being
+    /// implied by a test that cannot see it.
+    /// </para>
     /// </remarks>
     [Fact]
     public void The_roll_up_does_not_depend_on_order()

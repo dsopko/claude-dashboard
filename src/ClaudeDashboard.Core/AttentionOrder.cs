@@ -59,6 +59,14 @@ public static class AttentionOrder
     /// How urgently <paramref name="state"/> wants the operator. Higher is more urgent; the
     /// order is total, so any two states compare decisively.
     /// </summary>
+    /// <remarks>
+    /// <strong>Total, and deliberately not injective.</strong> "Compares decisively" is not
+    /// "tells apart": <see cref="SessionState.Ended"/> and any unrecognised value both rank 0, on
+    /// purpose, because an unrecognised state must not outrank real work. So two genuinely
+    /// different states can tie here, and anything that reduces over ranks has to say what it
+    /// does with a tie rather than assume none arises — <see cref="BandOf"/> puts those same two
+    /// in <em>different</em> bands, so a tie broken carelessly is visible on screen.
+    /// </remarks>
     public static int Rank(SessionState state) => state switch
     {
         SessionState.NeedsPermission => 6,
@@ -104,8 +112,24 @@ public static class AttentionOrder
     /// The one roll-up. <see cref="Group.WorstState"/> answers this question for a group's
     /// members and the tray answers it for every session at once (Impl §5.2), and they are the
     /// same question — "worst wins", over <see cref="Rank"/>, which is why the ranking is not
-    /// copied a third time. Because <see cref="Rank"/> is total, states can only tie when they
-    /// are equal, so the order <paramref name="states"/> arrives in cannot change the answer.
+    /// copied a third time.
+    /// </para>
+    /// <para>
+    /// <strong>Order-independent because ties go to the first, not because ties cannot
+    /// happen.</strong> The comparison is strictly <c>&gt;</c>, so an equal rank never displaces
+    /// the incumbent and the answer is the same whatever order <paramref name="states"/> arrives
+    /// in. That is the whole reason, and it is worth stating exactly, because the tempting
+    /// version — "<see cref="Rank"/> is total, so states can only tie when they are equal" — is
+    /// <em>false</em>: <see cref="Rank"/> is not injective. <see cref="SessionState.Ended"/> and
+    /// any unrecognised value both rank 0, and <see cref="BandOf"/> sorts them into different
+    /// bands. Relax this to <c>&gt;=</c> and <c>[Ended, unrecognised]</c> answers differently
+    /// from <c>[unrecognised, Ended]</c>, one landing in Ended and the other in Quiet.
+    /// </para>
+    /// <para>
+    /// Nothing today can hand this an unrecognised state — the Registry only ever stores values
+    /// the state machine produced — so that difference is not currently reachable. It is
+    /// documented rather than defended because the two functions beside this one, both of which
+    /// carry an explicit <c>_ =&gt;</c> fallback, decline to assume it never will be.
     /// </para>
     /// <para>
     /// Empty answers <see cref="SessionState.Ended"/> because it is rank 0: a dashboard with no

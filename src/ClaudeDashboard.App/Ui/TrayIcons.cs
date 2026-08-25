@@ -47,7 +47,17 @@ public static class TrayIcons
     /// <summary>The rendered edge, in pixels.</summary>
     public const int Size = 16;
 
-    private static readonly ConcurrentDictionary<(TrayColour Colour, bool Paused), Icon> Cache = new();
+    /// <summary>
+    /// The glyphs built so far, keyed by the colour being shown — or by <see langword="null"/>
+    /// for the off-duty ring, which has no colour.
+    /// </summary>
+    /// <remarks>
+    /// Keyed this way rather than by <c>(colour, paused)</c> so the key says what the glyph is
+    /// rather than what was asked for. Pausing discards the colour entirely, so a pair-keyed
+    /// cache holds five entries that render the identical ring — harmless, and a quiet
+    /// contradiction of the sentence above it. There are six glyphs; there are six keys.
+    /// </remarks>
+    private static readonly ConcurrentDictionary<Glyph, Icon> Cache = new();
 
     /// <summary>The fill for each colour, single-sourced from <see cref="TrayColour"/>.</summary>
     private static readonly Dictionary<TrayColour, Color> Fills = new()
@@ -71,9 +81,10 @@ public static class TrayIcons
     /// <param name="colour">The roll-up colour.</param>
     /// <param name="paused">Whether monitoring is off duty.</param>
     public static Icon For(TrayColour colour, bool paused = false) =>
-        Cache.GetOrAdd((colour, paused), static key => Render(key.Colour, key.Paused));
+        Cache.GetOrAdd(new Glyph(paused ? null : colour), static key => Render(key.Colour));
 
-    private static Icon Render(TrayColour colour, bool paused)
+    /// <summary>Draws one glyph: the ring when <paramref name="colour"/> is null, else a dot.</summary>
+    private static Icon Render(TrayColour? colour)
     {
         using var bitmap = new Bitmap(Size, Size);
         using (var graphics = Graphics.FromImage(bitmap))
@@ -81,7 +92,7 @@ public static class TrayIcons
             graphics.SmoothingMode = SmoothingMode.AntiAlias;
             graphics.Clear(Color.Transparent);
 
-            if (paused)
+            if (colour is null)
             {
                 // Stroked, with no fill at all — the centre stays transparent, which is what makes
                 // this distinguishable from the all-quiet dot rather than merely a different grey.
@@ -90,7 +101,7 @@ public static class TrayIcons
             }
             else
             {
-                using var brush = new SolidBrush(Fills[colour]);
+                using var brush = new SolidBrush(Fills[colour.Value]);
                 graphics.FillEllipse(brush, 2, 2, Size - 4, Size - 4);
             }
         }
@@ -99,4 +110,7 @@ public static class TrayIcons
         // what the cache wants: one handle per glyph, for the life of the process.
         return Icon.FromHandle(bitmap.GetHicon());
     }
+
+    /// <summary>Which glyph: a colour, or the off-duty ring, which has none.</summary>
+    private readonly record struct Glyph(TrayColour? Colour);
 }

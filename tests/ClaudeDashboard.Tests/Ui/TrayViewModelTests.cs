@@ -121,6 +121,60 @@ public sealed class TrayViewModelTests : IDisposable
     }
 
     /// <summary>
+    /// <strong>No two glyphs look the same.</strong> Every colour, plus the off-duty ring, is
+    /// pairwise distinct at the centre pixel.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Enumerated from <see cref="TrayColour"/> rather than compared in pairs, because every
+    /// other test here compares only the two glyphs it cares about: a typo in one hex literal
+    /// would give two severities the same glyph, and only a test that happened to compare
+    /// <em>that</em> pair would notice. A sixth colour is covered the day it is added.
+    /// </para>
+    /// <para>
+    /// <strong>The honest limit.</strong> Pairwise distinctness guards the palette, not the
+    /// appearance: a pixel comparison cannot assert <em>visual</em> distinctness at 16px. Turn
+    /// the off-duty ring into a filled darker grey and every centre is still pairwise distinct,
+    /// because a sixth grey is a distinct value — while the operator requirement in Impl §5.2
+    /// has failed, since two grey dots one click apart are what it forbids.
+    /// </para>
+    /// <para>
+    /// The last assertion is what covers that case, and it is a different claim: the ring leaves
+    /// its centre <em>unpainted</em>, so paused cannot converge on the all-quiet dot however the
+    /// palette is tuned. Measured — that mutation reddens this test on the transparency line and
+    /// not on the pairwise loop. Neither half substitutes for the other.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void Every_glyph_is_distinguishable_from_every_other()
+    {
+        var glyphs = Enum.GetValues<TrayColour>()
+            .Select(colour => (Name: colour.ToString(), Centre: Fill(TrayIcons.For(colour))))
+            .Append((Name: "Paused", Centre: Fill(TrayIcons.For(TrayColour.Grey, paused: true))))
+            .ToList();
+
+        foreach (var a in glyphs)
+        {
+            foreach (var b in glyphs)
+            {
+                if (a.Name == b.Name)
+                {
+                    continue;
+                }
+
+                Assert.True(
+                    a.Centre != b.Centre,
+                    $"{a.Name} and {b.Name} render the same centre pixel ({a.Centre}), so the "
+                    + "operator cannot tell them apart.");
+            }
+        }
+
+        // …and the off-duty glyph is transparent in the middle rather than merely a sixth colour,
+        // which is the property that keeps it distinct from grey by construction.
+        Assert.Null(Fill(TrayIcons.For(TrayColour.Grey, paused: true)));
+    }
+
+    /// <summary>
     /// …and the roll-up underneath is untouched, so resuming shows the truth again immediately.
     /// </summary>
     /// <remarks>
