@@ -179,6 +179,64 @@ public sealed class DependencyRuleTests
         Assert.Equal("PerMonitorV2", awareness!.Value.Trim());
     }
 
+    /// <summary>
+    /// Exactly one thing in the product may reach <c>IUiTick</c> (T1.13b).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>This is what makes a deferral safe rather than merely reasoned.</strong> T1.13b
+    /// declined to add a monotonic guard to <c>MainViewModel.Tick</c>, which assigns whatever
+    /// instant it is handed without comparing it to the last. That is correct <em>because</em>
+    /// <c>EventConsumer</c> is the only caller, on one thread, so ticks are posted in the order
+    /// their instants were read and a stale one can never follow a fresh one. The whole decision
+    /// rests on that count, and nothing tested it: add a second caller and every existing test
+    /// stays green while ages on screen start jumping backwards for up to fifteen seconds.
+    /// </para>
+    /// <para>
+    /// <strong>If this test fails because a second caller is genuinely wanted, add the guard —
+    /// do not delete the test.</strong> The guard is two lines in <c>MainViewModel.Tick</c> and
+    /// <c>TrayViewModel.Tick</c>: ignore an instant earlier than the one already held. Deleting
+    /// this instead would restore exactly the state T1.13b was cleaning up — a property nothing
+    /// checks, with a comment somewhere claiming it holds.
+    /// </para>
+    /// <para>
+    /// <strong>What it observes, and what it does not.</strong> It reads source files, so it
+    /// catches a new field, a new constructor parameter, and a <c>GetRequiredService&lt;IUiTick&gt;</c>
+    /// anywhere in the app. It does not parse call sites, so it would miss a second call from
+    /// inside one of the three files below. That is a narrower net than "one caller" and it is the
+    /// one that costs nothing; the three files are small and two of them are the definition and
+    /// the registration.
+    /// </para>
+    /// <para>
+    /// One incidental property, noticed while planting a second caller to check this fails: its
+    /// input is the source tree, not the compiled assembly, so it reports on the code as written
+    /// even when the build did not succeed. That is the opposite of a mutation checked through a
+    /// test run, where a build failure plus <c>--no-build</c> silently reports on the previous
+    /// assembly — which happened during T1.18 and produced a confident, worthless green.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void Only_the_event_consumer_reaches_the_ui_tick()
+    {
+        var appDirectory = RepoLayout.Project(RepoLayout.App).Directory!;
+
+        var mentions = appDirectory
+            .EnumerateFiles("*.cs", SearchOption.AllDirectories)
+            .Where(file => !file.FullName.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
+            .Where(file => !file.FullName.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
+
+            // Word-bounded, so IUiTickTarget — a different type, implemented by the view models —
+            // does not count as reaching the tick.
+            .Where(file => Regex.IsMatch(File.ReadAllText(file.FullName), @"\bIUiTick\b"))
+            .Select(file => file.Name)
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .ToList();
+
+        Assert.Equal(
+            ["AppHost.cs", "EventConsumer.cs", "UiTick.cs"],
+            mentions);
+    }
+
     /// <summary>Loads the application manifest the .csproj actually names.</summary>
     /// <remarks>
     /// Shared by both manifest tests rather than copied, so that a manifest which moved or was

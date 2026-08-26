@@ -294,6 +294,15 @@ public sealed class UiTickTests : IAsyncLifetime
     /// target and therefore posts nothing at all.
     /// </para>
     /// <para>
+    /// <strong>The determinism comes from removing the caller. The delivered-count assertion below
+    /// is a detector, not a guard, and the difference is worth keeping straight.</strong> It does
+    /// not prevent a stray — it notices one, and only on a run where a stray happens to occur.
+    /// Measured by re-attaching the view model to the consumer's tick, which recreates exactly the
+    /// two-caller condition this fix removes: the stray appeared in <strong>3 runs out of 20</strong>.
+    /// So a future change that re-attaches gets a suite that is <em>rarely</em> red rather than
+    /// red, which is the shape that gets dismissed as noise. Keep both, and know which is which.
+    /// </para>
+    /// <para>
     /// That the running consumer really does drive the view model is a different claim, and it is
     /// covered by the tests above, which are the ones that must keep a live consumer.
     /// </para>
@@ -313,6 +322,10 @@ public sealed class UiTickTests : IAsyncLifetime
 
         // Delivered, but not yet run: the age only moves when this thread drains the queue.
         Assert.Equal(TimeSpan.Zero, row.Age);
+
+        // The detector, not the guard — see the remarks. One post, from the tick above; the
+        // consumer's has no target. If somebody re-attaches, this catches it on the runs where a
+        // stray actually lands, which measured 3 in 20.
         Assert.Equal(1, _tick.DeliveredCount + tick.DeliveredCount);
 
         _dispatcher.Pump();
