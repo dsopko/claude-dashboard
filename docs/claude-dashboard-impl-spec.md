@@ -108,7 +108,7 @@ An in-process **ASP.NET Core minimal API on Kestrel**, started by the .NET **Gen
 
 - `POST /hook` — the single ingest endpoint. Body is the hook's JSON. The handler reads `hook_event_name`, deserializes the event-specific fields (Part 9), maps to an `InboundEvent`, writes it to the Channel (Part 4), and returns **`200` with an empty body immediately**. It does no Registry work on the request thread.
 - `POST /show` — single-instance signal (Part 5.3): tells the running instance to surface its window. Returns `200`.
-- `GET /health` — liveness for diagnostics.
+- `GET /health` — liveness for diagnostics, **and instance identity**. Unauthenticated, and answers JSON: `{ "status": "ok", "instance": "Local\ClaudeDashboard.SingleInstance.<hash>" }` — the same gate name the single-instance mutex uses (Part 5.3). The identity is there because the two interlocks have different scopes: **a loopback port bind is machine-wide, while the gate is per logon session and per data folder**. Without it, a health answer cannot tell "another copy of me" from "another user's dashboard, which holds the port and which I must not signal" — and under fast user switching the second user's dashboard would conclude it was a duplicate, raise the *first* user's window on the *first* user's desktop, and exit having said nothing. JSON rather than a bare name, so the contract stays self-describing and a later field does not break this one. The name is a hash of a local path returned on loopback: no secret, and nothing reversible.
 
 ### 3.3 Pure-observer property
 
@@ -210,6 +210,8 @@ Neither spec previously said what **Pause monitoring** does — it appeared only
 
 A named `Mutex` created at startup; if already held, this process is the second instance. The **loopback port bind** is the belt-and-suspenders interlock — a second instance can't bind the same port. The second instance signals the first by `POST /show` to the loopback endpoint (reusing ingress; no separate IPC), then exits.
 
+The mutex is **session-local** (per logon session, not machine-wide) and its name is **keyed to the data folder root** — the full path, lowercased, trailing separator stripped, reduced to a process-stable hash. Both interlocks must observe the same thing: the port the second instance signals comes from the settings file under that root, so if the mutex were one fixed name while `CLAUDE_DASHBOARD_HOME` could move the root, a second instance could find the mutex held by an instance that never bound the port its own settings name — and would report the first one unreachable while a dashboard was plainly running. With one data folder, the shipping case, this is indistinguishable from a fixed name.
+
 ### 5.4 DPI and monitor placement
 
 - **Per-Monitor v2** declared in `app.manifest` (`<dpiAwareness>PerMonitorV2</dpiAwareness>`) so the window re-renders crisply when moved between monitors at different scale — directly relevant to sliding the dashboard between the top status monitor and the main monitor.
@@ -285,6 +287,8 @@ The process runs at the user's **normal integrity, never elevated** — elevated
 ## Part 8 — Storage and configuration
 
 Location: **`%LOCALAPPDATA%\ClaudeDashboard\`**.
+
+**`CLAUDE_DASHBOARD_HOME`** (optional). Overrides the root of the dashboard's own data folder — `settings.json`, `port.txt`, the log directory and `dashboard.db`. Absent or blank means the default under `LocalApplicationData`. It exists because `Environment.GetFolderPath` resolves the known folder through the shell and ignores the `LOCALAPPDATA` environment variable, so there is otherwise no way to relocate the data folder — which a portable install, a roaming profile that should not keep data under `Local`, and a second instance under test all need. An unusable value falls back to the default and logs the reason; it never stops startup. It does not move Claude Code's own `~/.claude/settings.json`, which is not ours.
 
 | Artifact | Tech | Purpose |
 |---|---|---|
