@@ -146,9 +146,21 @@ public static class HookRegistration
     /// </summary>
     /// <remarks>
     /// <para>
-    /// The allowlists deliberately stay. An <c>allowedHttpHookUrls</c> entry pointing at no hook
-    /// does nothing and causes no error, so leaving it halves the writes to a file every Claude
-    /// Code session on the machine is reading, and removes a class of half-written state.
+    /// <strong>The allowlists deliberately stay, and not for the reason first written here.</strong>
+    /// It said leaving them halved the writes; that was simply untrue — removing the URL would
+    /// happen inside the same <c>Modify</c> call that removes the handlers, so it is one write
+    /// either way, with one more field changed. The real reason is smaller and honest: an entry
+    /// pointing at no hook is inert, and a removal path that touches fewer things has fewer ways
+    /// to be wrong on the way out of a process that is already stopping.
+    /// </para>
+    /// <para>
+    /// <strong>The cost is real and is not hypothetical.</strong> Entries accumulate, one per
+    /// distinct URL ever registered, and nothing ever removes them — so an operator who changes
+    /// port, or runs a build on a scratch port, is left with a line in their settings that only a
+    /// human will clear. That happened on this feature's first live use: a scratch port from
+    /// testing is in the operator's file now. If that becomes annoying rather than merely untidy,
+    /// the fix is to remove our URL here too, and the only thing that argues against it is the
+    /// paragraph above.
     /// </para>
     /// <para>
     /// Returns the number of handlers taken out, so a caller can tell "nothing of ours was there"

@@ -121,11 +121,22 @@ public sealed class DeclineLoggingTests : IAsyncLifetime
         // A delayed duplicate of the first turn's completion, arriving after the second started.
         _pipeline.Sink.TryPublish(Finished("s-1", At.AddMinutes(3), "p-1"));
 
+        // Waits for the warning itself, not for the counter that precedes it.
+        //
+        // This was intermittent, and rarely: EventConsumer increments UncorrelatedCount at :307
+        // and writes the warning at :313, so a test that waited on the count could read the sink
+        // in between and find it empty — "Assert.Single() Failure: The collection was empty",
+        // roughly once in eight full runs on this machine. Waiting on the count was waiting on a
+        // proxy for the thing being asserted, and the proxy arrives first.
+        //
+        // The count is still asserted, below, because the two are separate claims: that exactly
+        // one completion was classified uncorrelated, and that it reached the log.
         Assert.True(
-            await Until(() => _consumer.UncorrelatedCount == 1),
-            "The uncorrelated completion was not counted.");
+            await Until(() => _sink.AtLevel(LogEventLevel.Warning).Any()),
+            "The uncorrelated completion produced no warning.");
 
         var warnings = _sink.AtLevel(LogEventLevel.Warning).ToList();
+        Assert.Equal(1, _consumer.UncorrelatedCount);
         var warning = Assert.Single(warnings);
         var rendered = warning.RenderMessage(System.Globalization.CultureInfo.InvariantCulture);
 

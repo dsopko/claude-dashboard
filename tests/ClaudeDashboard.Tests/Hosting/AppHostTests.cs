@@ -9,6 +9,7 @@ using ClaudeDashboard.Core;
 using ClaudeDashboard.Core.Events;
 using ClaudeDashboard.Core.Ports;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.Hosting;
 using Serilog;
 
@@ -72,7 +73,56 @@ public sealed class AppHostTests : IDisposable
         }
     }
 
+    private readonly List<IDisposable> _loggers = [];
+
+    /// <summary>
+    /// Builds a host and remembers the logger it created, so the log can be read afterwards.
+    /// </summary>
+    /// <remarks>
+    /// Every host in this class goes through here. <see cref="AppHost.Build"/> creates a Serilog
+    /// logger and assigns the process-wide <c>Log.Logger</c>; holding a reference to the one
+    /// <em>this</em> host made is what lets <see cref="ReadAllLogs"/> close it deterministically
+    /// without touching whichever logger the static happens to point at.
+    /// </remarks>
+    private WebApplication Build(DashboardPaths? paths = null, bool ingressAvailable = true)
+    {
+        var host = AppHost.Build(paths ?? _paths, ingressAvailable: ingressAvailable);
+
+        if (host.Services.GetService<Serilog.ILogger>() is IDisposable disposable)
+        {
+            _loggers.Add(disposable);
+        }
+
+        return host;
+    }
+
+    /// <summary>Closes the loggers this class made, then reads what they wrote.</summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>Closing is what flushes, and an earlier version of this file assumed otherwise.</strong>
+    /// It dropped <c>Log.CloseAndFlush</c> — rightly, because the static logger often belongs to a
+    /// different class — and replaced it with a remark claiming the shared file sink "flushes on
+    /// write, so an open file is a readable file". That was a capability claim nobody had checked,
+    /// and it was wrong often enough to matter: the sink is configured with a two-second flush
+    /// interval, so a read straight after a write could find the line missing. It failed about once
+    /// in sixteen full runs, on a content assertion rather than an obvious one.
+    /// </para>
+    /// <para>
+    /// Disposing the specific loggers this class created flushes them and needs no waiting, no
+    /// interval, and no claim about buffering — and it still never touches another class's sink.
+    /// </para>
+    /// </remarks>
     private string ReadAllLogs() => ReadLogsIn(_paths.LogFolder);
+
+    private void CloseOurLoggers()
+    {
+        foreach (var logger in _loggers)
+        {
+            logger.Dispose();
+        }
+
+        _loggers.Clear();
+    }
 
     /// <summary>
     /// Reads every log file in <paramref name="folder"/>, whether or not a sink still holds it.
@@ -94,13 +144,16 @@ public sealed class AppHostTests : IDisposable
     /// </para>
     /// <para>
     /// The file is instead opened the way Serilog opened it: <see cref="FileShare.ReadWrite"/>.
-    /// The sink is configured <c>shared</c> precisely so a second reader is allowed, and it
-    /// flushes on write for the same reason, so an open file is a readable file and closing
-    /// anything was never needed.
+    /// The sink is configured <c>shared</c> precisely so a second reader is allowed, so a file
+    /// another sink still holds can be read. That is about <em>access</em> only — whether the
+    /// content is there yet is a separate question, and the answer is to close the writer, which
+    /// <see cref="ReadAllLogs"/> does.
     /// </para>
     /// </remarks>
-    private static string ReadLogsIn(string folder)
+    private string ReadLogsIn(string folder)
     {
+        CloseOurLoggers();
+
         if (!Directory.Exists(folder))
         {
             return string.Empty;
@@ -128,7 +181,7 @@ public sealed class AppHostTests : IDisposable
     [Fact]
     public async Task The_host_builds_starts_and_stops()
     {
-        using var host = AppHost.Build(_paths);
+        using var host = Build();
 
         host.Start();
         await host.StopAsync();
@@ -140,7 +193,7 @@ public sealed class AppHostTests : IDisposable
     [Fact]
     public async Task Starting_writes_a_real_log_file_to_disk()
     {
-        using (var host = AppHost.Build(_paths))
+        using (var host = Build())
         {
             host.Start();
             await host.StopAsync();
@@ -161,7 +214,7 @@ public sealed class AppHostTests : IDisposable
         var fresh = new DashboardPaths(Path.Combine(_root, "fresh"));
         Assert.False(Directory.Exists(fresh.Root));
 
-        using var host = AppHost.Build(fresh);
+        using var host = Build(fresh);
 
         Assert.True(Directory.Exists(fresh.Root));
         Assert.True(Directory.Exists(fresh.LogFolder));
@@ -170,7 +223,7 @@ public sealed class AppHostTests : IDisposable
     [Fact]
     public void The_host_publishes_what_later_tasks_resolve()
     {
-        using var host = AppHost.Build(_paths);
+        using var host = Build();
 
         Assert.NotNull(host.Services.GetRequiredService<DashboardPaths>());
         Assert.NotNull(host.Services.GetRequiredService<SettingsStore>());
@@ -191,7 +244,7 @@ public sealed class AppHostTests : IDisposable
     [Fact]
     public void The_ui_tick_is_registered_and_reaches_the_consumer()
     {
-        using var host = AppHost.Build(_paths);
+        using var host = Build();
 
         var tick = host.Services.GetRequiredService<UiTick>();
 
@@ -210,7 +263,7 @@ public sealed class AppHostTests : IDisposable
     [Fact]
     public void The_window_and_its_view_model_are_registered()
     {
-        using var host = AppHost.Build(_paths);
+        using var host = Build();
 
         var isService = host.Services.GetRequiredService<IServiceProviderIsService>();
 
@@ -242,7 +295,7 @@ public sealed class AppHostTests : IDisposable
     [Fact]
     public void The_manual_acknowledgment_is_wired_end_to_end()
     {
-        using var host = AppHost.Build(_paths);
+        using var host = Build();
 
         // Throws if the publisher is unregistered: the parameter is required, not defaulted.
         Assert.NotNull(host.Services.GetRequiredService<MainViewModel>());
@@ -284,7 +337,7 @@ public sealed class AppHostTests : IDisposable
     [Fact]
     public void Exactly_one_hosted_service_of_our_own_is_registered()
     {
-        using var host = AppHost.Build(_paths);
+        using var host = Build();
 
         var ours = host.Services.GetServices<IHostedService>()
             .Where(service => service.GetType().Assembly.GetName().Name?
@@ -302,7 +355,7 @@ public sealed class AppHostTests : IDisposable
     {
         new SettingsStore(_paths).Save(new DashboardSettings { Port = 51234 });
 
-        using var host = AppHost.Build(_paths);
+        using var host = Build();
 
         Assert.Equal(51234, host.Services.GetRequiredService<DashboardSettings>().Port);
     }
@@ -314,7 +367,7 @@ public sealed class AppHostTests : IDisposable
         // a fresh root so the default port is never actually bound.
         var fresh = new DashboardPaths(Path.Combine(_root, "no-settings"));
 
-        using (AppHost.Build(fresh))
+        using (Build(fresh))
         {
         }
 
@@ -356,7 +409,7 @@ public sealed class AppHostTests : IDisposable
         Directory.CreateDirectory(_root);
         File.WriteAllText(_paths.SettingsFile, "{ \"port\": 51000,, }");
 
-        using (var host = AppHost.Build(_paths))
+        using (var host = Build())
         {
             // Equality against a fresh instance, not just the port: this is the object the test
             // below relies on being ordinary, so "ordinary" is what gets asserted.
@@ -384,7 +437,7 @@ public sealed class AppHostTests : IDisposable
         var port = FreePort();
         new SettingsStore(_paths).Save(new DashboardSettings { Port = port });
 
-        using var host = AppHost.Build(_paths);
+        using var host = Build();
         host.Start();
 
         try
@@ -431,7 +484,7 @@ public sealed class AppHostTests : IDisposable
 
         try
         {
-            using var host = AppHost.Build(_paths, ingressAvailable: false);
+            using var host = Build(ingressAvailable: false);
             host.Start();
 
             var status = host.Services.GetRequiredService<IngressStatus>();
@@ -460,7 +513,7 @@ public sealed class AppHostTests : IDisposable
     [Fact]
     public void A_host_that_bound_its_port_reports_no_fault()
     {
-        using var host = AppHost.Build(_paths);
+        using var host = Build();
 
         var status = host.Services.GetRequiredService<IngressStatus>();
 
@@ -477,7 +530,7 @@ public sealed class AppHostTests : IDisposable
     [Fact]
     public void A_dispatcher_exception_is_logged_and_the_process_survives()
     {
-        using (var host = AppHost.Build(_paths))
+        using (var host = Build())
         {
             var policy = host.Services.GetRequiredService<UnhandledExceptionPolicy>();
 
@@ -496,7 +549,7 @@ public sealed class AppHostTests : IDisposable
     [Fact]
     public void An_unobserved_task_exception_is_logged_and_marked_observed()
     {
-        using (var host = AppHost.Build(_paths))
+        using (var host = Build())
         {
             var policy = host.Services.GetRequiredService<UnhandledExceptionPolicy>();
 
@@ -514,7 +567,7 @@ public sealed class AppHostTests : IDisposable
     [Fact]
     public void A_terminating_domain_exception_is_logged_as_fatal()
     {
-        using (var host = AppHost.Build(_paths))
+        using (var host = Build())
         {
             host.Services.GetRequiredService<UnhandledExceptionPolicy>()
                 .HandleDomainException(
@@ -530,7 +583,7 @@ public sealed class AppHostTests : IDisposable
     [Fact]
     public void A_non_terminating_domain_exception_is_logged_as_an_error()
     {
-        using (var host = AppHost.Build(_paths))
+        using (var host = Build())
         {
             host.Services.GetRequiredService<UnhandledExceptionPolicy>()
                 .HandleDomainException(new InvalidOperationException("deliberate survivable fault"), false);
@@ -542,7 +595,7 @@ public sealed class AppHostTests : IDisposable
     [Fact]
     public void Every_handled_fault_is_counted()
     {
-        using var host = AppHost.Build(_paths);
+        using var host = Build();
         var policy = host.Services.GetRequiredService<UnhandledExceptionPolicy>();
 
         policy.HandleDispatcherException(new InvalidOperationException("one"));
@@ -562,7 +615,7 @@ public sealed class AppHostTests : IDisposable
     [Fact]
     public void A_genuinely_unobserved_task_reaches_the_wired_handler()
     {
-        using var host = AppHost.Build(_paths);
+        using var host = Build();
         var policy = host.Services.GetRequiredService<UnhandledExceptionPolicy>();
 
         using (AppHost.WireProcessExceptionHandlers(policy))
@@ -583,7 +636,7 @@ public sealed class AppHostTests : IDisposable
     [Fact]
     public void Wiring_can_be_undone_so_handlers_do_not_outlive_a_host()
     {
-        using var host = AppHost.Build(_paths);
+        using var host = Build();
         var policy = host.Services.GetRequiredService<UnhandledExceptionPolicy>();
 
         var wiring = AppHost.WireProcessExceptionHandlers(policy);
@@ -617,7 +670,7 @@ public sealed class AppHostTests : IDisposable
     [Fact]
     public void The_trays_tick_is_the_one_the_consumer_drives()
     {
-        using var host = AppHost.Build(_paths);
+        using var host = Build();
 
         var tick = host.Services.GetRequiredService<UiTick>();
 
@@ -650,7 +703,7 @@ public sealed class AppHostTests : IDisposable
     [Fact]
     public void The_tray_reads_the_engine_the_consumer_writes()
     {
-        using var host = AppHost.Build(_paths);
+        using var host = Build();
 
         var engine = host.Services.GetRequiredService<SoundPolicyEngine>();
 
@@ -677,7 +730,7 @@ public sealed class AppHostTests : IDisposable
     [Fact]
     public void The_sound_player_is_the_real_adapter()
     {
-        using var host = AppHost.Build(_paths);
+        using var host = Build();
 
         var player = host.Services.GetRequiredService<ISoundPlayer>();
 
@@ -713,7 +766,7 @@ public sealed class AppHostTests : IDisposable
     [Fact]
     public void The_sound_options_are_registered_from_the_settings()
     {
-        using var host = AppHost.Build(_paths);
+        using var host = Build();
 
         var options = host.Services.GetRequiredService<SoundPolicyOptions>();
 

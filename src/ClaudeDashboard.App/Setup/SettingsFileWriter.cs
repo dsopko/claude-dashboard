@@ -45,6 +45,15 @@ public readonly record struct SettingsWriteResult(
 /// which is why the temporary name is distinctive enough to find and sweep.
 /// </para>
 /// <para>
+/// <see cref="File.Move(string, string, bool)"/> rather than <see cref="File.Replace(string, string, string)"/>,
+/// and the difference is recorded rather than left to be discovered. Both are atomic on one
+/// volume. <c>Move</c> also handles a target that does not exist yet, which <c>Replace</c> does
+/// not, and it needs no throwaway backup path. What it does not do is carry the destination's
+/// access control list across, so a settings file with hand-tightened permissions would come back
+/// with the ones it inherits from its folder. Inside a user profile those are the same thing,
+/// which is why this is a note and not a defect.
+/// </para>
+/// <para>
 /// <em>Our own writers must not interleave.</em> A lock file beside the target, opened with no
 /// sharing, is held across read → merge → replace. <strong>It serialises dashboard processes and
 /// nothing else.</strong> Claude Code knows nothing about it, and neither does an operator with
@@ -64,6 +73,19 @@ public sealed class SettingsFileWriter
 {
     /// <summary>How many times to redo a merge that lost the race before giving up.</summary>
     public const int DefaultAttempts = 5;
+
+    /// <summary>
+    /// What a half-finished write is called, before the move that commits it.
+    /// </summary>
+    /// <remarks>
+    /// <strong>One constant, shared by the writer and the sweeper, so they cannot disagree.</strong>
+    /// The producer names the file and the sweeper globs for it, and if those two drifted apart a
+    /// real crash would leave a file the sweep never collects — one per crash, beside the
+    /// operator's settings, which is exactly the harm the sweep exists to prevent. Deliberately
+    /// closed by construction rather than by a test: a test would have to build the expected name
+    /// from this same constant, which proves the constant equals itself.
+    /// </remarks>
+    internal const string TemporarySuffix = ".dashboard-tmp-";
 
     private readonly string _path;
     private readonly int _attempts;
@@ -226,7 +248,7 @@ public sealed class SettingsFileWriter
 
         var swept = 0;
 
-        foreach (var stale in Directory.EnumerateFiles(directory, Path.GetFileName(_path) + ".dashboard-tmp-*"))
+        foreach (var stale in Directory.EnumerateFiles(directory, Path.GetFileName(_path) + TemporarySuffix + "*"))
         {
             try
             {
@@ -247,7 +269,7 @@ public sealed class SettingsFileWriter
     /// </summary>
     private bool TryReplace(string content, string? expected)
     {
-        var temporary = $"{_path}.dashboard-tmp-{Guid.NewGuid():N}";
+        var temporary = $"{_path}{TemporarySuffix}{Guid.NewGuid():N}";
 
         try
         {
