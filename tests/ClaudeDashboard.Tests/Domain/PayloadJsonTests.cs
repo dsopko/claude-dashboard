@@ -4,7 +4,8 @@ using ClaudeDashboard.Tests.Fakes;
 namespace ClaudeDashboard.Tests.Domain;
 
 /// <summary>
-/// The wrapper that keeps hook bodies out of the log by construction (T1.17).
+/// The wrapper that keeps the <strong>raw hook body</strong> out of the log by construction, and
+/// the record of what it does not cover (T1.17).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -91,10 +92,19 @@ public sealed class PayloadJsonTests
         Assert.DoesNotContain(Secret, Assert.Single(sink.Messages), StringComparison.Ordinal);
     }
 
-    /// <summary>And when the whole event is logged, not just the payload.</summary>
+    /// <summary>And when the whole event is logged, the <em>body</em> still does not appear.</summary>
     /// <remarks>
-    /// The realistic accident: somebody logs the event to see what arrived. The event's other
-    /// fields are fine to log; the body is the one that is not, and it travels inside the event.
+    /// <para>
+    /// The realistic accident: somebody logs the event to see what arrived. The body travels
+    /// inside the event, and it stays redacted there.
+    /// </para>
+    /// <para>
+    /// <strong>Read the name of this test literally.</strong> It says the body, not the event.
+    /// Logging a whole event <em>does</em> reveal the mapped <c>Prompt</c> field, which holds the
+    /// same words as a plain string — see
+    /// <see cref="The_mapped_prompt_is_not_protected_and_that_is_a_known_gap"/>, which is the
+    /// residual this one must not be mistaken for covering.
+    /// </para>
     /// </remarks>
     [Fact]
     public void Logging_a_whole_event_does_not_reveal_its_body()
@@ -129,6 +139,50 @@ public sealed class PayloadJsonTests
         Assert.Contains("chars", written, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// <strong>The mapped prompt is NOT protected. This records the gap; it does not bless it.</strong>
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The same words the payload carries also live as a plain <see langword="string"/> on
+    /// <c>UserPromptSubmit.Prompt</c>, and the Registry copies them onto <c>Exchange</c>. Those are
+    /// public properties of records with a compiler-generated <c>ToString</c>, so a plain
+    /// <c>{Event}</c> — no destructuring operator, nothing unusual — prints the operator's prompt.
+    /// </para>
+    /// <para>
+    /// <strong>Why a test rather than a sentence.</strong> A residual written only in prose drifts
+    /// out of date silently. <strong>When the wrapper for those two fields lands, this test fails</strong>
+    /// — which is the intended signal, and the reader who sees it should delete this test and the
+    /// paragraphs it points at, in <c>PayloadJson</c>, <c>InboundEvent</c> and
+    /// <c>SqliteEventStore</c>, rather than adjust it to keep passing.
+    /// </para>
+    /// <para>
+    /// Nothing in <c>src/</c> logs a whole event today. This is a gap in a guarantee, not a live
+    /// disclosure.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void The_mapped_prompt_is_not_protected_and_that_is_a_known_gap()
+    {
+        const string Mapped = "THE-MAPPED-PROMPT-AS-THE-DOMAIN-HOLDS-IT";
+
+        var sink = new RecordingLogSink();
+        using var logger = new Serilog.LoggerConfiguration().MinimumLevel.Verbose().WriteTo.Sink(sink).CreateLogger();
+
+        var inboundEvent = Storage.TestEvents.Hook(Body) with { Prompt = Mapped };
+
+        logger.Warning("Declined {Event}", inboundEvent);
+
+        var rendered = Assert.Single(sink.Messages);
+
+        // The gap, stated as the assertion so it cannot be read as an aspiration.
+        Assert.Contains(Mapped, rendered, StringComparison.Ordinal);
+
+        // And the boundary of what PayloadJson does cover: on the very same line, the raw body is
+        // still redacted. This is the difference between the two fields, in one rendering.
+        Assert.DoesNotContain(Secret, rendered, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void An_empty_payload_renders_as_none() =>
         Assert.Equal("<payload: none>", default(PayloadJson).ToString());
@@ -142,4 +196,5 @@ public sealed class PayloadJsonTests
         Assert.NotEqual(new PayloadJson(Body), new PayloadJson("{}"));
         Assert.Equal(new PayloadJson(Body).GetHashCode(), new PayloadJson(Body).GetHashCode());
     }
+
 }

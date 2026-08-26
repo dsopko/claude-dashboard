@@ -74,9 +74,18 @@ public abstract record InboundEvent
     /// lossy record stored under the name <c>payload_json</c> is worse than no record.
     /// </para>
     /// <para>
-    /// It is a <see cref="Events.PayloadJson"/> rather than a <c>string</c> so that the text
-    /// cannot reach a log file by being mentioned in a message template. That type's remarks carry
-    /// the whole argument, including why the database may hold this text when the log may not.
+    /// It is a <see cref="Events.PayloadJson"/> rather than a <c>string</c> so that <em>this
+    /// field</em> cannot reach a log file by being mentioned in a message template. That type's
+    /// remarks carry the whole argument, including why the database may hold this text when the
+    /// log is not meant to.
+    /// </para>
+    /// <para>
+    /// <strong>The protection stops at this property.</strong> Sibling fields on the derived
+    /// records hold the same words as plain strings — <c>UserPromptSubmit.Prompt</c> most of all —
+    /// and a record's generated <c>ToString</c> prints every one of them, so
+    /// <c>logger.Warning("Declined {Event}", e)</c> leaks the prompt while this property stays
+    /// redacted. Measured at T1.17. Wrapping those is filed separately; until it lands, do not
+    /// read this property's safety as the event's.
     /// </para>
     /// </remarks>
     public PayloadJson Payload { get; init; }

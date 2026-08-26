@@ -12,10 +12,18 @@ namespace ClaudeDashboard.App.Storage;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <strong>This file holds the operator's words, and the log never may.</strong> The reasoning is
-/// on <see cref="PayloadJson"/>: the log is diagnostic and leaves the machine, this file is the
-/// product's own store and does not. Everything here follows from that one asymmetry — the body
-/// goes into a bound parameter and never into a message template.
+/// <strong>This file holds the operator's words, and the log is not meant to.</strong> The
+/// reasoning is on <see cref="PayloadJson"/>: the log is diagnostic and leaves the machine, this
+/// file is the product's own store and does not. Everything here follows from that one asymmetry —
+/// the body goes into a bound parameter and never into a message template.
+/// </para>
+/// <para>
+/// <strong>Stated as an intent rather than a guarantee, deliberately.</strong> Nothing in this
+/// class puts the body in a log line, and its tests hold that. But the intent is enforced by
+/// construction only for the raw body: the same words also live as a plain string on
+/// <c>UserPromptSubmit.Prompt</c> and on <c>Exchange</c>, where a plain <c>{Event}</c> prints
+/// them. <see cref="PayloadJson"/>'s remarks carry the measurement and the filed follow-up. A
+/// sentence here promising more than that would be the same mistake in a second file.
 /// </para>
 /// <para>
 /// <strong>Where it sits, and the permissions it has.</strong>

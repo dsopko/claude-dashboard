@@ -130,9 +130,13 @@ public sealed class EventArchive
     {
         DroppedCount++;
 
-        // The event, never the payload: this is a diagnostic line and the body does not belong in
-        // one. PayloadJson would redact it anyway; naming the fields explicitly means nobody has
-        // to rely on that to read this and know it is safe.
+        // TWO NAMED FIELDS, NEVER THE EVENT. A diagnostic line must not carry the operator's
+        // words, and {HookEventName} and {SessionId} are the whole of what this needs.
+        //
+        // Do not "improve" this to {Event} or {@Event}. PayloadJson would redact the raw body, but
+        // a record's generated ToString prints every public property — including the mapped
+        // Prompt, which holds the same words as a plain string. Measured at T1.17. Naming the
+        // fields is what makes this line safe; the wrapper is not.
         _logger.Debug(
             "The event archive is full; discarded {HookEventName} for session {SessionId} unwritten.",
             dropped.HookEventName,

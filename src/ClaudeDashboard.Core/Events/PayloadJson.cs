@@ -1,8 +1,8 @@
 namespace ClaudeDashboard.Core.Events;
 
 /// <summary>
-/// The raw hook body, carried to the event archive and kept out of the log by construction
-/// (Impl Part 8; T1.17).
+/// <strong>The raw hook body</strong>, carried to the event archive and kept out of the log by
+/// construction (Impl Part 8; T1.17). It protects the body and nothing else — see the residuals.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -31,12 +31,38 @@ namespace ClaudeDashboard.Core.Events;
 /// is worth more than clean probes, so this type exists rather than a rule in a document.
 /// </para>
 /// <para>
-/// <strong>The residual, which is real and belongs to existing code as much as to this type.</strong>
+/// <strong>WHAT THIS DOES NOT PROTECT, WHICH IS EASIER TO HIT THAN WHAT IT DOES.</strong> The
+/// guarantee above is exactly one type wide. The <em>same words</em> also live as plain
+/// <see langword="string"/> fields on <see cref="UserPromptSubmit"/> — <c>Prompt</c> — and on
+/// <c>Exchange</c>, which the Registry copies them onto. Those are public properties of records
+/// with a compiler-generated <c>ToString</c>, so <c>logger.Warning("Declined {Event}", e)</c>
+/// prints the operator's prompt verbatim. <strong>Measured, not feared</strong>: with a marker in
+/// both, a plain <c>{Event}</c> leaks the mapped prompt while <c>{Payload}</c> and
+/// <c>{@Payload}</c> stay clean.
+/// </para>
+/// <para>
+/// That hole needs no destructuring operator. The case this type was redesigned for required
+/// somebody to reach for <c>@</c>; this one requires nothing, and <em>"log the event that
+/// failed"</em> is the most natural line anyone will ever write about a declined event. Nothing in
+/// <c>src/</c> logs it today — every <c>{@</c> site was enumerated — so this is a gap in the
+/// guarantee rather than a live disclosure, and wrapping those two fields is filed as its own
+/// task because <c>Prompt</c> is read by the view models and is not a one-caller field like this.
+/// </para>
+/// <para>
+/// <strong>The lesson, which is about the sentence and not the type.</strong> An earlier version
+/// of this remark claimed the operator's words were kept out of the log by construction. The type
+/// was then made genuinely safe — and the claim around it was never resized, so it went on
+/// describing a guarantee about the operator's words when it had only ever been about one field.
+/// <em>A correct fix under an unscoped claim is still a false statement in the file.</em> Anyone
+/// narrowing or widening what this protects must move this paragraph with it.
+/// </para>
+/// <para>
+/// <strong>The other residual, which belongs to existing code as much as to this type.</strong>
 /// A <c>System.Text.Json</c> syntax error reports the offending character — <c>'M' is an invalid
 /// start of a value</c> — so one byte of the operator's text can reach the log at a malformed
-/// body. <c>IngressEndpoints</c> logs that message today and did before this type existed. One
-/// byte at a syntax error is not a disclosure; it is also not nothing, and it is written down here
-/// rather than discovered later.
+/// body. <c>IngressEndpoints</c> logs that message today and did before this type existed, and it
+/// was seen on a live staged run. One byte at a syntax error is not a disclosure; it is also not
+/// nothing, and it is written down here rather than discovered later.
 /// </para>
 /// </remarks>
 public readonly record struct PayloadJson
