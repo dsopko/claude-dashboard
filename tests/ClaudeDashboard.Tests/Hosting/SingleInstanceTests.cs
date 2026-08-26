@@ -39,7 +39,53 @@ public sealed class SingleInstanceTests
     public void The_gate_name_is_the_same_in_every_process()
     {
         Assert.Equal(
-            SingleInstanceGate.NamePrefix + "9334ac1cfbc0def1",
+            SingleInstanceGate.NamePrefix + "0407ec7d32fc3c63",
+            SingleInstanceGate.NameFor(@"C:\dashboard-data", sessionId: 1));
+    }
+
+    /// <summary>
+    /// The identity carries the logon session, not only the folder.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The gate's scope is two things — the <c>Local\</c> logon session and the data folder — and
+    /// the name is what <c>/health</c> answers with. If it carried only the folder, two logon
+    /// sessions sharing one root would report the same identity, and the second dashboard would
+    /// read the first as its own duplicate, raise a window on a desktop this user cannot see, and
+    /// exit having logged success. A silent failure, and the outcome falls the wrong way: the
+    /// case designed for is loud and this one was quiet.
+    /// </para>
+    /// <para>
+    /// Not hypothetical. <c>CLAUDE_DASHBOARD_HOME</c> is what makes a shared root configurable,
+    /// and Impl Part 8 gives a portable install — the case where two accounts share one folder —
+    /// as a reason for the variable.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void The_same_folder_in_a_different_logon_session_is_a_different_gate() =>
+        Assert.NotEqual(
+            SingleInstanceGate.NameFor(@"C:\dashboard-data", sessionId: 1),
+            SingleInstanceGate.NameFor(@"C:\dashboard-data", sessionId: 2));
+
+    /// <summary>…and the same session and folder still agree, which is the control for it.</summary>
+    [Fact]
+    public void The_same_folder_in_the_same_logon_session_is_the_same_gate() =>
+        Assert.Equal(
+            SingleInstanceGate.NameFor(@"C:\dashboard-data", sessionId: 7),
+            SingleInstanceGate.NameFor(@"C:\DASHBOARD-DATA\", sessionId: 7));
+
+    /// <summary>The session-less overload uses this process's session, not a constant.</summary>
+    /// <remarks>
+    /// The hop production takes. Without this, an overload that ignored the session and hashed the
+    /// folder alone would satisfy every test above, because they all pass a session explicitly.
+    /// </remarks>
+    [Fact]
+    public void The_default_overload_carries_this_processs_session()
+    {
+        using var self = System.Diagnostics.Process.GetCurrentProcess();
+
+        Assert.Equal(
+            SingleInstanceGate.NameFor(@"C:\dashboard-data", self.SessionId),
             SingleInstanceGate.NameFor(@"C:\dashboard-data"));
     }
 

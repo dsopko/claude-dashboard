@@ -227,6 +227,7 @@ public sealed class SettingsStoreTests : IDisposable
     }
 }
 
+[Collection(ClaudeDashboard.Tests.Configuration.DataFolderEnvironment.Name)]
 public sealed class DashboardPathsTests
 {
     [Fact]
@@ -241,6 +242,12 @@ public sealed class DashboardPathsTests
     }
 
     /// <summary>The default resolves under %LOCALAPPDATA%, which is what Impl Part 8 specifies.</summary>
+    /// <remarks>
+    /// The override is cleared for the duration. Without that this asserts the default only on a
+    /// machine where nobody has set <c>CLAUDE_DASHBOARD_HOME</c> — which was every machine until
+    /// the variable shipped, and is not something a test should depend on. The class is in the
+    /// serialized collection so clearing it cannot be seen by the tests that set it.
+    /// </remarks>
     [Fact]
     public void The_default_root_is_local_appdata()
     {
@@ -248,7 +255,18 @@ public sealed class DashboardPathsTests
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             DashboardPaths.FolderName);
 
-        Assert.Equal(expected, new DashboardPaths().Root);
+        var previous = Environment.GetEnvironmentVariable(DashboardPaths.HomeVariable);
+        Environment.SetEnvironmentVariable(DashboardPaths.HomeVariable, null);
+
+        try
+        {
+            Assert.Equal(expected, new DashboardPaths().Root);
+            Assert.Equal(expected, DashboardPaths.DefaultRoot);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(DashboardPaths.HomeVariable, previous);
+        }
     }
 
     [Fact]

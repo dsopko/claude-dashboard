@@ -19,7 +19,7 @@ namespace ClaudeDashboard.Tests.Configuration;
 /// entirely, which is a different bug with the same symptom on a happy day.
 /// </para>
 /// </remarks>
-public sealed class DashboardPathsTests
+public sealed class DataFolderOverrideTests
 {
     private const string Fallback = @"C:\fallback\ClaudeDashboard";
 

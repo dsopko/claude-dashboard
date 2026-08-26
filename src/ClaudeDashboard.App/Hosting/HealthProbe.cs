@@ -89,14 +89,24 @@ public static class HealthProbe
     /// Never throws. Every failure is an occupant, because the caller has to decide either way.
     /// </para>
     /// <para>
-    /// <strong>"Is anyone there" is asked by trying to bind, not by connecting.</strong> A
-    /// refused connection is the intuitive test and it is the wrong one: measured on Windows
-    /// loopback, a connect to a closed port takes about two seconds to come back
-    /// <c>ConnectionRefused</c>. Under any timeout short enough to keep a silent stranger from
-    /// holding up startup, a <em>free</em> port would time out and be classified as a stranger —
-    /// and the ordinary first start would come up unable to hear anything, on a port that was
-    /// never taken. A bind attempt answers the same question in well under a millisecond and is
-    /// the interlock Impl §5.3 names anyway.
+    /// <strong>"Is anyone there" is asked by trying to bind, not by connecting.</strong> A bind
+    /// answers the question actually being asked — may this process have this port — and answers
+    /// it definitively, with no number to tune. A connect answers a different question, and makes
+    /// one timeout do two jobs that pull against each other: it must be short enough to bound a
+    /// stranger that accepts and never replies, and long enough to outlast a refusal. Wherever
+    /// refusal is slower than the bound chosen for silence, a <em>free</em> port is classified as
+    /// a stranger — and the ordinary first start comes up unable to hear anything, on a port
+    /// nobody had taken. There is no timeout that satisfies both, which is why the answer is not
+    /// a better timeout. It is also the interlock Impl §5.3 names anyway.
+    /// </para>
+    /// <para>
+    /// Such machines exist, and this is one. Measured here, with raw TCP connects so nothing
+    /// above the socket is in the way: a refused loopback connect takes about 2045 ms, on
+    /// <em>both</em> <c>127.0.0.1</c> and <c>[::1]</c>, while connecting to an open loopback port
+    /// takes well under a millisecond and the bind attempt below about 0.4 ms. Whatever delays
+    /// the reset is not specific to one address family. Those figures describe one machine and
+    /// are not the reason for the design; the argument above needs no measurement and holds where
+    /// refusal is fast.
     /// </para>
     /// <para>
     /// The listener is closed immediately, so Kestrel binds the port a moment later. Losing that

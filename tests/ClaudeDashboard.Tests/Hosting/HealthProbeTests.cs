@@ -41,16 +41,23 @@ public sealed class HealthProbeTests
     /// <summary>Nothing is there — and that has to be decided quickly, not eventually.</summary>
     /// <remarks>
     /// <para>
-    /// <strong>The timing assertion is the substance of this test, not decoration.</strong>
-    /// Measured on Windows loopback, an HTTP connect to a closed port takes about two seconds to
-    /// come back <c>ConnectionRefused</c>. A probe that asked "is anyone there" by connecting
-    /// would therefore have to choose between waiting two seconds on every ordinary start and
-    /// classifying a <em>free</em> port as a silent stranger — which is how the first, most
-    /// common start would come up unable to hear anything, on a port nobody had taken.
+    /// <strong>The timing assertion is the substance of this test, not decoration.</strong> A
+    /// probe that asks "is anyone there" by connecting has to make one timeout do two opposing
+    /// jobs: bound a stranger that accepts and never replies, and outlast a refusal. Where
+    /// refusal is the slower of the two there is no value that satisfies both, and the losing
+    /// case is a free port read as a stranger — the ordinary first start, coming up deaf on a
+    /// port nobody had taken. A bind attempt has no such number.
     /// </para>
     /// <para>
-    /// So <paramref name="Brief"/> here is deliberately shorter than that refusal takes. A build
-    /// that goes back to connecting fails this test on the outcome; a build that connects with a
+    /// This machine is one where refusal is the slower: about 2045 ms to refuse a loopback
+    /// connect on either address family, against well under a millisecond to connect to an open
+    /// port or to attempt the bind. That is why the timeout passed here is deliberately shorter
+    /// than a refusal takes. Do not read the figure as a property of Windows — measure elsewhere
+    /// and it may be a fraction of a millisecond, and the design still holds, because the
+    /// argument above needs no measurement.
+    /// </para>
+    /// <para>
+    /// A build that goes back to connecting fails this on the outcome; one that connects with a
     /// generous timeout instead passes the outcome and fails the duration.
     /// </para>
     /// </remarks>

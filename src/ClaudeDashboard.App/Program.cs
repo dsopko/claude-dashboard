@@ -57,119 +57,130 @@ public static class Program
     {
         IHost? host = null;
 
-        // The window is captured by the /show action below and assigned further down, on this
-        // thread. Deliberately not resolved from the container inside that action: a /show can
-        // arrive on a Kestrel thread, and resolving MainWindow there would *construct* the
-        // window — and its view model, and its bound collection — off the UI thread. A null here
-        // means a post landed in the gap before the window existed, which is a few milliseconds
-        // long and has nothing to raise.
-        MainWindow? window = null;
+        // The /show action is handed this rather than the container: a post arrives on a Kestrel
+        // thread, and resolving MainWindow there would *construct* the window — and its view
+        // model, and its bound collection — off the UI thread. It also latches a request that
+        // lands before the window exists, which is the gap that would otherwise answer 200 and
+        // raise nothing (see WindowSurfacer).
+        WindowSurfacer? surfacer = null;
 
-        // Before anything else, and deliberately outside the try: the gate has to be released on
-        // every path out of this method, including the ones that log a fatal error. `using` does
-        // that, and it is what makes "no held mutex after a clean exit" a property of the shape
-        // of this method rather than of remembering to call something.
-        var paths = new DashboardPaths();
-        using var gate = SingleInstanceGate.Acquire(paths.Root);
+        DashboardPaths paths;
+        SingleInstanceGate gate;
 
         try
         {
-            // Impl §5.3's two interlocks. The gate is the authority on "another copy of us is
-            // running"; the port only corroborates, because the port is fixed and after a hard
-            // kill anything at all may be holding it. See StartupDecision.
-            var settings = new SettingsStore(paths).Load().Settings;
-            var probe = HealthProbe.Probe(settings.Port, gate.Name);
-            var action = StartupDecision.For(gate.IsFirstInstance, probe.Occupant);
-
-            if (action is StartupAction.SignalAndExit or StartupAction.ReportAndExit)
-            {
-                return StandDown(paths, settings, action, probe);
-            }
-
-            host = AppHost.Build(
-                paths,
-                onShow: () => Surface(window),
-                ingressAvailable: action == StartupAction.StartNormally);
-
-            host.Start();
-
-            if (gate.TookOverFromACrash)
-            {
-                Log.Warning(
-                    "The previous dashboard did not exit cleanly — it left its single-instance gate " +
-                    "abandoned. This one has taken it over.");
-            }
-
-            var policy = host.Services.GetRequiredService<UnhandledExceptionPolicy>();
-            using var handlers = AppHost.WireProcessExceptionHandlers(policy);
-
-            var app = new App(policy);
-
-            // This is the UI thread, and the only place the window and its view model may be
-            // built. Attaching the tick here rather than inside the container is what keeps the
-            // consumer thread from ever constructing UI-thread state (see UiTick).
-            window = host.Services.GetRequiredService<MainWindow>();
-            var tick = host.Services.GetRequiredService<UiTick>();
-            tick.Attach(window.ViewModel);
-
-            // The tray is a Win32 shell notification and a WPF ContextMenu, so it belongs on
-            // this thread with the window. Constructing it also puts it on the clock — see
-            // TrayIcon, which attaches itself so that being registered and being driven cannot
-            // come apart the way T1.6's and T1.11's ticks did.
-            using var tray = host.Services.GetRequiredService<TrayIcon>();
-            tray.ViewModel.OpenRequested += (_, _) => window.ToggleDashboard();
-            tray.ViewModel.QuitRequested += (_, _) => app.Shutdown();
-
-            var exitCode = app.Run(window);
-
-            host.StopAsync().GetAwaiter().GetResult();
-            Log.Information("Claude Dashboard exited with code {ExitCode}.", exitCode);
-            return exitCode;
-        }
-        catch (IOException ex) when (ex.InnerException is AddressInUseException)
-        {
-            // Impl §3.1 fixes the port so the hook URL stays stable, which makes "something
-            // else already has it" the likeliest startup failure this app will ever have. The
-            // operator has no console and no window, so the log line has to be the whole
-            // diagnosis — a stack trace alone would say what happened but not what to do.
-            Log.Fatal(
-                ex,
-                "Claude Dashboard could not start: another process is already using the ingress port. " +
-                "Stop that process, or set a different \"port\" in the settings file, and remember that " +
-                "the hook URL registered with Claude Code must match it.");
-            return 1;
+            paths = new DashboardPaths();
+            gate = SingleInstanceGate.Acquire(paths.Root);
         }
         catch (Exception ex)
         {
-            // Startup failed before the handlers could take over. Nothing is running to report
-            // this any other way, so the log file is the only place it can go.
-            Log.Fatal(ex, "Claude Dashboard failed to start.");
+            // Before the logger exists, so the static sink is all there is. Reaching here means
+            // the data folder or the gate could not be resolved at all; without this the throw
+            // would leave the process with no window, no tray and no diagnosis whatever.
+            Log.Fatal(ex, "Claude Dashboard could not work out where its data folder is, or take the single-instance gate.");
+            Log.CloseAndFlush();
+
             return 1;
         }
-        finally
-        {
-            host?.Dispose();
-            Log.CloseAndFlush();
-        }
-    }
 
-    /// <summary>Raises the window for a <c>/show</c> post (Impl §5.3).</summary>
-    /// <remarks>
-    /// Posted rather than invoked: this runs on a Kestrel request thread, and blocking it on the
-    /// UI thread would hold an ingress connection open behind a render.
-    /// <see cref="DispatcherPriority.Normal"/> rather than the projection's
-    /// <see cref="DispatcherPriority.Background"/>, because somebody just double-clicked the
-    /// shortcut and is waiting to see a window; there is exactly one of these per launch, so it
-    /// cannot flood the queue the way session updates could.
-    /// </remarks>
-    private static void Surface(MainWindow? window)
-    {
-        if (window is null)
+        // Released on every path out of this method. Note that this is not what frees the gate
+        // for the next launch — Windows closes the handle at process exit either way, measured by
+        // deleting the release and watching the whole suite stay green. It is here so the gate is
+        // given up at the same point everything else is.
+        using (gate)
         {
-            return;
-        }
+            try
+            {
+                // Impl §5.3's two interlocks. The gate is the authority on "another copy of us is
+                // running"; the port only corroborates, because the port is fixed and after a hard
+                // kill anything at all may be holding it. See StartupDecision.
+                var settings = new SettingsStore(paths).Load().Settings;
+                var probe = HealthProbe.Probe(settings.Port, gate.Name);
+                var action = StartupDecision.For(gate.IsFirstInstance, probe.Occupant);
 
-        window.Dispatcher.InvokeAsync(window.ShowDashboard, DispatcherPriority.Normal);
+                if (action is StartupAction.SignalAndExit or StartupAction.ReportAndExit)
+                {
+                    return StandDown(paths, settings, action, probe);
+                }
+
+                host = AppHost.Build(
+                    paths,
+                    onShow: () => surfacer!.Request(),
+                    ingressAvailable: action == StartupAction.StartNormally);
+
+                // Between Build and Start, and that ordering is load-bearing rather than
+                // stylistic: Build composes and Start binds the socket, so no /show can arrive
+                // until after this line. The null-forgiving operator is deliberate — if that
+                // ordering were ever broken, a throw here is caught by the ingress handler and
+                // logged at Error, where `?.` would drop the request in silence, which is the
+                // failure this whole type exists to remove.
+                surfacer = new WindowSurfacer(host.Services.GetRequiredService<Serilog.ILogger>());
+
+                host.Start();
+
+                if (gate.TookOverFromACrash)
+                {
+                    Log.Warning(
+                        "The previous dashboard did not exit cleanly — it left its single-instance gate " +
+                        "abandoned. This one has taken it over.");
+                }
+
+                var policy = host.Services.GetRequiredService<UnhandledExceptionPolicy>();
+                using var handlers = AppHost.WireProcessExceptionHandlers(policy);
+
+                var app = new App(policy);
+
+                // This is the UI thread, and the only place the window and its view model may be
+                // built. Attaching the tick here rather than inside the container is what keeps the
+                // consumer thread from ever constructing UI-thread state (see UiTick).
+                var window = host.Services.GetRequiredService<MainWindow>();
+                var tick = host.Services.GetRequiredService<UiTick>();
+                tick.Attach(window.ViewModel);
+
+                // Hands the window over, and raises it if a /show already asked while the window
+                // did not exist. On this thread, which owns it.
+                surfacer.Attach(window);
+
+                // The tray is a Win32 shell notification and a WPF ContextMenu, so it belongs on
+                // this thread with the window. Constructing it also puts it on the clock — see
+                // TrayIcon, which attaches itself so that being registered and being driven cannot
+                // come apart the way T1.6's and T1.11's ticks did.
+                using var tray = host.Services.GetRequiredService<TrayIcon>();
+                tray.ViewModel.OpenRequested += (_, _) => window.ToggleDashboard();
+                tray.ViewModel.QuitRequested += (_, _) => app.Shutdown();
+
+                var exitCode = app.Run(window);
+
+                host.StopAsync().GetAwaiter().GetResult();
+                Log.Information("Claude Dashboard exited with code {ExitCode}.", exitCode);
+                return exitCode;
+            }
+            catch (IOException ex) when (ex.InnerException is AddressInUseException)
+            {
+                // Impl §3.1 fixes the port so the hook URL stays stable, which makes "something
+                // else already has it" the likeliest startup failure this app will ever have. The
+                // operator has no console and no window, so the log line has to be the whole
+                // diagnosis — a stack trace alone would say what happened but not what to do.
+                Log.Fatal(
+                    ex,
+                    "Claude Dashboard could not start: another process is already using the ingress port. " +
+                    "Stop that process, or set a different \"port\" in the settings file, and remember that " +
+                    "the hook URL registered with Claude Code must match it.");
+                return 1;
+            }
+            catch (Exception ex)
+            {
+                // Startup failed before the handlers could take over. Nothing is running to report
+                // this any other way, so the log file is the only place it can go.
+                Log.Fatal(ex, "Claude Dashboard failed to start.");
+                return 1;
+            }
+            finally
+            {
+                host?.Dispose();
+                Log.CloseAndFlush();
+            }
+        }
     }
 
     /// <summary>

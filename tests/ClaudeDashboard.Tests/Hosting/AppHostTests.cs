@@ -50,10 +50,15 @@ public sealed class AppHostTests : IDisposable
         return port;
     }
 
+    /// <summary>Removes this fixture's temporary root.</summary>
+    /// <remarks>
+    /// No <c>Log.CloseAndFlush</c>. It closes whichever logger is currently the process-wide one,
+    /// which — with <see cref="AppHost.Build"/> assigning it and other classes building hosts in
+    /// parallel — is quite often not this class's. Disposing the host is what releases the sink
+    /// this class opened, and each test already does that.
+    /// </remarks>
     public void Dispose()
     {
-        Log.CloseAndFlush();
-
         if (Directory.Exists(_root))
         {
             try
@@ -74,26 +79,28 @@ public sealed class AppHostTests : IDisposable
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <strong>Deliberately not <see cref="File.ReadAllText(string)"/>, and deliberately not
-    /// reliant on <c>Log.CloseAndFlush</c>.</strong> <c>Log.Logger</c> is process-wide and
+    /// <strong>Deliberately not <see cref="File.ReadAllText(string)"/>, and deliberately without
+    /// <c>Log.CloseAndFlush</c>.</strong> <c>Log.Logger</c> is process-wide and
     /// <see cref="AppHost.Build"/> assigns it, so with three test classes building hosts and
     /// xUnit running classes in parallel, the static logger at any moment may belong to a
-    /// different class. Closing it then shuts somebody else's sink and leaves this one's file
-    /// open, and the read fails with a sharing violation — intermittently, and more often the
-    /// more hosts the class builds.
+    /// different class. Closing it shuts <em>that</em> class's live sink mid-test and leaves this
+    /// one's file open, so the read fails with a sharing violation — intermittently, and more
+    /// often the more hosts a class builds.
     /// </para>
     /// <para>
-    /// So the file is opened the way Serilog opened it: <see cref="FileShare.ReadWrite"/>. The
-    /// sink is configured <c>shared</c> precisely so that a second reader is allowed, and it
-    /// flushes on write for the same reason, so an open file is a readable file. <c>CloseAndFlush</c>
-    /// stays because it still helps when the static logger does happen to be this class's, and
-    /// costs nothing when it is not.
+    /// Calling it anyway "just in case" is the same defect pointing the other way, and it was in
+    /// the first version of this fix: whatever it helps with here, it can break somebody else's
+    /// run. So it is gone rather than hedged.
+    /// </para>
+    /// <para>
+    /// The file is instead opened the way Serilog opened it: <see cref="FileShare.ReadWrite"/>.
+    /// The sink is configured <c>shared</c> precisely so a second reader is allowed, and it
+    /// flushes on write for the same reason, so an open file is a readable file and closing
+    /// anything was never needed.
     /// </para>
     /// </remarks>
     private static string ReadLogsIn(string folder)
     {
-        Log.CloseAndFlush();
-
         if (!Directory.Exists(folder))
         {
             return string.Empty;

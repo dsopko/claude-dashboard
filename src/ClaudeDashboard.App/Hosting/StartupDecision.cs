@@ -94,8 +94,13 @@ public static class StartupDecision
             "It is starting, stopping, or running without ingress. This copy will not start a second one; " +
             "if no dashboard appears, end the other process and try again.",
 
+        // Deliberately not "free the port and restart". The reachable version of this is a
+        // dashboard that already started without ingress because something else held the port —
+        // so a dashboard *is* running, it simply cannot be asked to surface, and telling the
+        // operator to restart it would have them close the only one they have.
         _ =>
             $"another copy of the dashboard holds the single-instance gate, but port {port} is held by something else, " +
-            "so this copy cannot ask it to surface. Free that port and restart the dashboard.",
+            "so this copy cannot ask it to surface. Open the running dashboard from its tray icon. " +
+            "To restore ingress, free that port and restart it.",
     };
 }
