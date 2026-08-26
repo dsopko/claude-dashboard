@@ -2,7 +2,7 @@
 
 **Draft v0.1 · 2026-08-22 · for the director agent**
 
-**Director - coder - reviewer orchestration located in the apendix**
+**Director - coder - reviewer orchestration starting at Apendix B**
 
 ## Part 0 — How to use this plan
 
