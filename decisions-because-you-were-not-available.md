@@ -967,16 +967,38 @@ table, same section names, every time. If the channel discards a message resembl
 already passed, the reviewer's own format is the trigger. It reformatted this message deliberately
 as a test. It landed. If the next few also land, we have the answer cheaply and the fix is ours.
 
-## D63 — A guard that cannot fire, and a build failure that is better than the test
-One of the packaging assertions checks that publish settings do not leak into an ordinary build.
-Half of it can never run: the defect it guards against makes the build fail outright with a
-compiler error, so nothing reaches the test. Reproduced from a completely clean state, so it is
-intrinsic rather than leftover.
-The assertion stays; the explanation was wrong. It claimed the test exists because the damage
-"would be read as anything but a packaging change" — but a developer never sees the test, they
-see the build error, which is louder, faster and blocking. Better than the test could manage.
-This is the coder's own plant question turned on a guard: was it capable of producing the other
-outcome at all? For that defect, no.
+## D63 — CORRECTED. A guard that fires, protecting against a change that is completely quiet
+**This entry was wrong when I first wrote it and I am correcting it in place rather than
+appending, because you will read it once.** What I originally recorded: that one of the packaging
+assertions could never fire, because the defect it guards against breaks the build first. That
+came from the reviewer and I committed it before it was challenged.
+
+The coder could not reproduce it and measured the opposite. I sent it back rather than picking a
+side. The reviewer then put its prediction on the record before testing — that the coder was
+right and its own observation had been contaminated — and settled it with three measurements,
+build servers stopped and every project's build folders deleted each time:
+
+    unmutated            → 1013 pass, output in the normal place
+    defect planted       → BUILD SUCCEEDS, 1012 pass, exactly ONE failure — this assertion.
+                           Every build artefact silently relocated
+    restored, unmutated  → 1013 pass, output back where it started
+
+The third measurement is one I asked for and it is what makes the other two mean anything: the
+two unmutated runs match, so the tree held still and the difference belongs to the change.
+
+**So the assertion fires, and it is the only thing in the project that notices.** Both
+explanations we had written were wrong — mine said the build stops you, the coder's said every
+other test goes red, and neither is true. **The real reason is better than either: the change is
+quiet.** It builds, it passes everything else, and it silently moves every artefact the operator's
+logon task might one day point at.
+
+And the reviewer could not reproduce its own original failure, tried four ways, and **retracted
+the mechanism it had offered for it** rather than reaching for a second guess. What caused it
+remains unexplained and is recorded as such.
+
+The part of its self-diagnosis that survives, and it is the durable one: **"I deleted the build
+folders and it still failed" proves nothing, because it never established that the clean was
+clean.** That reasoning was unsound before anyone knew which way the answer went.
 
 ## D64 — "Single file" ships as three files, and that is deliberate
 The packaged folder holds the executable, the sound files, and one symbol file for the shared
@@ -984,3 +1006,33 @@ library. The sounds are by design. The symbol file is being kept for a better re
 tidiness: without it a crash in the shared library cannot be turned back into readable source
 locations. What needed fixing was the comment, which called loose files "a lie" without noting
 that two of them are there on purpose.
+
+## D65 — Three lost failure messages, and a two-word fix
+Three times now a rare test failure has been seen and its message lost — the reviewer's unnamed
+one during T1.18, the screen-update one, and a fourth found today. Each time the count survived
+and the message did not, so each was diagnosed on the fourth sighting instead of the first.
+
+The reviewer's fix, adopted for all three sessions: add `--logger trx` to the standard test
+command. Every failure and its assertion text is written to a file, so the next rare one is
+diagnosable the first time it fires. That is the smallest possible fix for something that has now
+cost us three investigations.
+
+## D66 — A flaky test that may be telling us something about your machine, not our code
+A test that writes a settings file failed once and has not been reproduced in twenty-five further
+runs. The message was lost, which is what prompted D65.
+
+The reviewer's hypothesis, labelled as a hypothesis: our file writer gives up quietly if the file
+is locked, after retrying for about two hundred milliseconds. A virus scanner opening the
+temporary file for a fraction of a second would produce exactly this — and if that is what
+happened, it is not only a test problem. **It says a transient lock on your real settings file
+makes hook registration abandon silently**, and two hundred milliseconds may be a thin budget on a
+machine running a scanner.
+Filed for investigation rather than acted on, because nobody has the failure message.
+
+## D67 — Where our rules do not reach
+Three of today's failures were not in the code or in the tests but in the conditions the
+measurement ran under: a stale program left by a build that failed, a corrupted comparison, and a
+build error nobody can now explain. Our rules cover the thing being judged and the thing being
+fed in. None of them reaches the environment the measurement happened in.
+Recorded as an open weakness rather than a solved one. The only defence used successfully today
+was to measure the unchanged state twice, on both sides of the change, and check the two agree.
