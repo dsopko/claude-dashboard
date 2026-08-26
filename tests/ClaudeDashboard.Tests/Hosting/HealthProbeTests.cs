@@ -195,7 +195,18 @@ public sealed class HealthProbeTests
         var result = HealthProbe.Probe(server.Port, OurGate, Brief);
         var took = DateTimeOffset.UtcNow - started;
 
-        Assert.Equal(PortOccupant.Silent, result.Occupant);
+        // THE PRECONDITION, ASSERTED RATHER THAN HOPED FOR. This test is only about the probe if
+        // the server really did accept and really did stay silent. It failed about one run in ten
+        // before T1.15b, and the evidence said only "expected Silent, got Unrecognised" — which
+        // is equally consistent with a harness that closed the connection under it.
+        Assert.True(
+            server.Accepted == 1 && server.Fault is null,
+            $"the canned server was not in the state this test depends on: {server.State}");
+
+        Assert.True(
+            result.Occupant == PortOccupant.Silent,
+            $"expected Silent, got {result.Occupant} after {took.TotalMilliseconds:F1}ms. " +
+            $"Problem: {result.Problem}. Server: {server.State}");
 
         // The outcome alone would also be produced by a probe that waited a minute and gave up.
         // The point of this case is that startup is not held, so the duration is asserted too.
