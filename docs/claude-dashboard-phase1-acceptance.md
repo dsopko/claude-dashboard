@@ -217,7 +217,7 @@ criteria have never been run, and a gate that predates a feature says nothing ab
 
 ---
 
-## 5b · Supplement: the two tasks landed (T1.16 `5d69767`, T1.17)
+## 5b · Supplement: the two tasks landed (T1.16 `5d69767`, T1.17 `0e75bf1`)
 
 **§5a above is left standing on purpose.** It was true when it was written, and a line that
 quietly disappears once the feature exists leaves no record that the gate ever predated it. This
