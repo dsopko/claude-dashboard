@@ -1036,3 +1036,100 @@ build error nobody can now explain. Our rules cover the thing being judged and t
 fed in. None of them reaches the environment the measurement happened in.
 Recorded as an open weakness rather than a solved one. The only defence used successfully today
 was to measure the unchanged state twice, on both sides of the change, and check the two agree.
+## D68 — The phase gate ran before two tasks it depends on, and that has a cost
+In D14 I reordered the remaining work so that the feature you asked for and the packaging came
+before display scaling and the event log. That was the right call and I would make it again. It
+has a consequence I should state plainly rather than let you discover.
+
+**The gate's own dependency list includes those two tasks.** So the acceptance document covers the
+system as it stands without them. When they land, the document is out of date in two specific
+places: display scaling and window placement are things it never exercised, and the event log adds
+a write on every event that the concurrency and burst measurements did not include.
+
+What that costs: not a full re-run. Those two tasks need their own criteria evidenced and folded
+into the document as a supplement, plus the republish that every task after packaging now carries.
+
+Phase 1 is therefore **gated, not finished**, until either those two land and the supplement is
+written, or you decide to close the phase without them.
+
+## D69 — Two findings from the gate that outlast it, both filed
+**GitHub #9.** An unrecognised notification type is discarded with no log line at all. We classify
+four of twelve; the rest correctly change nothing, but leave no trace. Every other unhandled shape
+logs something — the code deliberately distinguishes "malformed JSON" from "an event we do not
+consume" because at two in the morning those need different fixes. Same case, missing line. And it
+is the likeliest upstream change there is: a new notification type arrives, the first one that
+should light a session up is discarded silently.
+
+**GitHub #10.** The dashboard has no way to say what it currently believes. From outside the
+process a correct dashboard and a completely wrong one are indistinguishable. This shaped the gate
+rather than merely being noticed — states, bands and the tray colour had to be checked from inside
+a test harness, because the running program cannot be asked. The replay proved events were
+received; it could not prove they were understood.
+The second one constrains how every later phase can be tested, which is why it is filed as work
+rather than as a note.
+
+## D70 — Silence in a gate reads as coverage
+I asked the reviewer to judge one thing about the acceptance document: not whether its claims are
+true, but whether its list of what it does NOT cover is complete. A gate that overstates its
+coverage is worse than no gate.
+
+It found that **acknowledgement is missing from the document entirely.** Not claimed, not listed
+as unevidenced — absent. Two of the six things the plan asks the gate to check concern
+acknowledgement, and the gate would have passed without either being mentioned.
+
+The sentence worth keeping: **the document does not claim it works; it is silent, and silence in
+a gate reads as coverage.** Anybody checking the exit criteria against the document would find a
+section about states and the tray light and no reason to suspect a whole criterion had been
+skipped.
+
+It found it by deriving the required list independently from the plan and then comparing, rather
+than by reading the document and asking whether it looked complete. That is the difference
+between a check and an impression.
+
+Two smaller gaps in the same family: the plan asks that a crashed dashboard **relaunch itself**,
+and the run relaunched it by hand — so half a criterion read as satisfied; and a section headed
+"under load" reports a volume that cannot reach the overflow path it might be taken to cover.
+
+## D71 — A no-op change and a blind test produce the same green
+The reviewer's own attempt to verify the new harness got this wrong. It removed a line expecting
+the code to fall through into a different behaviour; the fall-through landed somewhere that
+behaves identically, so its deliberate defect changed nothing at all — and the test passed. For a
+minute it had what looked like proof that the harness was blind.
+The rule, in a form nobody had stated: **a change that does nothing and a test that notices
+nothing produce the same result, and only reading the code you changed tells them apart.** That is
+the third time today the plant rule has caught its own authors.
+
+## D72 — Phase 1 is GATED, not finished, and the document now says so itself
+The acceptance run is approved after six review cycles. What it evidences, and what it does not,
+are both written down in `docs/claude-dashboard-phase1-acceptance.md`.
+
+Four of the five things the reviewer singled out in that document report weaknesses rather than
+results: that a replay stands in for real terminals and what that costs; that from outside the
+process a correct dashboard and a completely wrong one are indistinguishable; that the assembled
+system's nudge behaviour is evidenced by nothing at all; and that two Phase 1 tasks were never
+started. **The document is materially better than the run it describes.**
+
+The line that will still be doing work in six months: **"we could not observe it" and "there is
+nothing to observe" are different claims, and only the first is closed by running again.**
+
+## D73 — A blind spot is not a mistake, and they want different fixes
+The reason the missing acknowledgement criterion and the two missing tasks are not the same kind
+of error, which the reviewer put better than I would:
+
+The gaps list was built from behaviours the code has. Acknowledgement was one of those, merely
+unexercised — so it fell out of that method, and more care would have caught it. Display scaling
+and the event log are behaviours the code **does not have**, so they could not fall out of that
+method at any level of care. **The method had a blind spot diligence could not reach.**
+
+You correct a mistake by trying harder. You correct this by changing where the list comes from.
+
+## D74 — The sentence that covers the whole day
+From the reviewer, and it is the general form of everything we chased:
+
+> **The more thoroughly a claim is untestable, the more confidently it can be written, and the
+> longer it survives.**
+
+One sentence covering all of it — the comment that was not merely unverified but backwards; the
+guard we thought could never fire; the test whose search pattern matched a name nothing used; the
+enumeration standing in for a rule; and the section that was missing entirely. **Every one of them
+was safe precisely because nothing could contradict it.**
