@@ -228,8 +228,16 @@ public sealed class SingleInstanceTests
     /// <see cref="SingleInstanceGate.TookOverFromACrash"/> is asserted as well as
     /// <see cref="SingleInstanceGate.IsFirstInstance"/>, and the pair is the point: a gate that
     /// simply let the exception escape would fail the process instead of recovering, and one that
-    /// swallowed it without recording it would leave the only evidence of an unclean shutdown
-    /// nowhere at all.
+    /// swallowed it without recording it would record nothing at all.
+    /// </para>
+    /// <para>
+    /// <strong>Read together with
+    /// <see cref="A_gate_whose_last_handle_closed_leaves_nothing_to_recover"/>: they are the same
+    /// experiment differing only in how long a handle stays open.</strong> That one closes the
+    /// last handle and requires <c>false</c>; this one needs a handle to stay open and requires
+    /// <c>true</c>. Neither is load-bearing alone — forcing the flag either way leaves one of them
+    /// green — and until the other was written, this one's dependence on handle lifetime was
+    /// invisible and unmanaged, which is exactly how it came to be intermittently wrong.
     /// </para>
     /// </remarks>
     [Fact]
@@ -237,18 +245,44 @@ public sealed class SingleInstanceTests
     {
         var root = UniqueRoot();
 
-        // Not disposed, and not released: this thread ends holding it. Deliberately no assertion
-        // inside — an xUnit failure on a bare thread is an unhandled exception that takes the
-        // whole test process with it, rather than a red test.
-        var abandoner = new Thread(() => _ = SingleInstanceGate.Acquire(root));
+        // Held in a variable that outlives the acquire, and that is the whole of what makes this
+        // test deterministic. Not disposed and not released: the thread ends owning the mutex,
+        // which is the abandonment. Deliberately no assertion inside — an xUnit failure on a bare
+        // thread is an unhandled exception that takes the whole test process with it, rather than
+        // a red test.
+        SingleInstanceGate? kept = null;
+        var abandoner = new Thread(() => kept = SingleInstanceGate.Acquire(root));
 
         abandoner.Start();
         Assert.True(abandoner.Join(TimeSpan.FromSeconds(10)), "The abandoning thread did not finish.");
+
+        // Forced on purpose. This test used to discard the gate, so its handle survived only until
+        // a finalizer ran — and a collection landing in this window closes the last handle,
+        // Windows destroys the object, and there is no abandonment left to inherit. It passed
+        // because nothing collected here, which is not a guarantee: it failed rarely and under
+        // load, with a message that reads like an environment problem. Collecting here turns the
+        // dependence into an assertion, so the test now proves the handle survives a collection
+        // rather than hoping one does not happen.
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
 
         using var recovered = SingleInstanceGate.Acquire(root);
 
         Assert.True(recovered.IsFirstInstance);
         Assert.True(recovered.TookOverFromACrash);
+
+        // Belt and braces, and honestly labelled as such: what actually holds the gate today is
+        // the assignment above, because `kept` is captured by the thread's closure and the thread
+        // is referenced until Join. Removing this line does not fail — measured, three runs in
+        // each configuration — so it is insurance against a refactor that stops holding the
+        // thread, not the mechanism. The mechanism is that the gate is assigned somewhere rather
+        // than discarded; `_ = Acquire(root)` plus the collection above fails every time.
+        //
+        // Deliberately not Dispose: disposing would release the mutex and turn this into a clean
+        // handover, which is the trap A_gate_whose_last_handle_closed_leaves_nothing_to_recover
+        // names for its bare Mutex.
+        GC.KeepAlive(kept);
     }
 
     /// <summary>
