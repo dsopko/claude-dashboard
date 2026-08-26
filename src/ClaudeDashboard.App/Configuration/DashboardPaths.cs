@@ -111,6 +111,15 @@ public sealed class DashboardPaths
     /// </remarks>
     public string PortFile => Path.Combine(Root, "port.txt");
 
+    /// <summary>The durable event log (Impl Part 8).</summary>
+    /// <remarks>
+    /// Under the same root as everything else, so <c>CLAUDE_DASHBOARD_HOME</c> moves it too. It is
+    /// the one file here that contains the operator's prompts and Claude's answers, and it is
+    /// unpruned until Phase 5 — see <c>SqliteEventStore</c> for what that costs per day and why no
+    /// explicit ACL is set on it.
+    /// </remarks>
+    public string DatabaseFile => Path.Combine(Root, "dashboard.db");
+
     /// <summary>The rolling log folder — "the only console a resident app has" (Impl Part 8).</summary>
     public string LogFolder => Path.Combine(Root, "logs");
 

@@ -118,6 +118,22 @@
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <PackageReference Include="H.NotifyIcon.Wpf" Version="2.4.1" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.0" />
+
+    <!--
+      DO NOT REMOVE THIS PIN WHILE TIDYING. It is not a stray transitive reference.
+
+      Microsoft.Data.Sqlite 10.0.0 resolves SQLitePCLRaw.lib.e_sqlite3 2.1.11, which carries a
+      KNOWN HIGH SEVERITY ADVISORY: NU1903 / GHSA-2m69-gcr7-jv3q. Deleting this line reintroduces
+      it, and the only symptom is a restore warning that is easy to scroll past.
+
+      2.1.13 is the smallest version that clears it. Verified working rather than merely quiet:
+      with this pin the native library loads, reports SQLite 3.53.3, and opens, creates and
+      inserts. 3.53.3 as a package version also clears the advisory but is a major jump away from
+      what the bundle expects, in exchange for nothing.
+    -->
+    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="2.1.13" />
+
     <PackageReference Include="NAudio" Version="3.0.1" />
     <PackageReference Include="Serilog" Version="4.4.0" />
     <PackageReference Include="Serilog.Extensions.Hosting" Version="10.0.0" />

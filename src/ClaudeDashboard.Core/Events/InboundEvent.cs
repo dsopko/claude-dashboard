@@ -61,4 +61,23 @@ public abstract record InboundEvent
     /// read inline from the events instead (TS §II.3; Impl §9.1).
     /// </summary>
     public string? TranscriptPath { get; init; }
+
+    /// <summary>
+    /// The raw hook body this event was normalized from, for the event archive (Impl Part 8).
+    /// Empty for events that did not come off the wire.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>The body, not a re-serialization of the fields above.</strong> Phase 5 searches
+    /// history, and a record rebuilt from what Phase 1 happens to map would silently be missing
+    /// every field Phase 1 does not — which nobody would discover until Phase 5 went looking. A
+    /// lossy record stored under the name <c>payload_json</c> is worse than no record.
+    /// </para>
+    /// <para>
+    /// It is a <see cref="Events.PayloadJson"/> rather than a <c>string</c> so that the text
+    /// cannot reach a log file by being mentioned in a message template. That type's remarks carry
+    /// the whole argument, including why the database may hold this text when the log may not.
+    /// </para>
+    /// </remarks>
+    public PayloadJson Payload { get; init; }
 }

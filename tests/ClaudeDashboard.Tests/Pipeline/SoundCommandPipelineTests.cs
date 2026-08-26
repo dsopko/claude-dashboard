@@ -1,3 +1,4 @@
+using ClaudeDashboard.App.Storage;
 using ClaudeDashboard.App.Pipeline;
 using ClaudeDashboard.Core;
 using ClaudeDashboard.Core.Events;
@@ -40,6 +41,7 @@ public sealed class SoundCommandPipelineTests : IAsyncLifetime
     private readonly SingleWriterGuard _guard = new();
     private readonly SessionRegistry _registry = new(new SingleWriterGuard());
     private readonly EventPipeline _pipeline = new(Logger.None);
+    private readonly EventArchive _archive = new(Logger.None);
 
     private SoundPolicyEngine _sound = null!;
     private EventConsumer _consumer = null!;
@@ -57,6 +59,7 @@ public sealed class SoundCommandPipelineTests : IAsyncLifetime
             _guard,
             Logger.None,
             new RecordingUiTick(),
+            _archive,
             tickInterval: TimeSpan.FromMilliseconds(25));
 
         return _consumer.StartAsync(CancellationToken.None);

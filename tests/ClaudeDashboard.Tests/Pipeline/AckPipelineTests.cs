@@ -1,3 +1,4 @@
+using ClaudeDashboard.App.Storage;
 using ClaudeDashboard.App.Pipeline;
 using ClaudeDashboard.App.Ui;
 using ClaudeDashboard.Core;
@@ -38,6 +39,7 @@ public sealed class AckPipelineTests : IAsyncLifetime
     private readonly SingleWriterGuard _guard = new();
     private readonly SessionRegistry _registry = new(new SingleWriterGuard());
     private readonly EventPipeline _pipeline = new(Logger.None);
+    private readonly EventArchive _archive = new(Logger.None);
     private readonly QueueingDispatcher _dispatcher = new();
 
     private SessionProjection _projection = null!;
@@ -60,6 +62,7 @@ public sealed class AckPipelineTests : IAsyncLifetime
             _guard,
             Logger.None,
             new RecordingUiTick(),
+            _archive,
             tickInterval: TimeSpan.FromMilliseconds(25));
 
         return _consumer.StartAsync(CancellationToken.None);

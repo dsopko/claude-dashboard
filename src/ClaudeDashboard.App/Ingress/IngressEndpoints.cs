@@ -1,6 +1,9 @@
+using System.IO;
+using System.Text;
 using System.Text.Json;
 using ClaudeDashboard.App.Configuration;
 using ClaudeDashboard.App.Hosting;
+using ClaudeDashboard.Core.Events;
 using ClaudeDashboard.Core.Ports;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -123,13 +126,22 @@ public static class IngressEndpoints
         var mapper = (HookEventMapper)services.GetService(typeof(HookEventMapper))!;
         var sink = (IEventSink)services.GetService(typeof(IEventSink))!;
 
+        // BUFFERED, NOT STREAMED, since T1.17. The archive stores the body as it arrived, and
+        // deserializing straight from the request stream consumes the only copy — so the raw text
+        // has to be held here or it does not exist anywhere. Kestrel's request-size limit still
+        // bounds what this can read.
+        //
+        // From this line until it reaches the archive, the text is the operator's prompt and
+        // Claude's answer. It is wrapped in PayloadJson, which cannot be printed, before it goes
+        // anywhere that a log statement could reach it.
+        string body;
         HookPayload? payload;
         try
         {
-            payload = await JsonSerializer.DeserializeAsync<HookPayload>(
-                context.Request.Body,
-                PayloadOptions,
-                context.RequestAborted).ConfigureAwait(false);
+            using var reader = new StreamReader(context.Request.Body, Encoding.UTF8, leaveOpen: true);
+            body = await reader.ReadToEndAsync(context.RequestAborted).ConfigureAwait(false);
+
+            payload = JsonSerializer.Deserialize<HookPayload>(body, PayloadOptions);
         }
         catch (JsonException ex)
         {
@@ -151,7 +163,7 @@ public static class IngressEndpoints
             return Empty200();
         }
 
-        var mapping = mapper.Map(payload);
+        var mapping = mapper.Map(payload, new PayloadJson(body));
 
         if (!mapping.Mapped)
         {

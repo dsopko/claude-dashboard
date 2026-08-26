@@ -4,7 +4,7 @@
 `%LOCALAPPDATA%\ClaudeDashboardApp.staging\ClaudeDashboard.App.exe` (`752e934` + `c8a1d34`)
 · **Harness:** `tools/replay-hooks.ps1` and `PhaseOneAcceptanceTests`
 
-**Phase 1 is gated, not finished** — see §5a.
+**Phase 1 is gated, not finished** — see §5a and its supplement §5b.
 
 This records what was **observed**. Where a criterion was not observed, it says so and says why,
 rather than reporting the expectation.
@@ -217,6 +217,48 @@ criteria have never been run, and a gate that predates a feature says nothing ab
 
 ---
 
+## 5b · Supplement: the two tasks landed (T1.16 `5d69767`, T1.17)
+
+**§5a above is left standing on purpose.** It was true when it was written, and a line that
+quietly disappears once the feature exists leaves no record that the gate ever predated it. This
+section says, criterion by criterion, what is now evidenced and what still is not.
+
+**Derived from the Execution Plan's acceptance criteria for each task, not from what the runs
+happened to produce.** That distinction is the reason §5a exists at all: a list built from
+observations records what was looked at, and a list built from criteria records what was not.
+
+### T1.16 — DPI, pin-to-all-desktops, placement
+
+| Criterion (Execution Plan Part 3) | State |
+|---|---|
+| Window stays crisp when dragged between differently-scaled monitors | **Still unevidenced, and not by this run either.** Per-Monitor v2 is declared, guarded by a test, and verified present in the published executable — but all three monitors on this machine are at 100%, so no run here can show the visual result. A scale factor is the operator's environment, not a fixture. |
+| Appears on every virtual desktop | **Performed but unverified**, in those words. The staged build logs a successful pin and every step of the undocumented path returns `S_OK`. It is not verified because the check needs a real desktop switch, and Windows ignores an injected Win-key hotkey from a background process — `keybd_event` and `SendInput` both accepted every event and changed nothing. `tools/verify-pin.ps1` finishes it with about fifteen seconds of a human's keyboard, and its result is to land as a one-line follow-up commit naming `5d69767`. **Until that runs, this row is not evidence of pinning.** |
+| Position restores; a vanished monitor falls back to the focused one | **Evidenced by unit tests, not by a live run.** `WindowPlacementTests` covers restore, the vanished monitor, a window straddling two, sizes that are not sizes, and no monitors at all. Nobody has undocked this machine to watch it happen. |
+| With pinning forced to fail, the app starts, logs once, and behaves normally on one desktop | **Evidenced.** The adapter takes a shell factory so the degrade path is reachable on a machine where pinning works, and the reviewer confirmed the path is load-bearing by stubbing the pin to return `true` and watching seven tests die. |
+| Republish and repoint the logon task | **Republish done. Repointing deferred** — see §7's open items; the logon task still points at the operator's live build, deliberately. |
+
+### T1.17 — SQLite event log
+
+| Criterion (Execution Plan Part 3) | State |
+|---|---|
+| Events persist across runs | **Evidenced, by a SQLite that is not ours.** Two stores over one path, the first closed before the second opens, then read back through `winsqlite3.dll` — Windows' own copy in System32, a different vendor's binary from the `e_sqlite3.dll` the product writes with. Our own reader agreeing with our own writer would not have been evidence of anything. |
+| Write path is off the UI thread | **Evidenced, and stronger than the criterion asks.** It is off the *consumer* thread too, which matters more: the consumer is the single writer of the Registry and the sound engine, and a disk wait there would stop the dashboard seeing events. The hand-over is a non-blocking `TryWrite` onto a bounded channel, timed with nothing draining and the channel driven past capacity. |
+| No pruning yet | **Evidenced by absence, and the absence is checkable**: there is no `DELETE`, no retention window and no row count anywhere in `src/`. What that costs is now stated rather than left implicit — about 288 KiB on a typical day, 2.6 MiB on the busiest day in 95, and about 103 MiB for a year unpruned, measured through the real store at payload sizes taken from 4,439 real prompts and 11,757 real assistant messages. `GrowthMeasurement` re-measures on every build and fails if the published constant drifts either way. |
+| Write-only in Phase 1, no read-back required | **Evidenced by absence.** `IEventStore` has one method. The foreign reader is a test instrument and is not reachable from the product. |
+| Do not block the consumer on disk | Same evidence as the second row. |
+
+**What this run does *not* evidence about T1.17.** The growth figures are upper bounds built from
+transcript entries, which over-count the hooks that actually arrive, and they are one operator's
+traffic on one machine. No run here shows the dashboard recording fifteen concurrent real Claude
+Code sessions, for the same reason §4 gives: that hop is evidenced only at one or two sessions,
+from dogfooding. And nothing has read the database back for a purpose — Phase 5 will be the first
+thing that does, and the first thing that can discover the stored shape is wrong for it.
+
+**The gate.** With these two landed, the two rows of §5a are answered. Every other limit this
+document records — §4's, §5's, §6's — still stands unchanged.
+
+---
+
 ## 6 · Was the harness capable of producing the other outcome?
 
 A green run proves nothing unless a red one was reachable. Five defects were planted, each taken
@@ -249,7 +291,9 @@ only the test result.
   the operator's logon starts a build that has drifted from source.
 - **The staged build has not been swapped in.** Live install, the user-scope token, and the real
   logon task are all deferred to the operator by earlier rulings.
-- **This gate needs a supplement when T1.16 and T1.17 land** (§5a). A gate that predates a feature
-  says nothing about it, and this one predates two.
+- **The supplement for T1.16 and T1.17 is written** (§5b). Both tasks have landed, and §5b answers
+  their criteria one by one rather than deleting the rows that said they were unbuilt. One row is
+  still open on purpose: pinning is recorded as **performed but unverified**, and it stays that way
+  until somebody presses the keys.
 - **Phase 1 is gated, not finished.** Every observation here holds; the phase's exit criteria in
-  Part 2 do not, while §5 and §5a stand.
+  Part 2 do not, while §5 stands and while §5b's open row stands.

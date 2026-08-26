@@ -54,8 +54,13 @@ public sealed class HookEventMapper(IClock clock)
     /// It gives arrival order rather than occurrence order, which is why the Registry's
     /// stale-drop guard cannot fire on hook events alone (T1.2).
     /// </remarks>
+    /// <param name="payload">The deserialized hook body.</param>
+    /// <param name="raw">
+    /// The body exactly as it arrived, for the event archive (Impl Part 8). Default for callers
+    /// that have no wire text — the mapping is unaffected, and only the archived row is poorer.
+    /// </param>
     /// <exception cref="ArgumentNullException"><paramref name="payload"/> is null.</exception>
-    public HookMapping Map(HookPayload payload)
+    public HookMapping Map(HookPayload payload, PayloadJson raw = default)
     {
         ArgumentNullException.ThrowIfNull(payload);
 
@@ -146,6 +151,9 @@ public sealed class HookEventMapper(IClock clock)
                 $"'{payload.HookEventName}' is accepted but unmapped; HookEventNames and HookEventMapper disagree."),
         };
 
-        return new HookMapping(mapped, HookRejection.None);
+        // Attached once, here, rather than repeated in nine arms. The archive wants the body as it
+        // arrived — not a re-serialization of the fields above, which would silently be missing
+        // every field Phase 1 does not map and would not be found wanting until Phase 5.
+        return new HookMapping(mapped with { Payload = raw }, HookRejection.None);
     }
 }

@@ -1,3 +1,4 @@
+using ClaudeDashboard.App.Storage;
 using ClaudeDashboard.App.Ui;
 using ClaudeDashboard.Core;
 using ClaudeDashboard.Core.Events;
@@ -54,12 +55,19 @@ public sealed class EventConsumer : BackgroundService
     private readonly ILogger _logger;
     private readonly TimeSpan _tickInterval;
     private readonly IUiTick _uiTick;
+    private readonly EventArchive _archive;
 
     /// <summary>Creates the consumer.</summary>
     /// <param name="uiTick">
     /// Where the tick is echoed for the UI's age and staleness display (T1.11) and the tray's
     /// tooltip (T1.13). Required since T1.12b: it used to be optional, which meant a lost
     /// registration left every age on screen frozen with the suite still green.
+    /// </param>
+    /// <param name="archive">
+    /// Where events go to be recorded (T1.17). <strong>Required, and for the same reason
+    /// <paramref name="uiTick"/> is.</strong> A default here would let an unregistered archive
+    /// resolve to nothing at all, and the dashboard would run perfectly while recording no
+    /// history — a failure with no symptom until Phase 5 went looking for the data.
     /// </param>
     public EventConsumer(
         EventPipeline pipeline,
@@ -69,6 +77,7 @@ public sealed class EventConsumer : BackgroundService
         SingleWriterGuard guard,
         ILogger logger,
         IUiTick uiTick,
+        EventArchive archive,
         TimeSpan? tickInterval = null)
     {
         ArgumentNullException.ThrowIfNull(pipeline);
@@ -78,7 +87,9 @@ public sealed class EventConsumer : BackgroundService
         ArgumentNullException.ThrowIfNull(guard);
         ArgumentNullException.ThrowIfNull(logger);
         ArgumentNullException.ThrowIfNull(uiTick);
+        ArgumentNullException.ThrowIfNull(archive);
 
+        _archive = archive;
         _pipeline = pipeline;
         _registry = registry;
         _sound = sound;
@@ -112,6 +123,14 @@ public sealed class EventConsumer : BackgroundService
     /// kind a green suite hides best.
     /// </remarks>
     internal IUiTick UiTick => _uiTick;
+
+    /// <summary>Where events are handed over to be recorded.</summary>
+    /// <remarks>
+    /// Exposed for the same reason <see cref="UiTick"/> is: without an assertion on the
+    /// composition, an archive that was never registered would leave the dashboard behaving
+    /// exactly as it does now while writing no history at all.
+    /// </remarks>
+    internal EventArchive Archive => _archive;
 
     /// <inheritdoc/>
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -159,6 +178,11 @@ public sealed class EventConsumer : BackgroundService
                 ticked = ticker.WaitForNextTickAsync(stoppingToken).AsTask();
             }
         }
+
+        // Nothing else will offer events, so the writer may drain and stop. Doing this here rather
+        // than leaving it to shutdown ordering means the last events of a run are written whether
+        // the writer is stopped before this service or after it.
+        _archive.Complete();
 
         _logger.Information(
             "Event consumer stopped after {Applied} applied, {Declined} declined, {Ticks} nudge evaluations.",
@@ -210,6 +234,14 @@ public sealed class EventConsumer : BackgroundService
                     ApplySoundCommand(command);
                     return;
                 }
+
+                // Handed to the archive before the Registry sees it, and never awaited (T1.17).
+                // This is a TryWrite onto a bounded channel: it cannot block, so a slow or dead
+                // disk can never stall the one thread that owns the Registry and the sound engine.
+                // Before, rather than after, so that an event the Registry declines as stale is
+                // still recorded — the archive is a record of what arrived, not of what changed
+                // something.
+                _archive.TryArchive(inboundEvent);
 
                 Report(inboundEvent, _registry.Apply(inboundEvent));
             }

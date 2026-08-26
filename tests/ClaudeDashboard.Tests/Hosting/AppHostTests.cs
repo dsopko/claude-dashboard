@@ -1,9 +1,11 @@
 using System.IO;
 using System.Text;
+using System.Reflection;
 using ClaudeDashboard.App.Adapters;
 using ClaudeDashboard.App.Configuration;
 using ClaudeDashboard.App.Hosting;
 using ClaudeDashboard.App.Pipeline;
+using ClaudeDashboard.App.Storage;
 using ClaudeDashboard.App.Ui;
 using ClaudeDashboard.Core;
 using ClaudeDashboard.Core.Events;
@@ -321,31 +323,132 @@ public sealed class AppHostTests : IDisposable
     }
 
     /// <summary>
-    /// <strong>Exactly one</strong> hosted service of ours, and it is the event consumer.
+    /// The hosted services of ours are exactly the ones listed here, so adding another is a
+    /// deliberate act with a reason attached.
     /// </summary>
     /// <remarks>
-    /// The Registry and the sound engine are lock-free on the assumption that one thread
-    /// mutates them (Impl §2.2, §4), and the consumer keeps that true by reading the channel and
-    /// running the nudge tick on a single loop. A second <c>BackgroundService</c> — the obvious
-    /// way to add a periodic job, and what Impl §4's wording suggests — would give the engine a
-    /// second driver, and the resulting race is intermittent and invisible in a green suite.
-    /// This is the cheap guard: adding one turns that into a failing test.
-    ///
+    /// <para>
+    /// <strong>This used to assert "exactly one", and it fired when T1.17 added the second.</strong>
+    /// It was right to fire and wrong to be a count. What it was really protecting is the next
+    /// test's invariant — that one thread mutates the Registry and the sound engine — and a count
+    /// is a proxy for that which is both too strict and too weak: too strict, because a service
+    /// that touches neither cannot break it; too weak, because two services could touch the
+    /// Registry while some third was deleted and the count stayed at two.
+    /// </para>
+    /// <para>
+    /// So the count became an inventory, and the invariant became its own test. Both are needed:
+    /// this one makes adding a service deliberate, that one makes it safe.
+    /// </para>
+    /// <para>
     /// Filtered to our own assemblies, since the framework registers its own service to run
     /// Kestrel.
+    /// </para>
     /// </remarks>
     [Fact]
-    public void Exactly_one_hosted_service_of_our_own_is_registered()
+    public void The_hosted_services_of_ours_are_the_ones_we_expect()
     {
         using var host = Build();
 
-        var ours = host.Services.GetServices<IHostedService>()
-            .Where(service => service.GetType().Assembly.GetName().Name?
-                .StartsWith("ClaudeDashboard", StringComparison.Ordinal) == true)
-            .ToList();
+        var ours = OurHostedServices(host).Select(service => service.GetType()).ToList();
 
-        Assert.Single(ours);
-        Assert.IsType<EventConsumer>(ours[0]);
+        Assert.Equal<Type[]>([typeof(EventConsumer), typeof(EventArchiveWriter)], [.. ours]);
+    }
+
+    /// <summary>
+    /// <strong>Only the event consumer may reach the Registry or the sound engine.</strong>
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Both are lock-free on the assumption that one thread mutates them (Impl §2.2, §4), and the
+    /// consumer keeps that true by reading the channel and running the nudge tick on a single
+    /// loop. A second <c>BackgroundService</c> that could touch either would give them a second
+    /// driver, and the resulting race is intermittent and invisible in a green suite — the T1.5
+    /// review demonstrated it throwing within a few hundred iterations.
+    /// </para>
+    /// <para>
+    /// <strong>This walks what each service can actually reach, rather than trusting its
+    /// name.</strong> T1.17's archive writer is safe because it holds a channel, a store and a
+    /// logger and nothing else; if somebody hands it a Registry so it can "enrich" a row, this
+    /// fails. That is the failure worth catching, and a count of services would sail past it.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void Only_the_event_consumer_can_reach_the_registry_or_the_sound_engine()
+    {
+        using var host = Build();
+
+        foreach (var service in OurHostedServices(host))
+        {
+            var reachable = Reachable(service);
+
+            var forbidden = reachable
+                .Where(type => type == typeof(SessionRegistry) || type == typeof(SoundPolicyEngine))
+                .ToList();
+
+            if (service is EventConsumer)
+            {
+                // The positive half. Without it this test would also pass if the consumer stopped
+                // holding the Registry at all, which would mean the dashboard had stopped working
+                // and the guard had congratulated it.
+                Assert.Contains(typeof(SessionRegistry), reachable);
+                Assert.Contains(typeof(SoundPolicyEngine), reachable);
+
+                continue;
+            }
+
+            Assert.True(
+                forbidden.Count == 0,
+                $"{service.GetType().Name} can reach {string.Join(", ", forbidden.Select(t => t.Name))}, " +
+                "which only the event consumer may touch.");
+        }
+    }
+
+    private static List<IHostedService> OurHostedServices(WebApplication host) =>
+        [.. host.Services.GetServices<IHostedService>()
+            .Where(service => service.GetType().Assembly.GetName().Name?
+                .StartsWith("ClaudeDashboard", StringComparison.Ordinal) == true)];
+
+    /// <summary>Every type an object holds, directly or through what it holds.</summary>
+    /// <remarks>
+    /// Depth-limited and cycle-safe. It walks instance fields, which is where a collaborator that
+    /// was injected ends up; a type reached only through a local or a service-locator call is not
+    /// visible here, and that is a real limit of this check rather than a claim it does not have.
+    /// </remarks>
+    private static HashSet<Type> Reachable(object root)
+    {
+        var seen = new HashSet<Type>();
+        var visited = new HashSet<object>(ReferenceEqualityComparer.Instance);
+        var queue = new Queue<object>();
+        queue.Enqueue(root);
+
+        while (queue.Count > 0)
+        {
+            var current = queue.Dequeue();
+
+            if (!visited.Add(current))
+            {
+                continue;
+            }
+
+            foreach (var field in current.GetType().GetFields(
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+            {
+                if (field.GetValue(current) is not { } value || value.GetType().IsPrimitive)
+                {
+                    continue;
+                }
+
+                seen.Add(value.GetType());
+
+                if (value.GetType().Assembly.GetName().Name?
+                    .StartsWith("ClaudeDashboard", StringComparison.Ordinal) == true)
+                {
+                    queue.Enqueue(value);
+                }
+            }
+        }
+
+        return seen;
     }
 
     // ---- Settings reach the host ----------------------------------------------------------------

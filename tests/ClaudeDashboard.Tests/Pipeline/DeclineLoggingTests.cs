@@ -1,3 +1,4 @@
+using ClaudeDashboard.App.Storage;
 using System.Collections.Concurrent;
 using ClaudeDashboard.App.Pipeline;
 using ClaudeDashboard.Core;
@@ -54,6 +55,7 @@ public sealed class DeclineLoggingTests : IAsyncLifetime
     private readonly SingleWriterGuard _guard = new();
     private readonly SessionRegistry _registry = new(new SingleWriterGuard());
     private readonly EventPipeline _pipeline = new(Logger.None);
+    private readonly EventArchive _archive = new(Logger.None);
 
     private Logger _logger = null!;
     private EventConsumer _consumer = null!;
@@ -76,6 +78,7 @@ public sealed class DeclineLoggingTests : IAsyncLifetime
             _guard,
             _logger,
             new RecordingUiTick(),
+            _archive,
             tickInterval: TimeSpan.FromMinutes(5));
 
         return _consumer.StartAsync(CancellationToken.None);

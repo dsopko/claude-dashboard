@@ -4,6 +4,7 @@ using ClaudeDashboard.App.Configuration;
 using ClaudeDashboard.App.Ingress;
 using ClaudeDashboard.App.Pipeline;
 using ClaudeDashboard.App.Setup;
+using ClaudeDashboard.App.Storage;
 using ClaudeDashboard.App.Ui;
 using ClaudeDashboard.Core;
 using ClaudeDashboard.Core.Ports;
@@ -154,6 +155,15 @@ public static class AppHost
         builder.Services.AddSingleton<TrayIcon>();
         builder.Services.AddHostedService(sp => sp.GetRequiredService<EventConsumer>());
         builder.Services.AddSingleton<EventConsumer>();
+
+        // The durable event log (T1.17). The archive is the channel the consumer hands events to
+        // without ever waiting; the writer is the only thing that touches the file. They are
+        // separate registrations because they are separate threads: if the store were reachable
+        // from the consumer, a slow disk would stall the Registry's only writer.
+        builder.Services.AddSingleton<EventArchive>();
+        builder.Services.AddSingleton<IEventStore, SqliteEventStore>();
+        builder.Services.AddSingleton<EventArchiveWriter>();
+        builder.Services.AddHostedService(sp => sp.GetRequiredService<EventArchiveWriter>());
 
         // The seam the composition guard reads (T1.12b; ServiceCompositionTests). A built
         // WebApplication does not publish its own descriptors — measured on a clean host, not

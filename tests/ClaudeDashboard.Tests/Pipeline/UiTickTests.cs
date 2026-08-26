@@ -1,3 +1,4 @@
+using ClaudeDashboard.App.Storage;
 using ClaudeDashboard.App.Pipeline;
 using ClaudeDashboard.App.Ui;
 using ClaudeDashboard.Core;
@@ -37,6 +38,7 @@ public sealed class UiTickTests : IAsyncLifetime
     private readonly SingleWriterGuard _guard = new();
     private readonly SessionRegistry _registry = new(new SingleWriterGuard());
     private readonly EventPipeline _pipeline = new(Logger.None);
+    private readonly EventArchive _archive = new(Logger.None);
     private readonly QueueingDispatcher _dispatcher = new();
 
     private SessionProjection _projection = null!;
@@ -57,6 +59,7 @@ public sealed class UiTickTests : IAsyncLifetime
             _clock,
             _guard,
             Logger.None,
+            archive: _archive,
             tickInterval: TimeSpan.FromMilliseconds(25),
             uiTick: _tick);
 
@@ -424,6 +427,7 @@ public sealed class UiTickTests : IAsyncLifetime
             _clock,
             _guard,
             Logger.None,
+            archive: _archive,
             tickInterval: TimeSpan.FromMilliseconds(25),
             uiTick: failing);
 
