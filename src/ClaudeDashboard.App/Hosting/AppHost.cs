@@ -3,6 +3,7 @@ using ClaudeDashboard.App.Adapters;
 using ClaudeDashboard.App.Configuration;
 using ClaudeDashboard.App.Ingress;
 using ClaudeDashboard.App.Pipeline;
+using ClaudeDashboard.App.Setup;
 using ClaudeDashboard.App.Ui;
 using ClaudeDashboard.Core;
 using ClaudeDashboard.Core.Ports;
@@ -100,6 +101,11 @@ public static class AppHost
 
         builder.Services.AddSingleton(ingress);
         builder.Services.AddSingleton(resolved);
+
+        // Claude Code's own configuration directory, resolved the way Claude Code resolves it.
+        // A separate registration from DashboardPaths, and deliberately so — see ClaudeCodePaths.
+        builder.Services.AddSingleton<ClaudeCodePaths>();
+        builder.Services.AddSingleton<HookLifecycle>();
         builder.Services.AddSingleton(settingsStore);
         builder.Services.AddSingleton(loaded.Settings);
         builder.Services.AddSingleton<ILogger>(logger);
@@ -196,13 +202,33 @@ public static class AppHost
     /// Returns the subscriptions' removal so a test — or a second host in one process — does not
     /// leave handlers behind on these process-wide events.
     /// </remarks>
-    public static IDisposable WireProcessExceptionHandlers(UnhandledExceptionPolicy policy)
+    /// <param name="policy">What an unhandled fault does.</param>
+    /// <param name="onTerminating">
+    /// Run once when a fault is taking the process down, before the log is flushed — T1.18 uses it
+    /// to take the hook handlers out of Claude Code's settings. Best effort by nature: this is the
+    /// last managed code that runs, and a fault here must not replace one crash with two.
+    /// </param>
+    public static IDisposable WireProcessExceptionHandlers(
+        UnhandledExceptionPolicy policy,
+        Action? onTerminating = null)
     {
         ArgumentNullException.ThrowIfNull(policy);
 
         void OnDomainException(object? sender, UnhandledExceptionEventArgs e)
         {
             policy.HandleDomainException(e.ExceptionObject as Exception, e.IsTerminating);
+
+            if (e.IsTerminating && onTerminating is not null)
+            {
+                try
+                {
+                    onTerminating();
+                }
+                catch (Exception cleanupFailure)
+                {
+                    Log.Error(cleanupFailure, "Could not tidy up while the process was terminating.");
+                }
+            }
 
             // The process may be seconds from gone; get it on disk now.
             Log.CloseAndFlush();

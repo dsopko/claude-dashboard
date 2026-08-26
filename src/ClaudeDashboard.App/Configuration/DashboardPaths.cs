@@ -99,6 +99,18 @@ public sealed class DashboardPaths
     /// <summary>The human-editable settings file (Impl Part 8).</summary>
     public string SettingsFile => Path.Combine(Root, "settings.json");
 
+    /// <summary>
+    /// The port actually bound, in plain text, so a command-style hook can rediscover the URL
+    /// (Impl Part 8, Part 9).
+    /// </summary>
+    /// <remarks>
+    /// The dashboard's own file, which is why it lives here and Claude Code's settings do not.
+    /// It records what was <em>bound</em>, not what was configured: the two differ whenever the
+    /// operator overrides the port, and a file naming a port nothing is listening on would send a
+    /// reader somewhere useless.
+    /// </remarks>
+    public string PortFile => Path.Combine(Root, "port.txt");
+
     /// <summary>The rolling log folder — "the only console a resident app has" (Impl Part 8).</summary>
     public string LogFolder => Path.Combine(Root, "logs");
 

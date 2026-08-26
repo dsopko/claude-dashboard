@@ -2,6 +2,7 @@ using System.IO;
 using System.Windows.Threading;
 using ClaudeDashboard.App.Configuration;
 using ClaudeDashboard.App.Ingress;
+using ClaudeDashboard.App.Setup;
 using Microsoft.AspNetCore.Connections;
 using ClaudeDashboard.App.Hosting;
 using ClaudeDashboard.App.Ui;
@@ -130,10 +131,26 @@ public static class Program
                         "abandoned. This one has taken it over.");
                 }
 
+                // Impl §9.3: a hook exists only while something is answering the port it names.
+                // After Start, never before — between registering and binding there would be a
+                // window in which Claude Code posts to a port nothing answers, which is the state
+                // the whole lifecycle exists to avoid.
+                var hooks = host.Services.GetRequiredService<HookLifecycle>();
+                hooks.Register();
+
                 var policy = host.Services.GetRequiredService<UnhandledExceptionPolicy>();
-                using var handlers = AppHost.WireProcessExceptionHandlers(policy);
+
+                // Best effort on the way down. A terminating fault runs managed code once more,
+                // and taking the handlers out then is the difference between the operator's next
+                // Claude Code turn being normal and it carrying an error they cannot diagnose.
+                using var handlers = AppHost.WireProcessExceptionHandlers(policy, () => hooks.Unregister());
 
                 var app = new App(policy);
+
+                // Logoff and shutdown. WPF raises this before it tears the application down, and
+                // nothing handled it before — so until now, every logoff left the handlers
+                // registered with nothing listening until the next logon.
+                app.SessionEnding += (_, _) => hooks.Unregister();
 
                 // This is the UI thread, and the only place the window and its view model may be
                 // built. Attaching the tick here rather than inside the container is what keeps the
@@ -155,6 +172,10 @@ public static class Program
                 tray.ViewModel.QuitRequested += (_, _) => app.Shutdown();
 
                 var exitCode = app.Run(window);
+
+                // The ordinary quit — the tray's Quit item, and a logoff that already ran the
+                // handler above. Removing twice is a no-op, so both paths can call it.
+                hooks.Unregister();
 
                 host.StopAsync().GetAwaiter().GetResult();
                 Log.Information("Claude Dashboard exited with code {ExitCode}.", exitCode);
