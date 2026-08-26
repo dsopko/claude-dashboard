@@ -52,13 +52,27 @@
   positive claim about where the window is, made on no reading at all. Under-claiming is still a
   failure reported as a measurement.
 
-  THIS FILE MUST KEEP ITS BYTE-ORDER MARK. Windows PowerShell 5.1 reads a file with no BOM as ANSI,
-  so each UTF-8 em dash in here decodes to three characters, the last of which is U+0094 — and
-  PowerShell treats a curly quote as a string delimiter. The file then parses or not depending on
-  whether the count of them happens to be even. It WAS even, and this script parsed cleanly for
-  exactly that reason; adding one paragraph made it odd and the whole file stopped parsing. Nothing
-  about the change was wrong. Check any edit with:
+  THIS FILE MUST KEEP ITS BYTE-ORDER MARK, AND SO MUST EVERY .ps1 IN THIS REPOSITORY.
+  Windows PowerShell 5.1 reads a file with no BOM as ANSI. Every UTF-8 em dash in here is the bytes
+  E2 80 94, which under CP1252 decode to three characters — â, €, and U+201D, RIGHT DOUBLE
+  QUOTATION MARK. PowerShell accepts a curly quote as a string delimiter, so each em dash becomes
+  an opening or closing quote, everything between two consecutive ones is swallowed as a string
+  literal, and any brace or keyword inside that region goes with it. Whether the file still parses
+  depends on WHERE the dashes fall and what the swallowed regions took, so do not reason about it.
+  Run the check:
+
     $e=$null; [void][Management.Automation.Language.Parser]::ParseFile($PSCommandPath,[ref]$null,[ref]$e); $e
+
+  U+201D is the name worth carrying: it is one search away from the well-known PowerShell curly-
+  quote problem, which is the whole point of writing this down.
+
+  AND READ THIS NOTE AS AN EXHIBIT, NOT ONLY AS AN INSTRUCTION. Its first version explained the
+  breakage by parity — an even number of dashes parses, odd does not — which is false, and was
+  falsified by content already in this repository: this script failed the parser with sixteen dashes
+  and passed with eight, both even, while build.ps1 passed with one. The count went 8 to 16. It was
+  never about the count. That explanation was formed in the middle of a bisection and written down
+  as a conclusion, which is precisely the failure this script exists to catch, committed by the
+  person documenting it, in the file where it is documented.
 
   IT NEEDS A HUMAN, AND THAT IS NOT LAZINESS.
   Switching virtual desktops cannot be automated from here. Both `keybd_event` and `SendInput`
@@ -109,6 +123,13 @@ if (-not $control) {
     return
 }
 
+# A STEP THAT CONSUMES SOMETHING SAYS WHAT IT CONSUMED, NOT ONLY THAT IT FINISHED.
+# This line exists for that reason and is worth keeping even though nothing reads it. Three of the
+# measurement failures behind this script were stale OUTPUT — a result read from the run before.
+# The fourth was stale INPUT, and it is the worse one: a bisection loop whose file read was failing
+# silently, so every iteration reported a clean parse of a leftover file and the whole result was
+# an artefact. It reported success at doing nothing. Naming the input is what makes that visible,
+# because a wrong handle here is obvious on sight and a missing one cannot be printed at all.
 Write-Output "dashboard window = $($dash.MainWindowHandle)   control (explorer) = $($control.MainWindowHandle)"
 Write-Output ""
 Write-Output "  PRESS  Ctrl+Win+D          to create and switch to a new desktop"
