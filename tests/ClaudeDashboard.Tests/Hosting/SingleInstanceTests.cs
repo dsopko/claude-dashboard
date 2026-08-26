@@ -251,6 +251,51 @@ public sealed class SingleInstanceTests
         Assert.True(recovered.TookOverFromACrash);
     }
 
+    /// <summary>
+    /// With the last handle closed there is nothing left to recover, and nothing is reported.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>The contrast that makes the test above mean something.</strong> That one gets its
+    /// result from a handle it happens to leave open, and until this existed the mechanism behind
+    /// it was stated in a remark and pinned by nothing: an abandoned mutex needs the kernel object
+    /// to outlive its owner, and the object lives only while some handle is open.
+    /// </para>
+    /// <para>
+    /// Here the owning thread ends without releasing — genuinely abandoned — and then the last
+    /// handle is closed, which is what a killed process does. Windows destroys the object, the
+    /// next acquire creates a fresh one, and there is no abandonment to report. So a quiet start
+    /// is not evidence the previous run exited cleanly, which is exactly what
+    /// <see cref="SingleInstanceGate.TookOverFromACrash"/> now says it is not.
+    /// </para>
+    /// <para>
+    /// A bare <see cref="Mutex"/> rather than a gate, because a gate's own <c>Dispose</c> releases
+    /// what it holds and would make this a clean handover instead of the abandonment being tested.
+    /// The name still comes from <see cref="SingleInstanceGate.NameFor"/>, so both sides are
+    /// talking about the same object.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void A_gate_whose_last_handle_closed_leaves_nothing_to_recover()
+    {
+        var root = UniqueRoot();
+        var orphan = new Mutex(initiallyOwned: false, SingleInstanceGate.NameFor(root));
+
+        var abandoner = new Thread(() => orphan.WaitOne(TimeSpan.Zero, exitContext: false));
+        abandoner.Start();
+        Assert.True(abandoner.Join(TimeSpan.FromSeconds(10)), "The abandoning thread did not finish.");
+
+        // Closing without releasing. This is the only handle, so the object goes with it.
+        orphan.Dispose();
+
+        using var next = SingleInstanceGate.Acquire(root);
+
+        Assert.True(next.IsFirstInstance);
+        Assert.False(
+            next.TookOverFromACrash,
+            "With no handle keeping the object alive there is no abandoned mutex to inherit.");
+    }
+
     /// <summary>A root nothing else in this run uses, so tests cannot collide through the gate.</summary>
     private static string UniqueRoot() =>
         Path.Combine(Path.GetTempPath(), "claude-dashboard-tests", Guid.NewGuid().ToString("N"));

@@ -83,10 +83,15 @@ public static class Program
             return 1;
         }
 
-        // Released on every path out of this method. Note that this is not what frees the gate
-        // for the next launch — Windows closes the handle at process exit either way, measured by
-        // deleting the release and watching the whole suite stay green. It is here so the gate is
-        // given up at the same point everything else is.
+        // Released on every path out of this method, and that is not what frees the gate for the
+        // next launch: Windows closes the handle at process exit either way. The evidence for
+        // that is the manual kill-and-restart — a running dashboard killed outright, and the next
+        // launch taking the gate as an ordinary first instance.
+        //
+        // Deleting this release also leaves the whole suite green, and that is a different and
+        // much narrower claim: it says nothing about the operating system, only that no test
+        // depends on the call — which an entirely uncovered branch would produce just as well.
+        // It is here so the gate is given up at the same point everything else is.
         using (gate)
         {
             try

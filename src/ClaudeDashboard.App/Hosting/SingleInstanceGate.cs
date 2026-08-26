@@ -210,9 +210,14 @@ public sealed class SingleInstanceGate : IDisposable
     /// <para>
     /// <strong>This is not what frees the gate for the next launch.</strong> Windows closes every
     /// handle at process exit, so a dashboard that exits releases the gate whether this ran or
-    /// not — deleting the release leaves the whole suite green, which is a measurement rather
-    /// than a guess. It matters for a holder that carries on running after giving it up, which is
-    /// what the in-process tests do and what this process never does.
+    /// not. The evidence is a kill-and-restart of a real dashboard: the next launch took the gate
+    /// as an ordinary first instance. Deleting this release also leaves the suite green, but that
+    /// shows only that no test depends on the call — an uncovered branch would do the same — so
+    /// it is not evidence for the sentence above.
+    /// </para>
+    /// <para>
+    /// What the release does matter for is a holder that carries on running after giving the gate
+    /// up, which is what the in-process tests do and what this process never does.
     /// </para>
     /// </remarks>
     public void Dispose()
