@@ -149,12 +149,52 @@ public sealed class DependencyRuleTests
             RepoLayout.Project(RepoLayout.App).Directory!.FullName, manifestName!));
         Assert.True(manifest.Exists, $"Application manifest '{manifest.FullName}' is missing.");
 
-        var level = XDocument.Load(manifest.FullName)
+        var level = Manifest()
             .Descendants()
             .Single(e => e.Name.LocalName == "requestedExecutionLevel")
             .Attribute("level")?.Value;
 
         Assert.Equal("asInvoker", level);
+    }
+
+    /// <summary>
+    /// Per-Monitor v2 is declared in the manifest (Impl §5.4).
+    /// </summary>
+    /// <remarks>
+    /// The sibling of the elevation test, and it exists because the two declarations sat side by
+    /// side in one file with only one of them guarded: deleting <c>asInvoker</c> turned a test
+    /// red, and deleting <c>dpiAwareness</c> — or the whole <c>application</c> element that also
+    /// carries <c>longPathAware</c> — left everything green. The only thing standing behind DPI
+    /// awareness was a future acceptance criterion asking somebody to look at a window on two
+    /// monitors once, and a sighting is not a guard.
+    /// </remarks>
+    [Fact]
+    public void App_declares_per_monitor_dpi_awareness()
+    {
+        var awareness = Manifest()
+            .Descendants()
+            .SingleOrDefault(e => e.Name.LocalName == "dpiAwareness");
+
+        Assert.True(awareness is not null, "app.manifest declares no <dpiAwareness> element (Impl §5.4).");
+        Assert.Equal("PerMonitorV2", awareness!.Value.Trim());
+    }
+
+    /// <summary>Loads the application manifest the .csproj actually names.</summary>
+    /// <remarks>
+    /// Shared by both manifest tests rather than copied, so that a manifest which moved or was
+    /// unhooked from the build fails them together instead of one silently passing against a
+    /// stale path.
+    /// </remarks>
+    private static XDocument Manifest()
+    {
+        var manifestName = RepoLayout.EffectiveProperty(RepoLayout.App, "ApplicationManifest");
+        Assert.False(string.IsNullOrWhiteSpace(manifestName));
+
+        var manifest = new FileInfo(Path.Combine(
+            RepoLayout.Project(RepoLayout.App).Directory!.FullName, manifestName!));
+        Assert.True(manifest.Exists, $"Application manifest '{manifest.FullName}' is missing.");
+
+        return XDocument.Load(manifest.FullName);
     }
 
     /// <summary>

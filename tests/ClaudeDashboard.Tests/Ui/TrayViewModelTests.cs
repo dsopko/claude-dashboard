@@ -1,5 +1,7 @@
 using System.Linq;
 
+using ClaudeDashboard.App.Configuration;
+using ClaudeDashboard.App.Hosting;
 using ClaudeDashboard.App.Ui;
 using ClaudeDashboard.Core;
 using ClaudeDashboard.Core.Events;
@@ -22,6 +24,9 @@ public sealed class TrayViewModelTests : IDisposable
 {
     private static readonly DateTimeOffset At = FakeClock.DefaultStart;
 
+    /// <summary>Ingress bound and listening, which is what all but the fault tests assume.</summary>
+    private static readonly IngressStatus Healthy = IngressStatus.Healthy(DashboardSettings.DefaultPort);
+
     private readonly RegistryHarness _harness = new();
     private readonly RecordingEventSink _sink = new();
     private readonly FakeClock _clock = new();
@@ -30,7 +35,7 @@ public sealed class TrayViewModelTests : IDisposable
 
     public TrayViewModelTests()
     {
-        _tray = new TrayViewModel(_harness.Projection, _modes, _sink, _clock, Logger.None);
+        _tray = new TrayViewModel(_harness.Projection, _modes, _sink, _clock, Healthy, Logger.None);
     }
 
     public void Dispose()
@@ -263,6 +268,90 @@ public sealed class TrayViewModelTests : IDisposable
         Assert.Equal("1 working", _tray.Tooltip);
     }
 
+    // ---- The ingress fault (T1.15) ----------------------------------------------------------------
+
+    /// <summary>
+    /// A tray built over a faulted ingress leads with the reason.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The formatter is tested on its own in <c>TrayTooltipTests</c>. This asserts the wire — that
+    /// the view model reads <see cref="IngressStatus"/> at all and passes it on. Without it, a
+    /// build that resolved the status and never used it would pass every tooltip test and put
+    /// nothing whatever in front of the operator.
+    /// </para>
+    /// <para>
+    /// Paired with the default tray built in the constructor, which is healthy: a view model that
+    /// hard-coded a fault would fail every other assertion in this class, and one that hard-coded
+    /// its absence fails here.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void A_faulted_ingress_leads_the_tooltip()
+    {
+        using var deaf = new TrayViewModel(
+            _harness.Projection,
+            _modes,
+            _sink,
+            _clock,
+            IngressStatus.Unavailable(51999),
+            Logger.None);
+
+        Assert.StartsWith("port 51999 taken", deaf.Tooltip, StringComparison.Ordinal);
+        Assert.Contains(TrayTooltip.AllQuiet, deaf.Tooltip, StringComparison.Ordinal);
+
+        // The control, on the tray this class builds for everything else.
+        Assert.Equal(TrayTooltip.AllQuiet, _tray.Tooltip);
+    }
+
+    /// <summary>
+    /// The fault survives a tick, because a tick rebuilds the tooltip from scratch.
+    /// </summary>
+    /// <remarks>
+    /// The tooltip is recomputed every fifteen seconds to age a mute. A fault that were applied
+    /// once at construction would be wiped by the first tick and the tray would go back to
+    /// claiming all quiet — within a quarter of a minute, and for ever after.
+    /// </remarks>
+    [Fact]
+    public void A_faulted_ingress_still_leads_after_a_tick()
+    {
+        using var deaf = new TrayViewModel(
+            _harness.Projection,
+            _modes,
+            _sink,
+            _clock,
+            IngressStatus.Unavailable(51999),
+            Logger.None);
+
+        deaf.Tick(At.AddMinutes(5));
+
+        Assert.StartsWith("port 51999 taken", deaf.Tooltip, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The fault does not touch the glyph.
+    /// </summary>
+    /// <remarks>
+    /// Impl §5.2 fixes what the colours mean, and a sixth state is a design change that is not
+    /// this task's to make. So the tray still shows the truth about the sessions it has, and the
+    /// tooltip is where the reason there are none goes.
+    /// </remarks>
+    [Fact]
+    public void A_faulted_ingress_does_not_change_the_glyph()
+    {
+        using var deaf = new TrayViewModel(
+            _harness.Projection,
+            _modes,
+            _sink,
+            _clock,
+            IngressStatus.Unavailable(51999),
+            Logger.None);
+
+        Assert.Equal(_tray.Colour, deaf.Colour);
+        Assert.False(deaf.IsPaused);
+        Assert.False(deaf.IsMuted);
+    }
+
     // ---- The menu, by effect ---------------------------------------------------------------------
 
     /// <summary>Mute all publishes a mute with no expiry, and toggles to unmute.</summary>
@@ -362,15 +451,17 @@ public sealed class TrayViewModelTests : IDisposable
     public void It_needs_all_of_its_collaborators()
     {
         Assert.Throws<ArgumentNullException>(
-            () => new TrayViewModel(null!, _modes, _sink, _clock, Logger.None));
+            () => new TrayViewModel(null!, _modes, _sink, _clock, Healthy, Logger.None));
         Assert.Throws<ArgumentNullException>(
-            () => new TrayViewModel(_harness.Projection, null!, _sink, _clock, Logger.None));
+            () => new TrayViewModel(_harness.Projection, null!, _sink, _clock, Healthy, Logger.None));
         Assert.Throws<ArgumentNullException>(
-            () => new TrayViewModel(_harness.Projection, _modes, null!, _clock, Logger.None));
+            () => new TrayViewModel(_harness.Projection, _modes, null!, _clock, Healthy, Logger.None));
         Assert.Throws<ArgumentNullException>(
-            () => new TrayViewModel(_harness.Projection, _modes, _sink, null!, Logger.None));
+            () => new TrayViewModel(_harness.Projection, _modes, _sink, null!, Healthy, Logger.None));
         Assert.Throws<ArgumentNullException>(
-            () => new TrayViewModel(_harness.Projection, _modes, _sink, _clock, null!));
+            () => new TrayViewModel(_harness.Projection, _modes, _sink, _clock, null!, Logger.None));
+        Assert.Throws<ArgumentNullException>(
+            () => new TrayViewModel(_harness.Projection, _modes, _sink, _clock, Healthy, null!));
     }
 
     /// <summary>

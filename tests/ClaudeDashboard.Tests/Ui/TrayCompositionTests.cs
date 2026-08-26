@@ -189,6 +189,57 @@ public sealed class TrayCompositionTests : IDisposable
         Assert.Equal(SoundCommandKind.PauseMonitoring, command.Kind);
     }
 
+    /// <summary>
+    /// The tooltip the view model computes is the one the shell icon shows (T1.13, T1.15).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>The last hop, which nothing observed until an ingress fault started depending on
+    /// it.</strong> Every other tooltip test reads <c>TrayViewModel.Tooltip</c>. That is the
+    /// value, not the delivery: delete the <c>ToolTipTextProperty</c> binding in
+    /// <see cref="TrayIcon"/> and every one of them still passes, while the operator's tray shows
+    /// nothing at all.
+    /// </para>
+    /// <para>
+    /// It matters most for the case T1.15 added. A dashboard whose port was taken by a stranger
+    /// starts, shows an empty window and a grey glyph, and looks exactly like a quiet afternoon;
+    /// the tooltip is the only thing that says otherwise, and the log is not where anyone looks
+    /// at a glance.
+    /// </para>
+    /// <para>
+    /// Asserted against the live binding's own resolved value rather than a string of this test's
+    /// own — comparing two literals would prove nothing about which property the icon reads.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void The_icon_shows_the_tooltip_the_view_model_computes()
+    {
+        var (bound, expected) = _harness.Invoke(() =>
+        {
+            using var host = AppHost.Build(_paths);
+            using var tray = host.Services.GetRequiredService<TrayIcon>();
+            var registry = host.Services.GetRequiredService<SessionRegistry>();
+            _ = host.Services.GetRequiredService<SessionProjection>();
+
+            registry.Apply(new UserPromptSubmit
+            {
+                SessionId = new SessionId("s-tip"),
+                Timestamp = DateTimeOffset.UtcNow,
+                Cwd = _root,
+                PromptId = "p-1",
+                Prompt = "run the tests",
+            });
+
+            _harness.Pump(DispatcherPriority.Background);
+
+            return (tray.ToolTipText, tray.ViewModel.Tooltip);
+        });
+
+        // The counts changed, so a binding that never updated would still hold the startup text.
+        Assert.Equal("1 working", expected);
+        Assert.Equal(expected, bound);
+    }
+
     /// <summary>Settings is present and visibly inert, rather than absent or silently dead.</summary>
     [Fact]
     public void Settings_is_present_and_disabled()

@@ -76,6 +76,17 @@ public sealed class TrayIcon : IDisposable
     /// <summary>The context menu, exposed so its wiring can be asserted.</summary>
     internal ContextMenu Menu => (ContextMenu)_icon.ContextMenu!;
 
+    /// <summary>
+    /// What the shell icon is actually showing, exposed so the binding can be asserted rather
+    /// than assumed.
+    /// </summary>
+    /// <remarks>
+    /// The value on the icon, not the one on the view model. Reading the view model would prove
+    /// the tooltip was computed; this proves it arrived — and from T1.15 the tooltip is the only
+    /// place an operator learns that the dashboard cannot hear anything.
+    /// </remarks>
+    internal string ToolTipText => _icon.ToolTipText;
+
     /// <summary>Removes the icon from the notification area.</summary>
     public void Dispose()
     {

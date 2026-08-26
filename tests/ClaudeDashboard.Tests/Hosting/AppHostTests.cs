@@ -1,4 +1,5 @@
 using System.IO;
+using System.Text;
 using ClaudeDashboard.App.Adapters;
 using ClaudeDashboard.App.Configuration;
 using ClaudeDashboard.App.Hosting;
@@ -66,13 +67,53 @@ public sealed class AppHostTests : IDisposable
         }
     }
 
-    private string ReadAllLogs()
+    private string ReadAllLogs() => ReadLogsIn(_paths.LogFolder);
+
+    /// <summary>
+    /// Reads every log file in <paramref name="folder"/>, whether or not a sink still holds it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>Deliberately not <see cref="File.ReadAllText(string)"/>, and deliberately not
+    /// reliant on <c>Log.CloseAndFlush</c>.</strong> <c>Log.Logger</c> is process-wide and
+    /// <see cref="AppHost.Build"/> assigns it, so with three test classes building hosts and
+    /// xUnit running classes in parallel, the static logger at any moment may belong to a
+    /// different class. Closing it then shuts somebody else's sink and leaves this one's file
+    /// open, and the read fails with a sharing violation — intermittently, and more often the
+    /// more hosts the class builds.
+    /// </para>
+    /// <para>
+    /// So the file is opened the way Serilog opened it: <see cref="FileShare.ReadWrite"/>. The
+    /// sink is configured <c>shared</c> precisely so that a second reader is allowed, and it
+    /// flushes on write for the same reason, so an open file is a readable file. <c>CloseAndFlush</c>
+    /// stays because it still helps when the static logger does happen to be this class's, and
+    /// costs nothing when it is not.
+    /// </para>
+    /// </remarks>
+    private static string ReadLogsIn(string folder)
     {
         Log.CloseAndFlush();
 
-        return Directory.Exists(_paths.LogFolder)
-            ? string.Concat(Directory.EnumerateFiles(_paths.LogFolder, "*.log").Select(File.ReadAllText))
-            : string.Empty;
+        if (!Directory.Exists(folder))
+        {
+            return string.Empty;
+        }
+
+        var everything = new StringBuilder();
+
+        foreach (var file in Directory.EnumerateFiles(folder, "*.log"))
+        {
+            using var stream = new FileStream(
+                file,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete);
+            using var reader = new StreamReader(stream);
+
+            everything.Append(reader.ReadToEnd());
+        }
+
+        return everything.ToString();
     }
 
     // ---- Starting headless -------------------------------------------------------------------
@@ -270,36 +311,154 @@ public sealed class AppHostTests : IDisposable
         {
         }
 
-        Log.CloseAndFlush();
-        var logs = string.Concat(
-            Directory.EnumerateFiles(fresh.LogFolder, "*.log").Select(File.ReadAllText));
-
-        Assert.Contains("using defaults", logs, StringComparison.Ordinal);
+        Assert.Contains("using defaults", ReadLogsIn(fresh.LogFolder), StringComparison.Ordinal);
     }
 
     /// <summary>
-    /// The whole point of the malformed-file decision, observed end to end: the host still
-    /// builds, the defaults are in the container, and the reason is on disk where the operator
-    /// can find it — the only diagnostic channel a windowless app has.
+    /// A malformed settings file leaves the defaults in the container, and the reason on disk
+    /// where the operator can find it — the only diagnostic channel a windowless app has.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>This test used to start the host, and no longer can. That is a deliberate loss,
+    /// and here is exactly what is no longer covered: nothing starts a host from a malformed
+    /// settings file.</strong>
+    /// </para>
+    /// <para>
+    /// It cannot. A malformed file always yields <see cref="DashboardSettings.DefaultPort"/> —
+    /// that is the fallback this very test asserts — so the settings can never name a free port,
+    /// and a host started from them always binds the fixed one. Whenever a dashboard is running,
+    /// which on the developer's own machine is most of the time, that bind fails and the test is
+    /// red for a reason that has nothing to do with settings parsing. Keeping both claims in one
+    /// test would need a way to make the bound port differ from the settings port, and that is
+    /// not a product surface worth adding for a test.
+    /// </para>
+    /// <para>
+    /// The claim is recovered by composition, not by hope.
+    /// <see cref="A_started_host_binds_the_port_the_settings_name"/> starts a host from a
+    /// settings object that is default in everything except the port, and this one asserts that a
+    /// malformed file produces exactly the defaults. The two compose into "a malformed file still
+    /// starts", and the only gap left is a fault that lives in the fallback object alone —
+    /// which, since the assertion below is equality against a fresh <see cref="DashboardSettings"/>
+    /// and not merely a port comparison, would have to be a fault in a value neither test reads.
+    /// </para>
+    /// </remarks>
     [Fact]
-    public async Task A_malformed_settings_file_still_starts_and_logs_the_reason()
+    public void A_malformed_settings_file_falls_back_to_defaults_and_logs_the_reason()
     {
         Directory.CreateDirectory(_root);
         File.WriteAllText(_paths.SettingsFile, "{ \"port\": 51000,, }");
 
         using (var host = AppHost.Build(_paths))
         {
-            host.Start();
-            Assert.Equal(
-                DashboardSettings.DefaultPort,
-                host.Services.GetRequiredService<DashboardSettings>().Port);
-            await host.StopAsync();
+            // Equality against a fresh instance, not just the port: this is the object the test
+            // below relies on being ordinary, so "ordinary" is what gets asserted.
+            Assert.Equal(new DashboardSettings(), host.Services.GetRequiredService<DashboardSettings>());
         }
 
         var logs = ReadAllLogs();
         Assert.Contains("could not be read", logs, StringComparison.Ordinal);
         Assert.Contains("Using defaults", logs, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A host started from ordinary settings binds the port those settings name, and serves on it.
+    /// </summary>
+    /// <remarks>
+    /// Strictly stronger than the start it replaces. The old test bound the default port and
+    /// asserted nothing whatever about the bind, so it never showed that the port in the settings
+    /// file reaches Kestrel at all — a build that ignored the setting and bound a constant would
+    /// have passed it. Answering on the chosen port could not have been produced any other way:
+    /// the port was free immediately before, so nothing else could be answering there.
+    /// </remarks>
+    [Fact]
+    public async Task A_started_host_binds_the_port_the_settings_name()
+    {
+        var port = FreePort();
+        new SettingsStore(_paths).Save(new DashboardSettings { Port = port });
+
+        using var host = AppHost.Build(_paths);
+        host.Start();
+
+        try
+        {
+            using var client = new System.Net.Http.HttpClient
+            {
+                Timeout = TimeSpan.FromSeconds(10),
+            };
+
+            var body = await client.GetStringAsync(new Uri($"http://127.0.0.1:{port}/health"));
+
+            Assert.Contains("\"status\":\"ok\"", body, StringComparison.Ordinal);
+        }
+        finally
+        {
+            await host.StopAsync();
+        }
+    }
+
+    /// <summary>
+    /// When something else holds the configured port, the dashboard starts anyway and says so
+    /// (Impl §5.3).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Three claims, and all three are needed. That it started at all — a host that threw would
+    /// leave the operator with no dashboard. That the log names the port at Error — the log is
+    /// the diagnosis. And that <see cref="IngressStatus"/> in the container carries a fault, which
+    /// is what puts the reason in front of the operator's eyes rather than in a file.
+    /// </para>
+    /// <para>
+    /// The stranger is a real listener on the real port, because "the port is taken" is a
+    /// property of a socket and nothing else can stand in for it.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task A_host_whose_port_is_taken_starts_and_says_it_cannot_hear()
+    {
+        var port = FreePort();
+        new SettingsStore(_paths).Save(new DashboardSettings { Port = port });
+
+        var stranger = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, port);
+        stranger.Start();
+
+        try
+        {
+            using var host = AppHost.Build(_paths, ingressAvailable: false);
+            host.Start();
+
+            var status = host.Services.GetRequiredService<IngressStatus>();
+
+            Assert.False(status.CanReceiveHooks);
+            Assert.Equal(port, status.Port);
+            Assert.Contains(port.ToString(System.Globalization.CultureInfo.CurrentCulture), status.Fault!, StringComparison.Ordinal);
+
+            await host.StopAsync();
+        }
+        finally
+        {
+            stranger.Stop();
+        }
+
+        var logs = ReadAllLogs();
+        Assert.Contains("cannot receive hooks", logs, StringComparison.Ordinal);
+        Assert.Contains(port.ToString(System.Globalization.CultureInfo.InvariantCulture), logs, StringComparison.Ordinal);
+    }
+
+    /// <summary>The ordinary case still reports a healthy ingress, which is the control above.</summary>
+    /// <remarks>
+    /// Without this, a build that reported a fault unconditionally would satisfy the test above
+    /// and put "not receiving hooks" in every operator's tray for ever.
+    /// </remarks>
+    [Fact]
+    public void A_host_that_bound_its_port_reports_no_fault()
+    {
+        using var host = AppHost.Build(_paths);
+
+        var status = host.Services.GetRequiredService<IngressStatus>();
+
+        Assert.True(status.CanReceiveHooks);
+        Assert.Null(status.Fault);
     }
 
     // ---- The exception policy, against the real logger --------------------------------------------

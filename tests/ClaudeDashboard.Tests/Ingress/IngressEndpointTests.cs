@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Http;
 using System.Net.Sockets;
 using System.Text;
+using System.Text.Json;
 using ClaudeDashboard.App.Configuration;
 using ClaudeDashboard.App.Hosting;
 using ClaudeDashboard.App.Ingress;
@@ -46,6 +47,7 @@ public sealed class IngressEndpointTests : IAsyncLifetime
     private WebApplication _app = null!;
     private HttpClient _client = null!;
     private RecordingEventSink _sink = null!;
+    private int _shown;
     private int _port;
 
     public async Task InitializeAsync()
@@ -55,7 +57,7 @@ public sealed class IngressEndpointTests : IAsyncLifetime
         new SettingsStore(paths).Save(new DashboardSettings { Port = _port });
 
         _sink = new RecordingEventSink();
-        _app = BuildIngress(paths, _sink, new IngressToken(Token));
+        _app = BuildIngress(paths, _sink, new IngressToken(Token), () => Interlocked.Increment(ref _shown));
 
         await _app.StartAsync();
         _client = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_port}") };
@@ -90,7 +92,7 @@ public sealed class IngressEndpointTests : IAsyncLifetime
     /// Builds just the ingress surface, so these tests exercise the endpoints without the
     /// settings-and-logging composition <see cref="AppHost"/> performs.
     /// </summary>
-    private static WebApplication BuildIngress(DashboardPaths paths, IEventSink sink, IngressToken token)
+    private static WebApplication BuildIngress(DashboardPaths paths, IEventSink sink, IngressToken token, Action onShow)
     {
         var builder = WebApplication.CreateSlimBuilder();
         builder.Logging.ClearProviders();
@@ -98,13 +100,14 @@ public sealed class IngressEndpointTests : IAsyncLifetime
             kestrel.ListenLocalhost(new SettingsStore(paths).Load().Settings.Port));
 
         builder.Services.AddSingleton<Serilog.ILogger>(Logger.None);
+        builder.Services.AddSingleton(paths);
         builder.Services.AddSingleton<IClock>(new FakeClock());
         builder.Services.AddSingleton(token);
         builder.Services.AddSingleton(sp => new HookEventMapper(sp.GetRequiredService<IClock>()));
         builder.Services.AddSingleton(sink);
 
         var app = builder.Build();
-        app.MapIngress();
+        app.MapIngress(onShow);
         return app;
     }
 
@@ -311,6 +314,17 @@ public sealed class IngressEndpointTests : IAsyncLifetime
 
     // ---- The other two endpoints ------------------------------------------------------------------
 
+    /// <summary>
+    /// <c>/health</c> takes no token, and that is deliberate rather than an oversight.
+    /// </summary>
+    /// <remarks>
+    /// <strong>Do not "fix" this to expect 401.</strong> A starting process probes this endpoint
+    /// to learn whether the dashboard already holding the port is a copy of itself (Impl §5.3).
+    /// In the fast-user-switching case it is not: it belongs to another signed-in user, with
+    /// another data folder and therefore another token, which the prober could never present. A
+    /// token check here would look like a consistency improvement and would break single-instance
+    /// detection in the quiet direction — every other dashboard would read as a stranger.
+    /// </remarks>
     [Fact]
     public async Task Health_answers_without_a_token()
     {
@@ -319,8 +333,45 @@ public sealed class IngressEndpointTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
+    /// <summary>
+    /// The health body carries this instance's gate name (Impl §3.2, §5.3).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The body is load-bearing from T1.15 onwards: a starting dashboard decides whether to run
+    /// at all by reading it. Nothing observed it before — the test above reads the status code
+    /// and never the body — so an endpoint that answered nothing, or answered without an
+    /// identity, would have passed everything.
+    /// </para>
+    /// <para>
+    /// The expected name is computed from <see cref="SingleInstanceGate.NameFor"/> rather than
+    /// written out. A literal would be a second copy of the naming rule, and the copy is what
+    /// drifts: the test would then go on passing while the two sides disagreed, which is the
+    /// failure it exists to catch.
+    /// </para>
+    /// </remarks>
     [Fact]
-    public async Task Show_answers_200_when_authorized()
+    public async Task Health_reports_this_instances_gate_name()
+    {
+        var body = await _client.GetStringAsync("/health");
+
+        using var document = JsonDocument.Parse(body);
+
+        Assert.Equal("ok", document.RootElement.GetProperty("status").GetString());
+        Assert.Equal(
+            SingleInstanceGate.NameFor(_root),
+            document.RootElement.GetProperty("instance").GetString());
+    }
+
+    /// <summary>
+    /// An authorized <c>/show</c> actually raises the window, not merely answers 200.
+    /// </summary>
+    /// <remarks>
+    /// The status code alone would also be produced by the handler this endpoint had before
+    /// T1.15, whose <c>onShow</c> was never supplied by anything and did nothing at all.
+    /// </remarks>
+    [Fact]
+    public async Task Show_raises_the_window_when_authorized()
     {
         var request = new HttpRequestMessage(HttpMethod.Post, "/show");
         request.Headers.Add(IngressToken.HeaderName, Token);
@@ -328,14 +379,24 @@ public sealed class IngressEndpointTests : IAsyncLifetime
         var response = await _client.SendAsync(request);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(1, Volatile.Read(ref _shown));
     }
 
+    /// <summary>
+    /// An unauthorized <c>/show</c> is refused <em>before</em> it reaches the window.
+    /// </summary>
+    /// <remarks>
+    /// The 401 on its own says nothing about ordering: a handler that surfaced the window and
+    /// then returned 401 would satisfy it. Raising another user's window is precisely the harm
+    /// here, so the count is what matters.
+    /// </remarks>
     [Fact]
     public async Task Show_is_rejected_without_a_token()
     {
         var response = await _client.PostAsync("/show", content: null);
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Equal(0, Volatile.Read(ref _shown));
     }
 }
 

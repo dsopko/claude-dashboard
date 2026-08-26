@@ -42,11 +42,30 @@ public static class TrayTooltip
     /// and a tooltip a second out of step with the tick it was built for would round differently
     /// on alternate ticks.
     /// </param>
+    /// <param name="fault">
+    /// Why the dashboard cannot hear anything, or null when it can (T1.15).
+    /// </param>
     public static string For(
         StatusSummary summary,
         bool paused = false,
         DateTimeOffset? mutedUntil = null,
-        DateTimeOffset now = default)
+        DateTimeOffset now = default,
+        string? fault = null)
+    {
+        var rest = WithoutFault(summary, paused, mutedUntil, now);
+
+        // The fault leads everything, including pause. Pause and mute are states the operator
+        // chose seconds ago and already knows about; a dead ingress is one they cannot know
+        // about, and every count behind it is a count of nothing rather than a count of zero.
+        return string.IsNullOrEmpty(fault) ? rest : $"{fault} · {rest}";
+    }
+
+    /// <summary>The ordinary tooltip, before any fault is put in front of it.</summary>
+    private static string WithoutFault(
+        StatusSummary summary,
+        bool paused,
+        DateTimeOffset? mutedUntil,
+        DateTimeOffset now)
     {
         var counts = Counts(summary);
 

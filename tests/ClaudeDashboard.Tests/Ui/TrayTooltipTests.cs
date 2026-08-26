@@ -9,7 +9,77 @@ namespace ClaudeDashboard.Tests.Ui;
 /// </summary>
 public sealed class TrayTooltipTests
 {
+    private const string Fault = "port 52789 taken · not receiving hooks";
+
     private static readonly DateTimeOffset At = FakeClock.DefaultStart;
+
+    // ---- The ingress fault, which leads everything (T1.15) ----------------------------------------
+
+    /// <summary>
+    /// A dashboard that cannot hear anything says so before it says anything else.
+    /// </summary>
+    /// <remarks>
+    /// "All quiet" and "I am deaf" are the same sentence otherwise, and the second one is the
+    /// only one the operator cannot work out for themselves.
+    /// </remarks>
+    [Fact]
+    public void A_fault_leads_the_tooltip()
+    {
+        var tooltip = TrayTooltip.For(Summary(), fault: Fault);
+
+        Assert.StartsWith(Fault, tooltip, StringComparison.Ordinal);
+        Assert.Contains(TrayTooltip.AllQuiet, tooltip, StringComparison.Ordinal);
+    }
+
+    /// <summary>The counts survive behind the fault; they are still true of what did arrive.</summary>
+    [Fact]
+    public void A_fault_does_not_replace_the_counts()
+    {
+        var tooltip = TrayTooltip.For(Summary(permissions: 2, working: 1), fault: Fault);
+
+        Assert.StartsWith(Fault, tooltip, StringComparison.Ordinal);
+        Assert.Contains("2 permissions", tooltip, StringComparison.Ordinal);
+        Assert.Contains("1 working", tooltip, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A fault outranks pause, which until now led everything.
+    /// </summary>
+    /// <remarks>
+    /// Pause is a state the operator chose seconds ago and already knows about. A dead ingress is
+    /// one they cannot know about, and it is the stronger claim: paused means the glyph is not
+    /// telling the truth, and deaf means the counts behind it are not either.
+    /// </remarks>
+    [Fact]
+    public void A_fault_outranks_pause_and_mute()
+    {
+        var paused = TrayTooltip.For(Summary(), paused: true, fault: Fault);
+        var muted = TrayTooltip.For(Summary(), mutedUntil: At.AddMinutes(10), now: At, fault: Fault);
+
+        Assert.StartsWith(Fault, paused, StringComparison.Ordinal);
+        Assert.Contains(TrayTooltip.Paused, paused, StringComparison.Ordinal);
+
+        Assert.StartsWith(Fault, muted, StringComparison.Ordinal);
+        Assert.Contains("muted 10 min", muted, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// No fault means the tooltip is exactly what it was. The control for all of the above.
+    /// </summary>
+    /// <remarks>
+    /// Asserted as equality against the same call without the parameter, rather than as "does not
+    /// contain a fault": a build that always prefixed something would satisfy the weaker form
+    /// whenever the something happened not to be the word this test looked for.
+    /// </remarks>
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    public void Without_a_fault_the_tooltip_is_unchanged(string? fault)
+    {
+        Assert.Equal(
+            TrayTooltip.For(Summary(permissions: 1), paused: true),
+            TrayTooltip.For(Summary(permissions: 1), paused: true, fault: fault));
+    }
 
     /// <summary>Impl §5.2's example, exactly as written.</summary>
     [Fact]

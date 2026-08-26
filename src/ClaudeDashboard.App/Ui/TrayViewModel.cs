@@ -1,5 +1,6 @@
 using System.Collections.Specialized;
 
+using ClaudeDashboard.App.Hosting;
 using ClaudeDashboard.Core;
 using ClaudeDashboard.Core.Events;
 using ClaudeDashboard.Core.Ports;
@@ -43,6 +44,7 @@ public sealed partial class TrayViewModel : ObservableObject, IUiTickTarget, IDi
     private readonly ISoundModeReader _modes;
     private readonly IEventSink _sink;
     private readonly IClock _clock;
+    private readonly IngressStatus _ingress;
     private readonly ILogger _logger;
 
     private DateTimeOffset _now;
@@ -73,6 +75,11 @@ public sealed partial class TrayViewModel : ObservableObject, IUiTickTarget, IDi
     /// <param name="modes">Read-only access to the global sound modes.</param>
     /// <param name="sink">Where mode changes are published, to travel the Channel.</param>
     /// <param name="clock">The clock a timed mute's expiry is computed from.</param>
+    /// <param name="ingress">
+    /// Whether hooks can reach this process at all (T1.15). Required rather than optional: a
+    /// dashboard that cannot hear anything looks exactly like a quiet afternoon, so the one
+    /// place that says otherwise must not be able to go missing.
+    /// </param>
     /// <param name="logger">Where a refused publish is recorded.</param>
     /// <exception cref="ArgumentNullException">Any argument is null.</exception>
     public TrayViewModel(
@@ -80,18 +87,21 @@ public sealed partial class TrayViewModel : ObservableObject, IUiTickTarget, IDi
         ISoundModeReader modes,
         IEventSink sink,
         IClock clock,
+        IngressStatus ingress,
         ILogger logger)
     {
         ArgumentNullException.ThrowIfNull(projection);
         ArgumentNullException.ThrowIfNull(modes);
         ArgumentNullException.ThrowIfNull(sink);
         ArgumentNullException.ThrowIfNull(clock);
+        ArgumentNullException.ThrowIfNull(ingress);
         ArgumentNullException.ThrowIfNull(logger);
 
         _projection = projection;
         _modes = modes;
         _sink = sink;
         _clock = clock;
+        _ingress = ingress;
         _logger = logger;
         _now = clock.Now;
 
@@ -202,7 +212,7 @@ public sealed partial class TrayViewModel : ObservableObject, IUiTickTarget, IDi
         IsPaused = paused;
         IsMuted = muted;
         Icon = TrayIcons.For(Colour, paused);
-        Tooltip = TrayTooltip.For(summary, paused, muted ? mutedUntil : null, _now);
+        Tooltip = TrayTooltip.For(summary, paused, muted ? mutedUntil : null, _now, _ingress.Fault);
 
         OnPropertyChanged(nameof(MuteAllLabel));
         OnPropertyChanged(nameof(PauseLabel));

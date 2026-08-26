@@ -40,7 +40,15 @@ public static class AppHost
     /// <summary>Builds the host: settings, logging, the exception policy, and ingress.</summary>
     /// <param name="paths">Where the data folder is; defaults to <c>%LOCALAPPDATA%\ClaudeDashboard\</c>.</param>
     /// <param name="onShow">What a <c>/show</c> post should do; T1.15 supplies it.</param>
-    public static WebApplication Build(DashboardPaths? paths = null, Action? onShow = null)
+    /// <param name="ingressAvailable">
+    /// Whether the configured port may be bound (T1.15). False means something else holds it and
+    /// this process starts half-deaf; see <see cref="IngressStatus"/> for why it starts at all.
+    /// Defaults to true, which is what every caller but <see cref="Program"/> wants.
+    /// </param>
+    public static WebApplication Build(
+        DashboardPaths? paths = null,
+        Action? onShow = null,
+        bool ingressAvailable = true)
     {
         var resolved = paths ?? new DashboardPaths();
         var foldersReady = resolved.TryEnsureCreated(out var folderFailure);
@@ -51,6 +59,10 @@ public static class AppHost
         var logger = CreateLogger(resolved, loaded.Settings.Logging, foldersReady);
 
         ReportStartup(logger, resolved, loaded, foldersReady, folderFailure);
+
+        var ingress = ingressAvailable
+            ? IngressStatus.Healthy(loaded.Settings.Port)
+            : IngressStatus.Unavailable(loaded.Settings.Port);
 
         var builder = WebApplication.CreateSlimBuilder();
 
@@ -63,12 +75,30 @@ public static class AppHost
 
         // Impl §3.1: loopback only, fixed default port, configurable. Loopback is the whole of
         // the network boundary — nothing off-machine may post events (TS §II.5).
+        //
+        // When the configured port is held by something that is not us, Kestrel is pointed at an
+        // ephemeral loopback port instead, so the host starts and the window and tray still run.
+        // It listens somewhere no hook is addressed to, which is the honest expression of "this
+        // dashboard cannot hear anything" — and IngressStatus is what says so out loud. There is
+        // no way to make Kestrel bind nothing: clearing the URLs setting falls back to port 5000,
+        // which would quietly take a port a development server commonly wants (measured). Note
+        // also that ListenLocalhost rejects port 0 outright — dynamic binding needs an explicit
+        // address, which is why this is Listen(IPAddress.Loopback, 0).
         builder.WebHost.ConfigureKestrel(kestrel =>
         {
-            kestrel.ListenLocalhost(loaded.Settings.Port);
+            if (ingress.CanReceiveHooks)
+            {
+                kestrel.ListenLocalhost(ingress.Port);
+            }
+            else
+            {
+                kestrel.Listen(System.Net.IPAddress.Loopback, 0);
+            }
+
             kestrel.AddServerHeader = false;
         });
 
+        builder.Services.AddSingleton(ingress);
         builder.Services.AddSingleton(resolved);
         builder.Services.AddSingleton(settingsStore);
         builder.Services.AddSingleton(loaded.Settings);
@@ -135,10 +165,25 @@ public static class AppHost
         _ = app.Services.GetRequiredService<SessionProjection>();
         app.MapIngress(onShow);
 
-        logger.Information(
-            "Ingress will listen on http://127.0.0.1:{Port} (loopback only). Token check {TokenState}.",
-            loaded.Settings.Port,
-            app.Services.GetRequiredService<IngressToken>().IsConfigured ? "enabled" : "disabled");
+        if (ingress.CanReceiveHooks)
+        {
+            logger.Information(
+                "Ingress will listen on http://127.0.0.1:{Port} (loopback only). Token check {TokenState}.",
+                ingress.Port,
+                app.Services.GetRequiredService<IngressToken>().IsConfigured ? "enabled" : "disabled");
+        }
+        else
+        {
+            // Error, not Warning. The dashboard will look exactly like a quiet afternoon, and
+            // this line is the only place the difference is written down.
+            logger.Error(
+                "Port {Port} is held by another process, so the dashboard cannot receive hooks and " +
+                "every session will be missing. It is starting anyway, with the reason in the tray " +
+                "tooltip. Free that port — or set a different \"port\" in {SettingsFile} and change " +
+                "the hook URL registered with Claude Code to match — then restart the dashboard.",
+                ingress.Port,
+                resolved.SettingsFile);
+        }
 
         return app;
     }
@@ -188,7 +233,13 @@ public static class AppHost
     }
 
     /// <summary>Builds the rolling-file logger described by Impl Part 8.</summary>
-    private static Serilog.Core.Logger CreateLogger(DashboardPaths paths, LoggingSettings logging, bool foldersReady)
+    /// <remarks>
+    /// Internal rather than private because a second instance needs one too, and it must be the
+    /// same one: it writes into the same rolling file as the resident instance (the sink is
+    /// opened <c>shared</c> for exactly this), so the reason a launch produced no window sits in
+    /// the file the operator is already reading rather than somewhere of its own.
+    /// </remarks>
+    internal static Serilog.Core.Logger CreateLogger(DashboardPaths paths, LoggingSettings logging, bool foldersReady)
     {
         var configuration = new LoggerConfiguration()
             .MinimumLevel.Information()
@@ -239,10 +290,23 @@ public static class AppHost
         bool foldersReady,
         string? folderFailure)
     {
+        // The effective root, always, at Information. When the override goes wrong the operator's
+        // symptom is "my settings are being ignored", and the first question anybody asks is
+        // which folder was actually read. Answer it before it is asked.
         logger.Information(
-            "Claude Dashboard starting. Data folder {Root}; logging to {LogFolder}.",
+            "Claude Dashboard starting. Data folder {Root} ({RootSource}); logging to {LogFolder}.",
             paths.Root,
+            paths.RootSource,
             paths.LogFolder);
+
+        if (paths.RootProblem is { } rootProblem)
+        {
+            logger.Warning(
+                "{Variable} was set but could not be used: {Problem}. Falling back to {Root}.",
+                DashboardPaths.HomeVariable,
+                rootProblem,
+                paths.Root);
+        }
 
         if (!foldersReady)
         {

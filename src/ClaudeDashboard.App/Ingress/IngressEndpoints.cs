@@ -1,4 +1,6 @@
 using System.Text.Json;
+using ClaudeDashboard.App.Configuration;
+using ClaudeDashboard.App.Hosting;
 using ClaudeDashboard.Core.Ports;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -46,7 +48,40 @@ public static class IngressEndpoints
 
         app.MapPost("/hook", (Delegate)HandleHook);
         app.MapPost("/show", (HttpContext context) => HandleShow(context, onShow));
-        app.MapGet("/health", () => Results.Text("ok", "text/plain"));
+        app.MapGet("/health", (HttpContext context) => HandleHealth(context));
+    }
+
+    /// <summary>
+    /// Liveness, and the instance identity a starting process needs (Impl §3.2, §5.3).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>Deliberately unauthenticated, and T1.15 depends on that.</strong> A starting
+    /// process probes this endpoint to find out whether the dashboard already on the port is a
+    /// copy of itself. In the fast-user-switching case it is not: it belongs to another signed-in
+    /// user, with another data folder and therefore another token, which the prober could never
+    /// hold. A token check here would be a reasonable-looking consistency change that breaks
+    /// single-instance detection in the quiet direction — every other dashboard would read as a
+    /// stranger. <c>Health_answers_without_a_token</c> is what stops that mechanically; this
+    /// paragraph is what stops someone deleting the test as an oversight.
+    /// </para>
+    /// <para>
+    /// The identity is the gate name — a hash of a local path, behind a fixed prefix, answered
+    /// on loopback. Nothing secret, and nothing reversible. It is the gate's own name rather
+    /// than a second identifier so that the thing compared here and the thing the mutex uses
+    /// cannot drift apart.
+    /// </para>
+    /// </remarks>
+    private static IResult HandleHealth(HttpContext context)
+    {
+        var paths = context.RequestServices.GetService(typeof(DashboardPaths)) as DashboardPaths;
+
+        // No paths means a harness that did not register them. Answering with a status and no
+        // instance is the honest reply, and a prober reads it as "not recognisably ours" —
+        // which is the safe side.
+        var instance = paths is null ? string.Empty : SingleInstanceGate.NameFor(paths.Root);
+
+        return Results.Text(HealthProbe.BodyFor(instance), "application/json");
     }
 
     /// <summary>The single ingest endpoint (Impl §3.2).</summary>
