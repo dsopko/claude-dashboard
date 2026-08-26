@@ -794,3 +794,193 @@ re-run and a diagnosis, and each one was initially indistinguishable from a real
 **I now recommend separate working folders before Phase 2.** Not tonight — it changes how all
 three sessions work, and T1.19 and T1.20 are still to do. D1 stands as the right call on the
 evidence I had; this is the same question with three more data points.
+## D50 CORRECTION — T1.18 was approved by the reviewer, not approved over its objection
+My entry read as though I approved T1.18 while the reviewer still wanted changes. That is not
+what happened and the difference matters.
+
+The reviewer offered a condition: approve without the flake fix, provided the flake was not
+buried. I met the condition and went further by starting the work rather than listing it. On its
+own stated terms its verdict converted to APPROVE. "The reviewer approved" and "the reviewer
+asked for changes and the director overruled it" are different facts about the same night, and
+only the first is true.
+
+My two standing conditions — that an escalation keeps its name, and that my decision does not
+close a finding — were not needed here.
+
+## D52 — Your plan edit gave us the likely cause of the lost verdict, and it was our doing
+Your amendment to Appendix B says the channel has a loop guard that drops a message resembling
+one it has already passed. Neither the reviewer nor I knew that. It is now the leading
+explanation for the verdict lost at 03:13, and it points at us rather than at the channel: my
+dispatches and the coder's reports had both grown long and structurally near-identical — the same
+headers, the same task blocks, the same standing rules pasted message after message.
+
+All three sessions have switched to references. The review request I sent immediately after is a
+fifth the size of the one before it.
+
+Two observations worth keeping. Mine: I had concluded "a message reported successful was silently
+lost", which was true and useless, because it named no cause and suggested no fix. Yours named a
+mechanism we could act on. The coder's: its reports were as repetitive as my dispatches, so if
+resemblance is the trigger, both of us fed it.
+
+## D53 — Why a backwards comment survived a review
+The comment explaining why the flaky test was safe was not merely unverified — it was inverted.
+It said a stray update could only carry a LATER time; the danger is one carrying an EARLIER time.
+So it did not just fail to protect, it pointed the next reader away from the real failure.
+The coder's explanation of how it passed review is the part worth keeping: **a reader checking a
+comment against the code sees a plausible sentence; only a reader checking it against the failure
+sees that it is inverted.** Which is why the rule has to be "could this be tested" and not "does
+this look right".
+
+## D54 — The reviewer's own analysis was a wrong starting point, and it said so
+I handed the coder the reviewer's August analysis of the flaky test as "a starting point, not a
+conclusion". The reviewer has now corrected a third thing that nobody else caught: **its model of
+the failure was wrong**, not merely incomplete. The interleaving it predicted cannot produce the
+failure at all. The real one is narrower and spans two statements, and no amount of waiting
+creates it — the coder had to construct it deliberately.
+
+That is why its August experiment did not confirm its own hypothesis, and it recorded the
+discrepancy at the time without resolving it. Its point, which I am recording in its words: the
+phrase "attached as a starting point" reads generously, and the honest version is that the
+starting point was wrong and the coder was right to discard it rather than build on it.
+
+## D55 — A test that detects is not a test that prevents
+The new test asserts that no stray update reaches the screen. The reviewer measured what that
+assertion is actually worth by deliberately reintroducing the fault: **caught in 3 runs out of
+20**. So the claim "the isolation is asserted rather than hoped" is true but misleading — anyone
+who reintroduces the fault gets a suite that is rarely red, not one that is red. What makes the
+behaviour reliable is that the second caller was removed; the assertion is a backstop with a
+fifteen percent hit rate.
+This is the detector-versus-guard distinction landing on a test written the same morning we
+adopted it as a lens. One sentence is being added to say so.
+
+## D56 — A decision made safe rather than merely reasoned
+The coder declined to add a two-line guard to production code, on the grounds that it would exist
+only to accommodate a situation a test can create but the product cannot. I agreed and so did the
+reviewer. But the decision rests on "only one thing calls this", and nothing tested that — add a
+second caller and nothing goes red.
+The fix is not the guard. It is a test asserting the property the decision depends on, which
+changes no product code at all. Same argument as the shared-constant fix earlier: protect the
+construction the reasoning rests on, mechanically rather than by discipline.
+
+## D57 — A rule about source checks, with the caveat that makes it safe
+A check that reads the source files cannot be fooled by a build that failed quietly — the trap
+that produced a worthless result during T1.18. True, and useful, because our checking method
+breaks the product on purpose and a broken product often means a broken build.
+
+The reviewer attached the qualification that makes it safe to write down, and it is bigger than
+the rule. **The property that makes such a check immune is the same one that makes it weaker: it
+never observes what actually runs.** So the rule is not "prefer checks that read the source". It
+is: read the source for structural facts, where the source is the authority anyway; use the
+compiled program for questions about behaviour, and answer a build that can fail quietly by
+checking the build rather than by changing instrument.
+
+Today supplied its own counterexample. The very test that proved the immunity **also missed a
+real defect**, because its search pattern was wrong. Immunity to one kind of failure says nothing
+about correctness — which is the detector-versus-guard distinction once more.
+
+## D58 — I got the correction backwards, and the coder said so
+I told the coder its comment overclaimed. It pointed out the overclaiming sentence was in its
+message to me, not in the file — and that the file was worse than I thought: the remark never
+mentioned the assertion at all, so a reader would meet it with nothing explaining its purpose.
+Recorded because the pattern is now familiar: a diagnosis of somebody else's work is a claim like
+any other, and mine was wrong about where the defect lived while being right that there was one.
+
+## D59 — A test written to close a gap had the same gap
+The new test asserts that only one component reaches the screen-update path — the property a
+deferral decision rested on. It searched for the interface name. **Every place in the code that
+actually uses it refers to the concrete type instead**, so the test was blind to all of them.
+The reviewer proved it rather than arguing it: it added a genuine second caller in a file the
+test did not expect, and the test passed.
+One line of pattern fixes it. Worth recording because of where it landed — a test written
+specifically to protect a claim that nothing tested turned out to make a claim that nothing
+tested. That is the second time in two days a comment or test asserting a capability has been the
+defect itself.
+
+## D60 — Possibly the most useful thing found today: a test of a test can be shaped to pass
+The way we prove a test is worth having is to break the thing it guards and check that it goes
+red. That method has been our foundation all week.
+
+Today it lied. The coder broke the guarded property by writing the deliberate fault in terms of
+the *interface* name — because that is what its search pattern looked for. Every real use in the
+code refers to the concrete type instead. So the fault was shaped to fit the checker rather than
+to resemble a real mistake, and it confirmed the pattern instead of testing it. The test looked
+verified for two days while being blind to every genuine case.
+
+Its own statement of the rule: **a deliberate fault must be shaped like the defect, not like the
+detector.**
+
+This is the same trap as computing an expected answer from the very constant under test — a check
+that cannot fail. What makes it worth recording separately is where it appeared: inside the
+technique we had been treating as the one thing that cannot be fooled.
+
+It adds a second question to the one we already ask of every assertion. Not only *what else could
+have produced this observation*, but **was my experiment capable of producing the other outcome at
+all**. Put to the reviewer before adopting it, rather than adopted on one instance.
+
+The coder also noted that its own earlier measurement had already listed the relevant file outside
+the matched set. The evidence was on its screen and it did not read it as evidence of anything —
+the third variant this week of the data being present and nobody asking it the right question.
+
+## D60a — The plant rule, adopted with the boundary that keeps it useful
+The reviewer confirmed the rule is new rather than a restatement, and explained why in a way
+worth keeping. **Every trap we had caught before corrupts the judge** — computing the expected
+answer from the thing under test, asserting something that could be true for other reasons. This
+one corrupts the *input*. The judge was fine; the deliberate fault was derived from the checker.
+A test can have a perfect judge and still be worthless if its input could only ever produce one
+answer.
+
+The keeper is the operational form, not the slogan: **was my experiment capable of producing the
+other outcome at all?** That is a question you can ask beforehand, where "shaped like the
+detector" is a diagnosis you can only make afterwards.
+
+**The boundary, without which it would be applied to everything and mean nothing.** When you
+break behaviour directly — delete a line, disable a check — the deliberate fault IS the defect
+and there is nothing to choose. That is why all this week's other checking was sound. The trap
+appears only where the check is a *pattern* over the code — a search, an allowlist, a schema —
+because then the defect has many possible shapes and you must pick one, and the criterion is
+visible while the real shape is not. So: **when you must choose a specimen, take it from the code,
+not from the checker.**
+
+And a guard against misreading it: this is not "avoid reading the implementation when writing a
+test". You have to read it to know what the defect looks like. It is narrower — do not derive the
+specimen from the criterion.
+
+## D61 — The failure mode that leaves no trace
+Three variants this week of the same thing: the data was present and nobody asked it the right
+question. The coder's own file listing already showed the relevant file outside the matched set.
+The reviewer's status output was printed directly above its own incorrect "clean" label. The
+reviewer's error code was in its own results table.
+
+Unlike the others this one leaves no artefact. A wrong assertion sits in a file; a badly shaped
+deliberate fault sits in a transcript; this is an absence — nobody asked, so there is nothing to
+find later. The only defence anyone has proposed is the one that worked today: **when a check
+comes back green, ask what the green depended on, and go and look at that.**
+
+## D62 — The watchdog earned its keep in three hours
+The reviewer's T1.19 verdict was dropped in transit, exactly as its T1.18 verdict was. The
+difference: I pinged at three minutes instead of discovering it at seven hours. That is the whole
+value of the rule you added to the plan this morning.
+
+**A hypothesis that points at us rather than at the channel.** Both lost messages were the
+reviewer's, both long, both structurally near-identical — same headers, same opening line, same
+table, same section names, every time. If the channel discards a message resembling one it has
+already passed, the reviewer's own format is the trigger. It reformatted this message deliberately
+as a test. It landed. If the next few also land, we have the answer cheaply and the fix is ours.
+
+## D63 — A guard that cannot fire, and a build failure that is better than the test
+One of the packaging assertions checks that publish settings do not leak into an ordinary build.
+Half of it can never run: the defect it guards against makes the build fail outright with a
+compiler error, so nothing reaches the test. Reproduced from a completely clean state, so it is
+intrinsic rather than leftover.
+The assertion stays; the explanation was wrong. It claimed the test exists because the damage
+"would be read as anything but a packaging change" — but a developer never sees the test, they
+see the build error, which is louder, faster and blocking. Better than the test could manage.
+This is the coder's own plant question turned on a guard: was it capable of producing the other
+outcome at all? For that defect, no.
+
+## D64 — "Single file" ships as three files, and that is deliberate
+The packaged folder holds the executable, the sound files, and one symbol file for the shared
+library. The sounds are by design. The symbol file is being kept for a better reason than
+tidiness: without it a crash in the shared library cannot be turned back into readable source
+locations. What needed fixing was the comment, which called loose files "a lie" without noting
+that two of them are there on purpose.
