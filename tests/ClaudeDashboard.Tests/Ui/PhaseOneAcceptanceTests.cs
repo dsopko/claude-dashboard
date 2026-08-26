@@ -31,6 +31,26 @@ namespace ClaudeDashboard.Tests.Ui;
 /// against the staged binary. That split is a finding rather than a convenience: <em>nothing
 /// outside the process can tell a correct dashboard from a dashboard showing the wrong states.</em>
 /// </para>
+/// <para>
+/// <strong>Before trusting a green run here, read the plant you changed.</strong> A harness is only
+/// worth its result if a red one was reachable, so every claim in the acceptance document was
+/// checked by planting a defect. Two traps came out of doing that, and both produce the same
+/// green:
+/// </para>
+/// <para>
+/// <em>A plant that is a no-op.</em> One attempt at reinstating the issue #1 defect deleted
+/// <c>IdlePrompt</c> from the arm that returns null — and it fell through to a catch-all that also
+/// returns null. The system's behaviour was unchanged, the test passed, and for a moment that read
+/// as the harness failing to notice a real defect. <strong>A no-op plant and an insensitive test
+/// are indistinguishable from the outside; only reading the code you changed tells them
+/// apart.</strong>
+/// </para>
+/// <para>
+/// <em>A plant that does not compile.</em> With <c>--no-build</c> a failed build silently leaves
+/// the previous assembly in place, so the run reports on the code as it was — sometimes with the
+/// <em>previous</em> plant's failure message still attached, which is worse than a false green
+/// because it looks like evidence. Check the build result, not only the test result.
+/// </para>
 /// </remarks>
 [System.Diagnostics.CodeAnalysis.SuppressMessage("Usage", "xUnit1031:Test methods should not use blocking task operations", Justification = "The UI thread is deliberately not the one blocking; see the remarks on the deadlock this shape avoids.")]
 [Collection(WpfApplicationSuite.Name)]
@@ -211,6 +231,151 @@ public sealed class PhaseOneAcceptanceTests(StaHarness harness) : IDisposable
         Assert.Contains("1 permission", observed.Tooltip, StringComparison.Ordinal);
         Assert.Contains("1 error", observed.Tooltip, StringComparison.Ordinal);
     }
+
+    /// <summary>
+    /// Both acknowledgment tiers Phase 1 ships, end to end (Design Document §4; Part 2).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>This was missing from the first version of the acceptance, and its absence is the
+    /// failure worth naming.</strong> Two of the six things Part 3 asks for concern ack, and the
+    /// document neither observed them nor listed them as unevidenced — it was silent, and
+    /// <em>silence in a gate reads as coverage</em>. Nothing was claimed and nothing was checked.
+    /// </para>
+    /// <para>
+    /// Tier 1 is automatic: submitting a new prompt in a session is proof the previous answer was
+    /// seen. It needs no UI at all and travels the ordinary hook path. Tier 2 is the row's Ack
+    /// action, which publishes a synthetic <c>Ack</c> down the <em>same</em> channel as hook
+    /// events (Impl §4, TS §I.3) so the Registry keeps one writer — so the interesting part is not
+    /// that the command exists but that its effect comes back through the pipeline and reaches the
+    /// row the operator clicked.
+    /// </para>
+    /// <para>
+    /// Both are asserted with a before as well as an after. "Not unread" at the end is also what a
+    /// session that never became unread would show, and a row whose ack affordance never appeared
+    /// would satisfy half of this without the command doing anything.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void Both_acknowledgment_tiers_clear_an_unread_session()
+    {
+        var port = ClaudeDashboard.Tests.Hosting.AppHostTests.FreePort();
+        var paths = new DashboardPaths(_root);
+        Directory.CreateDirectory(_root);
+        new SettingsStore(paths).Save(new DashboardSettings { Port = port });
+
+        var built = _harness.Invoke(() =>
+        {
+            var host = AppHost.Build(paths);
+            host.Start();
+            _ = host.Services.GetRequiredService<SessionProjection>();
+            var window = host.Services.GetRequiredService<MainWindow>();
+            return (Host: host, Window: window);
+        });
+
+        try
+        {
+            var consumer = built.Host.Services.GetRequiredService<ClaudeDashboard.App.Pipeline.EventConsumer>();
+            var registry = built.Host.Services.GetRequiredService<SessionRegistry>();
+            using var client = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}") };
+            var posted = 0;
+
+            void Post(string json)
+            {
+                using var content = new StringContent(json, Encoding.UTF8, "application/json");
+                Assert.Equal(
+                    System.Net.HttpStatusCode.OK,
+                    client.PostAsync("/hook", content).GetAwaiter().GetResult().StatusCode);
+                posted++;
+            }
+
+            var at = DateTimeOffset.UtcNow.AddMinutes(-10);
+            string When(int seconds) => at.AddSeconds(seconds).ToString("O");
+
+            // Two sessions, both finishing a turn, so both are Unread and both offer the action.
+            foreach (var id in new[] { "auto", "manual" })
+            {
+                Post($$"""{"hook_event_name":"SessionStart","session_id":"{{id}}","cwd":"{{Cwds[0]}}","source":"startup","timestamp":"{{When(0)}}"}""");
+                Post($$"""{"hook_event_name":"UserPromptSubmit","session_id":"{{id}}","cwd":"{{Cwds[0]}}","prompt_id":"p1-{{id}}","prompt":"go","timestamp":"{{When(10)}}"}""");
+                Post($$"""{"hook_event_name":"Stop","session_id":"{{id}}","cwd":"{{Cwds[0]}}","prompt_id":"p1-{{id}}","timestamp":"{{When(20)}}"}""");
+            }
+
+            Assert.True(
+                SpinWait.SpinUntil(() => consumer.AppliedCount >= posted, TimeSpan.FromSeconds(30)),
+                "the consumer did not drain the opening traffic");
+
+            var before = _harness.Invoke(() =>
+            {
+                _harness.Pump(DispatcherPriority.Background);
+
+                return (
+                    Auto: Row(built.Window, "auto").State,
+                    Manual: Row(built.Window, "manual").State,
+                    Offered: Row(built.Window, "manual").CanAcknowledge);
+            });
+
+            Assert.Equal(SessionState.Unread, before.Auto);
+            Assert.Equal(SessionState.Unread, before.Manual);
+            Assert.True(before.Offered, "an unread row must offer the acknowledge action");
+
+            // A baseline taken here rather than arithmetic on a counter that the tier-1 post is
+            // about to move: the first version waited for "posted + 2" after posted had already
+            // been incremented, and failed by one while both acknowledgments had in fact landed.
+            var beforeAcks = consumer.AppliedCount;
+
+            // Tier 1 — automatic. A new prompt is proof the previous answer was seen.
+            Post($$"""{"hook_event_name":"UserPromptSubmit","session_id":"auto","cwd":"{{Cwds[0]}}","prompt_id":"p2-auto","prompt":"and again","timestamp":"{{When(60)}}"}""");
+
+            // Tier 2 — manual. Raised on the UI thread, exactly as a click would raise it, and it
+            // travels the channel rather than touching the Registry.
+            _harness.Invoke(() =>
+            {
+                Row(built.Window, "manual").AcknowledgeCommand.Execute(parameter: null);
+                return true;
+            });
+
+            Assert.True(
+                SpinWait.SpinUntil(
+                    () => consumer.AppliedCount >= beforeAcks + 2,
+                    TimeSpan.FromSeconds(30)),
+                $"the acknowledgments did not reach the Registry: applied {consumer.AppliedCount}, baseline {beforeAcks}");
+
+            var after = _harness.Invoke(() =>
+            {
+                _harness.Pump(DispatcherPriority.Background);
+
+                return (
+                    Auto: Row(built.Window, "auto").State,
+                    ManualStillShown: built.Window.ViewModel.Rows.OfType<SessionViewModel>()
+                        .Any(row => row.Id.Value == "manual"));
+            });
+
+            // Tier 1: the new turn is running, and the unread result is gone with it.
+            Assert.Equal(SessionState.Working, after.Auto);
+
+            // Tier 2: the Registry says acknowledged, and the row has left the window — Acked is a
+            // quiet state, and the quiet band is not shown by default. That is the whole visible
+            // effect of the click, so it is what is asserted rather than a property on a row the
+            // operator can no longer see.
+            Assert.Equal(
+                SessionState.Acked,
+                registry.Sessions[new SessionId("manual")].State);
+            Assert.False(after.ManualStillShown, "an acknowledged session leaves the visible rows");
+
+            built.Host.StopAsync().GetAwaiter().GetResult();
+        }
+        finally
+        {
+            _harness.Invoke(() =>
+            {
+                ((IDisposable)built.Host).Dispose();
+                return true;
+            });
+        }
+    }
+
+    private static SessionViewModel Row(MainWindow window, string sessionId) =>
+        window.ViewModel.Rows.OfType<SessionViewModel>().Single(row => row.Id.Value == sessionId);
 
     private static readonly string[] Cwds =
     [

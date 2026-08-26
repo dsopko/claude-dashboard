@@ -46,6 +46,10 @@ Impl §3.3 requires `200` with an empty body on every path, including malformed 
 `session_id`, an event ingress refuses, and an unknown event name. All four were posted. All four
 answered `200` with nothing in the body.
 
+**"Load" here means concurrency and mixed shapes, not queue pressure.** The channel holds 1024 and
+the largest wave was 69 posts, so **the eviction path was never reached** and issue #3 — a dropped
+`Notification(permission_prompt)` that nothing re-raises — is unexercised by this run.
+
 ---
 
 ## 2 · States, bands and the tray light — observed
@@ -77,6 +81,25 @@ Both live regressions are covered by the same run:
 
 - **Issue #1** — a finished session going idle stays unread. It does not become a question.
 - **Issue #2** — a tool batch resumes a blocked turn, and leaves an unread one alone.
+
+### Acknowledgment, both tiers — observed
+
+Phase 1 ships tiers 1 and 2 (Design Document §4). **The first version of this document neither
+observed them nor listed them as unevidenced — it was silent, and silence in a gate reads as
+coverage.** Two of the six things Part 3 asks for concern ack. They are now observed.
+
+| Tier | What was done | Observed |
+|---|---|---|
+| **1 — automatic** | a second `UserPromptSubmit` posted into an unread session | state `Unread` → `Working`; the unread result is gone with the new turn |
+| **2 — manual** | the row's `AcknowledgeCommand` raised on the UI thread, as a click would | Registry state `Unread` → `Acked`; **the row leaves the visible list**, because `Acked` is quiet and the quiet band is hidden by default |
+
+Both are asserted with a *before* as well as an after — an unread row was confirmed to offer the
+action first, because "not unread at the end" is also true of a session that never became unread.
+
+The manual tier is the architecturally interesting one: the click publishes a synthetic `Ack` down
+the **same channel** as hook events (Impl §4, TS §I.3), so the Registry keeps one writer. What was
+checked is not that the command exists but that its effect travels the pipeline and comes back to
+the row.
 
 ---
 
@@ -118,7 +141,7 @@ the acceptance run.
 |---|---|
 | Forced kill (`Stop-Process -Force`) | process gone; port 58050 released |
 | Hooks in Claude Code's settings after the kill | **still registered, 8 events** — the documented residual |
-| Relaunch | started; `/health` answered; same gate identity as before the kill |
+| Relaunch (**by hand**) | started; `/health` answered; same gate identity as before the kill |
 | Ingest after relaunch | 42 further posts, all `200` |
 | `/show` to the relaunched process | window surfaced |
 | Clean quit | exit code 0; **hooks removed, 0 events**; consumer reported `24 applied, 20 declined` |
@@ -127,21 +150,33 @@ The residual is exactly as T1.18 documented it: a hard kill leaves the handlers 
 nothing listening, because no managed code runs. Nothing in this run closed it and nothing claims
 to.
 
+**The relaunch was manual.** The automatic one — restart-on-failure via the scheduled task — is
+in §5.2, not here.
+
 ---
 
 ## 5 · Criteria this run could NOT evidence
 
-**Three, not two.**
+**Four.** The list was derived from Part 3 and Part 2 rather than from what the run happened to
+produce, because a gate that only lists the gaps it noticed is the same failure as one that lists
+none.
 
 1. **Survives a logon restart.** Needs a logon. The scheduled task exists as verified code
    (T1.19: registered under a scratch name, read back from Windows, deleted) but **no real logon
    task is registered**, deliberately — one pointing at staging would start the wrong executable
    at the operator's next logon.
 
-2. **Sound: notices and nudges fire.** Needs an ear. Open since T1.14. Everything up to the sound
+2. **"Relaunches via the task" after a crash.** §4 kills the process and relaunches it **by hand**.
+   The automatic relaunch is `RestartOnFailure` — `PT1M`, three times — on a task that, per the
+   point above, **is not registered**, so it could not have happened and did not. This is a
+   different event from the logon trigger: a mid-session crash is precisely what restart-on-failure
+   exists for, and it is the half of the criterion §4 does not reach. As first written, §4 read as
+   satisfying the whole of it.
+
+3. **Sound: notices and nudges fire.** Needs an ear. Open since T1.14. Everything up to the sound
    card is evidenced; what came out of the speakers is not, and cannot be from here.
 
-3. **Nudges coalesce — and this one is newly named.** The nudge ladder begins minutes after a
+4. **Nudges coalesce — and this one is newly named.** The nudge ladder begins minutes after a
    session starts waiting. The staged run lasted about forty seconds and the consumer reported
    **1 nudge evaluation**: the schedule never engaged at all. Worse, nudge *firing* is
    unobservable from outside the process — there is no log line and no state surface — so a longer
@@ -152,7 +187,7 @@ to.
 
 ## 6 · Was the harness capable of producing the other outcome?
 
-A green run proves nothing unless a red one was reachable. Three defects were planted, each taken
+A green run proves nothing unless a red one was reachable. Five defects were planted, each taken
 from the code's own history rather than shaped to fit an assertion:
 
 | Planted defect | Result |
@@ -160,9 +195,19 @@ from the code's own history rather than shaped to fit an assertion:
 | `idle_prompt` read as a question (the real issue #1 defect) | **fails** — Unread 1 → 0 |
 | `PostToolBatch` no longer resumes a question (the real issue #2 defect) | **fails** — Questions 0 → 1 |
 | Tray red threshold raised so a permission prompt is amber | **fails** — Red → Amber |
+| Manual ack no longer applies to an unread session (tier 2 dead) | **fails** — the unread row never offers the action |
+| The publisher drops the ack instead of publishing it | **fails** — the acknowledgment never reaches the Registry |
 
 The replay script and the acceptance test both carry the same scenario, so the two halves describe
 one run rather than two.
+
+**Two traps found while doing this, both of which produce the same green as a working harness.** A
+plant that turns out to be a **no-op** — one attempt at the issue #1 defect fell through to a
+catch-all with identical behaviour — is indistinguishable from a test that fails to notice a real
+defect, and only reading the code you changed tells them apart. And a plant that **does not
+compile** leaves the previous assembly in place under `--no-build`, so the run reports on the old
+code, sometimes still carrying the previous plant's failure message. Check the build result, not
+only the test result.
 
 ---
 
