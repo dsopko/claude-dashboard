@@ -49,6 +49,10 @@ public sealed record DashboardSettings
     /// <summary>How loud, and how insistent, the sounds are (Impl Part 7, Part 8).</summary>
     [JsonPropertyName("sound")]
     public SoundSettings Sound { get; init; } = new();
+
+    /// <summary>Where the window was left, and whether it floats (Impl §5.4).</summary>
+    [JsonPropertyName("window")]
+    public WindowSettings Window { get; init; } = new();
 }
 
 /// <summary>Rolling-file log retention (Impl Part 8).</summary>

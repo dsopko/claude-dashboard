@@ -105,6 +105,8 @@ public static class AppHost
         // Claude Code's own configuration directory, resolved the way Claude Code resolves it.
         // A separate registration from DashboardPaths, and deliberately so — see ClaudeCodePaths.
         builder.Services.AddSingleton<ClaudeCodePaths>();
+        builder.Services.AddSingleton<IVirtualDesktopService, VirtualDesktopService>();
+        builder.Services.AddSingleton<WindowPresence>();
         builder.Services.AddSingleton<HookLifecycle>();
         builder.Services.AddSingleton(settingsStore);
         builder.Services.AddSingleton(loaded.Settings);

@@ -159,6 +159,15 @@ public static class Program
                 var tick = host.Services.GetRequiredService<UiTick>();
                 tick.Attach(window.ViewModel);
 
+                // Where it opens, whether it floats, and the pin to every virtual desktop
+                // (Impl §5.4). BEFORE the surfacer, and that order is load-bearing: Attach shows
+                // the window when a /show was latched during startup, and a window that is
+                // already showing has already raised SourceInitialized. Getting this backwards
+                // left the window unpinned, silently, on exactly the path a second launch takes.
+                var presence = host.Services.GetRequiredService<WindowPresence>();
+                var settingsStore = host.Services.GetRequiredService<SettingsStore>();
+                presence.Apply(window, host.Services.GetRequiredService<DashboardSettings>().Window);
+
                 // Hands the window over, and raises it if a /show already asked while the window
                 // did not exist. On this thread, which owns it.
                 surfacer.Attach(window);
@@ -172,6 +181,20 @@ public static class Program
                 tray.ViewModel.QuitRequested += (_, _) => app.Shutdown();
 
                 var exitCode = app.Run(window);
+
+                // Where the operator left the window, so the next launch opens there (Impl §5.4).
+                // Best effort: a dashboard that cannot write its own settings file should still
+                // exit cleanly, and losing a remembered position is a smaller failure than a
+                // crash on the way out.
+                try
+                {
+                    var current = settingsStore.Load().Settings;
+                    settingsStore.Save(current with { Window = WindowPresence.Capture(window, window.Topmost) });
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    Log.Warning(ex, "Could not save the window position.");
+                }
 
                 // The ordinary quit — the tray's Quit item, and a logoff that already ran the
                 // handler above. Removing twice is a no-op, so both paths can call it.
