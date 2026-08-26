@@ -210,4 +210,68 @@ public sealed class PayloadJsonTests
         Assert.NotEqual(new PayloadJson(Body), new PayloadJson("{}"));
         Assert.Equal(new PayloadJson(Body).GetHashCode(), new PayloadJson(Body).GetHashCode());
     }
+
+    /// <summary>
+    /// The two log-formatting routes differ, and that is why the inventory covers plain classes.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>SessionViewModel</c> is a plain class, so its <c>ToString</c> prints a type name and
+    /// leaks nothing — and an inventory scoped to records was justified with exactly that
+    /// sentence. It is true and it is the wrong half. <c>{@Row}</c> reflects over public properties
+    /// of <em>any</em> type, and this is the type UI code is most likely to log: <c>{@Row}</c>
+    /// while working out why a row rendered oddly is a more natural line than logging a domain
+    /// object.
+    /// </para>
+    /// <para>
+    /// <strong>This test is the argument against narrowing the scan again.</strong> The claim that
+    /// record-ness decides anything about <c>{@}</c> is falsifiable, so it is measured here rather
+    /// than asserted in a remark. <c>UnprotectedTextInventory</c> asserts the extent of the gap;
+    /// this asserts why its predicate is the shape it is.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void Destructuring_reaches_a_plain_class_that_plain_rendering_does_not()
+    {
+        const string Prompt = "THE-PROMPT-A-ROW-IS-BOUND-TO";
+
+        var session = new ClaudeDashboard.Core.Session
+        {
+            Id = new ClaudeDashboard.Core.SessionId("s1"),
+            State = ClaudeDashboard.Core.SessionState.Unread,
+            Latest = new ClaudeDashboard.Core.Exchange
+            {
+                Prompt = Prompt,
+                StartedAt = DateTimeOffset.UnixEpoch,
+            },
+            Cwd = @"C:\work",
+            Group = new ClaudeDashboard.Core.GroupKey("work"),
+            EnteredAt = DateTimeOffset.UnixEpoch,
+            LastActivity = DateTimeOffset.UnixEpoch,
+        };
+
+        var row = new ClaudeDashboard.App.Ui.SessionViewModel(session);
+
+        var sink = new RecordingLogSink();
+        using var logger = new Serilog.LoggerConfiguration().MinimumLevel.Verbose().WriteTo.Sink(sink).CreateLogger();
+
+        logger.Debug("Row {Row}", row);
+        logger.Debug("Row {@Row}", row);
+
+        var plain = sink.Messages[0];
+        var destructured = sink.Messages[1];
+
+        Assert.True(
+            !plain.Contains(Prompt, StringComparison.Ordinal),
+            $"a plain class rendered with {{Row}} revealed the prompt; the two routes were supposed to differ. " +
+            $"Rendered: {plain}");
+
+        Assert.True(
+            destructured.Contains(Prompt, StringComparison.Ordinal),
+            "DESTRUCTURING A ROW NO LONGER REVEALS THE PROMPT. If you have just wrapped " +
+            "SessionViewModel.Prompt (issue #11) THIS IS THE EXPECTED FAILURE: delete this assertion, and " +
+            "delete the entry from UnprotectedTextInventory. DO NOT re-point it at another leaking property " +
+            "to restore green. If instead the two routes have stopped differing, the inventory's predicate " +
+            $"needs revisiting rather than this test. Rendered: {destructured}");
+    }
 }

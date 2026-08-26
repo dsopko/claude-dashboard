@@ -42,12 +42,18 @@ namespace ClaudeDashboard.Core.Events;
 /// <para>
 /// <strong>WHAT THIS DOES NOT PROTECT, WHICH IS EASIER TO HIT THAN WHAT IT DOES.</strong> The
 /// guarantee above is exactly one type wide. The <em>same words</em> also live as plain
-/// <see langword="string"/> fields on <see cref="UserPromptSubmit"/> — <c>Prompt</c> — and on
-/// <c>Exchange</c>, which the Registry copies them onto. Those are public properties of records
-/// with a compiler-generated <c>ToString</c>, so <c>logger.Warning("Declined {Event}", e)</c>
-/// prints the operator's prompt verbatim. <strong>Measured, not feared</strong>: with a marker in
-/// both, a plain <c>{Event}</c> leaks the mapped prompt while <c>{Payload}</c> and
-/// <c>{@Payload}</c> stay clean.
+/// <see langword="string"/> properties across the wire DTO, the domain events, the Registry's
+/// <c>Exchange</c> and the row the screen binds to — <strong>eleven properties in four layers, so
+/// a single prompt exists as an unprotected string in four objects at once</strong>. A record's
+/// compiler-generated <c>ToString</c> prints them for a plain <c>{Event}</c>, and Serilog's
+/// <c>{@X}</c> prints them on plain classes too. <strong>Measured, not feared</strong>, each one.
+/// </para>
+/// <para>
+/// <strong>The list is not repeated here, and that is deliberate.</strong> It lives in
+/// <c>UnprotectedTextInventory</c>, which asserts it as an exact set on every build. A copy in
+/// this remark would be a second thing to keep in step, and the reason this paragraph exists at
+/// all is that a prose claim about the extent of something drifts out of date in silence — twice
+/// already on this exact subject. Read the inventory for what is unprotected; read this for why.
 /// </para>
 /// <para>
 /// That hole needs no destructuring operator. The case this type was redesigned for required

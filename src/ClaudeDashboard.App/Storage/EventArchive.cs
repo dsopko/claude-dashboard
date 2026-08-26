@@ -134,9 +134,10 @@ public sealed class EventArchive
         // words, and {HookEventName} and {SessionId} are the whole of what this needs.
         //
         // Do not "improve" this to {Event} or {@Event}. PayloadJson would redact the raw body, but
-        // a record's generated ToString prints every public property — including the mapped
-        // Prompt, which holds the same words as a plain string. Measured at T1.17. Naming the
-        // fields is what makes this line safe; the wrapper is not.
+        // both formatting routes print the plain-string properties beside it — a record's generated
+        // ToString for {Event}, reflection over public properties for {@Event} — and the operator's
+        // prompt is one of those. Measured at T1.17; UnprotectedTextInventory holds the full set.
+        // NAMING THE FIELDS IS WHAT MAKES THIS LINE SAFE; THE WRAPPER IS NOT.
         _logger.Debug(
             "The event archive is full; discarded {HookEventName} for session {SessionId} unwritten.",
             dropped.HookEventName,

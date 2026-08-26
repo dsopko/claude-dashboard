@@ -20,10 +20,11 @@ namespace ClaudeDashboard.App.Storage;
 /// <para>
 /// <strong>Stated as an intent rather than a guarantee, deliberately.</strong> Nothing in this
 /// class puts the body in a log line, and its tests hold that. But the intent is enforced by
-/// construction only for the raw body: the same words also live as a plain string on
-/// <c>UserPromptSubmit.Prompt</c> and on <c>Exchange</c>, where a plain <c>{Event}</c> prints
-/// them. <see cref="PayloadJson"/>'s remarks carry the measurement and the filed follow-up. A
-/// sentence here promising more than that would be the same mistake in a second file.
+/// construction only for the raw body: the same words live unprotected on a further eleven
+/// properties spanning the wire DTO, the domain events, the Registry's <c>Exchange</c> and the
+/// row the screen binds to. <c>UnprotectedTextInventory</c> holds that set exactly;
+/// <see cref="PayloadJson"/>'s remarks carry the reasoning and the filed follow-up. A sentence
+/// here promising more than that would be the same mistake in a second file.
 /// </para>
 /// <para>
 /// <strong>Where it sits, and the permissions it has.</strong>

@@ -1,4 +1,5 @@
 using System.Reflection;
+using ClaudeDashboard.App.Hosting;
 using ClaudeDashboard.Core;
 using ClaudeDashboard.Core.Events;
 
@@ -11,29 +12,44 @@ namespace ClaudeDashboard.Tests.Domain;
 /// <remarks>
 /// <para>
 /// <see cref="PayloadJson"/> makes the raw hook body unprintable. It protects that one field. The
-/// same text also reaches the domain as plain strings on records with a compiler-generated
-/// <c>ToString</c>, so <c>logger.Warning("Declined {Event}", e)</c> prints it — no destructuring
-/// operator, nothing unusual. This is the list of those places.
+/// same text reaches the rest of the product as plain strings, where two separate log-formatting
+/// routes will print it: a record's compiler-generated <c>ToString</c> renders every public
+/// property for a plain <c>{Event}</c>, and Serilog's destructuring operator <c>{@X}</c> reflects
+/// over the public properties of <em>any</em> type at all. This is the list of those places.
 /// </para>
 /// <para>
 /// <strong>THIS ASSERTS THE EXTENT OF THE GAP, NOT ITS EXISTENCE, AND THE DIFFERENCE IS THE WHOLE
-/// POINT.</strong> The first version of this test asserted that a particular field leaks. That
-/// made green mean "the vulnerability is present and that is correct", and the only route back to
-/// green after a partial fix was to re-assert a leak somewhere else — a well-formed action leading
-/// somewhere wrong. Asserting the <em>set</em> inverts it: green means "the gap is exactly this
-/// big", which is a true and useful thing to know, and the way back to green after a fix is to
-/// <strong>delete the fixed entry from <see cref="CarriesOperatorText"/></strong>. The perverse
-/// repair stops being available rather than being discouraged.
+/// POINT.</strong> An earlier version asserted that a particular field leaks. That made green mean
+/// "the vulnerability is present and that is correct", and the route back to green after a partial
+/// fix was to re-assert a leak somewhere else — a well-formed action leading somewhere wrong.
+/// Asserting the <em>set</em> inverts it: green means "the gap is exactly this big", and the way
+/// back to green after a fix is to <strong>delete the fixed entry</strong> from
+/// <see cref="CarriesOperatorText"/>. The perverse repair stops being available rather than being
+/// discouraged.
 /// </para>
 /// <para>
-/// <strong>It also catches the failure the previous version could not see at all:</strong> a
-/// <em>third</em> type acquiring unprotected text. That is the likelier event — Phase 5 adds
-/// history search, and search results carry the operator's words — and a test pinned to two known
-/// fields would have watched it happen in silence.
+/// <strong>THE SCOPE OF THE SCAN IS THE THING MOST LIKELY TO BE WRONG HERE.</strong> It has been
+/// too narrow twice, in one afternoon, and both times the artefact said so in plain sight. First
+/// the inventory covered only the operator's words, while the ruling that commissioned it said
+/// "the operator's words and the model's answers" — so <c>LastAssistantMessage</c> and
+/// <c>Answer</c> were missing. Then it filtered to records, justified by a remark reading "a plain
+/// class prints its type name and leaks nothing by default" — true of <c>ToString</c>, false of
+/// <c>{@}</c>, which is the route that started this whole thread. That filter hid
+/// <c>SessionViewModel</c>: a plain class, in the other assembly, re-exposing the prompt and the
+/// answer as its own properties — and the type UI code is most likely to log, because
+/// <c>{@Row}</c> while working out why a row rendered oddly is a more natural line than logging a
+/// domain object.
 /// </para>
 /// <para>
-/// Nothing in <c>src/</c> logs a whole record today; every <c>{@</c> site was enumerated. This is
-/// a gap in a guarantee, not a live disclosure.
+/// So the predicate is now the one <c>{@}</c> itself uses — <strong>a public instance string
+/// property, on any public type, in either of our assemblies</strong> — and the record filter is
+/// gone. If this ever needs narrowing again, narrow it for a reason about the threat, never for a
+/// reason about which types happened to be in mind when it was written.
+/// </para>
+/// <para>
+/// Nothing in <c>src/</c> logs a whole object today; every <c>{@</c> site was enumerated and the
+/// only one is inside <see cref="PayloadJson"/>'s own remarks. This is a gap in a guarantee, not a
+/// live disclosure.
 /// </para>
 /// </remarks>
 public sealed class UnprotectedTextInventory
@@ -48,82 +64,160 @@ public sealed class UnprotectedTextInventory
     /// <see cref="PayloadJson"/>, not a line here.
     /// </para>
     /// <para>
-    /// <strong>All five were measured, not assumed.</strong> Each was rendered through a real
-    /// Serilog pipeline with a marker in it, and each came back. <c>Session</c> is not listed
-    /// separately because it carries no prose string of its own — it holds an <c>Exchange</c>, and
-    /// a record printing a record prints the nested one, so <c>{Session}</c> exposes both entries
-    /// below transitively. Wrapping <c>Exchange</c>'s two closes that path as well.
+    /// <strong>Measured, not assumed.</strong> Each was rendered through a real Serilog pipeline
+    /// with a marker in it and came back — the record-shaped ones through a plain <c>{Event}</c>,
+    /// <c>SessionViewModel</c>'s three through <c>{@Row}</c>. That pair is also the demonstration
+    /// of why both routes must be in scope: <c>{Row}</c> on the very same object is clean.
     /// </para>
     /// <para>
-    /// The Director's ruling that opened this named two of them, both about the operator's half.
-    /// Building the list found the model's half — <c>LastAssistantMessage</c> and
-    /// <c>Answer</c> — which the same argument covers and which nobody had written down.
+    /// Four layers, all carrying the same words. <c>HookPayload</c> is the wire body as
+    /// deserialized; <c>UserPromptSubmit</c>, <c>Stop</c> and <c>SessionStart</c> are the domain
+    /// events mapped from it; <c>Exchange</c> is what the Registry keeps; <c>SessionViewModel</c>
+    /// is what the screen binds to. <strong>A single prompt exists as a plain string in four
+    /// objects at once</strong>, which is worth knowing before anyone estimates issue #11.
+    /// </para>
+    /// <para>
+    /// <c>Session</c> is not listed: it carries no prose string of its own, but it holds an
+    /// <c>Exchange</c>, and a record printing a record prints the nested one — so <c>{Session}</c>
+    /// exposes the <c>Exchange</c> entries transitively. Wrapping those closes that path too.
     /// </para>
     /// </remarks>
     private static readonly HashSet<string> CarriesOperatorText = new(StringComparer.Ordinal)
     {
+        // The wire body, deserialized.
+        "HookPayload.Prompt",
+        "HookPayload.LastAssistantMessage",
+        "HookPayload.SessionTitle",
+
+        // The domain events mapped from it.
         "UserPromptSubmit.Prompt",
         "Stop.LastAssistantMessage",
         "SessionStart.SessionTitle",
+
+        // What the Registry keeps.
         "Exchange.Prompt",
         "Exchange.Answer",
+
+        // What the screen binds to — and the type most likely to be logged.
+        "SessionViewModel.Prompt",
+        "SessionViewModel.PromptSnippet",
+        "SessionViewModel.Answer",
     };
 
     /// <summary>
-    /// Properties holding identifiers, paths and wire spellings — safe to print.
+    /// Properties holding identifiers, paths, wire vocabulary and derived display text.
     /// </summary>
     /// <remarks>
     /// <para>
     /// This list exists so that a <em>newly added</em> string property cannot land in neither list
-    /// and pass unnoticed. Anything found and not classified fails, which forces whoever adds a
-    /// string to the domain to say which kind it is. That is a small tax on a common change and it
-    /// is the only thing that makes the inventory above trustworthy.
+    /// and pass unnoticed. Anything found and unclassified fails, which forces whoever adds a
+    /// string to say which kind it is. That is a small tax on a common change and it is the only
+    /// thing that makes the inventory above trustworthy.
+    /// </para>
+    /// <para>
+    /// <strong>The wire-vocabulary entries were checked against the hook contract rather than
+    /// assumed</strong> (<c>docs/claude-code-hooks-reference.md</c>), because an error string is
+    /// the classic place a fragment of somebody's content ends up.
+    /// <c>StopFailure.ErrorKind</c> comes from <c>error_type</c>, a closed set of ten spellings;
+    /// <c>SessionEnd.Reason</c> from <c>end_reason</c>, a closed set of five; both fall back to the
+    /// matcher, which is also a token. <c>SessionStart.Source</c> is undocumented as a JSON field
+    /// but carries the same matcher spellings.
+    /// </para>
+    /// <para>
+    /// <strong>The reason that classification is safe is not that errors cannot carry prose — it is
+    /// that the prose field is a different one and ingress does not read it.</strong>
+    /// <c>StopFailure</c> documents <c>error_message</c> beside <c>error_type</c>, and
+    /// <c>Notification</c> documents <c>notification_text</c>; we consume neither. The reference's
+    /// own "leaving on the table" note proposes reading both, to put <em>what is happening</em> on
+    /// a row that currently shows only <em>that</em> something is. <strong>If that is ever taken
+    /// up, those fields belong in <see cref="CarriesOperatorText"/>, not here.</strong>
     /// </para>
     /// <para>
     /// <c>Cwd</c> and <c>TranscriptPath</c> are paths rather than prose. They can be revealing
     /// about what somebody is working on, and the dashboard already logs <c>Cwd</c> deliberately,
-    /// so they are classified here rather than silently omitted — if that judgement is ever
-    /// revisited, this is the line to revisit.
+    /// so they are classified rather than silently omitted — if that judgement is revisited, this
+    /// is the line to revisit. <c>SessionViewModel.Detail</c> is <c>ErrorKind</c> under another
+    /// name; <c>TrayViewModel.Tooltip</c>, the header labels and the age strings are built from
+    /// counts and clocks, never from a payload.
     /// </para>
     /// </remarks>
     private static readonly HashSet<string> CarriesIdentifiersOnly = new(StringComparer.Ordinal)
     {
-        "Ack.Cwd", "Ack.HookEventName", "Ack.PromptId", "Ack.TranscriptPath",
-        "CwdChanged.Cwd", "CwdChanged.HookEventName", "CwdChanged.PromptId", "CwdChanged.TranscriptPath",
-        "Exchange.PromptId",
-        "Notification.Cwd", "Notification.HookEventName", "Notification.NotificationType",
-        "Notification.PromptId", "Notification.TranscriptPath",
-        "PostToolBatch.Cwd", "PostToolBatch.HookEventName", "PostToolBatch.PromptId", "PostToolBatch.TranscriptPath",
-        "Session.Cwd", "Session.ErrorKind",
-        "SessionEnd.Cwd", "SessionEnd.HookEventName", "SessionEnd.PromptId", "SessionEnd.Reason",
-        "SessionEnd.TranscriptPath",
-        "SessionStart.Cwd", "SessionStart.HookEventName", "SessionStart.PromptId", "SessionStart.Source",
-        "SessionStart.TranscriptPath",
-        "SoundCommand.Cwd", "SoundCommand.HookEventName", "SoundCommand.PromptId", "SoundCommand.TranscriptPath",
-        "Stop.Cwd", "Stop.HookEventName", "Stop.PromptId", "Stop.TranscriptPath",
-        "StopFailure.Cwd", "StopFailure.ErrorKind", "StopFailure.HookEventName", "StopFailure.PromptId",
-        "StopFailure.TranscriptPath",
-        "UserPromptSubmit.Cwd", "UserPromptSubmit.HookEventName", "UserPromptSubmit.PromptId",
-        "UserPromptSubmit.TranscriptPath",
+        // Wire discriminators and vocabulary.
+        "Ack.HookEventName", "CwdChanged.HookEventName", "Notification.HookEventName",
+        "PostToolBatch.HookEventName", "SessionEnd.HookEventName", "SessionStart.HookEventName",
+        "SoundCommand.HookEventName", "Stop.HookEventName", "StopFailure.HookEventName",
+        "UserPromptSubmit.HookEventName",
+        "Notification.NotificationType", "SessionEnd.Reason", "SessionStart.Source",
+        "StopFailure.ErrorKind",
+
+        // Identifiers and paths on the domain.
+        "InboundEvent.Cwd", "InboundEvent.PromptId", "InboundEvent.TranscriptPath",
+        "Exchange.PromptId", "Session.Cwd", "Session.ErrorKind",
+        "SessionId.Value", "GroupKey.Value", "SoundId.Name", "StateTransition.Cause",
+
+        // The wire DTO's non-prose fields.
+        "HookPayload.Cwd", "HookPayload.ErrorType", "HookPayload.HookEventName",
+        "HookPayload.Matcher", "HookPayload.NotificationType", "HookPayload.PromptId",
+        "HookPayload.Reason", "HookPayload.SessionId", "HookPayload.Source",
+        "HookPayload.TranscriptPath",
+
+        // Derived display text: counts, clocks and labels, never a payload.
+        "BandHeaderViewModel.Label",
+        "GroupViewModel.IdleText", "GroupViewModel.Label", "GroupViewModel.Workspace",
+        "QuietFooterViewModel.Key", "QuietFooterViewModel.Text",
+        "SessionViewModel.AgeText", "SessionViewModel.AskedAtText", "SessionViewModel.BadgeText",
+        "SessionViewModel.Cwd", "SessionViewModel.Detail", "SessionViewModel.ErrorKind",
+        "SessionViewModel.GroupTag",
+        "TrayViewModel.MuteAllLabel", "TrayViewModel.PauseLabel", "TrayViewModel.Tooltip",
+
+        // Configuration, paths and operational results.
+        "ClaudeCodePaths.ConfigDirectory", "ClaudeCodePaths.UserSettingsFile",
+        "DashboardPaths.DatabaseFile", "DashboardPaths.LogFile", "DashboardPaths.LogFolder",
+        "DashboardPaths.PortFile", "DashboardPaths.Root", "DashboardPaths.RootProblem",
+        "DashboardPaths.SettingsFile", "DashboardPaths.SoundFolder",
+        "HealthProbeResult.Instance", "HealthProbeResult.Problem",
+        "IngressStatus.Fault",
+        "LogonTaskFacts.Command", "LogonTaskFacts.RestartInterval", "LogonTaskFacts.RunLevel",
+        "SettingsFileWriter.LockPath", "SettingsLoadResult.Problem",
+        "SettingsWriteResult.BackupPath", "SettingsWriteResult.Problem",
+        "ShowSignalResult.Problem", "SingleInstanceGate.Name", "SqliteEventStore.Path",
+        "TaskCommandResult.Output", "TokenSetupResult.Problem",
     };
 
-    /// <summary>Every public string property on a Core record, found by reflection.</summary>
-    /// <remarks>
-    /// Records specifically, because a record is what generates a <c>ToString</c> that prints its
-    /// properties. A plain class prints its type name and leaks nothing by default.
-    /// </remarks>
-    private static List<string> StringPropertiesOnRecords() =>
-        [.. typeof(Session).Assembly.GetTypes()
-            .Where(type => type.IsPublic && !type.IsAbstract && IsRecord(type))
-            .SelectMany(type => type
-                .GetProperties(BindingFlags.Instance | BindingFlags.Public)
-                .Where(property => property.PropertyType == typeof(string))
-                .Select(property => $"{type.Name}.{property.Name}"))
-            .OrderBy(name => name, StringComparer.Ordinal)];
+    /// <summary>Both of our assemblies. App as much as Core: App is where the logger lives.</summary>
+    private static readonly Assembly[] Ours = [typeof(Session).Assembly, typeof(AppHost).Assembly];
 
-    /// <summary>A record has a synthesized clone method; nothing else does.</summary>
-    private static bool IsRecord(Type type) =>
-        type.GetMethod("<Clone>$", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic) is not null;
+    /// <summary>
+    /// Every public instance string property declared in our own code, keyed by where it is
+    /// declared.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>The predicate is the one Serilog's destructurer uses</strong>, minus indexers: a
+    /// public instance property whose type is <see langword="string"/>. No record filter —
+    /// record-ness decides whether <c>ToString</c> leaks and says nothing about <c>{@}</c>.
+    /// </para>
+    /// <para>
+    /// Keyed by <em>declaring</em> type, so a property inherited by nine event variants is one
+    /// entry rather than nine, and restricted to declarations in our assemblies so the scan does
+    /// not inventory <c>Window.Title</c> and <c>Exception.Message</c>. Both of those are about
+    /// keeping the list short enough that somebody will actually maintain it.
+    /// </para>
+    /// </remarks>
+    private static List<string> StringPropertiesInOurCode() =>
+        [.. Ours
+            .SelectMany(assembly => assembly.GetTypes())
+            .Where(type => type.IsPublic && !type.IsAbstract)
+            .SelectMany(type => type.GetProperties(BindingFlags.Instance | BindingFlags.Public))
+            .Where(property =>
+                property.PropertyType == typeof(string) &&
+                property.GetIndexParameters().Length == 0 &&
+                property.DeclaringType is not null &&
+                Ours.Contains(property.DeclaringType.Assembly))
+            .Select(property => $"{property.DeclaringType!.Name}.{property.Name}")
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(name => name, StringComparer.Ordinal)];
 
     /// <summary>
     /// The unprotected text is in exactly the places <see cref="CarriesOperatorText"/> names.
@@ -131,7 +225,7 @@ public sealed class UnprotectedTextInventory
     [Fact]
     public void The_unprotected_operator_text_is_exactly_the_inventory()
     {
-        var found = StringPropertiesOnRecords();
+        var found = StringPropertiesInOurCode();
         var unprotected = found.Where(name => !CarriesIdentifiersOnly.Contains(name)).ToHashSet(StringComparer.Ordinal);
 
         var appeared = unprotected.Except(CarriesOperatorText).OrderBy(n => n, StringComparer.Ordinal).ToList();
@@ -139,11 +233,12 @@ public sealed class UnprotectedTextInventory
 
         Assert.True(
             appeared.Count == 0,
-            $"NEW UNPROTECTED TEXT: {string.Join(", ", appeared)}. " +
-            "Either these carry the operator's words or Claude's answers — in which case they belong in " +
-            "CarriesOperatorText and need the argument on PayloadJson, not just a line in a list — or they " +
-            "are identifiers, in which case classify them in CarriesIdentifiersOnly. Do not leave a string " +
-            "property on a Core record unclassified.");
+            $"NEW UNCLASSIFIED STRING: {string.Join(", ", appeared)}. " +
+            "Either it carries the operator's words or Claude's answers — in which case it belongs in " +
+            "CarriesOperatorText and needs the argument on PayloadJson, not just a line in a list — or it " +
+            "is an identifier, path, wire token or derived label, in which case classify it in " +
+            "CarriesIdentifiersOnly. Do not leave a public string property unclassified: this test is the " +
+            "only thing that notices a new place the operator's words can be printed.");
 
         Assert.True(
             gone.Count == 0,
@@ -151,46 +246,52 @@ public sealed class UnprotectedTextInventory
             "IF YOU JUST WRAPPED THEM (issue #11), THIS IS THE EXPECTED FAILURE AND THE FIX IS TO DELETE " +
             "THOSE ENTRIES FROM CarriesOperatorText IN THIS FILE — then delete the residual paragraphs they " +
             "are named in, in PayloadJson, InboundEvent.Payload, SqliteEventStore and EventArchive. " +
-            "Do NOT re-point this test at some other leaking field to restore green.");
+            "DO NOT re-point this test at some other leaking field to restore green.");
     }
 
-    /// <summary>Every string on a Core record is classified as one kind or the other.</summary>
+    /// <summary>Every classified name still names something that exists.</summary>
     /// <remarks>
-    /// The safe list can rot in the other direction too: a property renamed or removed leaves a
-    /// dead entry behind, and a dead entry is a place where a future property could reappear under
-    /// the same name already marked safe.
+    /// The lists rot in the other direction too: a property renamed or removed leaves a dead entry,
+    /// and a dead entry pre-approves any future property that takes the same name.
     /// </remarks>
     [Fact]
     public void The_classification_lists_describe_properties_that_exist()
     {
-        var found = StringPropertiesOnRecords().ToHashSet(StringComparer.Ordinal);
-        var stale = CarriesIdentifiersOnly.Except(found).OrderBy(n => n, StringComparer.Ordinal).ToList();
+        var found = StringPropertiesInOurCode().ToHashSet(StringComparer.Ordinal);
+
+        var stale = CarriesIdentifiersOnly
+            .Concat(CarriesOperatorText)
+            .Except(found)
+            .OrderBy(n => n, StringComparer.Ordinal)
+            .ToList();
 
         Assert.True(
             stale.Count == 0,
-            $"STALE ENTRIES IN CarriesIdentifiersOnly: {string.Join(", ", stale)}. These name properties that " +
-            "no longer exist. Remove them — a dead entry pre-approves any future property that takes the " +
-            "same name.");
+            $"STALE CLASSIFICATION ENTRIES: {string.Join(", ", stale)}. These name properties that no longer " +
+            "exist. Remove them — a dead entry pre-approves any future property that takes the same name. " +
+            "If one disappeared because you wrapped it, the other test in this file says what to do.");
     }
 
     /// <summary>
-    /// The inventory is not empty, so a green run means something.
+    /// The scan reaches both assemblies and both shapes, so a green run means something.
     /// </summary>
     /// <remarks>
-    /// The control. Every assertion above is satisfied by a scan that found nothing at all — a
-    /// reflection query that quietly stopped matching would turn this whole file green and silent.
-    /// This is what makes the other two load-bearing.
+    /// The control, and it is not decoration. Every assertion above is satisfied by a scan that
+    /// found nothing: a reflection query that quietly stopped matching would turn this whole file
+    /// green and silent. The two named properties are one record in Core and one plain class in
+    /// App — the exact pair whose absence is what "too narrow" looked like both times.
     /// </remarks>
     [Fact]
-    public void The_scan_actually_finds_the_domain()
+    public void The_scan_reaches_both_assemblies_and_both_shapes()
     {
-        var found = StringPropertiesOnRecords();
+        var found = StringPropertiesInOurCode();
 
         Assert.True(
-            found.Count > 40,
-            $"the scan found only {found.Count} string properties on Core records; it has stopped matching the " +
-            "domain, and every other assertion in this file is passing on an empty set");
+            found.Count > 60,
+            $"the scan found only {found.Count} string properties; it has stopped matching the product, and " +
+            "every other assertion in this file is passing on an empty set");
 
-        Assert.Contains("UserPromptSubmit.Cwd", found);
+        Assert.Contains("InboundEvent.Cwd", found);
+        Assert.Contains("SessionViewModel.Prompt", found);
     }
 }

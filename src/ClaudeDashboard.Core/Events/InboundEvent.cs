@@ -81,11 +81,13 @@ public abstract record InboundEvent
     /// </para>
     /// <para>
     /// <strong>The protection stops at this property.</strong> Sibling fields on the derived
-    /// records hold the same words as plain strings — <c>UserPromptSubmit.Prompt</c> most of all —
-    /// and a record's generated <c>ToString</c> prints every one of them, so
-    /// <c>logger.Warning("Declined {Event}", e)</c> leaks the prompt while this property stays
-    /// redacted. Measured at T1.17. Wrapping those is filed separately; until it lands, do not
-    /// read this property's safety as the event's.
+    /// records hold the same words as plain strings, and a record's generated <c>ToString</c>
+    /// prints every one of them, so <c>logger.Warning("Declined {Event}", e)</c> leaks the prompt
+    /// while this property stays redacted. Measured at T1.17. Those siblings are not the whole of
+    /// it either — the same text is unprotected in four layers of the product, and
+    /// <c>UnprotectedTextInventory</c> is the only place that set is stated, because stating it
+    /// twice is how it goes stale. Wrapping them is filed separately; until it lands,
+    /// <strong>do not read this property's safety as the event's</strong>.
     /// </para>
     /// </remarks>
     public PayloadJson Payload { get; init; }
