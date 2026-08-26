@@ -268,34 +268,115 @@ public sealed class UiTickTests : IAsyncLifetime
     }
 
     /// <summary>
-    /// The tick posts and returns. It must not run the view model's work on the consumer thread,
-    /// which owns the Registry and would be blocked behind a render.
+    /// The tick posts and returns. It must not run the view model's work on the caller's thread,
+    /// which in production is the consumer thread — it owns the Registry and would be blocked
+    /// behind a render.
     /// </summary>
     /// <remarks>
-    /// <strong>This is the test that failed intermittently, and the reason was the wait.</strong>
-    /// It waited on <c>DeliveredCount &gt; 0</c>, which counts posts and says nothing about what
-    /// they carry. A consumer tick landing between <c>Attach</c> and the clock moving satisfied
-    /// it while carrying the old instant, and with no later tick before <c>Pump</c> the row aged
-    /// to zero and the last assertion failed. Reproduced deterministically by forcing exactly
-    /// that interleaving; see the commit.
+    /// <para>
+    /// <strong>This test failed intermittently twice, and the second time the comment was the
+    /// bug.</strong> It read: "a stray consumer tick cannot change either assertion below: it can
+    /// only carry a time at or after this one". That is a capability claim, nothing tested it, and
+    /// it is false. <see cref="UiTick.Tick"/> reads the instant it is given and then posts, so the
+    /// consumer can read the clock <em>before</em> this test moves it and post <em>after</em> this
+    /// test's own tick. The queue then ends with a stale instant, the pump runs it last, and the
+    /// row's age is zero when four minutes was expected. Reproduced deterministically by forcing
+    /// exactly that order — see <see cref="The_last_tick_drained_wins_even_when_it_carries_an_earlier_instant"/>,
+    /// which now asserts that behaviour instead of denying it.
+    /// </para>
+    /// <para>
+    /// <strong>The fix is to stop manufacturing a second caller.</strong> In production
+    /// <c>EventConsumer</c> is the only thing that calls <see cref="IUiTick.Tick"/>, on one thread,
+    /// so posts arrive in the order their instants were read and a stale one cannot overtake a
+    /// fresh one. The old test attached the view model to the <em>consumer's</em> tick and then
+    /// ticked it by hand as well — two callers, an interleaving the product cannot have, and an
+    /// assertion that it would not occur. This test uses a tick of its own; the consumer's has no
+    /// target and therefore posts nothing at all.
+    /// </para>
+    /// <para>
+    /// That the running consumer really does drive the view model is a different claim, and it is
+    /// covered by the tests above, which are the ones that must keep a live consumer.
+    /// </para>
     /// </remarks>
     [Fact]
-    public void The_tick_is_posted_rather_than_run_on_the_consumer_thread()
+    public void The_tick_is_posted_rather_than_run_on_the_callers_thread()
     {
         var row = GivenABlockedSession();
-        _tick.Attach(_viewModel);
-        _clock.Now = At.AddMinutes(4);
 
-        // One tick, at an instant this test chose. A stray consumer tick cannot change either
-        // assertion below: it can only carry a time at or after this one, and it still has to be
-        // pumped before it can run at all.
-        _tick.Tick(_clock.Now);
+        // Deliberately not the fixture's _tick. That one belongs to the running consumer, and
+        // leaving it with no target is what makes this test free of stray posts by construction
+        // rather than by timing.
+        var tick = new UiTick(_dispatcher);
+        tick.Attach(_viewModel);
+
+        tick.Tick(At.AddMinutes(4));
 
         // Delivered, but not yet run: the age only moves when this thread drains the queue.
         Assert.Equal(TimeSpan.Zero, row.Age);
+        Assert.Equal(1, _tick.DeliveredCount + tick.DeliveredCount);
 
         _dispatcher.Pump();
         Assert.Equal(TimeSpan.FromMinutes(4), row.Age);
+    }
+
+    /// <summary>
+    /// A posted tick does not run until something drains the queue.
+    /// </summary>
+    /// <remarks>
+    /// The claim the old comment made and nothing checked. It is true — the fake dispatcher only
+    /// enqueues — and it is exactly the sort of sentence that quietly takes a test's job, so it is
+    /// now a test. Several ticks are posted and none of them has run.
+    /// </remarks>
+    [Fact]
+    public void A_posted_tick_does_not_run_until_the_queue_is_drained()
+    {
+        var row = GivenABlockedSession();
+        var tick = new UiTick(_dispatcher);
+        tick.Attach(_viewModel);
+
+        tick.Tick(At.AddMinutes(1));
+        tick.Tick(At.AddMinutes(2));
+        tick.Tick(At.AddMinutes(3));
+
+        Assert.Equal(TimeSpan.Zero, row.Age);
+        Assert.Equal(3, _dispatcher.Pump());
+        Assert.Equal(TimeSpan.FromMinutes(3), row.Age);
+    }
+
+    /// <summary>
+    /// Draining runs ticks in the order they were posted, and the last one wins — including a
+    /// tick carrying an <em>earlier</em> instant.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>This is the mechanism that broke the test above, written down as behaviour rather
+    /// than denied in a comment.</strong> <see cref="MainViewModel.Tick"/> assigns the instant it
+    /// is given without comparing it to the last one, so an out-of-order delivery rewinds every
+    /// age on screen until the next tick.
+    /// </para>
+    /// <para>
+    /// <strong>That is not a defect today, and the reason is worth stating because it is an
+    /// assumption rather than a guarantee:</strong> exactly one thing in the product calls
+    /// <see cref="IUiTick.Tick"/> — <c>EventConsumer</c>, on one thread — so the instants are read
+    /// and posted in the same order and a stale tick can never follow a fresh one. A second caller
+    /// would make this rewind real, and it would show as ages that jump backwards for up to
+    /// fifteen seconds. If one is ever added, the cheap guard is for <c>Tick</c> to ignore an
+    /// instant earlier than the one it already holds.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void The_last_tick_drained_wins_even_when_it_carries_an_earlier_instant()
+    {
+        var row = GivenABlockedSession();
+        var tick = new UiTick(_dispatcher);
+        tick.Attach(_viewModel);
+
+        tick.Tick(At.AddMinutes(4));
+        tick.Tick(At);
+
+        _dispatcher.Pump();
+
+        Assert.Equal(TimeSpan.Zero, row.Age);
     }
 
     /// <summary>
