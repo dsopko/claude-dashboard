@@ -4,6 +4,8 @@
 `%LOCALAPPDATA%\ClaudeDashboardApp.staging\ClaudeDashboard.App.exe` (`752e934` + `c8a1d34`)
 · **Harness:** `tools/replay-hooks.ps1` and `PhaseOneAcceptanceTests`
 
+**Phase 1 is gated, not finished** — see §5a.
+
 This records what was **observed**. Where a criterion was not observed, it says so and says why,
 rather than reporting the expectation.
 
@@ -161,6 +163,11 @@ in §5.2, not here.
 produce, because a gate that only lists the gaps it noticed is the same failure as one that lists
 none.
 
+Everything here is code that **exists** and this run could not reach. Criteria that no run could
+evidence, because the feature was never built, are separate — see §5a. Keeping them apart matters:
+"we could not observe it" and "there is nothing to observe" are different claims and only one of
+them is closed by running the test again.
+
 1. **Survives a logon restart.** Needs a logon. The scheduled task exists as verified code
    (T1.19: registered under a scratch name, read back from Windows, deleted) but **no real logon
    task is registered**, deliberately — one pointing at staging would start the wrong executable
@@ -182,6 +189,31 @@ none.
    unobservable from outside the process — there is no log line and no state surface — so a longer
    run would not have fixed it either. The engine's behaviour is covered by unit tests;
    **the assembled system's nudge behaviour is not covered by anything in this document.**
+
+---
+
+## 5a · Criteria **no** run could evidence, because the feature does not exist
+
+§5 lists things the code can do that this run could not reach. This is a different category and it
+was missing: **two Phase 1 tasks were never started**, so no run of anything could evidence them.
+Both sit inside this task's own declared dependency range, `T1.11–T1.19`.
+
+| Task | State in the tree, verified | What is therefore unevidenced |
+|---|---|---|
+| **T1.16 — DPI, pin-to-all-desktops, placement** | `IVirtualDesktopService` exists as a **port in Core with no adapter and no caller**. Per-Monitor v2 *is* done and verified against the published executable (T1.19). | Pinning the window to all virtual desktops; restoring the last window position; the always-on-top toggle. Nothing in `src/` mentions any of the three. |
+| **T1.17 — SQLite event log** | **Nothing.** No `Microsoft.Data.Sqlite` reference, no `dashboard.db`, no `events` table, no write path. | Durable event recording; persistence across runs. |
+
+**This was a deliberate reorder, not an oversight.** The Director moved T1.18 and T1.19 ahead of
+T1.16 and T1.17 so that the operator's requested feature — hooks that install and uninstall with
+the dashboard, closing issue #4 — and a shippable package landed first, ahead of display scaling
+and a log nothing in Phase 1 reads back. The reasoning is sound and this document does not dispute
+it. What this section exists to prevent is the reorder being visible only in the correspondence
+that produced it.
+
+**So: Phase 1 is gated, not finished.** Everything this document reports was observed and holds.
+It is not a statement that Phase 1 is complete, and the exit criteria in Part 2 are not fully met
+while these two remain. **When T1.16 and T1.17 land, this document needs a supplement** — their
+criteria have never been run, and a gate that predates a feature says nothing about it.
 
 ---
 
@@ -217,3 +249,7 @@ only the test result.
   the operator's logon starts a build that has drifted from source.
 - **The staged build has not been swapped in.** Live install, the user-scope token, and the real
   logon task are all deferred to the operator by earlier rulings.
+- **This gate needs a supplement when T1.16 and T1.17 land** (§5a). A gate that predates a feature
+  says nothing about it, and this one predates two.
+- **Phase 1 is gated, not finished.** Every observation here holds; the phase's exit criteria in
+  Part 2 do not, while §5 and §5a stand.
