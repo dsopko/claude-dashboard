@@ -3,7 +3,6 @@
   <!--
     Impl 1.2 — the Windows host: WPF UI, ingress, and every Win32/UIA/COM
     adapter. References Core. Nothing but the test project may reference this.
-    Publish settings (win-x64, self-contained, single-file) land in T1.19.
   -->
   <PropertyGroup>
     <TargetFramework>net10.0-windows</TargetFramework>
@@ -13,6 +12,38 @@
     <AssemblyName>ClaudeDashboard.App</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
 
+  </PropertyGroup>
+
+  <!--
+    T1.19 — the shipping shape (Impl 10.2): win-x64, self-contained, one file.
+    Not MSIX: its sandboxing fights writing the scheduled task and merging
+    Claude Code's settings, and this tool must do both.
+
+    Conditioned on a RuntimeIdentifier being supplied, which is what keeps an
+    ordinary `dotnet build` and the whole test suite exactly as they were. A RID
+    set unconditionally here would make every build runtime-specific and move
+    the output directory under a RID folder — so the test project, which loads
+    the Core assembly from beside its own binaries, would be looking in a path
+    that no longer exists. The publish command supplies -r; nothing else does.
+
+    Deliberately absent, each for a reason:
+      * EnableCompressionInSingleFile — costs startup time on every logon to
+        save disk that is not scarce, on an app whose whole job is to be there
+        already when the operator looks.
+      * InvariantGlobalization — the tray tooltip and the row ages render
+        through CurrentCulture (Impl 5.2), so dropping ICU would change what
+        the operator reads.
+      * PublishReadyToRun — a real startup win and a large size cost; worth
+        measuring later against a stopwatch rather than adopting on faith.
+  -->
+  <PropertyGroup Condition="'$(RuntimeIdentifier)' != ''">
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+
+    <!-- Without this the native dependencies sit beside the exe and "single file" is a lie. -->
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <DebugType>embedded</DebugType>
   </PropertyGroup>
 
   <!--
