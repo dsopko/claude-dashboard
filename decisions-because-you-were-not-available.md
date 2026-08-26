@@ -71,3 +71,20 @@ they train everyone to skim past a dirty status. Ignoring them restores the
 check. The files themselves are untouched and still on disk.
 
 **To undo.** Delete the last block of `.gitignore`.
+
+---
+
+## D4 — One test fix folded into T1.15
+
+**2026-08-26, in the T1.15 prompt**
+
+**The decision.** I told the coder to fix `A_malformed_settings_file_still_starts_and_logs_the_reason` inside T1.15, instead of raising it as its own task.
+
+**Why.** That test is the only one that starts a real host, and it binds the
+fixed port 52789. Your dashboard is running on that port right now, so the test
+fails while you are using the application. T1.15 is the task about who is allowed
+to bind that port, so the fix belongs to the same subject. Without it the coder
+cannot get a clean test run tonight at all.
+
+**The rule I bent.** My own standing rule is "never merge two tasks into one
+prompt". This is a one-line test change, not a second feature.
