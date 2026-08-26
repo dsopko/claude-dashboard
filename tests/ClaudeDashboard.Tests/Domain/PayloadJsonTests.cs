@@ -101,9 +101,16 @@ public sealed class PayloadJsonTests
     /// <para>
     /// <strong>Read the name of this test literally.</strong> It says the body, not the event.
     /// Logging a whole event <em>does</em> reveal the mapped <c>Prompt</c> field, which holds the
-    /// same words as a plain string — see
-    /// <see cref="The_mapped_prompt_is_not_protected_and_that_is_a_known_gap"/>, which is the
-    /// residual this one must not be mistaken for covering.
+    /// same words as a plain string. <c>UnprotectedTextInventory</c> is where the extent of that
+    /// is asserted, and <c>One_line_shows_the_body_redacted_and_the_mapped_prompt_not</c> shows
+    /// both sides on one rendered line. This test must not be mistaken for covering either.
+    /// </para>
+    /// <para>
+    /// Named in plain <c>c</c> tags rather than <c>see cref</c> on purpose:
+    /// <c>GenerateDocumentationFile</c> is off, so no cref in this repository is validated, and
+    /// this very paragraph carried a dangling one to a test that had been renamed — found in the
+    /// same review that found the dangling <c>Value</c> in <see cref="PayloadJson"/>. A reference
+    /// that looks checked and is not is worse than prose.
     /// </para>
     /// </remarks>
     [Fact]
@@ -140,29 +147,25 @@ public sealed class PayloadJsonTests
     }
 
     /// <summary>
-    /// <strong>The mapped prompt is NOT protected. This records the gap; it does not bless it.</strong>
+    /// One rendered line showing both sides of the boundary: the body redacted, the mapped prompt
+    /// not.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// The same words the payload carries also live as a plain <see langword="string"/> on
-    /// <c>UserPromptSubmit.Prompt</c>, and the Registry copies them onto <c>Exchange</c>. Those are
-    /// public properties of records with a compiler-generated <c>ToString</c>, so a plain
-    /// <c>{Event}</c> — no destructuring operator, nothing unusual — prints the operator's prompt.
+    /// <strong>The extent of the gap is asserted by <c>UnprotectedTextInventory</c>, not here.</strong>
+    /// This test exists for the contrast, which no inventory can show: the two fields carry the same
+    /// words, travel on the same object, and are rendered by one log statement — and one comes out
+    /// redacted while the other comes out whole. That is the clearest statement of what
+    /// <see cref="PayloadJson"/> buys and where it stops.
     /// </para>
     /// <para>
-    /// <strong>Why a test rather than a sentence.</strong> A residual written only in prose drifts
-    /// out of date silently. <strong>When the wrapper for those two fields lands, this test fails</strong>
-    /// — which is the intended signal, and the reader who sees it should delete this test and the
-    /// paragraphs it points at, in <c>PayloadJson</c>, <c>InboundEvent</c> and
-    /// <c>SqliteEventStore</c>, rather than adjust it to keep passing.
-    /// </para>
-    /// <para>
-    /// Nothing in <c>src/</c> logs a whole event today. This is a gap in a guarantee, not a live
-    /// disclosure.
+    /// If the second assertion here fails, read its message before changing anything. It is the
+    /// expected consequence of issue #11 landing, and the repair is to delete the assertion — never
+    /// to point it at some other field that still leaks.
     /// </para>
     /// </remarks>
     [Fact]
-    public void The_mapped_prompt_is_not_protected_and_that_is_a_known_gap()
+    public void One_line_shows_the_body_redacted_and_the_mapped_prompt_not()
     {
         const string Mapped = "THE-MAPPED-PROMPT-AS-THE-DOMAIN-HOLDS-IT";
 
@@ -175,12 +178,23 @@ public sealed class PayloadJsonTests
 
         var rendered = Assert.Single(sink.Messages);
 
-        // The gap, stated as the assertion so it cannot be read as an aspiration.
-        Assert.Contains(Mapped, rendered, StringComparison.Ordinal);
+        // What PayloadJson buys, and what must stay true for ever.
+        Assert.True(
+            !rendered.Contains(Secret, StringComparison.Ordinal),
+            "THE RAW HOOK BODY REACHED A LOG LINE. This is the guarantee PayloadJson exists for and it " +
+            $"has been broken. Rendered line: {rendered}");
 
-        // And the boundary of what PayloadJson does cover: on the very same line, the raw body is
-        // still redacted. This is the difference between the two fields, in one rendering.
-        Assert.DoesNotContain(Secret, rendered, StringComparison.Ordinal);
+        // Where it stops. Assert.Contains has no message overload, and its failure output truncates
+        // the rendered line and says only "sub-string not found" — which reads as a stale expectation
+        // and invites the perverse repair of updating it. So the instruction travels with the failure.
+        Assert.True(
+            rendered.Contains(Mapped, StringComparison.Ordinal),
+            "THE MAPPED PROMPT NO LONGER APPEARS IN A RENDERED EVENT. If you have just wrapped " +
+            "UserPromptSubmit.Prompt (issue #11) THIS IS THE EXPECTED FAILURE: delete this assertion and " +
+            "this test's second half, then delete the entry from UnprotectedTextInventory and the residual " +
+            "paragraphs in PayloadJson, InboundEvent.Payload, SqliteEventStore and EventArchive. " +
+            "DO NOT re-point this assertion at another field that still leaks in order to restore green. " +
+            $"Rendered line: {rendered}");
     }
 
     [Fact]
@@ -196,5 +210,4 @@ public sealed class PayloadJsonTests
         Assert.NotEqual(new PayloadJson(Body), new PayloadJson("{}"));
         Assert.Equal(new PayloadJson(Body).GetHashCode(), new PayloadJson(Body).GetHashCode());
     }
-
 }

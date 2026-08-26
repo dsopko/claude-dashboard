@@ -17,9 +17,18 @@ namespace ClaudeDashboard.Core.Events;
 /// </para>
 /// <para>
 /// <strong>What this type is: a wrapper that cannot be printed.</strong> The value is reachable
-/// only through <see cref="Value"/>. <see cref="ToString"/> — which is what Serilog calls when
-/// somebody writes <c>{Payload}</c> in a message template, and what an interpolated string calls
-/// too — returns a size, never the content.
+/// only through <see cref="Reveal"/>, and that it is a <em>method</em> is the whole mechanism —
+/// see its own remarks. <see cref="ToString"/> — which is what Serilog calls when somebody writes
+/// <c>{Payload}</c> in a message template, and what an interpolated string calls too — returns a
+/// size, never the content.
+/// </para>
+/// <para>
+/// This paragraph said <c>Value</c> until T1.17's second review, which is worth a line because of
+/// what it was pointing at: <c>Value</c> was the <em>property</em> whose removal made this type
+/// safe, so the explanation of the mechanism named the defect as the mechanism. Nothing caught it
+/// because <c>GenerateDocumentationFile</c> is <see langword="false"/>, so no <c>cref</c> in this
+/// repository is validated by anything. Treat every <c>see cref</c> here as prose, not as a
+/// checked reference.
 /// </para>
 /// <para>
 /// <strong>Structural, because measured was not enough.</strong> Both routes by which this text
