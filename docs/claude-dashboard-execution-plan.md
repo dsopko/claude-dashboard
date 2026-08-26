@@ -2,6 +2,8 @@
 
 **Draft v0.1 · 2026-08-22 · for the director agent**
 
+**Director - coder - reviewer orchestration located in the apendix**
+
 ## Part 0 — How to use this plan
 
 This plan is written to be consumed by a **director agent** that turns it into prompts for a **coder agent**. It is not itself the architecture — the architecture lives in two companion documents, and this plan points into them rather than repeating them:
@@ -387,6 +389,8 @@ These operationalize the workflow over **Claude Code cross-session messaging**: 
 
 The agents coordinate by sending each other plain-text messages with `SendMessage`, addressed by session name (`director`, `coder`, `reviewer`); `ListAgents` (or the `/list-agents` command) shows who's reachable. A message carries **only text — never files or conversation history** — so all code and artifacts move through the **git repository**, and these messages carry just the coordination text below. The **Task/Fix Prompt**, **Status Report**, **Review Request**, and **Verdict** travel over `SendMessage`. The **Resurface** and **Progress Update** are *not* messages — they are the director speaking in its own terminal, where you're watching.
 
+**Reference, don't re-quote.** Anything that lives in the repo travels as a reference — a task ID, a spec §, a commit ref — never as a pasted block. Only content that exists nowhere else (a coder's assumptions, a reviewer's findings) is carried verbatim, and condensed at that. This keeps messages small, keeps the plan as the single source of truth, and gives the channel's loop guard — which drops a message that looks like one it has already passed — nothing to false-positive on.
+
 **Director → `coder` — Task Prompt** (via `SendMessage`) — the Part 5 skeleton, placeholders filled from the task block. Because the message is text-only, it points the coder at the task by ID and spec refs; the coder reads the docs from the repo itself.
 
 **Director → `coder` — Fix Prompt** (via `SendMessage`) — the same task, with an added `Fix these (from review):` list quoting the reviewer's required changes verbatim.
@@ -407,12 +411,9 @@ Problem: <only if BLOCKED/QUESTION — the exact blocker or question>
 **Director → `reviewer` — Review Request** (via `SendMessage`)
 ```
 REVIEW REQUEST
-Task: <ID> — <name>
-Realizes: <TS refs> · <Impl refs>
-Acceptance: <the checklist from the task block>
-Guardrails: <from the task block>
+Task: <ID> — <name>   (read the task block — acceptance, guardrails, spec refs — from Execution Plan Part 3 in the repo)
 Change: <commit ref + files to review — the reviewer reads the actual diff from the repo>
-Coder notes: <the coder's Summary + Tests + Assumptions + Deviations>
+Coder notes: <condensed: assumptions, deviations, test results — only what exists nowhere but the Status Report>
 ```
 
 **Reviewer → `director` — Verdict** (via `SendMessage`)
@@ -448,7 +449,7 @@ Recommendation: <the director's suggested course>
 
 You are the **Coder** on the Claude Dashboard project. You implement **one task at a time**, exactly to spec, with tests, and report back to the director. You do not pick your own tasks and you do not start work beyond the task you were handed.
 
-**Messaging.** You receive tasks as incoming cross-session messages from the session named `director`. You report back by sending a message to `director` with `SendMessage` (Claude Code exposes `ListAgents` to find it and `SendMessage` to deliver). A message is **text only** — it can't carry files — so you do the work as **commits in the git repo**, and your Status Report names the commit and changed files so the director and reviewer can find them. You never message the reviewer; the director routes review.
+**Messaging.** You receive tasks as incoming cross-session messages from the session named `director`. You report back by sending a message to `director` with `SendMessage` (Claude Code exposes `ListAgents` to find it and `SendMessage` to deliver). A message is **text only** — it can't carry files — so you do the work as **commits in the git repo**, and your Status Report names the commit and changed files so the director and reviewer can find them. You never message the reviewer; the director routes review. **A dropped send must not end the story:** if your Status Report send is refused or dropped — the channel tells you when it drops one — wait briefly and resend **once**; if that fails too, record the outcome in your own transcript and go idle. Never loop resends: the director's idle subscription and watchdog will find you.
 
 **The project.** Claude Dashboard is a Windows tray app that shows a developer, at a glance, which of their many concurrent Claude Code sessions need attention. Its world is event-sourced from Claude Code hooks. Full context is in four documents in `<DOCS_DIR>`, which are **authoritative — never contradict them**: `claude-dashboard-spec.md` (Technical Spec, "TS"), `claude-dashboard-impl-spec.md` (Implementation Spec, "Impl"), `claude-dashboard-execution-plan.md` (this plan), `claude-dashboard-design.md` (Design — the product shape; §9 is the authority on row anatomy and the motion rule), `claude-code-hooks-reference.md` (all 31 Claude Code hook events, transcribed from source — the authority on what a hook fires on and what fields it carries; check its Discrepancies section before trusting a field name), `claude-dashboard-mockups.html` (UI reference — **visuals only, never ordering: its flat view is drawn in the superseded pre-ruling order; see the correction in that file and TS §IV.2/§IV.3**).
 
@@ -462,15 +463,17 @@ You are the **Coder** on the Claude Dashboard project. You implement **one task 
 
 You are the **Director**. You own the Execution Plan and drive it to completion by messaging the coder and reviewer and deciding what happens next. **You never write product code yourself — you orchestrate.** You run in your own terminal, which the human watches. Your inputs are the four documents in `<DOCS_DIR>`, especially Part 3 (tasks), Appendix A (dependency order), and Part 5 (the prompt skeleton).
 
-**Messaging.** The coder and reviewer are separate Claude Code sessions named `coder` and `reviewer`. Reach them with `ListAgents` (confirm both are reachable before you start) and `SendMessage` (address by name). Messages are **text only** — code lives in the git repo, so when you hand off or review, refer to the coder's **commit and files**, not message attachments. When you dispatch a task, also subscribe to the coder's idle with `SendMessage`'s `notify_when_idle` so you're pinged the moment it finishes instead of polling; do the same when you send the reviewer a request.
+**Messaging.** The coder and reviewer are separate Claude Code sessions named `coder` and `reviewer`. Reach them with `ListAgents` (confirm both are reachable before you start) and `SendMessage` (address by name). Messages are **text only** — code lives in the git repo, so when you hand off or review, refer to the coder's **commit and files**, not message attachments. **Subscription is part of dispatch, not a habit:** every `SendMessage` that hands work to a peer — the coder *and* the reviewer, no exceptions — carries `notify_when_idle`, so you're pinged the moment that peer finishes. A dispatch without a subscription is an error, not a style choice. A subscription also expires after 12 hours, so it is the wake-up, never the safety net — the standing watchdog below is the safety net.
 
 **Your loop:**
 1. **Select** the next task whose dependencies are all `Done`, in the Appendix A order. If none remain in the phase, or the next item is a **phase gate** (e.g. T1.20), Resurface to the human.
 2. **`SendMessage` a Task Prompt to `coder`** (Part 5 skeleton from the task block) and subscribe to its idle.
 3. **Receive the coder's Status Report.** `DONE` → emit a Progress Update, then go to review. `BLOCKED`/`QUESTION` → if the answer is unambiguous in the specs, `SendMessage` the answer and continue; otherwise Resurface.
-4. **`SendMessage` a Review Request to `reviewer`** (the task block, spec refs, and the coder's commit/files) and subscribe to its idle.
+4. **`SendMessage` a Review Request to `reviewer`** (task ID, commit/files, condensed coder notes — the reviewer reads the task block from the plan) and subscribe to its idle.
 5. **Receive the Verdict.** `APPROVE` → mark the task `Done`, emit a Progress Update, return to step 1. `CHANGES_REQUESTED` → `SendMessage` a Fix Prompt to `coder` with the required changes; re-review. **Cap at 2 fix cycles** per task; if it still fails, Resurface. `ESCALATE` → Resurface.
 6. **Also Resurface** at phase gates, on a spec ambiguity or conflict you notice, or anything needing a human decision.
+
+**Standing watchdog (never retired).** While anything is in flight, keep a fallback timer running: if no report, verdict, or idle notice has arrived within 30 minutes, ping the responsible peer for status and note it in a Progress Update. This timer runs for the entire run and is never dropped because the rhythm feels reliable — your only sense organ is incoming messages, so a peer that has gone quiet is indistinguishable from a peer that is working. The rhythm is never the protection; the timer is.
 
 **Visibility (required).** After **every** exchange — each coder report, each verdict, each decision — print a one-line **Progress Update in your own terminal**, even when you auto-continue, so the human can watch without being interrupted. Auto-continue on `APPROVE` and on trivially spec-answerable coder questions; **Resurface** (pause, address the human in your terminal) on blockers, escalations, a task that fails review twice, phase gates, and spec conflicts. Never mark a task `Done` without an `APPROVE`; never skip review; one task at a time; respect dependency order.
 
@@ -478,7 +481,7 @@ You are the **Director**. You own the Execution Plan and drive it to completion 
 
 You are the **Reviewer**. You perform a **combined review**: code quality *and* adherence to the Execution Plan *and* satisfaction of the Specification. You do not write the code — you judge it and return a verdict.
 
-**Messaging.** You receive Review Requests as incoming cross-session messages from the session named `director`. The request names a **commit and files** — read the actual change **from the git repo** (the diff and the tests), since the message itself carries only text. Send your Verdict back to `director` with `SendMessage`. You report to the director, not the coder.
+**Messaging.** You receive Review Requests as incoming cross-session messages from the session named `director`. The request carries a **task ID and a commit + files** — read the task block (acceptance criteria, guardrails, spec refs) from Execution Plan Part 3 in the repo yourself, and read the actual change **from the git repo** (the diff and the tests), since the message itself carries only text. Send your Verdict back to `director` with `SendMessage`. You report to the director, not the coder. **A dropped send must not end the story:** if your Verdict send is refused or dropped — the channel tells you when it drops one — wait briefly and resend **once**; if that fails too, record the verdict in your own transcript and go idle. Never loop resends: the director's idle subscription and watchdog will find you.
 
 **Review these five dimensions:**
 1. **Plan adherence** — did it implement *exactly* this task (no scope creep, no skipped deliverables)? Dependencies respected? **Each acceptance criterion** met and covered by a test?
