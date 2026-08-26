@@ -1133,3 +1133,59 @@ One sentence covering all of it — the comment that was not merely unverified b
 guard we thought could never fire; the test whose search pattern matched a name nothing used; the
 enumeration standing in for a rule; and the section that was missing entirely. **Every one of them
 was safe precisely because nothing could contradict it.**
+
+## D75 — The privacy list grew from two to eleven, in three steps, and each step was found the same way
+The guarantee that your words stay out of the log files started as a claim about one type. Each
+time somebody enumerated instead of recalling, it grew:
+
+    two    the operator's words, as we first listed them
+    five   plus Claude's answers and the session title — the model's half was in my own
+           opening sentence to the coder and only your half got inventoried
+    eleven plus the wire object and the on-screen row — a single prompt of yours exists as an
+           unprotected string in FOUR objects at once
+
+Nothing logs any of it today; it is a latent gap, not a leak. But the number changes what issue
+#11 is: not "wrap a field" but four wrappings and every call site between them.
+
+The method that found each step is the one worth keeping: **a list built from what you can recall
+describes your attention; a list built by enumeration describes the thing.** Twice the correction
+was already sitting in the artefact — once in my own first sentence, once in the scan's own
+justifying comment.
+
+## D76 — I made a check that cannot fail, one hour after naming that as the defect class
+A test run reported "Failed: 0, Passed: 983" while the test host had crashed and 110 tests never
+ran. I made a standing rule to catch it: a green run is executed-equals-total with no failures.
+
+The reviewer crashed the host deliberately to test my rule. The summary line prints `Passed!`,
+`Failed: 0`, and a total equal to the number that ran — because "total" there means *what ran*,
+not the size of the suite. **My comparison is unconditionally true and can never detect an
+abort.**
+
+The corrected rule needs a third input the run cannot supply: the expected suite size, known in
+advance, plus checking for the "run was aborted" line, which is free and reliable.
+
+Both are now in the acceptance document rather than in our correspondence, in the form that
+matters: **"Failed: 0" is not a green run, and neither is total-equals-passed.**
+
+## D77 — Every test count quoted today came from a line that cannot distinguish a complete run
+Consequence of D76. The acceptance document's figures were re-verified with the expected size
+stated in advance and the checker itself controlled first — given a wrong expected size it reports
+a short run, so a green is not the only thing it can say. **No figure moved.**
+
+The analysis that decided how far the damage reached is the coder's and it is the sharp part:
+**the fault fabricates greens and cannot fabricate a red.** So the section proving our checks
+actually catch planted defects was never at risk — each of those records a run that FAILED, and a
+truncated run cannot invent a failure. The observed figures came from a live application driven by
+a script rather than a test host, so the fault does not reach them at all.
+
+That reasoning is in the document now, so nobody re-derives which numbers were ever in doubt.
+
+## D78 — Phase 1 closes, and the document declines six claims
+Approved. What the gate says it does NOT establish: the window pinning is performed but
+unverified; display scaling is unevidenced because all three of your monitors are at 100%; the
+sound comparison needs your ear; the assembled system's nudge behaviour is covered by nothing;
+your prompt text is unprotected in four objects; and the test suite has a host crash at roughly
+one run in twenty-four that nobody can reproduce.
+
+Six things declined, in a document whose job was to say Phase 1 works. That is the property I
+would judge it by.
