@@ -60,7 +60,6 @@ Desktop.ini
 .env.*
 appsettings.*.local.json
 secrets.json
-```
 
 # ---- Not ours ----
 # Created 2026-08-25 00:28 by an unidentified tool. A mechanical rebrand of

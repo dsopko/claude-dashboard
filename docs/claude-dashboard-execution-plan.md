@@ -240,9 +240,10 @@ Grouped into four sub-milestones. Each task lists Goal · Depends · Realizes ·
 - **Goal:** correct rendering and always-present window.
 - **Depends:** T1.11, T1.6
 - **Realizes:** Impl §5.4, §6.3 (documented tier only)
-- **Deliverables:** Per-Monitor v2 in `app.manifest`; a **minimal** `IVirtualDesktopService` adapter (MScholtes, documented calls) exposing just `PinToAllDesktops`; pin the window to all desktops; restore last position, else open on the focused monitor; always-on-top toggle (default **off**).
-- **Acceptance:** window stays crisp when dragged between differently-scaled monitors; appears on every virtual desktop; position restores.
-- **Guardrails:** documented VD calls only (full grouping is Phase 4); adapter degrades if VD is unavailable.
+- **Deliverables:** a **minimal** `IVirtualDesktopService` adapter exposing just `PinToAllDesktops` (`GetDesktop` returns null until Phase 4, which is the documented "fall back to cwd grouping" signal); pin the window to all desktops; restore last position, else open on the focused monitor; always-on-top toggle (default **off**).
+- **Acceptance:** window stays crisp when dragged between differently-scaled monitors; appears on every virtual desktop; position restores, and a vanished monitor falls back to the focused one; with pinning forced to fail the app starts, logs once, and behaves normally on one desktop. **Republish and repoint the logon task** — see T1.19.
+- **Guardrails:** adapter degrades to `false` if pinning is unavailable; full grouping is Phase 4.
+- **Two stale premises corrected 2026-08-26, both verified against the tree and against Microsoft's reference.** Per-Monitor v2 is **already declared** in `app.manifest` and has been since T1.0, so this task **confirms** it and proves the window renders correctly across two scale factors; it does not add a line that exists. And pinning is an **undocumented**-tier call — see the correction in Impl §6.3. `IVirtualDesktopManager` has three methods and none of them pins.
 
 ### Milestone 1D — Persistence, integration, packaging
 
@@ -258,17 +259,18 @@ Grouped into four sub-milestones. Each task lists Goal · Depends · Realizes ·
 - **Goal:** make Claude Code feed the dashboard.
 - **Depends:** T1.8
 - **Realizes:** Impl §9.2–9.3, §10.2
-- **Deliverables:** register the **logon scheduled task** (restart-on-failure; normal integrity); **merge** the hook config + `allowedHttpHookUrls` + `httpHookAllowedEnvVars` into `~/.claude/settings.json` without clobbering existing hooks; write `port.txt`; ensure `CLAUDE_DASHBOARD_TOKEN` exists (generate + set if absent).
-- **Acceptance:** on a clean profile, running setup then starting a Claude Code session causes real events to reach `/hook` and drive the dashboard; existing user hooks in `settings.json` are preserved.
-- **Guardrails:** parse-merge-write settings (never overwrite the file); token via env var only.
+- **Deliverables:** register the **logon scheduled task** (restart-on-failure; normal integrity); write `port.txt`; ensure `CLAUDE_DASHBOARD_TOKEN` exists (generate + set at **User** scope if absent); and **register the hook handlers when the process starts, remove them when it quits** — Impl §9.3 as amended, which is where the merge now lives. The URL carries the **bound** port, not the compiled-in default.
+- **Acceptance:** on a clean profile, running setup then starting a Claude Code session causes real events to reach `/hook` and drive the dashboard; existing user hooks in `settings.json` are preserved across **add, remove, and add-then-crash**, asserted by their command strings and not by a count; starting twice adds no duplicate handler; **with the dashboard shut down, a new Claude Code session submitting a prompt produces no hook error** (GitHub issue #4); a write that loses a race to another writer leaves a valid file; the registered URL is tested with a **non-default** port; and the residual after a hard kill is written down rather than claimed closed.
+- **Guardrails:** parse-merge-write settings (never overwrite the file); back up to a plain copy at a stated path, restorable by hand without the dashboard; write atomically; identify our handlers by URL, never by an added key; token via env var only. **`DashboardPaths.SettingsFile` is the dashboard's own file, not Claude Code's** — Claude's path must not hang off that class.
+- **Note:** the acceptance above only ever tests sessions started *after* the dashboard. Whether Claude Code re-reads `settings.json` while running decides what this feature achieves for sessions already open; determine it, do not assume it.
 
 **T1.19 — Packaging (self-contained single-file)**
 - **Goal:** a shippable exe that autostarts.
 - **Depends:** T1.7, T1.18
 - **Realizes:** Impl §10.2
 - **Deliverables:** a `dotnet publish -c Release -r win-x64 --self-contained` single-file profile; the logon task points at the published exe.
-- **Acceptance:** the published exe launches at logon via the task and runs headless-to-tray; no machine-wide runtime required. **Not MSIX.**
-- **Guardrails:** —
+- **Acceptance:** the published exe launches at logon via the task and runs headless-to-tray; no machine-wide runtime required. **Not MSIX.** **Verify the manifest reached the published executable** — a single-file publish generates its own apphost, and whether the source manifest is embedded in it is a packaging behaviour nobody here has observed. The failure would be silent and would look exactly like the source manifest being wrong, sending whoever debugs it to the wrong file.
+- **Guardrails:** **After T1.19 there are two artefacts — the source and the published exe — and they can disagree.** Every task landing after this one carries "republish and repoint the logon task" in its acceptance. Without that, the executable the operator's logon task starts quietly drifts from the source, and the symptom is one nobody would connect to a change in task ordering.
 
 **T1.20 — Phase 1 end-to-end acceptance**
 - **Goal:** prove the slice under real load.

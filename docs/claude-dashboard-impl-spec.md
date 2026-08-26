@@ -251,8 +251,20 @@ Realizes TS §III.5:
 
 Realizes TS §III.9. The **MScholtes VirtualDesktop** wrapper, vendored as source behind this adapter and version-pinned:
 
-- **Documented-tier** calls (which desktop a window is on; pin a window to all desktops) drive Phase 4 grouping and the §5.4 pin-to-all-desktops behavior.
-- **Undocumented-tier** calls (enumerate, switch, name) are isolated here; the interface GUID shifts between Windows builds, so this adapter is the one expected to need occasional maintenance. Degrades per TS §IV.7 — if switching breaks on an update, window activation still jumps to the session and grouping still works.
+- **Documented-tier** calls are `IVirtualDesktopManager` (`shobjidl_core.h`) and nothing else: `GetWindowDesktopId`, `IsWindowOnCurrentVirtualDesktop`, `MoveWindowToDesktop`. Which desktop a window is on drives Phase 4 grouping.
+- **Undocumented-tier** calls are enumerate, switch, name, **and pin**. All are isolated here; the interface GUIDs shift between Windows builds, so this adapter is the one expected to need occasional maintenance. Version-pin: record in the source which Windows build the GUIDs were taken from. Degrades per TS §IV.7 — if switching breaks on an update, window activation still jumps to the session and grouping still works; if pinning breaks, the dashboard is confined to one virtual desktop, which is a lost convenience and not a broken product.
+
+> **Correction (2026-08-26, found while drafting T1.16).** This section previously filed
+> "pin a window to all desktops" under the **documented** tier. It is not there. Verified
+> against Microsoft's own reference: `IVirtualDesktopManager` has exactly the three methods
+> listed above and none of them pins. Pinning lives on `IVirtualDesktopPinnedApps`, which
+> Microsoft does not document.
+>
+> Left uncorrected, a coder building T1.16 would have looked for a pin method on the
+> documented interface, not found one, and then either abandoned the §5.4 pin-to-all-desktops
+> behaviour or reached for the undocumented interface **without** the isolation, the
+> version-pinning and the degrade-to-`false` discipline that the undocumented tier requires —
+> which is exactly the maintenance burden this section exists to contain.
 
 ### 6.4 Navigation — `ITerminalNavigator` (Phase 2)
 
@@ -384,9 +396,23 @@ Notes:
 - The token is interpolated from **`CLAUDE_DASHBOARD_TOKEN`**, which must be listed in both `allowedEnvVars` (per-handler) and `httpHookAllowedEnvVars` (global), and set in the user environment. It never appears literally in the committed file.
 - The dashboard verifies `X-Dashboard-Token` at `/hook` and drops mismatches (§3.4).
 
-### 9.3 Merge, don't clobber
+### 9.3 Merge, don't clobber — and register for only as long as we are listening
 
-Hook entries merge across settings scopes, but *within* `~/.claude/settings.json` the first-run setup must **append** its handlers to the relevant arrays and add the two allowlists without overwriting the user's existing hooks. Parse, merge, write back — never replace the file wholesale.
+Hook entries merge across settings scopes, but *within* `~/.claude/settings.json` the dashboard must **append** its handlers to the relevant arrays and add the two allowlists without overwriting the user's existing hooks. Parse, merge, write back — never replace the file wholesale.
+
+**Registration is a process lifecycle, not an install step.** The dashboard **adds** its handlers when it starts and **removes** them when it quits. A hook exists only while something is listening on the port it names.
+
+Why, and it is not tidiness. When no dashboard is listening, Claude Code shows the user a hook error on **every turn**. There is no per-hook suppression — only the global `disableAllHooks` — and the message names no cause beyond "a hook ran and threw an error", so it neither explains itself nor goes away. A crashed dashboard would therefore degrade Claude Code itself, which contradicts the pure-observer principle of §3.3 in spirit even though ingress obeys it to the letter. The dashboard's own failure must cost the user nothing but the dashboard.
+
+The rules that follow from it:
+
+- **Ours is identified by URL** — an `http` handler whose `url` is the dashboard's loopback hook URL. Never by an added marker key: the settings schema is not ours to extend, and an unknown key may be rejected by a future version. Removing a handler a user happened to add with the same URL is harmless, because the next start puts it back.
+- **The URL carries the port actually bound**, not the compiled-in default. The two differ whenever the operator overrides the port, and registering a URL nothing is listening on has the same symptom as registering nothing: no sessions appear.
+- **The two allowlists stay.** An `allowedHttpHookUrls` entry pointing at no hook does nothing and causes no error. Leaving them halves the writes to the file and removes a class of half-written state.
+- **An array emptied by removal is deleted**, and so is `hooks` if it empties.
+- **Registration is idempotent.** Starting twice must not produce two handlers.
+- **Write atomically and back up first.** Every Claude Code session on the machine reads this file, and a half-written one is worse than a wrong one. The backup must be a plain copy at a stated path, restorable by hand with the dashboard uninstalled, deleted, or refusing to start — never a restore that depends on the thing that broke.
+- **Residual, stated plainly.** A hard kill leaves the handlers registered. The logon scheduled task of §10.1 shortens that window; it does not close it. While the port is closed the consequence is a loud error and no delay, because a closed loopback port resets at once. If some other process then takes the port and accepts without answering, the loud error becomes a silent timeout the operator cannot see — which is the case that most needs writing down, because it is the one they cannot detect.
 
 ---
 
@@ -406,8 +432,8 @@ Realizes the "logon tray app, not a service" decision (TS integration constraint
 - **Publish:** `dotnet publish -c Release -r win-x64 --self-contained` as a single-file exe. **Not MSIX** — its sandboxing fights writing the scheduled task and merging Claude Code's settings, both of which this tool must do.
 - **First-run setup** (the step that realizes everything above):
   1. Register the logon scheduled task (via `schtasks`, or `Microsoft.Win32.TaskScheduler` for a typed API).
-  2. Merge the hook config + `allowedHttpHookUrls` + `httpHookAllowedEnvVars` into `~/.claude/settings.json` (§9.3), pointing at the chosen port.
-  3. Write `port.txt`; ensure `CLAUDE_DASHBOARD_TOKEN` exists (generate and set if absent).
+  2. Write `port.txt`; ensure `CLAUDE_DASHBOARD_TOKEN` exists (generate and set if absent). Set it at **User** scope, not process scope, or no Claude Code session will inherit it. Note that a terminal already open when it is set never sees it: those sessions have no token and their hooks are rejected until they restart.
+  3. Merging the hook config into `~/.claude/settings.json` is **not** a setup step. It moves to the process lifecycle of §9.3 — added at start, removed at quit. Setup and start must not both write those handlers by different routes.
 - A later **Settings UI** (Phase 6) re-runs/repairs the task and hook config, and edits thresholds and sounds.
 
 ---
