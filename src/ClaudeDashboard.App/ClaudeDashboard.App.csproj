@@ -40,11 +40,29 @@
     <SelfContained>true</SelfContained>
     <PublishSingleFile>true</PublishSingleFile>
 
-    <!-- Without this the native dependencies sit beside the exe and "single file" is a lie. -->
+    <!--
+      Without this the native dependencies sit beside the exe as loose DLLs, which is the
+      failure that only shows up when somebody copies "the exe" somewhere on its own.
+    -->
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+
+    <!--
+      App's symbols go inside the executable. Core's do not: it builds with its own defaults and
+      emits ClaudeDashboard.Core.pdb beside the exe, and that is left alone deliberately —
+      shipping it is what makes a crash in Core symbolicate.
+    -->
     <DebugType>embedded</DebugType>
   </PropertyGroup>
+
+  <!--
+    So "single file" ships as three entries, and all three are intended: the executable, the
+    Core symbols above, and sounds\ — which Impl Part 8 requires beside the exe rather than
+    embedded, because an operator replaces a shipped sound by dropping a like-named file into
+    their config folder, and a resource compiled into the assembly could neither be compared
+    with nor shadowed by a file on disk. The property above is about native *dependencies*
+    being bundled, not about the folder holding exactly one item.
+  -->
 
   <!--
     App.xaml is compiled as a Page rather than as the ApplicationDefinition, which is what

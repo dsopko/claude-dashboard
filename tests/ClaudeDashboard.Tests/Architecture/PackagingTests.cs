@@ -64,9 +64,26 @@ public sealed class PackagingTests
     /// The publish settings apply only when a runtime identifier is given.
     /// </summary>
     /// <remarks>
-    /// The guard described in this class's remarks. Asserted on the condition itself, because the
-    /// damage from losing it lands on every other test in the suite and would be read as anything
-    /// but a packaging change.
+    /// <para>
+    /// <strong>Measured, because two confident accounts of this were both wrong.</strong> Planting
+    /// an unconditional <c>&lt;RuntimeIdentifier&gt;win-x64&lt;/RuntimeIdentifier&gt;</c> and
+    /// building from a deleted <c>obj</c> and <c>bin</c>: the build <strong>succeeds</strong>, the
+    /// app's output moves to <c>bin/Debug/net10.0-windows/win-x64/</c>, and the suite still
+    /// passes — 1012 of 1013, with <em>this test</em> the only failure.
+    /// </para>
+    /// <para>
+    /// So the first version of this remark was wrong to say the damage "lands on every other test
+    /// in the suite": nothing else notices, because the test project takes its dependencies
+    /// through a project reference rather than from that path. And the later suggestion that the
+    /// assertion can never fire — on the grounds that an unconditional RID fails the build with
+    /// <c>BG1002</c> — did not reproduce here from a clean tree.
+    /// </para>
+    /// <para>
+    /// Both corrections pointed the same way, which is what makes the real answer worth writing
+    /// down: the change is <strong>quiet</strong>. It builds, it tests, it moves every artefact
+    /// path, and this assertion is the only thing that says so. That is a better reason to keep it
+    /// than either of the ones it replaces.
+    /// </para>
     /// </remarks>
     [Fact]
     public void The_publish_settings_do_not_apply_to_an_ordinary_build()
