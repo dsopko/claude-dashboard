@@ -24,6 +24,27 @@ namespace ClaudeDashboard.App.Adapters;
 /// is confined to one desktop. That is a lost convenience and not a broken product (TS §IV.7).
 /// </para>
 /// <para>
+/// <strong>THE RESIDUAL: that covers one of the two ways an undocumented interface goes wrong, and
+/// this is the single path in the product where "degrade, never crash" does not hold.</strong> The
+/// handled case is a <em>changed identifier</em> — <c>QueryService</c> fails, the catch below runs,
+/// the dashboard reports one desktop and lives. The unhandled case is an <em>unchanged identifier
+/// over a changed vtable</em>: Microsoft keeps the GUID and reorders or inserts a method. Then
+/// <c>QueryService</c> succeeds, every object is real, and the slot arithmetic is silently wrong —
+/// a call to <c>PinView(IntPtr)</c> can land on a neighbouring slot such as <c>PinAppID(string)</c>
+/// and dereference a window handle as a string pointer. That is an access violation. .NET treats it
+/// as a corrupted-state exception and <strong>will not deliver it to the exception filter below at
+/// all</strong>; the process dies, and the tray icon disappears with it.
+/// </para>
+/// <para>
+/// This is stated rather than defended because <strong>it cannot be defended against</strong>. No
+/// filter catches it, and no probe distinguishes a correct vtable from a plausible wrong one
+/// without calling into it, which is the dangerous act itself. What can be done has been: the
+/// surface is two methods on two interfaces, <c>IApplicationView</c> is never declared so its
+/// layout is never assumed, and everything is in this one file. If the dashboard ever starts
+/// vanishing without a log line after a Windows update, this paragraph is the reason and the fix
+/// is to stop calling <see cref="PinToAllDesktops"/> on that build.
+/// </para>
+/// <para>
 /// <strong>Nothing here is declared that is not called.</strong> Pinning needs a view object for
 /// the window, and the temptation is to declare <c>IApplicationView</c> — a long interface whose
 /// layout also shifts between builds. It is never called into, only handed straight back to
@@ -40,12 +61,21 @@ namespace ClaudeDashboard.App.Adapters;
 /// undocumented call, checked by a documented one.
 /// </para>
 /// <para>
-/// That is the general shape, and it is worth stating because Phase 4 inherits all of this:
-/// <strong>find an oracle the implementation does not control.</strong> The usual rule — an
-/// assertion is only load-bearing if the observation could not have been produced any other way —
-/// is hard to satisfy against an undocumented call, because the only thing that knows whether it
-/// worked is the call itself. Here the thing answering is a different interface, from Microsoft,
-/// with no stake in the outcome, and <c>return true</c> cannot reach it.
+/// That is the general shape, and Phase 4 inherits all of it, so state it in full:
+/// <strong>find an oracle the implementation does not control, and a control that proves the
+/// oracle was asked under the conditions you think it was.</strong>
+/// </para>
+/// <para>
+/// <strong>The second half is not extra rigour; it is the half that works, and this file is the
+/// proof.</strong> The first half was satisfied — a different interface, documented by Microsoft,
+/// with no stake in the outcome, unreachable from a <c>return true</c> — and the first run of the
+/// check still reported the pin verified when no desktop switch had happened. The oracle answers a
+/// <em>different question</em>: <see cref="IsOnCurrentDesktop"/> reports presence, not pinning, and
+/// presence is equally true of an unpinned window that never left. It is evidence about pinning
+/// only when combined with a state change and a control proving the state change occurred; remove
+/// any one of those three and it proves nothing. A later reader will be tempted to drop the
+/// control, because it looks like ceremony. It is the load-bearing part. See
+/// <c>tools/verify-pin.ps1</c>, which carries the whole argument.
 /// </para>
 /// </remarks>
 public sealed class VirtualDesktopService : IVirtualDesktopService

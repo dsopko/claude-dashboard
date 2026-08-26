@@ -1,4 +1,4 @@
-# Generates the dashboard's four notification sounds as 16-bit mono WAV files.
+﻿# Generates the dashboard's four notification sounds as 16-bit mono WAV files.
 #
 # These are placeholders with a deliberate shape, not final assets. TS §IV.5 and Design §8
 # describe a sound *language* — "finished" is a two-note "bee-boop", and permission, question

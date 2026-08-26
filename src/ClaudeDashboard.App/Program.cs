@@ -160,10 +160,13 @@ public static class Program
                 tick.Attach(window.ViewModel);
 
                 // Where it opens, whether it floats, and the pin to every virtual desktop
-                // (Impl §5.4). BEFORE the surfacer, and that order is load-bearing: Attach shows
-                // the window when a /show was latched during startup, and a window that is
-                // already showing has already raised SourceInitialized. Getting this backwards
-                // left the window unpinned, silently, on exactly the path a second launch takes.
+                // (Impl §5.4). Before the surfacer because placement should be in force the first
+                // time the window is drawn — but this order is NOT the guard, and nothing here
+                // depends on it. An early version only subscribed to SourceInitialized, and then
+                // Attach showing a latched /show meant the event had already fired and the window
+                // was never pinned. That is fixed inside WindowPresence.Apply, which pins at once
+                // when a handle exists and subscribes only when it does not. Both orders work; the
+                // reason is written where the check is.
                 var presence = host.Services.GetRequiredService<WindowPresence>();
                 var settingsStore = host.Services.GetRequiredService<SettingsStore>();
                 presence.Apply(window, host.Services.GetRequiredService<DashboardSettings>().Window);

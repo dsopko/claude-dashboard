@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Proves — or disproves — that the dashboard window is pinned to every virtual desktop (T1.16).
 
@@ -23,15 +23,42 @@
   background process. Without the control, a verified pin would have been reported on no evidence
   whatsoever.
 
-  The general form is worth carrying: ask whether the experiment could have produced the OTHER
-  outcome — and ask it of the environment, not only of the code and the assertion. What answers it
-  is a control that shares the experiment's environment but not its subject. An unpinned window
-  goes through the same desktop switch, the same oracle and the same clock as ours; the only thing
-  it does not share is the thing under test.
+  THE RULE, IN FULL, BECAUSE HALF OF IT IS THE HALF THAT WORKS.
+  "Find an oracle the implementation does not control" is not enough, and this run is the proof:
+  that is exactly what we had — documented by Microsoft, no stake in the outcome, unreachable from
+  a `return true` — and it reported the pin verified when no desktop switch had happened.
 
-  INCONCLUSIVE IS A REAL OUTCOME.
-  This reports three results, not two. A tool that can only say PASS or FAIL has to call a
-  no-switch run one of them, and it will call it PASS.
+  It failed because it answers a DIFFERENT QUESTION. `IsWindowOnCurrentVirtualDesktop` reports
+  PRESENCE, not pinning, and presence is equally true of an unpinned window that never left. It
+  becomes evidence about pinning only when combined with a state change and a control proving the
+  state change occurred. Remove any one of those three and it proves nothing.
+
+  So carry it as: FIND AN ORACLE THE IMPLEMENTATION DOES NOT CONTROL, AND A CONTROL THAT PROVES
+  THE ORACLE WAS ASKED UNDER THE CONDITIONS YOU THINK IT WAS. The first half is what this script
+  set out to do. The second half is what caught the failure — and it is the half a later reader
+  drops, because it looks like extra rigour rather than the load-bearing part.
+
+  The general form: ask whether the experiment could have produced the OTHER outcome — and ask it
+  of the environment, not only of the code and the assertion. What answers that is a control which
+  shares the experiment's environment but not its subject. An unpinned window goes through the same
+  desktop switch, the same oracle and the same clock as ours; the only thing it does not share is
+  the thing under test.
+
+  INCONCLUSIVE IS A REAL OUTCOME, AND THERE ARE TWO OF THEM.
+  This reports four results, not two. A tool that can only say PASS or FAIL has to call a no-switch
+  run one of them, and it will call it PASS. The second inconclusive is the oracle itself failing:
+  `PinOracle.On` returns 'ERR' when the COM call throws, and 'ERR' is neither True nor False. An
+  earlier version let it fall through to the else and print "the dashboard was absent too" — a
+  positive claim about where the window is, made on no reading at all. Under-claiming is still a
+  failure reported as a measurement.
+
+  THIS FILE MUST KEEP ITS BYTE-ORDER MARK. Windows PowerShell 5.1 reads a file with no BOM as ANSI,
+  so each UTF-8 em dash in here decodes to three characters, the last of which is U+0094 — and
+  PowerShell treats a curly quote as a string delimiter. The file then parses or not depending on
+  whether the count of them happens to be even. It WAS even, and this script parsed cleanly for
+  exactly that reason; adding one paragraph made it odd and the whole file stopped parsing. Nothing
+  about the change was wrong. Check any edit with:
+    $e=$null; [void][Management.Automation.Language.Parser]::ParseFile($PSCommandPath,[ref]$null,[ref]$e); $e
 
   IT NEEDS A HUMAN, AND THAT IS NOT LAZINESS.
   Switching virtual desktops cannot be automated from here. Both `keybd_event` and `SendInput`
@@ -93,16 +120,27 @@ Write-Output ("  {0,-9} {1,-9} {2}" -f 'DASHBOARD', 'CONTROL', 'meaning')
 
 $sawSwitch = $false
 $pinnedThere = $false
+$oracleFailed = $false
 
 for ($i = 0; $i -lt $Seconds; $i++) {
     $ours = [PinOracle]::On($dash.MainWindowHandle)
     $ctl  = [PinOracle]::On($control.MainWindowHandle)
 
-    $meaning = ''
+    # The control reading False is the ONLY thing that establishes that a switch happened. A
+    # control of 'ERR' is not a switch and is deliberately not counted as one: that is the oracle
+    # failing, not the desktop changing.
     if ($ctl -eq 'False') {
         $sawSwitch = $true
-        if ($ours -eq 'True') { $meaning = '<-- on another desktop, and the dashboard is still there: PINNED'; $pinnedThere = $true }
-        else                  { $meaning = '<-- on another desktop, and the dashboard is not: NOT pinned' }
+
+        # THREE BRANCHES, NOT TWO. 'ERR' is the oracle refusing to answer about our window, and it
+        # must never fall through to the else — that prints "the dashboard was absent too", which
+        # is a positive claim about where the window is, made on no reading at all. Wrong in the
+        # safe direction is still a failure reported as a measurement, and preventing exactly that
+        # is why this script exists.
+        if     ($ours -eq 'True')  { $meaning = '<-- on another desktop, and the dashboard is still there: PINNED'; $pinnedThere = $true }
+        elseif ($ours -eq 'False') { $meaning = '<-- on another desktop, and the dashboard is not: NOT pinned' }
+        else                       { $meaning = '<-- switched, but the oracle would not answer about the dashboard: NO READING'; $oracleFailed = $true }
+
         Write-Output ("  {0,-9} {1,-9} {2}" -f $ours, $ctl, $meaning)
     }
 
@@ -117,6 +155,12 @@ if (-not $sawSwitch) {
 }
 elseif ($pinnedThere) {
     Write-Output "PINNED. The dashboard reported present on a desktop the control was absent from."
+}
+elseif ($oracleFailed) {
+    Write-Output "INCONCLUSIVE. A switch was observed, but every reading of the dashboard window was an"
+    Write-Output "error rather than a True or a False. The oracle could not answer, so nothing here is a"
+    Write-Output "statement about pinning. Check that the dashboard window is still open — its handle"
+    Write-Output "goes stale the moment it closes — and run this again."
 }
 else {
     Write-Output "NOT PINNED. On a desktop the control was absent from, the dashboard was absent too."

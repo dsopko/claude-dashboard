@@ -19,8 +19,18 @@ namespace ClaudeDashboard.App.Ui;
 /// <para>
 /// <strong>Pinning needs a real handle, which a window does not have until it is shown.</strong>
 /// <c>SourceInitialized</c> is the first moment one exists, and pinning before that silently does
-/// nothing — the call succeeds against a handle of zero and reports success. That is the failure
-/// this class's ordering exists to avoid, and it is invisible without a second desktop to look at.
+/// nothing — the call succeeds against a handle of zero and reports success. It is invisible
+/// without a second desktop to look at.
+/// </para>
+/// <para>
+/// <strong>The guard is the handle check in <see cref="Apply"/>, not the order it is called
+/// in.</strong> An early version only subscribed to <c>SourceInitialized</c>, so calling it after
+/// anything that had already shown the window meant the event had fired and would not fire again.
+/// That was fixed here rather than in the caller: <c>Apply</c> now pins immediately when a handle
+/// already exists and subscribes only when one does not, so <em>both orders are correct</em>. Any
+/// call ordering elsewhere in start-up is free to change; nothing in the test suite pins it,
+/// because nothing needs to. Do not preserve an ordering as though it were the guard — the guard
+/// is eight lines below this remark.
 /// </para>
 /// <para>
 /// <strong>Every failure here is a downgrade, never a throw.</strong> A window that cannot be
@@ -77,12 +87,15 @@ public sealed class WindowPresence
 
         window.Topmost = settings.AlwaysOnTop;
 
-        // If the window already has a handle, SourceInitialized has fired and subscribing to it
-        // would wait for an event that will never come again. That is not hypothetical: a /show
-        // arriving during startup is latched and shows the window, so on that path the handle
-        // exists before this runs. Observed as a live run where nothing was pinned and *nothing
-        // was logged either way* — the absence of both lines is what gave it away, which is an
-        // argument for logging the success as well as the failure.
+        // THE GUARD. If the window already has a handle, SourceInitialized has fired and
+        // subscribing to it would wait for an event that will never come again. That is not
+        // hypothetical: a /show arriving during start-up is latched and shows the window, so on
+        // that path the handle exists before this runs. Observed as a live run where nothing was
+        // pinned and *nothing was logged either way* — the absence of both lines is what gave it
+        // away, which is an argument for logging the success as well as the failure.
+        //
+        // With this check here, the caller may apply presence before or after anything else that
+        // shows the window. Both paths pin.
         if (new WindowInteropHelper(window).Handle != IntPtr.Zero)
         {
             Pin(window, PinAttempts);

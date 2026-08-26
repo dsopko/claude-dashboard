@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Replays recorded Claude Code hook traffic at a dashboard's ingress (T1.20).
 

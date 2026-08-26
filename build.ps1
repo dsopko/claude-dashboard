@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Restore, build and test the Claude Dashboard solution.
 
