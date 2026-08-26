@@ -574,3 +574,223 @@ the test now asserts that the thing survives one.
 
 That is four times tonight a claim was checked by someone other than the person who made it, and
 found wrong. I relayed this one, so it is also the second of mine.
+## D38 — Two live steps of T1.18 are deliberately NOT applied to your machine tonight
+T1.18 builds and tests everything. Two things it will NOT do to your actual environment.
+
+**The security token is not switched on.** T1.18 is supposed to generate `CLAUDE_DASHBOARD_TOKEN`
+and set it for your user account, and register hooks that send it. The coder found the hazard
+before building: a Claude Code session that was already running when the variable is set never
+inherits it. So the moment a dashboard restarts with a token configured, it answers "unauthorised"
+to every hook from every session that started earlier — which is issue #4's symptom exactly, and
+self-inflicted.
+
+The direction of the danger decided it. It does not bite while the current dashboard keeps
+running. It bites on the next restart — which your logon task would perform tomorrow morning,
+unattended, with nobody watching. Setting it tonight would arm a fault that fires when you are
+not there, in your own sessions, with a symptom indistinguishable from the bug we are fixing.
+
+So: the code ships and is tested against a scratch environment. Switching it on is one deliberate
+step for you, after your sessions have turned over. Nothing is broken meanwhile — the dashboard
+accepts unauthenticated posts on loopback, which the specification permits and which is exactly
+what it has been doing all along.
+
+**The logon task is not registered.** The coder did not ask about this; I stopped it. The task
+must point at the packaged executable, and packaging is T1.19. Registering it tonight would point
+your logon at a development build and start that automatically tomorrow. It gets built and proven
+by reading the registration back, under a scratch name that is deleted afterwards; the real one
+belongs with T1.19.
+
+## D39 — Removing a hook of ours that does nothing
+Your live settings file has our dashboard hooks on eight events, hand-installed. One of them,
+`PermissionRequest`, is an event the dashboard deliberately refuses — there is a test that says
+so by name. It fires, posts, gets a polite acknowledgement, and nothing happens, on every
+permission prompt you answer.
+It is being removed and will not be recreated. It matches our URL, so our own rule already
+decides it; we settled on 24 August that this event is corroboration and not the signal the
+dashboard acts on; and a hook that does nothing still costs a round trip every time you are
+asked to approve something.
+**Your own `notify.ps1` is also on that event and stays.** So do your other three, and so do the
+`matcher` keys on their groups.
+
+## D40 — Documentation is not measurement, in both directions
+The published documentation says Claude Code reloads settings while running and names hooks
+explicitly among the things that take effect without a restart. That is what the whole feature
+rests on, so the coder is measuring it rather than citing it.
+I added a condition: measure it in BOTH directions. "A running session notices a hook we added"
+and "a running session notices a hook we removed" are two separate claims, and the second is the
+one issue #4 actually needs. Proving only the first would have left the important half assumed.
+
+## D41 — Issue #4 is measured, not argued, and the measurement was hard to earn
+Both directions proven on your live settings file:
+  • A hook we ADD starts firing in sessions that were already running. Ten events reached a
+    dashboard on a port that did not exist in your file until 02:43 tonight.
+  • A hook we REMOVE stops firing in those same sessions. Nothing arrived across a window with a
+    proven-healthy receiver at both ends.
+So a dashboard that quits cleanly takes its hooks with it, and every Claude Code session you
+already have open stops calling it — no restart, no error, nothing left behind. Your bug is
+fixed for the ordinary case. The residual is a hard kill, which no switch can close because no
+suppression field exists.
+
+The second measurement took four attempts and the reason is worth keeping. The coder twice
+refused to claim a result it could not defend: the receiver was demonstrably alive on both sides
+of the silence, but nothing showed WHEN my trigger landed inside that window — only the order of
+its own tool calls. It named the flaw itself as the same species as reading a summary count
+instead of the failure messages. I fixed it by reading my machine's clock immediately before
+sending and putting the reading in the message. One line turned an ordering that could only be
+inferred into one that can be shown.
+I also made it worse once, by firing an unrequested trigger that landed at a moment neither of us
+could place — destroying the very property the coder was establishing.
+
+## D42 — One line in your settings file that neither of us would write
+`allowedHttpHookUrls` now carries a second entry, `http://127.0.0.1:59918/hook`, left over from
+tonight's scratch dashboard. It is harmless: an allowlist entry pointing at a port nothing will
+ever listen on does nothing, which is exactly why the specification leaves allowlists in place.
+
+The coder tried to remove it and its own permission checks refused the write. It stopped rather
+than working around them. **I then declined to do it on its behalf**, because performing an
+action for another session that its own guard denied is the same manoeuvre we refuse when it
+comes the other way, and it does not become acceptable because I am the one who asked for it.
+Your authorisation to write that file was given to a session; it is not a general licence for
+whichever session finds a way through.
+
+So it is yours: delete `http://127.0.0.1:59918/hook` from `allowedHttpHookUrls` in
+`~/.claude/settings.json`, or tell me to and I will. One line, and nothing depends on it.
+
+## D43 — A branch we wrote for a hypothesis met the real thing the same night
+T1.15 added a case for "something is on our port that answers, but cannot say who it is" — an
+old build, or a stranger. Your currently running dashboard is exactly that: it predates T1.15,
+so it answers the health check with a bare "ok" and no identity. Correctly classified as
+unrecognised rather than mistaken for one of ours. The hypothetical was sitting on the machine
+the whole time.
+
+## D44 — A finding worth keeping, because the obvious repair is the dangerous one
+Windows does not store the "run at normal privilege" setting when you register a scheduled task
+with it — read the task back and that element is simply absent. So a check looking for it fails
+on a task that is perfectly correct.
+The obvious repair is to delete the check. That then passes a task somebody had edited to run
+elevated, which is the thing we are guarding against and the reason the specification says
+"never elevated". The only statement true of both what we write and what Windows stores is the
+negative one: the task is elevated only if it explicitly says so.
+Both halves are tested, including the control that catches an elevated task — without which a
+check that always answered "not elevated" would satisfy everything else.
+
+## D45 — I stalled for seven hours, and the cause was mine
+I handed T1.18 to the reviewer around 03:00 and waited for a verdict without subscribing to its
+idle signal. I had done that for the coder on every single hand-off and forgot it for the
+reviewer. My earlier fallback timers had expired. So the reviewer finished a turn, nothing woke
+me, and I waited until you asked why I had stopped at 10:30.
+
+Nothing was lost — the tree stayed clean, T1.18's code and tests were already committed, and your
+dashboard ran untouched throughout. What was lost is seven hours of the night you told me to use.
+
+The lesson is not "remember the subscription". It is that **the arrangement had a single point of
+failure I never noticed: my only way of learning anything is a message from a peer, and a peer
+that goes quiet is indistinguishable from a peer that is working.** I used fallback timers early
+in the night for exactly this and stopped setting them once the rhythm felt reliable. The rhythm
+was not the protection; the timer was.
+
+## D45a — The stall was two failures, not one
+The reviewer finished its verdict at 03:14 and sent it. **The message was dropped in transit** —
+a relay was cut and it never reached me. It had been told not to retry in a loop, so it folded
+the verdict into its next contact, which was the one I finally prompted at 10:30.
+
+So half was mine (no idle subscription) and half was a lost message. Either alone would have been
+survivable; together they were indistinguishable from work in progress. That is the point worth
+keeping: **a peer that has gone quiet looks exactly like a peer that is working**, and nothing in
+the arrangement could tell the two apart.
+
+Two changes, both adopted. I subscribe to the idle signal on every hand-off in both directions.
+And the reviewer's rule, which is better than mine: state in your next message whether the
+previous one was acknowledged, so a dropped send surfaces as a question instead of as silence.
+
+## D46 — The most serious finding of the project so far, and it is a missing test rather than a bug
+`HookLifecycle` — the class that decides whether to register hooks at all, builds the URL, and
+writes the port file — had **no test class**. The pieces were tested; the thing that assembles
+them was not.
+
+The consequence that matters: the dashboard deliberately still starts when another process holds
+its port, and it registers hooks straight after starting. The only thing stopping it writing a
+hook address that points at **that other process** is one `if`. Hook payloads carry your prompt
+text. So a single line stands between your typing and an unknown program, and the reviewer showed
+that removing it leaves all 994 tests green, the dashboard looking healthy, and the registration
+reporting success.
+
+Not a bug — the guard is there and it works. But an unguarded guard, with the widest blast radius
+in the phase behind the quietest possible failure. Two tests fix it.
+
+## D47 — A verification that proved nothing, and the trap that produced it
+The coder withdrew its own earlier confirmation as worthless. It had disabled a guard by writing
+"if (false)", which the compiler flags as unreachable code — and this project treats every
+compiler warning as an error. So the build failed. Its script hid the failure, and the test run
+that followed used the previous, unmodified program still sitting on disk. It reported a clean
+pass on a change that had never been built.
+
+It found out only because a later attempt gave an impossible answer: a failure in a test the
+change could not possibly affect, which was the previous attempt's leftovers.
+
+**A change that does not compile produces exactly the same green result as a change that the
+tests failed to catch.** Two states that look identical where only one needs action — the same
+shape we have removed six times from the product, this time inside the method we use to check
+the product. Passed to the reviewer as a warning about its own technique, not only as a note
+about the coder's.
+
+## D48 — The two intermittent failures, and neither was where anyone guessed
+Both found, both real, neither in new code.
+One test waited for a counter to change and then read a log line written a few lines later. It
+was waiting on a stand-in that arrives first. It now waits for the thing it actually checks.
+The other was a comment written last cycle claiming that the logging system "flushes on write, so
+an open file is a readable file". It does not — it flushes every two seconds. Access to a file
+and content in a file are two different things, and the comment conflated them. This is the
+fourth comment tonight asserting something nobody tested, and the first to cause a real
+intermittent failure rather than merely being wrong.
+
+## D49 — The dropped verdict, verified from the transcripts rather than reconstructed
+You asked me to check whether the reviewer really sent its T1.18 verdict at 03:14 or whether
+something else was wrong. It sent. `SendMessage` at 03:13:23 local, matching its account, and the
+tool reported success — not an error, not a retry.
+It never arrived. Reviewer messages in my session run to 02:23, then nothing until 10:31.
+The message body exists in no other session's transcript on this machine.
+
+**Where I nearly filed a wrong answer.** The success result carried a note saying another live
+session is also named "Director" — and there is one: the original interactive Director session I
+succeeded, dormant since 24 August. My own session carries no name at all. I had the misrouting
+explanation half written.
+Then I ran the control: does that note appear on the messages that DID arrive? It appears on all
+eighteen. Constant background, not a distinguishing feature. Misrouting refuted.
+
+So: one message, reported successful, with a result identical to fifteen delivered ones, silently
+lost. Not the reviewer's fault and not a fault in how it ends its turns.
+
+A latent hazard found on the way and worth fixing anyway: two live sessions answer to the same
+name, one of them two days dormant. A name that resolves to two places is the same shape as
+everything else we removed this week.
+
+## D50 — T1.18 approved; the flake it uncovered becomes its own task
+The reviewer found a third intermittent test failure during 33 consecutive runs — one failure,
+never reproduced in 12 isolated runs or 18 further soaks. It has the name and not the message,
+and said so plainly rather than reasoning from the name.
+
+**It is not T1.18's.** It is a test from T1.13a in August, which the reviewer itself reviewed and
+approved at the time, recording it as "racy but the product is correct" — and recording that it
+could not explain why the test passed and would not invent a reason. The thing it could not
+explain has now failed.
+
+Its own lesson, and I am adopting it: **a test whose passing you cannot explain is a test you
+should not approve, whatever the code under it does.** "Racy but correct" describes a suite that
+will lie to somebody later.
+
+My ruling: approve T1.18, which is complete and did not cause this, and start the flake
+immediately as its own small task rather than filing it. A flaky test degrades every verdict that
+comes after it, so it does not go on a list.
+
+## D51 — Worktrees re-priced, and I have changed my recommendation
+In D1 I dropped worktrees, on the grounds that our one-session-at-a-time rule already prevented
+the collisions and the setup cost was not worth it. The night has re-priced that. Three separate
+environment failures in this shared tree, all different: a partly-written assembly reporting 824
+tests in 633 milliseconds, missing generated interface sources, and a stuck test host that hung
+for ten minutes.
+None corrupted a result that reached you, because all three were caught. But each one cost a
+re-run and a diagnosis, and each one was initially indistinguishable from a real defect.
+**I now recommend separate working folders before Phase 2.** Not tonight — it changes how all
+three sessions work, and T1.19 and T1.20 are still to do. D1 stands as the right call on the
+evidence I had; this is the same question with three more data points.
