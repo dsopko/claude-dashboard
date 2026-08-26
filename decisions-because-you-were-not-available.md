@@ -315,3 +315,262 @@ visible by asking what a name promises against what it actually returns.
 `SettingsFile` promises "the settings file" and delivers one of two. The failure needs no
 mistake by anybody: the obvious action is the wrong one, and the name confirms it on the way
 past. The question now asked of every remaining task.
+## D26 — T1.20 will not spawn fifteen real Claude Code sessions
+T1.20's acceptance calls for a documented run "across ~15 real Claude Code terminals". Fifteen
+live sessions would be driven off your account and would spend your usage, which you told me on
+25 August you are trying to conserve for another project. Three sessions building this thing
+already spend it; fifteen more, for a test, is a different kind of cost and it is your money.
+
+What I will do instead: drive the gate by replaying real recorded hook payloads at the ingress
+endpoint at realistic concurrency. That exercises everything from the wire inward — mapping,
+the channel, the registry, banding, the tray roll-up, sound coalescing, ack.
+
+What that does NOT prove, stated plainly rather than glossed: that Claude Code itself delivers
+hooks correctly at that scale from that many terminals. The wire is already evidenced by your
+own dogfooding on 24–25 August, at one or two sessions rather than fifteen.
+
+So T1.20 will produce a documented run with a named gap, not a closed gate. Closing it properly
+needs your terminals and your say-so.
+
+## D27 — Your live ~/.claude/settings.json is off limits tonight
+The coder asked me to draw this line before starting T1.18 rather than improvise it at three in
+the morning. Ruled: no test writes to your live settings file, no development instance registers
+hooks against it, no verification step touches it. If T1.18 cannot be finished without writing
+that file, T1.18 stops unfinished and waits for you.
+
+The deciding reason. You authorised the feature. You did not authorise a live test on your file
+while you are asleep and cannot repair it. You did say "yes do the settings.json merge" on
+25 August — that was one merge, performed by me, with you awake, after I made two backups. That
+consent was specific and supervised, and it does not carry forward to automated writes tonight.
+
+I also told the coder, in as many words, that I will not instruct them to touch that file, and
+that if I did they would be right to refuse and bring it to you. A director's instruction is not
+the file owner's consent. That is the same rule I hold against peers who ask me to change your
+settings, and it does not stop applying because I am the one asking.
+
+What we do instead: the merge takes its target path as a parameter and nothing resolves
+~/.claude implicitly; live evidence runs against a COPY carrying your real file's shape and your
+four command hooks; the backup is written and proven restorable before any first write, and the
+restore path is exercised in the tests rather than merely described.
+
+The last hop — a real Claude Code session firing a real hook at a dashboard we registered —
+depends on whether Claude Code honours a configuration-directory variable. The coder will
+determine that from the published documentation rather than guess, and if it does not exist,
+that one step is yours to run in the morning and will be declared as untested rather than
+claimed.
+
+A second effect worth knowing. Under the new lifecycle a development instance that registers
+hooks and is then killed would put a hook error on every turn in all three sessions building
+this — the rare crash case would become the normal working loop. Pointing the resolver at a
+scratch directory closes that by construction instead of by discipline.
+
+## D27a — You overruled D27, and that is the correct way for it to have been resolved
+You woke, read the ruling, and answered: back up the settings, then test on the live file,
+because there is no alternative environment. That is the file owner's consent — the one thing
+D27 was missing — so the boundary is lifted.
+
+Recorded rather than quietly replaced, because the shape of it matters: the coder declined to
+touch that file on a peer's word, I upheld the refusal against my own schedule, and the block
+cleared the moment the person who owns the file said so. That is the mechanism working, not the
+mechanism failing.
+
+Conditions I attached, which are mine and not yours: back up and prove the restore works before
+the first write; do not overwrite the two backups from 25 August; unit tests stay on temp copies
+so the live path never enters a fixture; one bounded window rather than all night, because all
+three sessions read that file; after every live write path, verify your four command hooks by
+their command strings and stop dead if one is missing; and leave the file in a coherent end
+state — hooks registered with a dashboard listening, or hooks absent with none. Never registered
+with nothing listening, which is the exact condition issue #4 exists to remove.
+
+I also offered the coder the chance to hear the authorisation from you directly rather than
+relayed through me. It has no way to verify provenance across that channel, and it was right
+twice this week to refuse exactly this kind of instruction.
+
+## D28 — T1.15 sent back for changes; one finding ruled a fix rather than a bug report
+The reviewer returned CHANGES_REQUESTED on T1.15: four must-fixes, one should-fix, two small
+items, and two justifications that were right in their conclusion and wrong in their reason.
+It proved every claim by breaking the code and watching which tests died, rather than by
+reading. Two of those experiments are the useful ones:
+  • It deleted the mutex release and all 929 tests stayed green — settling the question of
+    whether that code does anything, which we had been arguing about from first principles.
+  • It changed ONE CHARACTER of the CLAUDE_DASHBOARD_HOME variable name and all 929 stayed
+    green. The feature would have silently not existed and every test would still have passed.
+
+I ruled the identity finding a fix rather than a filing. The single-instance identity names the
+data folder but not the logon session, so two sessions sharing one folder both claim to be the
+same instance — and the second exits silently after raising a window on a desktop its user
+cannot see. It became reachable tonight, because CLAUDE_DASHBOARD_HOME is what makes a shared
+folder configurable in the first place. Two features added in one commit, interacting silently.
+One line of code fixes it.
+
+## D29 — One rule about comments, replacing a category I recorded badly
+I first wrote this up as a new defect class: comments that claim more than the code delivers.
+The reviewer corrected me, and its correction is the useful part. It is not a new class — it is
+the naming lens at sentence scale. A name promises more than the thing behind it; a remark
+promises more than the code does. Recording them separately would have us checking the same
+thing twice under two names, which is how a checklist starts to rot.
+
+The split that makes it actionable is between comments that EXPLAIN and comments that CLAIM.
+Explaining is the good kind — "this endpoint is deliberately unauthenticated, and here is why"
+adds a reason to something a test already holds, and cannot be wrong about behaviour because it
+asserts none. Claiming is the dangerous kind, and it is always spottable: it makes a falsifiable
+statement about how the system behaves.
+
+The rule, now standing:
+
+    A comment that makes a falsifiable claim about behaviour must either become a test,
+    or be rewritten so that it no longer claims.
+
+All three of tonight's examples pass that filter cleanly. "Two signed-in users each get their
+own dashboard" is testable and false, so it is rewritten. "This construct is what guarantees no
+lock is left held" is testable and false, and the reviewer tested it. "A refused connection
+takes about two seconds" is testable and true only on this machine, so it becomes "on this
+machine" and the load-bearing reasoning moves to an argument that needs no measurement at all.
+
+Why it matters more than an untested branch: a wrong comment survives every mutation test that
+can be run. It is not merely unprotected — it is unreachable by the entire technique. Which is
+the argument for the rule: if a claim can be tested, a comment should not be the thing carrying
+it.
+
+Worth adding that four of six findings landing on comments was not carelessness. Every one was a
+sentence that had quietly taken on the job of a test, in the commit where the actual tests were
+the best we have produced.
+
+## D30 — A measurement disagreement I did not settle from the chair, and how it ended
+The reviewer measured a closed IPv6 loopback port refusing a connection in 5.5 milliseconds and
+concluded that only IPv4 is slow — which would point at a local filtering layer on this machine.
+The coder re-measured with nothing above the raw socket and got about 2045 milliseconds on BOTH
+address families, twice.
+
+I sent the discrepancy back to the reviewer to reconcile rather than ruling on it. Our own
+standing rule is that a diagnosis of why somebody else's experiment came out differently is a
+claim like any other, and I was burned this week relaying exactly that kind of claim unchecked.
+
+Nothing in the design depends on it: both agree the code should ask "may I have this port" by
+trying to take it rather than by connecting, and the load-bearing argument now needs no
+measurement at all. The coder's reason for not using the reviewer's figures is one worth keeping
+— they would not write a number into a comment that they had not taken themselves, and having
+taken it, would not write somebody else's either.
+
+## D31 — A trap in one of the fixes, and a rule that reverses on one side
+The obvious test for the CLAUDE_DASHBOARD_HOME variable does not work: a test that sets the
+name from the same constant the code reads is self-consistent under any rename. It would set the
+broken name, read the broken name, and pass while the documented variable did nothing at all.
+So that test writes the name out as a literal — which is the exact opposite of what I required
+an hour earlier for the single-instance identity, where a literal would have been a second copy
+of a rule we own.
+The distinction the coder drew: there the naming rule is ours, so a copy can drift. Here the name
+is fixed outside the code, by the specification and by what a person types, so the literal is the
+only independent check there is. Both comments now say which case they are. I have asked the
+reviewer to judge whether that distinction holds, because it is the kind that is either exactly
+right or a rationalisation and I cannot tell which from where I sit.
+
+## D32 — T1.19 packages the application but does not install it over the one you are using
+Your dashboard is running from `%LOCALAPPDATA%\ClaudeDashboardApp\` and its file is locked while
+it runs. T1.19 will publish to a staging folder beside it and stop there.
+
+Swapping the live build is a separate, deliberate step, and I have kept it out of the task on
+purpose. It stops your dashboard, and under T1.18's new lifecycle the replacement rewrites your
+`~/.claude/settings.json` on its first start and again on its first quit. That is the feature
+working as designed, but it is a change to your working environment that should happen once,
+knowingly, and not as a side effect of a packaging task at four in the morning.
+
+You will get a package and the exact commands to install it. Whether I run them before you wake
+is a separate entry in this log if I do — with the exact way to put the old one back.
+
+## D30 (concluded) — the coder was right, and the reviewer found its own error
+The reviewer's IPv6 control was broken. It used a connection type that is an IPv4 socket, aimed
+it at an IPv6 address, and got an instant address-family error rather than a refusal. Its own
+results table recorded the wrong error code and it read past it. Re-measured properly: about
+2047 milliseconds, matching the coder exactly.
+
+It then went further than withdrawing the claim. It scoped the effect — both address families,
+loopback and local network, low port and high — found about 2045 milliseconds everywhere, and
+declined to offer a second theory of the cause having got the first one wrong. That scoping is
+what settled the thing that mattered: a two-second delay on every refused connection would be
+famous if it were how Windows behaves generally. It is not. So "these figures describe one
+machine" stopped being a hedge and became a supported statement.
+
+Worth recording that the whole correction started from the coder declining to write a number
+into a comment that it had not measured itself.
+
+## D33 — Two rules sharpened, both now standing
+1. **The comment filter bites on claims of capability, not claims of limitation.** A sentence
+   saying the system WORKS a certain way invites a reader to rely on it instead of a test. A
+   sentence saying something DOES NOT work removes reliance. Both must be true; only the first
+   quietly takes a test's job. Without this the rule I recorded an hour earlier would have
+   condemned the best paragraph in the commit.
+2. **Use a literal when an external authority owns the value; compute it when the code owns it.**
+   The test for which is which: if substituting the constant makes the test pass under a rename,
+   the constant is the thing under test and cannot also be the answer key. That is a proof rather
+   than a preference. It resolves what looked like the coder contradicting itself — computing the
+   single-instance name in one test and writing the environment variable out longhand in another.
+   The first name is ours to invent; the second is fixed by the specification and by what you
+   type into a shell.
+
+## D34 — My own two-rejections rule did not fire, and I am saying so rather than ignoring it
+I set a rule earlier tonight that two rejections on one task stop it for you. T1.15 has now been
+sent back twice. It does not fire, for two reasons I want on the record rather than assumed:
+the verdicts were CHANGES_REQUESTED and not REJECT, which the reviewer distinguishes carefully;
+and the cycles are converging hard — six items, then two, and the two are one comment and one
+eight-line test. A rule against grinding is not a rule against finishing.
+
+## D35 — Something worth you knowing about how the night actually went
+Three times tonight one session's claim was checked by another and found wrong, and every time
+the person who was wrong found it or accepted it without argument:
+  • I ruled that the application should ask "is anyone on this port" by connecting, with a
+    one-second limit. The coder measured and showed my rule would have made every ordinary
+    first start deaf. It changed the design and told me why.
+  • The reviewer attributed a two-second delay to one network address family. The coder
+    re-measured and disagreed. I sent it back rather than ruling. The reviewer found its own
+    control was broken, withdrew, and then scoped the effect properly instead of guessing again.
+  • The coder reported three failing tests where there were two. I checked and said so. It
+    re-ran, confirmed two, could not reproduce the third, and said "here is my best guess"
+    rather than "it was two all along".
+
+None of these was caught by a test. All three were caught by somebody checking somebody else's
+claim. That is the argument for the three-session arrangement, and it is worth more than any
+single defect the night produced.
+
+## D36 — A flaky test found because a new test described the mechanism the old one depended on
+The reviewer hit a failure in the crash-recovery test that neither of its two mutations could
+reach. Isolated, the test passes six times running. In the full suite it passes too — it is rare
+and it depends on load, which is the shape people write off as noise.
+
+It proved the cause rather than guessing: the test discards the object it creates, so the
+operating-system handle behind it survives only until the garbage collector runs a finaliser. If
+a collection lands in that one window, the handle closes, Windows destroys the underlying object,
+and there is nothing left for the test to observe. Forcing a collection there makes it fail every
+time; keeping a reference makes it pass every time.
+
+The interesting part is how it became visible. The coder had just written a test that
+deliberately closes that handle in order to observe the opposite result. The two tests are the
+same experiment differing only in how long the handle lives — and the older one left that to the
+garbage collector. Writing the second is what exposed the first. Nothing had described the
+mechanism before, so nothing could show the dependence.
+
+Fixed in two lines. Worth a whole review cycle for a reason worth keeping: a test that guards
+crash recovery and fails rarely, under load, with a message that reads like an environment
+problem, is worse than no test at all. People stop believing it — and the next time it goes red
+it may be right.
+
+## D37 — The fourth checked claim of the night, and this one was mine to pass on
+The reviewer prescribed a two-line fix for the flaky test and named the mechanism. The coder
+measured it and found the named mechanism was not the one doing the work — deleting the line
+the reviewer identified changes nothing, six runs across both build configurations. The real
+fix is simply assigning the object rather than discarding it; the thread that holds it keeps it
+reachable on its own.
+
+The coder kept the line anyway, as insurance against a future change that stops holding the
+thread, but wrote beside it that removing it does not fail and that something else is the
+mechanism. Its reason is the part worth keeping: presenting that line as the fix would have been
+a comment claiming more than the code delivers — the exact defect the previous two cycles were
+spent removing — and it would not add a fresh one in the commit that closes them.
+
+It also improved on the prescription. It left the forced garbage collection in the test. Without
+it the test passes because nothing happened to collect, which is not a guarantee; it is the same
+"it worked this time" that produced the flake, landing the other way. With the collection forced,
+the test now asserts that the thing survives one.
+
+That is four times tonight a claim was checked by someone other than the person who made it, and
+found wrong. I relayed this one, so it is also the second of mine.
