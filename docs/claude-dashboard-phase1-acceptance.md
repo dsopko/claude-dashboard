@@ -4,7 +4,7 @@
 `%LOCALAPPDATA%\ClaudeDashboardApp.staging\ClaudeDashboard.App.exe` (`752e934` + `c8a1d34`)
 · **Harness:** `tools/replay-hooks.ps1` and `PhaseOneAcceptanceTests`
 
-**Phase 1 is gated, not finished** — see §5a and its supplement §5b.
+**Phase 1 is gated, not finished** — see §5a and its supplement §5b. The suite has an open defect of its own: §5c.
 
 This records what was **observed**. Where a criterion was not observed, it says so and says why,
 rather than reporting the expectation.
@@ -259,6 +259,36 @@ document records — §4's, §5's, §6's — still stands unchanged.
 
 ---
 
+## 5c · A defect in the suite itself: issue #12, an unexplained host crash
+
+**This does not block Phase 1, and it is here because a gate that does not mention it claims a
+cleanliness the suite does not have.**
+
+During T1.15b's soak, one full Release run in fifteen ended with the **test host process dying of
+an access violation, `0xC0000005`**. The run aborted partway through; 110 tests never ran.
+
+| | |
+|---|---|
+| Observed rate | roughly **1 in 24** Release runs, counting one earlier unexplained failure that may be the same event |
+| Cause | **unknown** |
+| Reproduced under `--blame-crash` | **no**, in 8 attempts |
+| First suspect | `ForeignSqliteReader`, the raw `winsqlite3.dll` P/Invoke added at T1.17, called from four test classes xUnit runs in parallel |
+| Status of that suspect | **named by its author, unproven** |
+
+**The suspicion is deliberately weak, and the timing establishes nothing.** The P/Invoke is the
+newest unmanaged code in the suite and that is the whole of the case against it. Nothing shows the
+crash postdates T1.17: the suite also drives real WPF windows, a shell tray icon and NAudio, any of
+which can die natively during teardown, and a 1-in-24 event is entirely capable of having been
+present for weeks unobserved. **Bisecting the P/Invoke out of the suite is the correct first move**
+and it belongs to issue #12, not to this document.
+
+**Why it is filed rather than fixed.** Phase 1 is not held open waiting out an unreproducible
+native crash at 1 in 24. But the number in §6 — and every "the suite is green" statement anywhere
+in this repository — is a statement about runs that could, at that rate, have been truncated.
+Section 6a says what was done about that.
+
+---
+
 ## 6 · Was the harness capable of producing the other outcome?
 
 A green run proves nothing unless a red one was reachable. Five defects were planted, each taken
@@ -285,6 +315,59 @@ only the test result.
 
 ---
 
+## 6a · Were the runs behind these figures complete? Re-verified, 2026-08-26
+
+§6 asks whether a red outcome was reachable. This asks something the document had not: **whether
+the runs that produced its greens actually finished.**
+
+**The trap, and it is worse than it sounds.** When the test host crashes late, `dotnet test` prints:
+
+```
+The active test run was aborted. Reason: Test host process crashed : Process terminated.
+Passed!  - Failed: 0, Passed: 1042, Skipped: 0, Total: 1042, Duration: 8 s
+```
+
+It says **`Passed!`**. `Failed: 0`. And **`Total` equals `Passed`** — because `Total` on that line
+is the number of tests that *ran*, not the size of the suite. A truncated run is internally
+self-consistent, so **any green figure in this document could have come from one and would look
+exactly as it does now.**
+
+**A check that could not fail was standing for an hour.** The first response to the crash was the
+rule "a green run is `executed == total`, not `failed == 0` alone". That is unfalsifiable:
+`executed == total` holds in both runs below, one complete and one aborted, measured from retained
+result files.
+
+| Run | `total` | `executed` | `passed` | `failed` | Actually |
+|---|---|---|---|---|---|
+| Complete | 1093 | 1093 | 1093 | 0 | green |
+| Aborted | 983 | 983 | 983 | 0 | **110 tests never ran** |
+
+**The corrected rule needs a third input the run cannot supply.** A run is green when `Failed: 0`,
+**`Total` equals the suite size known in advance**, and **no "The active test run was aborted"
+line** is present. The expected size has to come from outside the run, because everything inside it
+agrees with itself.
+
+**Re-verified under that rule, one run per configuration, expected total stated before the run:**
+
+| Configuration | Expected | Ran | Abort line | Result |
+|---|---|---|---|---|
+| Debug, full suite | 1093 | 1093 | none | green |
+| Release, full suite | 1093 | 1093 | none | green |
+| `PhaseOneAcceptanceTests` — the source of every figure in §2 | 2 | 2 | none | green |
+
+**No figure moved.** The checker was itself controlled before being trusted: given a deliberately
+wrong expected size it reports `SHORT RUN`, so its greens are not the only outcome it can produce.
+
+**What was and was not exposed.** The trap fabricates greens; it cannot fabricate a red. So §6's
+five planted-defect results are unaffected by it — each records a run that *failed*, and an aborted
+run cannot invent a failure. §2's figures are assertions inside a test that passed, so the risk was
+never a wrong number but the test **not running at all**, which is what the expected-total check
+now excludes. §1's and §4's figures come from a live staged process driven by
+`tools/replay-hooks.ps1`, not from a test host, so this defect does not reach them — they remain
+dated to the T1.19 artefact named in the header and are not re-run here.
+
+---
+
 ## 7 · Standing consequences
 
 - **Two artefacts exist from T1.19 onward.** Every task after it must republish and repoint, or
@@ -295,5 +378,13 @@ only the test result.
   their criteria one by one rather than deleting the rows that said they were unbuilt. One row is
   still open on purpose: pinning is recorded as **performed but unverified**, and it stays that way
   until somebody presses the keys.
+- **The suite has an open defect of its own** (§5c, issue #12): an unexplained host crash at
+  roughly 1 in 24 Release runs, cause unknown, first suspect named and unproven. It does not block
+  Phase 1. It does mean every "green" statement about this suite is a statement about a run that
+  could have been truncated, which is why §6a exists and why the check is now three inputs rather
+  than one.
+- **"Failed: 0" is not a green run, and neither is `Total == Passed`.** Both are true of an
+  aborted run. A green run is `Failed: 0`, `Total` equal to the suite size known in advance, and no
+  abort line (§6a).
 - **Phase 1 is gated, not finished.** Every observation here holds; the phase's exit criteria in
   Part 2 do not, while §5 stands and while §5b's open row stands.
