@@ -200,19 +200,38 @@ public sealed class DependencyRuleTests
     /// checks, with a comment somewhere claiming it holds.
     /// </para>
     /// <para>
-    /// <strong>What it observes, and what it does not.</strong> It reads source files, so it
-    /// catches a new field, a new constructor parameter, and a <c>GetRequiredService&lt;IUiTick&gt;</c>
-    /// anywhere in the app. It does not parse call sites, so it would miss a second call from
-    /// inside one of the three files below. That is a narrower net than "one caller" and it is the
-    /// one that costs nothing; the three files are small and two of them are the definition and
-    /// the registration.
+    /// <strong>Why it matches both names, which the first version of this test did not.</strong>
+    /// It originally matched only <c>IUiTick</c>, and <strong>every call site in the product uses
+    /// the concrete <c>UiTick</c></strong>. So the test watched three files while the real callers
+    /// sat in <c>Program</c>, <c>TrayIcon</c> and <c>MainViewModel</c>, and a genuine second caller
+    /// — a private field of the concrete type, constructed, with <c>Tick</c> called on it — was
+    /// planted in another file and the test passed. The mutation that had "verified" it used the
+    /// <em>interface</em>, so it was shaped to the pattern rather than to a real caller: a plant
+    /// that confirms the checker instead of testing it.
     /// </para>
     /// <para>
-    /// One incidental property, noticed while planting a second caller to check this fails: its
-    /// input is the source tree, not the compiled assembly, so it reports on the code as written
-    /// even when the build did not succeed. That is the opposite of a mutation checked through a
-    /// test run, where a build failure plus <c>--no-build</c> silently reports on the previous
-    /// assembly — which happened during T1.18 and produced a confident, worthless green.
+    /// The wider set is the point rather than a cost. <c>MainViewModel</c> and <c>TrayIcon</c> are
+    /// what <c>IUiTickTarget</c> exists for and <c>Program</c> is the wiring, so those are exactly
+    /// where a second caller would appear.
+    /// </para>
+    /// <para>
+    /// <strong>What it observes, and what it does not.</strong> It reads source, so it catches a
+    /// new field, a new constructor parameter, or a resolution from the container, under either
+    /// name, in any file outside the six. It does not parse call sites, so a second call from
+    /// inside one of those six is invisible to it. That is a narrower net than "one caller", and
+    /// it is the one that costs nothing.
+    /// </para>
+    /// <para>
+    /// <strong>On source versus assembly, corrected — the first version of this remark
+    /// generalised too far.</strong> It is true that a stale <em>product</em> assembly cannot fool
+    /// a source-reading test, which is how this one still reported correctly when a plant failed
+    /// to compile. But a stale <em>test</em> assembly still runs old assertion logic, so the
+    /// immunity is one-sided. And the property that grants it — never observing what executes —
+    /// is the same one that makes it weaker. This test is its own counterexample: immune to the
+    /// stale-build trap, and it missed a real second caller for two days. <strong>Immunity to one
+    /// failure mode says nothing about correctness.</strong> Source suits structural properties,
+    /// where source is the authority anyway; behaviour wants the assembly, and the answer to a
+    /// build that fails quietly is to check the build rather than change instrument.
     /// </para>
     /// </remarks>
     [Fact]
@@ -225,15 +244,23 @@ public sealed class DependencyRuleTests
             .Where(file => !file.FullName.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
             .Where(file => !file.FullName.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
 
-            // Word-bounded, so IUiTickTarget — a different type, implemented by the view models —
-            // does not count as reaching the tick.
-            .Where(file => Regex.IsMatch(File.ReadAllText(file.FullName), @"\bIUiTick\b"))
+            // Both the interface and the concrete class, because every call site in the product
+            // uses the concrete one. Still word-bounded, so IUiTickTarget — a different type,
+            // implemented by the view models — does not count as reaching the tick.
+            .Where(file => Regex.IsMatch(File.ReadAllText(file.FullName), @"\bI?UiTick\b"))
             .Select(file => file.Name)
             .OrderBy(name => name, StringComparer.Ordinal)
             .ToList();
 
         Assert.Equal(
-            ["AppHost.cs", "EventConsumer.cs", "UiTick.cs"],
+            [
+                "AppHost.cs",
+                "EventConsumer.cs",
+                "MainViewModel.cs",
+                "Program.cs",
+                "TrayIcon.cs",
+                "UiTick.cs",
+            ],
             mentions);
     }
 
