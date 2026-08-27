@@ -554,3 +554,57 @@ You watch all three tabs directly. The `director` tab prints a Progress Update a
 ### C.8 On a skill for this
 
 There's **no skill, and none is needed**: `SendMessage`/`ListAgents` are native tools, on automatically when C.1 is met. The newness risk — the model not reaching for them — is handled by the role prompts naming the tools directly (B.0–B.3), and optionally a `CLAUDE.md` note in the repo. A skill would add discoverability, not capability.
+
+---
+
+## Appendix D — Compaction messages (one per role)
+
+> **Restored 2026-08-26.** These are the operator's, written on the night of 25 August and lost
+> the same night: they were added to a copy of this file that predated Appendix C, and that copy
+> overwrote the committed plan at `00:00:00`. The director restored the plan from git — which
+> recovered the runbook and destroyed these. They survived only because a copy of the overwritten
+> file was kept first. Numbered **D** rather than **C** because Appendix C now holds the launch
+> runbook; the text is otherwise as written, less one stray character.
+>
+> The failure is worth naming where it happened: the director diffed the overwritten file, saw
+> 152 committed lines removed, concluded "reversion", and never asked what the file **added**.
+> Checking one direction of a diff is the same defect as a test that can only fail one way.
+
+### D.1 Director
+
+```
+/compact Preserve the orchestration state that lives only in this session and can't be rebuilt from the repo:
+- The task ledger: every task and its status — APPROVED/Done, in-flight (and with which session), or blocked (and on what).
+- My position in Execution Plan Appendix A's dependency order, and what's next.
+- Every ruling or decision I've made this run and its rationale (task-order changes, spec ratifications, any doc amendments committed), plus every decision still pending with the human.
+- Any pre-drafted next Coder prompt in my scratchpad, with its {{placeholders}}.
+- Standing procedures adopted mid-run (pre-drafting the next prompt; this compaction step; anything else the human added).
+- Commit refs of work landed so far, and that the peers are named coder and reviewer.
+Drop the verbatim SendMessage payloads and the Progress Update lines already emitted.
+My authoritative role is CLAUDE.md and Appendix B.2 — re-read them rather than relying on this summary for it.
+```
+
+### D.2 Coder
+
+```
+/compact Preserve the build state that lives only in this session:
+- The current task ID with its acceptance criteria and guardrails, and how far along I am.
+- Every commit I've landed (refs + files) and what each did.
+- Every decision I made with downstream impact, and WHY — e.g. path/casing normalization, a type that's now an identity rather than a display string, any entry point I added that the task block didn't name.
+- Assumptions I recorded in Status Reports, and anything in flight or not yet committed.
+- Any open question I've posed and am awaiting a ruling on.
+Drop exploration chatter, compile errors already resolved, and approaches already superseded.
+My authoritative role and working agreements are CLAUDE.md and Appendix B.1 — re-read them rather than relying on this summary for them.
+```
+
+### D.3 Reviewer
+
+```
+/compact Preserve the review state that lives only in this session:
+- The tasks I've reviewed and the verdict I issued for each.
+- Any CHANGES_REQUESTED items still outstanding — sent back and not yet re-reviewed and cleared.
+- Recurring issues or patterns I've been flagging, so my standard stays consistent across tasks.
+- Any ESCALATE I raised and its status.
+Drop the line-by-line diff-reading notes for tasks I've already returned a verdict on.
+My authoritative role and the five review dimensions are CLAUDE.md and Appendix B.3 — re-read them rather than relying on this summary for them.
+```

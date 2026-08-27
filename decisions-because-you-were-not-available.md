@@ -1203,3 +1203,32 @@ That was my reason for ignoring them and it was not a strong one — a permanent
 trains people to skim past it, but so does an exception nobody wrote down. This entry is the
 written-down version. If it starts costing us, the answer is to decide what those files are
 rather than to hide them again.
+
+## D80 — CORRECTION TO D2. I destroyed your work, and my entry said the opposite
+You asked whether the compact messages you added to the execution plan survived. **They did not.
+I deleted them, and D2 described the event in a way that hid it.**
+
+What I recorded at the time: a scheduled task overwrote the plan at midnight with an older copy
+that removed 152 lines of committed amendments, so I restored from git.
+
+What actually happened: the file that appeared at midnight was an older copy **plus your new
+Appendix C — three compaction messages, one per role, that had never been committed.** Restoring
+from git recovered the 152 lines and destroyed your three. They exist today only because I copied
+the file aside before restoring it, which I did out of caution rather than because I had noticed
+anything.
+
+**How I missed it.** I diffed the file, looked at what had been REMOVED, saw my own committed work
+missing, and concluded "reversion". I never asked what the file had ADDED. Checking one direction
+of a comparison is the same defect as a test that can only fail one way — the thing we spent the
+following day finding over and over, committed by me on the first night and written into the log
+as a clean recovery.
+
+The likely mechanism, and it is a guess: you had the file open in an editor from earlier, added
+the appendix, and saved — and the save wrote your whole stale buffer over everything committed
+since you opened it. That fits better than a scheduled task, and it means D2's "something on this
+machine writes on a schedule" may have been wrong as well. **I cannot show either, and I am not
+going to offer a second mechanism after the first one was wrong.**
+
+**Restored** as Appendix D of the execution plan — D rather than C, because Appendix C now holds
+the launch runbook that your copy predated. Your text otherwise as written, less one stray
+character. The failure is written into the appendix itself, where somebody will meet it.
