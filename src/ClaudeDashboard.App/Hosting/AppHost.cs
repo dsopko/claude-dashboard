@@ -47,10 +47,19 @@ public static class AppHost
     /// this process starts half-deaf; see <see cref="IngressStatus"/> for why it starts at all.
     /// Defaults to true, which is what every caller but <see cref="Program"/> wants.
     /// </param>
+    /// <param name="ingress">
+    /// The port actually chosen, and whether it was secured (T1.21). <see cref="Program"/> supplies
+    /// this because §3.1 chooses the port before the host is built — the choice needs to probe, and
+    /// probing needs the single-instance gate name, neither of which exists in here.
+    /// <strong>Null keeps the pre-T1.21 behaviour</strong>: bind the base port from settings. Every
+    /// test builds a host that way, having already put a free port in its settings file, and making
+    /// them derive instead would change what they are testing without saying so.
+    /// </param>
     public static WebApplication Build(
         DashboardPaths? paths = null,
         Action? onShow = null,
-        bool ingressAvailable = true)
+        bool ingressAvailable = true,
+        IngressStatus? ingress = null)
     {
         var resolved = paths ?? new DashboardPaths();
         var foldersReady = resolved.TryEnsureCreated(out var folderFailure);
@@ -62,7 +71,7 @@ public static class AppHost
 
         ReportStartup(logger, resolved, loaded, foldersReady, folderFailure);
 
-        var ingress = ingressAvailable
+        ingress ??= ingressAvailable
             ? IngressStatus.Healthy(loaded.Settings.Port)
             : IngressStatus.Unavailable(loaded.Settings.Port);
 

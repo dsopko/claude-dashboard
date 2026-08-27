@@ -98,21 +98,44 @@ public static class Program
             try
             {
                 // Impl §5.3's two interlocks. The gate is the authority on "another copy of us is
-                // running"; the port only corroborates, because the port is fixed and after a hard
-                // kill anything at all may be holding it. See StartupDecision.
+                // running"; the port only corroborates, because after a hard kill anything at all
+                // may be holding it. See StartupDecision.
                 var settings = new SettingsStore(paths).Load().Settings;
-                var probe = HealthProbe.Probe(settings.Port, gate.Name);
+
+                // WHERE THE FIRST INSTANCE ACTUALLY IS, WHICH IS NO LONGER A CONSTANT. While the
+                // port was fixed, both launches read it from the settings file. With a per-user
+                // port (§3.1) the running instance may be anywhere in its range, and port.txt is
+                // the only thing that says where.
+                //
+                // AND WITH NO port.txt THERE IS NOTHING TO CORROBORATE, so nothing is probed. The
+                // first version of this fell back to the base port, which was the old behaviour
+                // and is now actively wrong: the base port belonging to somebody else is the
+                // ORDINARY case once ports are per user. Measured — a staged instance on a fresh
+                // data folder found the operator's dashboard on 52789, read it as "another
+                // instance of ours", and started deaf while the port it had correctly derived for
+                // itself sat free. The gate is the authority on "another copy of us is running"
+                // (§5.3); the port only ever corroborated, and a port this user has never bound
+                // corroborates nothing about this user.
+                var recorded = PortFile.Read(paths);
+                var probe = recorded is { } lastPort
+                    ? HealthProbe.Probe(lastPort, gate.Name)
+                    : new HealthProbeResult(PortOccupant.Free);
                 var action = StartupDecision.For(gate.IsFirstInstance, probe.Occupant);
 
                 if (action is StartupAction.SignalAndExit or StartupAction.ReportAndExit)
                 {
-                    return StandDown(paths, settings, action, probe);
+                    return StandDown(paths, settings, action, probe, recorded ?? settings.Port);
                 }
+
+                // §3.1's three attempts. Binding is the only question asked of any of them.
+                var choice = ChoosePort(settings, recorded, gate.Name, out var isSid);
 
                 host = AppHost.Build(
                     paths,
                     onShow: () => surfacer!.Request(),
-                    ingressAvailable: action == StartupAction.StartNormally);
+                    ingress: action == StartupAction.StartNormally && choice.Found
+                        ? IngressStatus.Healthy(choice.Port)
+                        : IngressStatus.Unavailable(choice.Port));
 
                 // Between Build and Start, and that ordering is load-bearing rather than
                 // stylistic: Build composes and Start binds the socket, so no /show can arrive
@@ -120,6 +143,10 @@ public static class Program
                 // ordering were ever broken, a throw here is caught by the ingress handler and
                 // logged at Error, where `?.` would drop the request in silence, which is the
                 // failure this whole type exists to remove.
+                // The port was chosen before the logger existed, so it is reported now that one does.
+                ReportPortChoice(
+                    host.Services.GetRequiredService<Serilog.ILogger>(), choice, settings.Port, isSid);
+
                 surfacer = new WindowSurfacer(host.Services.GetRequiredService<Serilog.ILogger>());
 
                 host.Start();
@@ -253,11 +280,80 @@ public static class Program
     /// folder is what the gate exists to prevent — but exiting quietly is not.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// Works through §3.1's three attempts and says, once, how the port was arrived at.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The probe is <see cref="HealthProbe.Probe"/>, which answers "may I have this port" by
+    /// trying to bind it and classifies the occupant when the answer is no. That is the whole
+    /// mechanism: <strong>there is no registry of who owns which port and none is to be built</strong>.
+    /// </para>
+    /// <para>
+    /// <strong>Logged whichever way it goes, and the trail is the interesting part.</strong> A
+    /// dashboard on an unexpected port with nothing in the log saying why is the shape this
+    /// project has spent a fortnight removing — and the trail distinguishes "another user's
+    /// dashboard was there" from "a stranger was there", which are different diagnoses with
+    /// different fixes.
+    /// </para>
+    /// </remarks>
+    private static PortChoice ChoosePort(DashboardSettings settings, int? recorded, string gateName, out bool isSid)
+    {
+        var identity = UserIdentity.Resolve(out isSid);
+
+        return PortSelection.Choose(
+            settings.Port,
+            identity,
+            recorded,
+            port => HealthProbe.Probe(port, gateName).Occupant);
+    }
+
+    /// <summary>Says how the port was arrived at, once the logger that can record it exists.</summary>
+    /// <remarks>
+    /// <strong>Separate from the choice because of when each can happen.</strong> The port is
+    /// chosen before <see cref="AppHost.Build"/>, and Build is what creates the file sink — so the
+    /// first version logged the choice through the static logger and <em>every line went nowhere</em>.
+    /// A dashboard on an unexpected port with nothing in the log saying why is the exact shape this
+    /// project keeps removing, and it was reintroduced by logging in the wrong half of start-up.
+    /// Found by reading a live run rather than by a test: nothing asserts on a line that is never
+    /// written.
+    /// </remarks>
+    private static void ReportPortChoice(Serilog.ILogger logger, PortChoice choice, int basePort, bool isSid)
+    {
+        if (!isSid)
+        {
+            logger.Warning(
+                "Could not read this account's SID, so the ingress port is derived from the account " +
+                "name instead. The port stays stable for this user on this machine, which is what the " +
+                "derivation needs; it is only less stable across a rename.");
+        }
+
+        if (choice.Found)
+        {
+            logger.Information(
+                "Ingress port {Port}, chosen from {Source} (base {Base}). Candidates: {Trail}",
+                choice.Port,
+                choice.Source,
+                basePort,
+                choice.Trail);
+        }
+        else
+        {
+            logger.Error(
+                "No free loopback port after {Attempts} attempts from base {Base}. The dashboard will " +
+                "start and will not hear anything. Candidates: {Trail}",
+                choice.Attempts.Count,
+                basePort,
+                choice.Trail);
+        }
+    }
+
     private static int StandDown(
         DashboardPaths paths,
         DashboardSettings settings,
         StartupAction action,
-        HealthProbeResult probe)
+        HealthProbeResult probe,
+        int port)
     {
         var foldersReady = paths.TryEnsureCreated(out _);
         using var logger = AppHost.CreateLogger(paths, settings.Logging, foldersReady);
@@ -266,13 +362,13 @@ public static class Program
         {
             logger.Error(
                 "Claude Dashboard will not start: {Reason}",
-                StartupDecision.ExplainReportAndExit(probe.Occupant, settings.Port));
+                StartupDecision.ExplainReportAndExit(probe.Occupant, port));
 
             return 1;
         }
 
         var result = ShowSignal.Send(
-            settings.Port,
+            port,
             Environment.GetEnvironmentVariable(IngressToken.EnvironmentVariable));
 
         switch (result.Outcome)
@@ -287,7 +383,7 @@ public static class Program
                     "Claude Dashboard is already running on port {Port}, but it refused this process's " +
                     "/show with {Status}. The token in {Variable} does not match the one it started with. " +
                     "No window will appear. Correct the variable and restart the dashboard.",
-                    settings.Port,
+                    port,
                     (int)result.StatusCode!.Value,
                     IngressToken.EnvironmentVariable);
                 return 1;
@@ -296,7 +392,7 @@ public static class Program
                 logger.Error(
                     "Claude Dashboard is already running on port {Port}, but its /show answered {Status}. " +
                     "No window will appear.",
-                    settings.Port,
+                    port,
                     (int)result.StatusCode!.Value);
                 return 1;
 
@@ -304,7 +400,7 @@ public static class Program
                 logger.Error(
                     "Claude Dashboard appears to be running, but nothing answered /show on port {Port}: " +
                     "{Problem}. No window will appear.",
-                    settings.Port,
+                    port,
                     result.Problem);
                 return 1;
         }

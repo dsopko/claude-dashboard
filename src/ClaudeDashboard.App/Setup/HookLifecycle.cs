@@ -137,15 +137,9 @@ public sealed class HookLifecycle
     /// </remarks>
     private void WritePortFile(int port)
     {
-        try
+        if (!PortFile.Write(_paths, port))
         {
-            File.WriteAllText(
-                _paths.PortFile,
-                port.ToString(CultureInfo.InvariantCulture));
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            _logger.Warning(ex, "Could not write {PortFile}.", _paths.PortFile);
+            _logger.Warning("Could not write {PortFile}.", _paths.PortFile);
         }
     }
 

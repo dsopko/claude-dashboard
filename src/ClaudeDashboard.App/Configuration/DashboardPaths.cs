@@ -51,6 +51,27 @@ public sealed class DashboardPaths
     public const string FolderName = "ClaudeDashboard";
 
     /// <summary>The environment variable that overrides <see cref="Root"/> (Impl Part 8).</summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>Two users pointing this at one folder is not supported, and that is worth saying
+    /// out loud rather than leaving it to be discovered.</strong> Everything under
+    /// <see cref="Root"/> is per-user by default — settings, logs, <c>port.txt</c> and
+    /// <c>dashboard.db</c> all sit under <c>%LOCALAPPDATA%</c> — so the only thing two signed-in
+    /// users ever share is the loopback port, which is what T1.21 separated.
+    /// </para>
+    /// <para>
+    /// Override this to a shared path and they also share one database. <c>SqliteEventStore</c>
+    /// holds a single connection for the life of the process and is not built for two processes
+    /// appending to one file; the likely result is lock contention and a store that gives up and
+    /// logs once, not corruption, but nothing here is designed for it and nothing tests it. The
+    /// single-instance gate is keyed to this root too (§5.3), so a shared root also makes two
+    /// users' dashboards look like two instances of one user's.
+    /// </para>
+    /// <para>
+    /// It exists for a portable install, a roaming profile, and a second instance under test —
+    /// all single-user cases.
+    /// </para>
+    /// </remarks>
     public const string HomeVariable = "CLAUDE_DASHBOARD_HOME";
 
     /// <summary>

@@ -151,6 +151,10 @@ public sealed class UnprotectedTextInventory
         "Notification.NotificationType", "SessionEnd.Reason", "SessionStart.Source",
         "StopFailure.ErrorKind",
 
+        // The port choice (T1.21): a candidate list like "52888:Free → 52889:Unrecognised".
+        // Port numbers and occupant names, formed here and never from a payload.
+        "PortChoice.Trail",
+
         // Identifiers and paths on the domain.
         "InboundEvent.Cwd", "InboundEvent.PromptId", "InboundEvent.TranscriptPath",
         "Exchange.PromptId", "Session.Cwd", "Session.ErrorKind",

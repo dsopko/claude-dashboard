@@ -289,6 +289,42 @@ Section 6a says what was done about that.
 
 ---
 
+
+## 5d · The port is no longer fixed (T1.21), and what that costs §1 and §4
+
+**§1 and §4 were measured against a single fixed port**, because that is what the dashboard had
+when they were written. Issue #5 changed it: the loopback port is now chosen per user — the port
+in `port.txt`, then a SHA-256-of-SID derivation, then a bounded walk (Impl §3.1, amended
+2026-08-26).
+
+**What that does not change, which is most of it.** Both sections drove one dashboard on one port
+and observed what came back. That the port was 58050 rather than derived does not alter what was
+observed about ingress, states, bands, the tray light, crash and relaunch: **a port is a port once
+something is listening on it.** The figures stand as measurements of the run they describe.
+
+**What it does change, and it is one thing.** Neither section evidences the part of the port choice
+that only exists now: *which* port gets bound, and what happens when the first candidate is taken.
+That was not a limitation of those runs — the behaviour did not exist to be observed.
+
+| What the port choice needs evidenced | Where it is |
+|---|---|
+| A fresh profile derives and binds; a recorded port is preferred; a taken one falls through; a stranger causes a walk; the walk is bounded and giving up is not a crash | `PortSelectionTests` — decided against a table of probe answers |
+| **Two users' ports differ and both bind at the same moment**, against real sockets | `TwoUsersBindTests` |
+| A real listener on the derived port is walked past, and classified rather than counted | `TwoUsersBindTests` |
+| The registered URL and `port.txt` carry the **bound** port | `HookLifecycleTests`, using a port that is neither the default nor inside the derivation range |
+
+**What no run here evidences.** Two *actual* signed-in Windows users have not been observed. Two
+identities and two data roots have, which is the part that can be exercised without a second
+account; the hop from "a different SID derives a different port" to "a second signed-in user gets a
+working dashboard" rests on the derivation being the only per-user input, and that is an argument
+rather than a measurement.
+
+**The accepted residual, ruled by the operator and not designed around.** Entries in
+`allowedHttpHookUrls` accumulate — one per distinct URL ever registered — and nothing removes them.
+Three users mean three entries; a user who never comes back leaves one behind; an entry pointing at
+no hook is inert. Pruning was declined rather than forgotten.
+
+---
 ## 6 · Was the harness capable of producing the other outcome?
 
 A green run proves nothing unless a red one was reachable. Five defects were planted, each taken
@@ -386,5 +422,9 @@ dated to the T1.19 artefact named in the header and are not re-run here.
 - **"Failed: 0" is not a green run, and neither is `Total == Passed`.** Both are true of an
   aborted run. A green run is `Failed: 0`, `Total` equal to the suite size known in advance, and no
   abort line (§6a).
+- **The ingress port is per user and moves** (§5d, T1.21). Anything that assumes 52789 is wrong,
+  including anything read from `port.txt` before a dashboard has run. Allowlist entries accumulate
+  by ruling, and two users sharing one `CLAUDE_DASHBOARD_HOME` share one database, which is
+  unsupported and documented as such.
 - **Phase 1 is gated, not finished.** Every observation here holds; the phase's exit criteria in
   Part 2 do not, while §5 stands and while §5b's open row stands.

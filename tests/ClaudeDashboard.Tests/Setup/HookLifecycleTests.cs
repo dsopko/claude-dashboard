@@ -146,13 +146,31 @@ public sealed class HookLifecycleTests : IDisposable
     /// The registered URL carries the <strong>bound</strong> port, not the compiled-in default.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// The acceptance criterion, and the reason it names a non-default port. An operator who
     /// overrides the port would otherwise get a handler pointing at 52789 — a port nothing answers
     /// — which is issue #4's symptom produced by the feature that closes issue #4.
+    /// </para>
+    /// <para>
+    /// <strong>It carries a second meaning since T1.21, and the port it uses must satisfy
+    /// both.</strong> With the port derived per user (Impl §3.1), a URL built from anything but
+    /// the bound port is wrong for every user rather than only for one who overrode a setting. So
+    /// the port here is asserted to be outside the derivation range as well as different from the
+    /// default: were it inside, this test could pass against an implementation that rebuilt the URL
+    /// by deriving it again instead of reading what was bound.
+    /// </para>
     /// </remarks>
     [Fact]
     public void The_registered_url_carries_the_bound_port()
     {
+        // Neither the compiled-in default nor anything the derivation could produce.
+        Assert.NotEqual(DashboardSettings.DefaultPort, BoundPort);
+        Assert.False(
+            BoundPort >= DashboardSettings.DefaultPort &&
+            BoundPort < DashboardSettings.DefaultPort + PortSelection.DefaultRange,
+            $"port {BoundPort} is inside the derivation range, so this test could not tell a bound " +
+            "port from a re-derived one");
+
         Lifecycle(IngressStatus.Healthy(BoundPort)).Register();
 
         var urls = RegisteredUrls().Distinct(StringComparer.Ordinal).ToList();
@@ -162,6 +180,22 @@ public sealed class HookLifecycleTests : IDisposable
             DashboardSettings.DefaultPort.ToString(CultureInfo.InvariantCulture),
             SettingsText(),
             StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// <c>port.txt</c> records the bound port, which is how the next launch finds this one.
+    /// </summary>
+    /// <remarks>
+    /// Write-only until T1.21 and now load-bearing twice over: it is §3.1's first attempt, and it
+    /// is the only thing that tells a second launch where a running instance actually is now that
+    /// the port is not a constant (§5.3).
+    /// </remarks>
+    [Fact]
+    public void The_port_file_records_the_bound_port()
+    {
+        Lifecycle(IngressStatus.Healthy(BoundPort)).Register();
+
+        Assert.Equal(BoundPort, PortFile.Read(_paths));
     }
 
     /// <summary>

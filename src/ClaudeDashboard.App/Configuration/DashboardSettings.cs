@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using ClaudeDashboard.App.Hosting;
 
 namespace ClaudeDashboard.App.Configuration;
 
@@ -23,17 +24,41 @@ namespace ClaudeDashboard.App.Configuration;
 public sealed record DashboardSettings
 {
     /// <summary>
-    /// Impl §3.1's fixed default port, in the private range. Fixed rather than dynamic because
-    /// the hook URL registered in Claude Code's settings must stay stable (Impl Part 9).
+    /// The bottom of this machine's ingress range, in the private range (Impl §3.1).
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>No longer the port anything binds, and the old reason for it being fixed was
+    /// false.</strong> This said "fixed rather than dynamic because the hook URL registered in
+    /// Claude Code's settings must stay stable". That was true while first-run setup wrote the
+    /// hooks once. <strong>§9.3 now registers them at every start and removes them at every
+    /// quit</strong>, and a running Claude Code session was measured picking up both the addition
+    /// and the removal without restarting — so the URL is rebuilt from whatever port was actually
+    /// bound, and never needed a fixed one.
+    /// </para>
+    /// <para>
+    /// A comment whose stated reason has outlived the design it described is the defect this
+    /// project spent 26 August removing, so it is corrected here rather than left standing beside
+    /// the change that falsified it (T1.21).
+    /// </para>
+    /// </remarks>
     public const int DefaultPort = 52789;
 
     private readonly int _port = DefaultPort;
 
-    /// <summary>The loopback port ingress binds to (Impl §3.1).</summary>
+    /// <summary>The bottom of this user's ingress port range (Impl §3.1).</summary>
     /// <remarks>
+    /// <para>
+    /// <strong>The base, not the bound port.</strong> Ingress binds
+    /// <see cref="PortSelection.Derive"/>'s offset above this, so that two users on one machine do
+    /// not contend for a single loopback port — see <c>PortSelection</c> for why binding is the
+    /// only question ever asked. To pin one specific port instead, write it into <c>port.txt</c>:
+    /// that is §3.1's first attempt and it is honoured before the derivation.
+    /// </para>
+    /// <para>
     /// Out-of-range values fall back to <see cref="DefaultPort"/> rather than throwing: a typo
     /// in a hand-edited file must not stop the dashboard starting.
+    /// </para>
     /// </remarks>
     [JsonPropertyName("port")]
     public int Port
