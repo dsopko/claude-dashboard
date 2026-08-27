@@ -60,10 +60,3 @@ Desktop.ini
 .env.*
 appsettings.*.local.json
 secrets.json
-
-# ---- Not ours ----
-# Created 2026-08-25 00:28 by an unidentified tool. A mechanical rebrand of
-# CLAUDE.md for a different agent. The operator told all three sessions to
-# leave them alone. Ignored so that `git status` stays a usable safety check.
-AGENTS.md
-.agents/

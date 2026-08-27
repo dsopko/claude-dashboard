@@ -1189,3 +1189,17 @@ one run in twenty-four that nobody can reproduce.
 
 Six things declined, in a document whose job was to say Phase 1 works. That is the property I
 would judge it by.
+
+## D79 — You reversed D3: AGENTS.md and .agents/ are no longer ignored
+Your instruction, 2026-08-26 evening. The last block of `.gitignore` is deleted. Both files are
+untouched on disk, exactly as they were.
+
+**What this changes.** `git status` now reports them as untracked again, permanently, until they
+are either committed, deleted, or ignored once more. That check is the thing all three sessions
+use to confirm the tree is in a known state before anyone starts work, so from now on "clean"
+means "clean apart from those two" and every session has to hold that exception in mind.
+
+That was my reason for ignoring them and it was not a strong one — a permanently dirty status
+trains people to skim past it, but so does an exception nobody wrote down. This entry is the
+written-down version. If it starts costing us, the answer is to decide what those files are
+rather than to hide them again.
