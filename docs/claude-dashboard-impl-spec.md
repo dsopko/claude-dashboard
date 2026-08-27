@@ -102,7 +102,25 @@ Realizes TS §II.1 and TS §II.7.
 
 ### 3.1 Host and binding
 
-An in-process **ASP.NET Core minimal API on Kestrel**, started by the .NET **Generic Host** that also owns the WPF app, logging, and background services. Kestrel binds to **loopback only** — `http://127.0.0.1:<port>` — at a **fixed default port** in the private range (e.g. `52789`), configurable via settings. Fixed because the hook URL must be stable (Part 9); loopback because nothing off-machine may post events (TS §II.7).
+An in-process **ASP.NET Core minimal API on Kestrel**, started by the .NET **Generic Host** that also owns the WPF app, logging, and background services. Kestrel binds to **loopback only** — `http://127.0.0.1:<port>` — because nothing off-machine may post events (TS §II.7).
+
+**The port is chosen per user, not fixed per machine.** A loopback bind is machine-wide while every other thing the dashboard owns is per-user, so a single fixed port lets the first user signed in take the only one and leaves every other user with a dashboard that can never hear anything.
+
+The choice is made in three attempts, and **binding is the only question ever asked.** There is no registry of who owns which port and none is to be built: "may I have this port" is answered by trying to take it, which is instant and definitive (§5.3).
+
+1. **The port recorded in `port.txt`**, if there is one. Continuity — the same user keeps the same port across restarts.
+2. **A derived candidate**: the base port plus an offset from a stable hash of the user's SID, modulo a bounded range. **SHA-256, never `GetHashCode()`**, which .NET randomises per process — the same user would derive a different port every launch and every in-process test would still pass.
+3. **A bounded walk upward.** Each step classifies the occupant with the `/health` identity of §3.2, so "another user's dashboard", "another instance of ours" and "a stranger" stay distinguishable rather than collapsing into "taken".
+
+If all three fail, the dashboard **starts anyway**, logs at Error, and says so in the tray tooltip (§5.3). It never exits for want of a port.
+
+Whatever is finally bound is written to `port.txt` and is the port the hook URL carries (§9.3). **Nothing looks the number up afterwards** — the URL is built from the port actually bound.
+
+Two users therefore do not queue from a base port; they derive different candidates because their SIDs differ, and never contend. The walk exists only for a hash collision or a stranger.
+
+> **Correction (2026-08-26).** This section previously read *"at a fixed default port… Fixed because the hook URL must be stable (Part 9)"*. That reason was true while the hook URL was written once by first-run setup. **§9.3 now registers the handlers at every start and removes them at every quit**, and a running Claude Code session was measured picking up both the addition and the removal without restarting — so the URL no longer needs a stable port to be correct. The stated reason had outlived the design it described.
+>
+> **Accepted residual, ruled by the operator.** A port that moves — because a stranger held the derived one on one day and not the next — leaves an extra entry in `allowedHttpHookUrls`, and §9.3 removes allowlist entries never. Three users mean three entries; a user who never returns leaves one behind. An entry pointing at no hook is inert, and the operator has accepted the accumulation rather than pay for pruning.
 
 ### 3.2 Endpoints
 

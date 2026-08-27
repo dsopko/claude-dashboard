@@ -282,6 +282,19 @@ Grouped into four sub-milestones. Each task lists Goal · Depends · Realizes ·
 - **Acceptance:** across ~15 real Claude Code terminals: states and bands are correct; the tray light rolls up correctly; notices/nudges fire and coalesce; manual + auto ack behave; the app survives a logon restart and a forced crash (relaunches via the task).
 - **Guardrails:** this task gates the phase.
 
+### Milestone 1E — After the gate
+
+Tasks landing after T1.20. Each one puts the acceptance document out of date in a stated way, so each carries a supplement to it and the republish that T1.19's guardrail requires.
+
+**T1.21 — Per-user ingress port**
+- **Goal:** every signed-in user gets a dashboard that can hear.
+- **Depends:** T1.15, T1.18, T1.19
+- **Realizes:** Impl §3.1 as amended 2026-08-26; §5.3; §9.3. Closes [issue #5](https://github.com/dsopko/claude-dashboard/issues/5)
+- **Deliverables:** the three-attempt choice of §3.1 — `port.txt`, then a SHA-256-of-SID derivation, then a bounded walk; each walk step classifying the occupant through the `/health` identity; the bound port written to `port.txt` and carried into the hook URL; `DashboardSettings.DefaultPort`'s remark corrected, since its stated reason no longer holds.
+- **Acceptance:** two data roots with different derived candidates both bind and both register their own URL; a fresh profile with no `port.txt` derives and binds; a `port.txt` naming a taken port falls through to the derivation; a stranger on the derived port causes a walk, not an exit; all three failing still starts the dashboard with the Error and the tooltip of §5.3; the registered URL carries the **bound** port, tested with a port that is neither the default nor the derived one. **Republish, and supplement the acceptance document** — §1 and §4 were measured against a single fixed port.
+- **Guardrails:** **SHA-256, never `GetHashCode()`** — it is randomised per process, so the same user would derive a different port every launch and every in-process test would still pass (the T1.15 trap). Binding is the only question asked; build no registry of who owns which port. The walk is bounded. **Accepted residual, ruled by the operator:** allowlist entries accumulate, one per distinct URL ever registered, and nothing removes them.
+- **Note:** the operator's own multi-user question settled two things worth carrying. The database and every other file are already per-user under `%LOCALAPPDATA%`, so **only the port is shared** and nothing in storage changes. And two users sharing one `CLAUDE_DASHBOARD_HOME` share one database, which our writer is not built for — document that as unsupported rather than leave it quietly half-working.
+
 ---
 
 ## Part 4 — Phases 2–7 task outlines
