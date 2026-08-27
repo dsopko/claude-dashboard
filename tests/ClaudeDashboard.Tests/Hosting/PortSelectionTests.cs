@@ -329,4 +329,44 @@ public sealed class PortSelectionTests
         Assert.Equal(PortSource.Derived, choice.Source);
         Assert.NotEqual(Base, choice.Port);
     }
+
+    /// <summary>
+    /// A refused pin is distinguishable from an exhausted walk, because they need different words.
+    /// </summary>
+    /// <remarks>
+    /// Both end with no port, and until T1.21's review both produced the walk's message — which
+    /// tells a pinned operator that no free port exists, names a base port they never chose, and
+    /// does not mention the pin. Three wrong statements, and the pin is the only one of the three
+    /// they could act on.
+    /// </remarks>
+    [Fact]
+    public void A_refused_pin_is_not_an_exhausted_walk()
+    {
+        var refused = PortSelection.Choose(Base, Sid, null, Held(PortOccupant.Unrecognised, 55555), pinned: 55555);
+
+        Assert.False(refused.Found);
+        Assert.True(refused.PinRefused);
+        Assert.Equal(55555, refused.Pin);
+
+        var exhausted = PortSelection.Choose(Base, Sid, null, _ => PortOccupant.Unrecognised, walk: 3);
+
+        Assert.False(exhausted.Found);
+        Assert.False(exhausted.PinRefused);
+        Assert.Null(exhausted.Pin);
+    }
+
+    /// <summary>A pin that was taken up is not a refusal.</summary>
+    /// <remarks>
+    /// The control. Without it, <c>PinRefused</c> could be "a pin was requested" rather than "a pin
+    /// was requested and denied", and every pinned start would claim a fault.
+    /// </remarks>
+    [Fact]
+    public void A_pin_that_was_granted_is_not_a_refusal()
+    {
+        var choice = PortSelection.Choose(Base, Sid, null, AllFree, pinned: 55555);
+
+        Assert.True(choice.Found);
+        Assert.False(choice.PinRefused);
+        Assert.Equal(55555, choice.Pin);
+    }
 }

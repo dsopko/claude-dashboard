@@ -304,6 +304,37 @@ public sealed class TrayViewModelTests : IDisposable
         Assert.Equal(TrayTooltip.AllQuiet, _tray.Tooltip);
     }
 
+    /// <summary>A pinned port that is taken says "pinned", because the operator chose it.</summary>
+    /// <remarks>
+    /// <para>
+    /// The justification for refusing to move off a pinned port is that the operator gets a fault
+    /// they can see and act on. A tooltip reading only "port N taken" does not pay for that: it is
+    /// what a port taken out from under the dashboard says too, and it points at nothing the
+    /// operator can change.
+    /// </para>
+    /// <para>
+    /// The word matters more than it looks. A pin is usually a contract with something outside the
+    /// dashboard — a firewall rule, a proxy entry, a script — so the person reading needs to know
+    /// that the setting, not the luck, is the thing in play.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void A_pinned_port_that_is_taken_says_so_in_the_tooltip()
+    {
+        using var deaf = new TrayViewModel(
+            _harness.Projection,
+            _modes,
+            _sink,
+            _clock,
+            IngressStatus.PinnedPortTaken(51999),
+            Logger.None);
+
+        Assert.StartsWith("pinned port 51999 taken", deaf.Tooltip, StringComparison.Ordinal);
+
+        // It is still distinguishable from the ordinary taken-port line, which is the whole point.
+        Assert.NotEqual(IngressStatus.Unavailable(51999).Fault, IngressStatus.PinnedPortTaken(51999).Fault);
+    }
+
     /// <summary>
     /// The fault survives a tick, because a tick rebuilds the tooltip from scratch.
     /// </summary>

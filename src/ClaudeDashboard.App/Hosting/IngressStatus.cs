@@ -40,6 +40,30 @@ public sealed class IngressStatus
     public static IngressStatus Unavailable(int port) =>
         new(port, string.Create(CultureInfo.CurrentCulture, $"port {port} taken · not receiving hooks"));
 
+    /// <summary>
+    /// A port the operator pinned in <c>settings.json</c> is held by something else.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>Its own line because it is a different situation, not a worse one.</strong>
+    /// <see cref="Unavailable"/> describes a port taken out from under the dashboard — bad luck.
+    /// This describes a port the operator chose, which the dashboard then <em>declined to move off
+    /// on purpose</em>, and it says "pinned" so that the person reading knows the setting is the
+    /// thing to change.
+    /// </para>
+    /// <para>
+    /// The dashboard does not fall through to a derived port here, and the reason is stronger than
+    /// respecting the setting: <strong>a pin is usually a contract with something outside the
+    /// dashboard</strong> — a firewall rule, a proxy entry, a script that posts to it. For all of
+    /// those, a dashboard quietly working on a <em>different</em> port is worse than one that does
+    /// not work, because the outside thing still points at the pinned port, still fails, and the
+    /// dashboard now looks healthy while it does. Falling through would satisfy the pin somewhere
+    /// nobody is looking.
+    /// </para>
+    /// </remarks>
+    public static IngressStatus PinnedPortTaken(int port) =>
+        new(port, string.Create(CultureInfo.CurrentCulture, $"pinned port {port} taken · not receiving hooks"));
+
     /// <summary>The port ingress was asked to use — the one hooks are addressed to.</summary>
     public int Port { get; }
 

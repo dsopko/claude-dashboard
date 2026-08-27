@@ -133,9 +133,7 @@ public static class Program
                 host = AppHost.Build(
                     paths,
                     onShow: () => surfacer!.Request(),
-                    ingress: action == StartupAction.StartNormally && choice.Found
-                        ? IngressStatus.Healthy(choice.Port)
-                        : IngressStatus.Unavailable(choice.Port));
+                    ingress: IngressFor(action, choice));
 
                 // Between Build and Start, and that ordering is load-bearing rather than
                 // stylistic: Build composes and Start binds the socket, so no /show can arrive
@@ -309,6 +307,24 @@ public static class Program
             pinned: settings.Port);
     }
 
+    /// <summary>Turns the port choice into what the tray will say about it.</summary>
+    /// <remarks>
+    /// Three outcomes, three lines. A refused pin is not the same event as a port taken out from
+    /// under the dashboard: the operator chose that port, and the tooltip says "pinned" so they
+    /// know which setting is the thing to change.
+    /// </remarks>
+    private static IngressStatus IngressFor(StartupAction action, PortChoice choice)
+    {
+        if (action == StartupAction.StartNormally && choice.Found)
+        {
+            return IngressStatus.Healthy(choice.Port);
+        }
+
+        return choice.PinRefused
+            ? IngressStatus.PinnedPortTaken(choice.Port)
+            : IngressStatus.Unavailable(choice.Port);
+    }
+
     /// <summary>Says how the port was arrived at, once the logger that can record it exists.</summary>
     /// <remarks>
     /// <strong>Separate from the choice because of when each can happen.</strong> The port is
@@ -336,6 +352,23 @@ public static class Program
                 choice.Port,
                 choice.Source,
                 DashboardSettings.DefaultPort,
+                choice.Trail);
+        }
+        else if (choice.PinRefused)
+        {
+            // ITS OWN SENTENCE, BECAUSE THE WALK MESSAGE IS WRONG THREE WAYS HERE. Free ports
+            // exist and this code declined them; the base port is one the operator never chose;
+            // and the pin — the one thing they did, and the only thing they can undo — went
+            // unmentioned. This is a deliberate refusal, so it reads as one.
+            logger.Error(
+                "Port {Port} is pinned in settings.json and something else is holding it, so the " +
+                "dashboard is starting deaf on purpose rather than moving to another port. A pinned " +
+                "port is usually a contract with something outside the dashboard — a firewall rule, " +
+                "a proxy entry, a script that posts to it — and quietly answering somewhere else " +
+                "would leave all of those pointing at a port nothing serves. Free port {Port}, or " +
+                "change or remove the \"port\" setting and restart. What is there now: {Trail}",
+                choice.Port,
+                choice.Port,
                 choice.Trail);
         }
         else

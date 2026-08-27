@@ -35,10 +35,28 @@ public readonly record struct PortAttempt(int Port, PortOccupant Occupant)
 /// <param name="Port">The port to bind, or the last candidate tried when <see cref="Source"/> is None.</param>
 /// <param name="Source">Which of §3.1's three attempts produced it.</param>
 /// <param name="Attempts">Every candidate tried, in order, with what was found there.</param>
-public sealed record PortChoice(int Port, PortSource Source, IReadOnlyList<PortAttempt> Attempts)
+/// <param name="Pin">The port the operator pinned, when they pinned one. Null otherwise.</param>
+public sealed record PortChoice(
+    int Port,
+    PortSource Source,
+    IReadOnlyList<PortAttempt> Attempts,
+    int? Pin = null)
 {
     /// <summary>Whether a port was actually secured.</summary>
     public bool Found => Source != PortSource.None;
+
+    /// <summary>
+    /// A pinned port was asked for and could not be taken.
+    /// </summary>
+    /// <remarks>
+    /// <strong>Distinct from an exhausted walk, which is the other way to end with no port.</strong>
+    /// They need different words: a walk that runs out means there was nothing free to find, while
+    /// this means there were free ports and the dashboard deliberately declined them. Telling a
+    /// pinned operator "no free loopback port after 1 attempts from base 52789" is wrong three ways
+    /// — free ports exist, the base is one they never chose, and the pin they did choose goes
+    /// unmentioned.
+    /// </remarks>
+    public bool PinRefused => !Found && Pin is not null;
 
     /// <summary>One line naming every candidate and its occupant, for the log.</summary>
     public string Trail => string.Join(" → ", Attempts);
@@ -192,7 +210,8 @@ public static class PortSelection
             return new PortChoice(
                 pin,
                 pinOccupant == PortOccupant.Free ? PortSource.Pinned : PortSource.None,
-                attempts);
+                attempts,
+                Pin: pin);
         }
 
         // 1. Continuity. The port this user had last time, if it is still to be had.
