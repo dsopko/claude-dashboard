@@ -44,27 +44,42 @@ public sealed record DashboardSettings
     /// </remarks>
     public const int DefaultPort = 52789;
 
-    private readonly int _port = DefaultPort;
+    private readonly int? _port;
 
-    /// <summary>The bottom of this user's ingress port range (Impl §3.1).</summary>
+    /// <summary>
+    /// A port the operator has pinned, or <see langword="null"/> when they have not (Impl §3.1).
+    /// </summary>
     /// <remarks>
     /// <para>
-    /// <strong>The base, not the bound port.</strong> Ingress binds
-    /// <see cref="PortSelection.Derive"/>'s offset above this, so that two users on one machine do
-    /// not contend for a single loopback port — see <c>PortSelection</c> for why binding is the
-    /// only question ever asked. To pin one specific port instead, write it into <c>port.txt</c>:
-    /// that is §3.1's first attempt and it is honoured before the derivation.
+    /// <strong>Nullable because "unset" is a real state, and the feature collapses without
+    /// it.</strong> A pinned port is honoured ahead of everything else — attempt 0, before
+    /// <c>port.txt</c> and before the derivation. That is only implementable if a pin can be told
+    /// apart from a default: were this a plain <see langword="int"/>, every operator who has never
+    /// opened <c>settings.json</c> would carry <see cref="DefaultPort"/> and be indistinguishable
+    /// from someone who typed it, and honouring that as a pin would put <em>every</em> user back on
+    /// one machine-wide port — reinstating the collision T1.21 exists to remove, for exactly the
+    /// people it exists to help.
     /// </para>
     /// <para>
-    /// Out-of-range values fall back to <see cref="DefaultPort"/> rather than throwing: a typo
-    /// in a hand-edited file must not stop the dashboard starting.
+    /// <strong>A nullable value rather than a second "is set" flag</strong>, because a flag is a
+    /// second field that can disagree with the field it describes: two sources of truth for one
+    /// fact. JSON already distinguishes an absent key from a present one, so the round-trip carries
+    /// "unset" for free.
+    /// </para>
+    /// <para>
+    /// <strong>An out-of-range value becomes unset, NOT <see cref="DefaultPort"/>.</strong> The
+    /// old coercion would turn a typo into a hard pin on the one port most likely to be contended,
+    /// which is the worst outcome available: the operator would be pinned by accident to the port
+    /// the whole feature exists to stop everyone sharing. Falling through to the derivation is
+    /// what a mistyped port should do, and <c>SettingsStore</c> logs that it happened rather than
+    /// leaving it silent.
     /// </para>
     /// </remarks>
     [JsonPropertyName("port")]
-    public int Port
+    public int? Port
     {
         get => _port;
-        init => _port = value is > 0 and <= 65535 ? value : DefaultPort;
+        init => _port = value is > 0 and <= 65535 ? value : null;
     }
 
     /// <summary>How the rolling log files are kept (Impl Part 8).</summary>

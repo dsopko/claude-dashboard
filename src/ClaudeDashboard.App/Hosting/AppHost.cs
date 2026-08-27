@@ -71,9 +71,20 @@ public static class AppHost
 
         ReportStartup(logger, resolved, loaded, foldersReady, folderFailure);
 
-        ingress ??= ingressAvailable
-            ? IngressStatus.Healthy(loaded.Settings.Port)
-            : IngressStatus.Unavailable(loaded.Settings.Port);
+        // NO SILENT FALL-BACK TO THE BASE PORT. A caller that supplies no port gets the same
+        // §3.1 choice Program makes — pin, then port.txt, then derive, then walk — because the
+        // alternative is a working dashboard bound to the machine-wide port with a hook URL that
+        // agrees with it and is wrong for this user. The parameter stays optional so that a test
+        // which has already pinned a free port in its settings file keeps getting that port: a pin
+        // is attempt 0, so pinning still wins.
+        if (ingress is null)
+        {
+            var chosen = PortSelection.ForDataFolder(resolved, loaded.Settings);
+
+            ingress = ingressAvailable && chosen.Found
+                ? IngressStatus.Healthy(chosen.Port)
+                : IngressStatus.Unavailable(chosen.Port);
+        }
 
         var builder = WebApplication.CreateSlimBuilder();
 

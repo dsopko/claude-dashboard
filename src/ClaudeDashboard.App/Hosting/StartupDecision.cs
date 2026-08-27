@@ -87,8 +87,21 @@ public static class StartupDecision
     /// The three causes have different fixes, and the log line is the only diagnosis the
     /// operator gets: a second instance has no window and no console.
     /// </remarks>
-    public static string ExplainReportAndExit(PortOccupant occupant, int port) => occupant switch
+    /// <param name="occupant">What the probe found, or <see cref="PortOccupant.Free"/> if nothing was probed.</param>
+    /// <param name="port">
+    /// The port that was probed, or <see langword="null"/> when this user has never recorded one.
+    /// <strong>Nullable since T1.21</strong>: naming the base port to a user who has never bound it
+    /// is the same mistake as probing it, one layer out — the number would be real and belong to
+    /// somebody else. Found by sweeping the port-bearing sites rather than by a failure.
+    /// </param>
+    public static string ExplainReportAndExit(PortOccupant occupant, int? port) => occupant switch
     {
+        PortOccupant.Free when port is null =>
+            "another copy of the dashboard holds the single-instance gate, and this user has no recorded " +
+            "port, so there was nothing to ask. It is starting, stopping, or running without ingress. " +
+            "This copy will not start a second one; if no dashboard appears, end the other process and " +
+            "try again.",
+
         PortOccupant.Free =>
             $"another copy of the dashboard holds the single-instance gate, but nothing is listening on port {port}. " +
             "It is starting, stopping, or running without ingress. This copy will not start a second one; " +
@@ -98,9 +111,21 @@ public static class StartupDecision
         // dashboard that already started without ingress because something else held the port —
         // so a dashboard *is* running, it simply cannot be asked to surface, and telling the
         // operator to restart it would have them close the only one they have.
+        //
+        // AND SINCE T1.21, "FREE THAT PORT" WOULD BE WORSE THAN UNHELPFUL. Ports are per user
+        // (§3.1), so a port held by somebody else is the ordinary case rather than a fault — and
+        // the holder may be another signed-in user's dashboard, which this operator cannot free
+        // and should not try to. The advice now says what they can actually do.
+        //
+        // STALE BY CONFIDENCE, NOT BY DEMONSTRATION: nobody has shown this arm reachable under the
+        // new derivation. It needs the gate held AND the recorded port occupied by a stranger.
+        // The wording is corrected because it would be wrong if reached, not because it was
+        // observed being reached.
         _ =>
             $"another copy of the dashboard holds the single-instance gate, but port {port} is held by something else, " +
             "so this copy cannot ask it to surface. Open the running dashboard from its tray icon. " +
-            "To restore ingress, free that port and restart it.",
+            "The port it recorded is now held by another program — possibly another user's dashboard, which is " +
+            "normal and not yours to close. Quit the running dashboard and start it again, and it will choose " +
+            "a free port for itself.",
     };
 }

@@ -24,7 +24,9 @@
   is to see it, not to bless it.
 
 .PARAMETER Port
-  The dashboard's ingress port. Never the operator's 52789 unless you mean it.
+  The dashboard's ingress port. Since T1.21 the port is per user and derived, so there is no
+  fixed number to steer around: read the target's from its port.txt, or from the "Ingress port"
+  line in its log. Never the port the operator's own dashboard is on unless you mean it.
 
 .PARAMETER Token
   The value for X-Dashboard-Token, when the target has one configured.

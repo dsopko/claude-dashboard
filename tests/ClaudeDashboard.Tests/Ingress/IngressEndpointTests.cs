@@ -97,7 +97,7 @@ public sealed class IngressEndpointTests : IAsyncLifetime
         var builder = WebApplication.CreateSlimBuilder();
         builder.Logging.ClearProviders();
         builder.WebHost.ConfigureKestrel(kestrel =>
-            kestrel.ListenLocalhost(new SettingsStore(paths).Load().Settings.Port));
+            kestrel.ListenLocalhost(new SettingsStore(paths).Load().Settings.Port ?? DashboardSettings.DefaultPort));
 
         builder.Services.AddSingleton<Serilog.ILogger>(Logger.None);
         builder.Services.AddSingleton(paths);

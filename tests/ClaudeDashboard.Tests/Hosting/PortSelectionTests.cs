@@ -279,4 +279,54 @@ public sealed class PortSelectionTests
     [Fact]
     public void It_needs_a_probe() =>
         Assert.Throws<ArgumentNullException>(() => PortSelection.Choose(Base, Sid, null, null!));
+
+    // ---- Attempt 0: an explicit pin -----------------------------------------------------------
+
+    /// <summary>A pinned port wins over the recorded one and over the derivation.</summary>
+    [Fact]
+    public void A_pinned_port_is_honoured_before_everything_else()
+    {
+        var choice = PortSelection.Choose(Base, Sid, recorded: 54321, AllFree, pinned: 55555);
+
+        Assert.Equal(PortSource.Pinned, choice.Source);
+        Assert.Equal(55555, choice.Port);
+        Assert.Single(choice.Attempts);
+    }
+
+    /// <summary>
+    /// A pinned port that is taken fails visibly instead of moving the operator somewhere else.
+    /// </summary>
+    /// <remarks>
+    /// The one attempt that does not fall through. Somebody who names a port has said where they
+    /// want the dashboard; walking them off it would make the setting a suggestion and leave them
+    /// with a dashboard answering at an address they never chose. A deaf start puts the fault in
+    /// the tray tooltip, where they can see it and act.
+    /// </remarks>
+    [Fact]
+    public void A_pinned_port_that_is_taken_does_not_fall_through()
+    {
+        var choice = PortSelection.Choose(Base, Sid, null, Held(PortOccupant.Unrecognised, 55555), pinned: 55555);
+
+        Assert.False(choice.Found);
+        Assert.Equal(PortSource.None, choice.Source);
+        Assert.Single(choice.Attempts);
+    }
+
+    /// <summary>
+    /// <strong>No pin means derive — the distinction the whole feature rests on.</strong>
+    /// </summary>
+    /// <remarks>
+    /// Were "unset" not representable, every operator who has never opened <c>settings.json</c>
+    /// would carry the base port and be indistinguishable from one who typed it. Honouring that as
+    /// a pin would put every user back on one machine-wide port, which is the collision T1.21
+    /// exists to remove.
+    /// </remarks>
+    [Fact]
+    public void An_unset_port_derives_rather_than_pinning_the_base()
+    {
+        var choice = PortSelection.Choose(Base, Sid, null, AllFree, pinned: null);
+
+        Assert.Equal(PortSource.Derived, choice.Source);
+        Assert.NotEqual(Base, choice.Port);
+    }
 }

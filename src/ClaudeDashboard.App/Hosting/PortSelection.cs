@@ -12,6 +12,9 @@ public enum PortSource
     /// <summary>The port this user last bound, read from <c>port.txt</c>.</summary>
     Recorded = 1,
 
+    /// <summary>A port the operator pinned in <c>settings.json</c>. Honoured before all else.</summary>
+    Pinned = 4,
+
     /// <summary>Derived from this user's identity — the ordinary first-run answer.</summary>
     Derived = 2,
 
@@ -168,12 +171,29 @@ public static class PortSelection
         string identity,
         int? recorded,
         Func<int, PortOccupant> probe,
+        int? pinned = null,
         int range = DefaultRange,
         int walk = DefaultWalk)
     {
         ArgumentNullException.ThrowIfNull(probe);
 
         var attempts = new List<PortAttempt>();
+
+        // 0. AN EXPLICIT PIN WINS, AND IT IS THE ONLY ATTEMPT THAT DOES NOT FALL THROUGH.
+        //    An operator who names a port has said where they want the dashboard; moving them off
+        //    it silently would make the setting a suggestion. If it is taken they get the deaf
+        //    start and the tray tooltip, which is a fault they can see and act on — unlike a
+        //    dashboard quietly answering somewhere they did not ask for.
+        if (pinned is { } pin && pin is > 0 and <= 65535)
+        {
+            var pinOccupant = probe(pin);
+            attempts.Add(new PortAttempt(pin, pinOccupant));
+
+            return new PortChoice(
+                pin,
+                pinOccupant == PortOccupant.Free ? PortSource.Pinned : PortSource.None,
+                attempts);
+        }
 
         // 1. Continuity. The port this user had last time, if it is still to be had.
         if (recorded is { } port && port is > 0 and <= 65535)
@@ -212,5 +232,44 @@ public static class PortSelection
         }
 
         return new PortChoice(derived, PortSource.None, attempts);
+    }
+
+    /// <summary>
+    /// The whole of §3.1 for a data folder: pin, then <c>port.txt</c>, then derive, then walk.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>One entry point so that no caller can accidentally get the pre-T1.21 design.</strong>
+    /// <c>AppHost.Build</c>'s port used to fall back to the base port from settings when the caller
+    /// supplied none — which produced no error and nothing failing, just a dashboard bound to the
+    /// machine-wide port. That is worse than the interlock bug this task already fixed: <em>that</em>
+    /// one announced itself by starting deaf, while this one produces a working dashboard on
+    /// somebody else's port, with a hook URL that agrees with it and is wrong for this user.
+    /// </para>
+    /// <para>
+    /// A remark saying "callers should pass a port" would have been the weakest fix available,
+    /// because the parameter is public and optional. The fallback derives instead.
+    /// </para>
+    /// </remarks>
+    /// <param name="paths">The data folder, which supplies <c>port.txt</c>.</param>
+    /// <param name="settings">Supplies the pin, when the operator set one.</param>
+    /// <param name="identity">The user's stable identity; defaults to this account's SID.</param>
+    /// <param name="probe">Asks whether a port is free; defaults to a real bind through the health probe.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="paths"/> or <paramref name="settings"/> is null.</exception>
+    public static PortChoice ForDataFolder(
+        Configuration.DashboardPaths paths,
+        Configuration.DashboardSettings settings,
+        string? identity = null,
+        Func<int, PortOccupant>? probe = null)
+    {
+        ArgumentNullException.ThrowIfNull(paths);
+        ArgumentNullException.ThrowIfNull(settings);
+
+        return Choose(
+            Configuration.DashboardSettings.DefaultPort,
+            identity ?? UserIdentity.Current,
+            Configuration.PortFile.Read(paths),
+            probe ?? (port => HealthProbe.Probe(port, SingleInstanceGate.NameFor(paths.Root)).Occupant),
+            settings.Port);
     }
 }

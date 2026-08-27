@@ -184,18 +184,36 @@ public sealed class SettingsStoreTests : IDisposable
     }
 
     /// <summary>A typo in one value must not cost the whole file.</summary>
+    /// <summary>
+    /// <strong>A port that is not a port becomes unset, and never becomes the default.</strong>
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This asserted the opposite until T1.21, and the old behaviour is now the worst outcome
+    /// available: with a per-user port, coercing a typo to <see cref="DashboardSettings.DefaultPort"/>
+    /// turns a mistake into a hard pin on the single port most likely to be contended — the
+    /// operator pinned by accident to the one port the feature exists to stop everybody sharing.
+    /// </para>
+    /// <para>
+    /// Falling through to the derivation is what a mistyped port should do, and the mistake is
+    /// reported rather than swallowed.
+    /// </para>
+    /// </remarks>
     [Theory]
     [InlineData(0)]
     [InlineData(-1)]
     [InlineData(70000)]
-    public void An_out_of_range_port_falls_back_to_the_default(int port)
+    public void An_out_of_range_port_becomes_unset_rather_than_the_default(int port)
     {
         WriteSettingsFile($"{{ \"port\": {port} }}");
 
         var result = _store.Load();
 
         Assert.Equal(SettingsLoadOutcome.Loaded, result.Outcome);
-        Assert.Equal(DashboardSettings.DefaultPort, result.Settings.Port);
+        Assert.Null(result.Settings.Port);
+
+        // A person tried to pin a port and did not, so it is said rather than left silent.
+        Assert.NotNull(result.Problem);
     }
 
     [Fact]
@@ -214,9 +232,10 @@ public sealed class SettingsStoreTests : IDisposable
     {
         var settings = new DashboardSettings();
 
-        // Impl §3.1: a fixed port in the private range, so the hook URL stays stable.
-        Assert.Equal(52789, settings.Port);
-        Assert.Equal(DashboardSettings.DefaultPort, settings.Port);
+        // Impl §3.1 as amended: the port is UNSET until an operator pins one. DefaultPort is the
+        // base the derivation counts from, not a value anything defaults to — see DashboardSettings.
+        Assert.Null(settings.Port);
+        Assert.Equal(52789, DashboardSettings.DefaultPort);
     }
 
     [Fact]
@@ -224,6 +243,79 @@ public sealed class SettingsStoreTests : IDisposable
     {
         Assert.Throws<ArgumentNullException>(() => new SettingsStore(null!));
         Assert.Throws<ArgumentNullException>(() => _store.Save(null!));
+    }
+    // ---- The port is a pin, or it is nothing (T1.21) -------------------------------------------
+
+    /// <summary>A settings file with no port leaves the port unset, not defaulted.</summary>
+    /// <remarks>
+    /// The distinction the per-user port rests on. If an absent key produced
+    /// <see cref="DashboardSettings.DefaultPort"/>, every operator who has never opened the file
+    /// would look pinned to it, and honouring that would put every user back on one shared port.
+    /// </remarks>
+    [Fact]
+    public void A_file_without_a_port_leaves_it_unset()
+    {
+        WriteSettingsFile("""{"logging":{"retainedFileCount":3}}""");
+
+        var loaded = _store.Load();
+
+        Assert.Equal(SettingsLoadOutcome.Loaded, loaded.Outcome);
+        Assert.Null(loaded.Settings.Port);
+    }
+
+    /// <summary>A pinned port survives the round trip as a pin.</summary>
+    [Fact]
+    public void A_pinned_port_round_trips()
+    {
+        _store.Save(new DashboardSettings { Port = 51000 });
+
+        Assert.Equal(51000, _store.Load().Settings.Port);
+    }
+
+    /// <summary>
+    /// <strong>A port that is not a port becomes unset, and never becomes the default.</strong>
+    /// </summary>
+    /// <remarks>
+    /// The old behaviour coerced an out-of-range value to <see cref="DashboardSettings.DefaultPort"/>.
+    /// Under a per-user port that is the worst available outcome: a typo would become a hard pin on
+    /// the single port most likely to be contended — the operator would be pinned by accident to
+    /// the one port the whole feature exists to stop everybody sharing. Falling through to the
+    /// derivation is what a mistake should do.
+    /// </remarks>
+    [Theory]
+    [InlineData("0")]
+    [InlineData("-1")]
+    [InlineData("70000")]
+    public void A_port_that_is_not_a_port_becomes_unset(string value)
+    {
+        WriteSettingsFile($$"""{"port":{{value}}}""");
+
+        var loaded = _store.Load();
+
+        Assert.Null(loaded.Settings.Port);
+        Assert.NotEqual(DashboardSettings.DefaultPort, loaded.Settings.Port);
+    }
+
+    /// <summary>And a mistyped port says so, because it is a person who meant something.</summary>
+    /// <remarks>
+    /// An absent key and a mistyped one both end as <see langword="null"/>, so they are
+    /// indistinguishable from the settings object. They are not the same event: one is normal and
+    /// needs no line, the other is somebody who tried to pin a port and did not. The difference is
+    /// recovered from the file rather than stored beside the value, so no second copy exists to
+    /// disagree with the first.
+    /// </remarks>
+    [Fact]
+    public void A_mistyped_port_is_reported_while_an_absent_one_is_not()
+    {
+        WriteSettingsFile("""{"port":0}""");
+        var mistyped = _store.Load();
+
+        Assert.NotNull(mistyped.Problem);
+        Assert.Contains("port", mistyped.Problem!, StringComparison.OrdinalIgnoreCase);
+
+        WriteSettingsFile("""{"logging":{"retainedFileCount":3}}""");
+
+        Assert.Null(_store.Load().Problem);
     }
 }
 

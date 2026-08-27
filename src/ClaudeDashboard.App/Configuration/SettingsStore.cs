@@ -64,6 +64,52 @@ public sealed class SettingsStore(DashboardPaths paths)
     /// Comments and trailing commas are tolerated, because Impl Part 8 calls this file
     /// "human-editable" and a human editing JSON writes both.
     /// </remarks>
+    /// <summary>
+    /// Says so when the file names a port that is not one (Impl §3.1).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>Computed from the file, never stored beside the value.</strong> A mistyped port
+    /// becomes <see langword="null"/> on <see cref="DashboardSettings.Port"/> — the same as never
+    /// having set one — so the two cases are indistinguishable from the settings object alone. This
+    /// tells them apart by looking at the file again, which means there is no second copy of the
+    /// port to disagree with the first.
+    /// </para>
+    /// <para>
+    /// It matters because the outcomes differ for the operator, not for the code: an absent key is
+    /// normal and needs no line, while a key holding <c>0</c> or <c>"52789x"</c> is a person who
+    /// meant to pin a port and did not.
+    /// </para>
+    /// </remarks>
+    private static string? PortProblem(string json, DashboardSettings settings)
+    {
+        if (settings.Port is not null)
+        {
+            return null;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+
+            if (document.RootElement.ValueKind == JsonValueKind.Object &&
+                document.RootElement.TryGetProperty("port", out var port) &&
+                port.ValueKind != JsonValueKind.Null)
+            {
+                return
+                    $"The \"port\" setting is {port} , which is not a usable port. The dashboard will " +
+                    "choose one for this user instead. Remove the setting, or give it a number between " +
+                    "1 and 65535.";
+            }
+        }
+        catch (JsonException)
+        {
+            // Unreachable in practice: this runs only after a successful deserialize.
+        }
+
+        return null;
+    }
+
     public SettingsLoadResult Load()
     {
         if (!File.Exists(_paths.SettingsFile))
@@ -83,7 +129,7 @@ public sealed class SettingsStore(DashboardPaths paths)
                     new DashboardSettings(),
                     SettingsLoadOutcome.Unreadable,
                     "The settings file contained no object.")
-                : new SettingsLoadResult(settings, SettingsLoadOutcome.Loaded);
+                : new SettingsLoadResult(settings, SettingsLoadOutcome.Loaded, PortProblem(json, settings));
         }
         catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
         {

@@ -145,7 +145,7 @@ public static class Program
                 // failure this whole type exists to remove.
                 // The port was chosen before the logger existed, so it is reported now that one does.
                 ReportPortChoice(
-                    host.Services.GetRequiredService<Serilog.ILogger>(), choice, settings.Port, isSid);
+                    host.Services.GetRequiredService<Serilog.ILogger>(), choice, isSid);
 
                 surfacer = new WindowSurfacer(host.Services.GetRequiredService<Serilog.ILogger>());
 
@@ -302,10 +302,11 @@ public static class Program
         var identity = UserIdentity.Resolve(out isSid);
 
         return PortSelection.Choose(
-            settings.Port,
+            DashboardSettings.DefaultPort,
             identity,
             recorded,
-            port => HealthProbe.Probe(port, gateName).Occupant);
+            port => HealthProbe.Probe(port, gateName).Occupant,
+            pinned: settings.Port);
     }
 
     /// <summary>Says how the port was arrived at, once the logger that can record it exists.</summary>
@@ -318,7 +319,7 @@ public static class Program
     /// Found by reading a live run rather than by a test: nothing asserts on a line that is never
     /// written.
     /// </remarks>
-    private static void ReportPortChoice(Serilog.ILogger logger, PortChoice choice, int basePort, bool isSid)
+    private static void ReportPortChoice(Serilog.ILogger logger, PortChoice choice, bool isSid)
     {
         if (!isSid)
         {
@@ -334,7 +335,7 @@ public static class Program
                 "Ingress port {Port}, chosen from {Source} (base {Base}). Candidates: {Trail}",
                 choice.Port,
                 choice.Source,
-                basePort,
+                DashboardSettings.DefaultPort,
                 choice.Trail);
         }
         else
@@ -343,7 +344,7 @@ public static class Program
                 "No free loopback port after {Attempts} attempts from base {Base}. The dashboard will " +
                 "start and will not hear anything. Candidates: {Trail}",
                 choice.Attempts.Count,
-                basePort,
+                DashboardSettings.DefaultPort,
                 choice.Trail);
         }
     }
@@ -353,7 +354,7 @@ public static class Program
         DashboardSettings settings,
         StartupAction action,
         HealthProbeResult probe,
-        int port)
+        int? port)
     {
         var foldersReady = paths.TryEnsureCreated(out _);
         using var logger = AppHost.CreateLogger(paths, settings.Logging, foldersReady);
@@ -367,8 +368,21 @@ public static class Program
             return 1;
         }
 
+        // Unreachable by construction: SignalAndExit is only chosen when the probe found OUR
+        // instance, and nothing is probed unless a port was recorded. Guarded rather than
+        // asserted with "!" because the alternative to being right here is signalling a port this
+        // user never bound — which is the defect class this task has now produced four times.
+        if (port is not { } target)
+        {
+            logger.Error(
+                "Claude Dashboard is already running, but this process has no recorded port to signal. " +
+                "No window will appear. Open the running dashboard from its tray icon.");
+
+            return 1;
+        }
+
         var result = ShowSignal.Send(
-            port,
+            target,
             Environment.GetEnvironmentVariable(IngressToken.EnvironmentVariable));
 
         switch (result.Outcome)
