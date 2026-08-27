@@ -1232,3 +1232,53 @@ going to offer a second mechanism after the first one was wrong.**
 **Restored** as Appendix D of the execution plan — D rather than C, because Appendix C now holds
 the launch runbook that your copy predated. Your text otherwise as written, less one stray
 character. The failure is written into the appendix itself, where somebody will meet it.
+
+## D81 — Issue #5 is closed, and your question changed the design twice
+You approved the per-user port and then asked two things that improved it.
+
+**"Where is the offset stored and how does it know to use it?"** The answer turned out to be
+*nowhere, and nothing needs telling* — binding is the only question ever asked, and two users
+never contend because they derive different candidates from different accounts. But answering it
+properly exposed that the reason the port was fixed in the first place — *"so the hook address
+stays stable"* — had been made false by the hooks change you asked for the night before. The
+comment had outlived the design it described.
+
+**"An extra allowed port is fine."** That ruling removed the only argument for pruning the
+allowlist, which kept the design simple.
+
+**One decision I overruled the coder on.** It made your `port` setting the *base* of a range, so
+asking for 52900 would have given you 52900-plus-an-offset. A setting named `port` that does not
+give you that port is a name promising more than the thing behind it. It is now an explicit pin,
+honoured first. The reviewer supplied the better reason: **a pin is usually a contract with
+something outside the dashboard** — a firewall rule, a proxy, a script — and a dashboard quietly
+working on a different port is worse than one that does not work, because the outside thing still
+points at the pinned port and now fails while the dashboard looks healthy.
+
+**And a typo is now safe.** An out-of-range port becomes unset and falls through to the
+derivation. It was previously corrected to the default — which under the new design would have
+turned a mistyped number into a hard pin on the most contended port on the machine.
+
+## D82 — Six instances of one defect in one task, and the method that found them
+A statement whose subject outlived the design that made it true. Five different verbs: code that
+*probed* the base port, a message that *quoted* it, a default that *fell back* to it, advice that
+told you to *free* it, a script that told its reader to *avoid* it.
+
+**None was found by a test. None was found by reading the change.** All six were found by
+grepping the premise — the constant itself — rather than the diff.
+
+The reason, which generalises: a diff shows what changed. This defect is **what did not change and
+should have**, so the evidence lives in the files the diff does not touch.
+
+Two sweeps were needed and neither contained the other. One swept port-*bearing sites* and found
+code that used a port wrongly; the other swept the *constant* and found code that merely
+mentioned it.
+
+**The worst of the six was found by running it.** The startup check still probed the base port, so
+the second dashboard found the first, decided it was a duplicate, and started deaf while its own
+correctly derived port sat free. Every test passed, because the derivation *was* right —
+**a unit test cannot fail on a premise it shares with the code.**
+
+The reviewer's closing point, which I pass on for Phase 2 planning: nothing in the suite can
+currently tell you that a comment, a log line or a default still believes something the design
+stopped being true. The privacy inventory proved that shape is buildable for one property. This is
+the same problem with a harder subject.
