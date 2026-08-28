@@ -1373,3 +1373,91 @@ The reviewer's closing point, which I pass on for Phase 2 planning: nothing in t
 currently tell you that a comment, a log line or a default still believes something the design
 stopped being true. The privacy inventory proved that shape is buildable for one property. This is
 the same problem with a harder subject.
+
+## D83 — T1.22, and the fix that was better than the fix asked for
+Issue #13 named a mechanism that does not exist. `RegisterEndpointNotificationCallback` is gone in
+NAudio 3.0.1 and `IMMNotificationClient` is internal, established by compiling rather than reading.
+`WasapiOut` is obsolete there too. The issue was written against an older library.
+
+**A simpler option existed and was declined on evidence, not taste.** NAudio can ask Windows to
+follow the default endpoint with no application code at all. It was built and it works. It cannot
+report which endpoint it bound — `DeviceId` and `DeviceFriendlyName` are null under routing — so
+the only readout available would be what the application separately *believes* the default to be.
+That is a different fact from what the player opened, the two can disagree, and it is an assertion
+satisfiable by something other than the thing it claims to observe. Recorded on the issue so it is
+not re-proposed later as the obvious shortcut.
+
+**Role is `eConsole`, not `eMultimedia`.** External authority owns the value: Microsoft defines
+`eConsole` as the role for system notification sounds and `eMultimedia` as the role for music and
+film. `eMultimedia` would have been a name promising something wider than the thing behind it.
+
+## D84 — The guard that was lost without being deleted
+The rewrite moved a `try` around a different call, and a degradation from T1.14 stopped existing.
+The dashboard no longer went quiet when it could not reach the audio system — **it failed to
+start.**
+
+Nothing removed the guard. No line in the diff shows it leaving. It is the same shape as D82: the
+evidence lives in what did not change and should have.
+
+**Why no test could reach it:** the seam took a finished object, and the thing that fails is the
+*construction*. A parameter that receives a built dependency cannot express a dependency that
+cannot be built. The reviewer described the symptom — an unguarded call — and the coder found the
+cause underneath it. The seam became a factory and the path became reachable.
+
+**The reviewer read it and said so.** Demonstrating it needs the audio service stopped, which is
+the operator's machine and out of bounds. It was labelled read-from-code rather than measured, and
+the fix's job was to make it measurable without their machine.
+
+## D85 — The fourth flake, and proof by control rather than by counting
+A state flag was set inside a lock; the log line was written after the lock released; the test
+waited on the flag and then read the log. Measured at 4 failures in 40 solo and 3 red in 6 full
+runs — not suspected, measured.
+
+**The mechanism was proved by position, not by delay.** A 50ms sleep *between* the publish and the
+log gave 10/10 failures. The same sleep *before* the publish gave the base rate.
+
+**The fix was proved the same way, with a control.** New waits with the probe in: 10 passed of 10.
+Old wait restored, same probe still in place: 0 passed of 10. Ten green runs alone would have been
+equally consistent with a probe that does nothing; showing the probe still kills the *old* wait is
+what separates the fix from luck.
+
+One assertion in that test had never once been observed failing. It was the same defect, and it is
+the assertion that fails in the control — so it is fixed rather than still unobserved.
+
+Standing form: **wait on the thing you are about to assert, not on a neighbour of it.**
+
+## D86 — Seventeen seconds
+I proposed checking with git whether the tested tree matched the committed tree, after a
+documentation edit landed between the run and the commit. **The reviewer was right and I was
+wrong:** git can say the tree matches the commit *now*, but nothing recorded the tree as it stood
+at run time, so no content comparison is possible after the fact. The only instruments are a hash
+taken at run time, or modification time — which is the weak one.
+
+The consequence, adopted as standing:
+
+> **When a full run costs seventeen seconds, do not construct an argument that the earlier run
+> still stands.** The argument costs more to write and more to review than the run costs to
+> repeat, and it can be wrong.
+
+Given an explicit exemption on a comments-only change, the coder ran it anyway and gave that
+reason back. The rule was understood rather than obeyed.
+
+## D87 — What T1.22 does not claim
+Recorded in the acceptance record §5e, not in a comment, because a limit living only in a comment
+is invisible the moment the issue closes.
+
+- The false "played" reading is **narrowed, not closed** — from "any dead device" to "no default
+  endpoint at all". A device still enumerable, still `Active`, and nonetheless dead is caught only
+  by the second oracle, not by the endpoint notifications.
+- **An endpoint that hangs and then heals with no default change stays silent** until the default
+  changes or the app restarts. The original defect in miniature, much narrower.
+- **The start-up test survived its own plant**, because this machine's audio works. It shows
+  start-up goes *through* the guarded constructor; it cannot show start-up *surviving* a broken
+  stack. That half needs the audio service stopped. The coder reported this unprompted and against
+  its own interest; the reviewer verified it by its own plant and called it the strongest single
+  thing in the hand-back.
+- **The five-row hardware card is NOT RUN.** Nobody may touch the operator's audio configuration.
+
+Two oracles now exist where there was none: the notification client says which endpoint *should*
+be bound, and `PlaybackStopped` — raised by the audio stack, not by us — says *this stream is
+dead*. Neither can produce the other's evidence.
