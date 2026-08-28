@@ -182,6 +182,10 @@ them is closed by running the test again.
 
 3. **Sound: notices and nudges fire.** Needs an ear. Open since T1.14. Everything up to the sound
    card is evidenced; what came out of the speakers is not, and cannot be from here.
+   **Widened by T1.22** (§5e): the adapter now follows the default output device, and the five-row
+   card that would evidence it needs the operator's hands and, for one row, their consent. None of
+   the five has been run. The log now names the bound endpoint, so that card can be judged by
+   reading rather than only by listening.
 
 4. **Nudges coalesce — and this one is newly named.** The nudge ladder begins minutes after a
    session starts waiting. The staged run lasted about forty seconds and the consumer reported
@@ -325,6 +329,147 @@ Three users mean three entries; a user who never comes back leaves one behind; a
 no hook is inert. Pruning was declined rather than forgotten.
 
 ---
+## 5e · Sound follows the default output device (T1.22, issue #13), and what is still open
+
+The sound adapter opened the output device once, in its constructor, and held it. `Play` never
+touched the device again — it added a provider to the mixer and returned — so once the device was
+gone there was nothing left in `Play` that could fail. Unplugging a headset left the dashboard
+silent for the rest of the session, with an empty log, while `PlayedCount` kept rising for sounds
+nobody heard.
+
+T1.22 makes the adapter follow the default endpoint, and stop reporting success while it has no
+working one. The port contract is unchanged: `ISoundPlayer` did not grow a member, and "never
+throws" still holds. This was an adapter fault and it is fixed inside the adapter.
+
+### What the suite now proves, and what it cannot
+
+Nine new tests. All nine were confirmed load-bearing by planting six mutations shaped like the
+defect rather than like the checker, each one killing at least one test: never subscribing (the
+original defect, 7 tests), publishing a device without re-checking the disposal (1), a strike limit
+that never trips (2), a deliberate release not marked as deliberate (5), a bound endpoint echoing
+the request instead of the player's own report (1), and no endpoint comparison before re-opening
+(1). Two further mutations did not compile, so no test result was read from them.
+
+**Four things none of these tests can prove.** They are the shape of what shipping this leaves
+open, and none of them is closed by running the suite again.
+
+1. That Windows raises anything at all on a real unplug, which of the four notifications arrive,
+   in what order, and how many times. The fake raises them because a test told it to. This premise
+   is shared between the test and the code, so no test on this seam can fail on it.
+2. That opening a real endpoint produces an audible sound. Every test would pass against a build
+   that opened the right device and played into a void.
+3. That the endpoint Windows calls the default is the one the operator hears.
+4. **The widest, and the limit on the second half of the fix.** The suite proves the adapter stops
+   claiming success when Windows reports *no default endpoint*. It cannot prove the adapter stops
+   claiming success for a device that is listed, reports itself active, accepts a stream, and is
+   inaudible anyway. **The fix narrows the false "played" reading from "any dead device" to "no
+   default endpoint at all". It does not close it.**
+
+### Residual: a hung endpoint that heals itself
+
+Attempts against one endpoint are bounded — three failures and the adapter stops trying it — and
+the strikes reset when the default endpoint changes. Without the bound, an endpoint that opens and
+immediately dies would re-bind, stop and re-bind for as long as the process ran.
+
+**The cost, stated plainly because it is the original defect in miniature: an endpoint that hangs
+and then heals with no default device change stays silent until the default changes or the app
+restarts.** "Silent until restart" is what issue #13 was filed about, and it survives here in a
+narrow form. It is narrower than the defect it replaces — that one covered every device change,
+this one covers only a device that fails three times and then recovers without Windows noticing —
+and unlike the defect it is not silent in the log: entering that state writes one line naming the
+endpoint and the number of attempts.
+
+Nobody should read the closing of #13 as closing this.
+
+### The hardware acceptance card — NOT RUN
+
+Five rows. Rows 2, 3 and 4 need the operator's hands on real devices, and row 5 changes their
+Windows sound settings and needs their consent. **None of the five has been run.** They are listed
+so the state is recorded rather than assumed.
+
+| # | Do this | Expect | Result |
+|---|---|---|---|
+| 1 | Headphones default. Raise a notice. | Heard in headphones. | **not run** |
+| 2 | Unplug the receiver or power off Bluetooth. Raise one. | Heard on speakers. | **not run** |
+| 3 | Reconnect, make default. Raise one. | Heard in headphones. | **not run** |
+| 4 | Both connected. Change the default in Sound settings. | Heard on the new default. | **not run** |
+| 5 | Disable every output, start, raise one; then enable one and raise another. | First silent and logged, second heard. | **not run** |
+
+**The card must not be judged by ear alone.** Every successful bind writes one line at
+Information naming the endpoint the player itself reports:
+
+```
+Sound output bound to Headphones (Arctis 7) ({0.0.0.00000000}.{...}).
+```
+
+Losing the output writes one line, once, naming which of the two silences it is — "Windows reports
+no default output endpoint", or "it gave up on … after 3 failed attempts". Recovering writes one
+line carrying what the silence cost: `N sound(s) were dropped while there was none`. So a pass and
+a near-miss are distinguishable without trusting anyone's hearing.
+
+**Row 4 may already pass on the unfixed build, and if it does, a fix that makes row 4 pass has
+demonstrated nothing.** NAudio documents `WaveOut.DeviceNumber = -1` as "stick to default device
+even default device is changed", which is the behaviour issue #13 reports missing. The two
+reconcile if WinMM over WASAPI reroutes the mapper on a soft default change but does not survive
+the current endpoint being *removed*. That predicts row 4 passing today and rows 2 and 3 failing.
+The prediction is recorded here before the baseline was collected, so the baseline tests it rather
+than being fitted to it. It is documented, not measured: measuring it needs the default device
+changed, which is the operator's settings and was not touched.
+
+### Considered and rejected: letting Windows do it
+
+NAudio 3.0.1 offers `WasapiPlayerBuilder.WithDefaultDeviceStreamRouting()`, which asks Windows to
+follow the default device with no application code at all. It was built, initialised with this
+mixer's format, played and disposed — it works, and it is less code than what shipped.
+
+It is rejected for one decisive reason: under routing there is no fixed endpoint, so
+`WasapiPlayer.DeviceId` and `DeviceFriendlyName` are both null. The only readout left would be
+what the dashboard separately believes the default to be, which is a different fact from what the
+player opened, can disagree with it, and is exactly the kind of assertion satisfiable another way.
+The whole acceptance above rests on the operator seeing which endpoint is bound. A supporting
+reason: routing cannot start with no device at all, so the notification subscription would have
+been needed regardless.
+
+Recorded so nobody re-proposes it later as an obvious simplification.
+
+### Facts established by compiling and measuring, not by reading
+
+- `MMDeviceEnumerator` and the rest of `NAudio.CoreAudioApi` resolve from the NAudio 3.0.1
+  metapackage. No new `PackageReference`.
+- **`IMMNotificationClient` is `internal` in NAudio 3.0.1**, so the mechanism issue #13 names —
+  a class implementing it, handed to `RegisterEndpointNotificationCallback` — cannot be written.
+  The supported replacement is `MMDeviceEnumerator.CreateNotificationClient`.
+- `WasapiOut` is `[Obsolete]` in 3.0.1, superseded by `WasapiPlayerBuilder`.
+- The device on this machine mixes at 48kHz. The fixed 44.1kHz stereo float mixer is accepted
+  unchanged in shared mode, because the Windows audio engine converts the sample rate itself. This
+  is checked at every bind rather than trusted. It would stop being true under
+  `WithLowLatency`, which takes the `IAudioClient3` path and does not resample.
+- **A `WasapiPlayer` raises `PlaybackStopped` when it is disposed**, with a null exception. So the
+  adapter's own teardown raises the same signal a dying device does, and a player being released
+  on purpose has to be marked or every deliberate swap books a strike against a healthy endpoint.
+
+### One new thing the suite itself now does, named for issue #12
+
+`The_sound_player_is_the_real_adapter` resolves the adapter from the container, so one test in the
+suite builds the *real* Windows audio stack. It already opened a real device before T1.22; it now
+also registers a Core Audio endpoint notification callback and starts a background thread, and
+releases both when the host is disposed.
+
+This is named, not blamed. Issue #12 is an unexplained test-host crash at roughly 1 in 24 Release
+runs (§5c), and a COM callback registered by managed code is the kind of thing that produces
+exactly that signature if it ever outlives its object. Nothing here shows that it does — the
+subscription is disposed before anything else in `Dispose`, and a test asserts it. It is written
+down because the suite's list of "things that could crash a host" grew by one on this task, and
+that list is the only place anyone will look.
+
+### Role: eConsole
+
+`GetDefaultAudioEndpoint` takes a role, and Microsoft defines them: `eConsole` for games, system
+notification sounds and voice commands; `eMultimedia` for music, movies and narration;
+`eCommunications` for talking to another person. What this application plays is a system
+notification sound. `eCommunications` is rejected deliberately — a notice must not follow the audio
+path of a call the operator is in.
+
 ## 6 · Was the harness capable of producing the other outcome?
 
 A green run proves nothing unless a red one was reachable. Five defects were planted, each taken
@@ -426,5 +571,10 @@ dated to the T1.19 artefact named in the header and are not re-run here.
   including anything read from `port.txt` before a dashboard has run. Allowlist entries accumulate
   by ruling, and two users sharing one `CLAUDE_DASHBOARD_HOME` share one database, which is
   unsupported and documented as such.
+- **Sound follows the default device, and the claim is narrow** (§5e, T1.22, issue #13). The false
+  "played" reading is narrowed from "any dead device" to "no default endpoint at all"; it is not
+  closed. One residual keeps the original defect's shape: an endpoint that hangs and then heals
+  with no default change stays silent until the default changes or the app restarts. The five-row
+  hardware card has not been run, in whole or in part.
 - **Phase 1 is gated, not finished.** Every observation here holds; the phase's exit criteria in
   Part 2 do not, while §5 stands and while §5b's open row stands.
