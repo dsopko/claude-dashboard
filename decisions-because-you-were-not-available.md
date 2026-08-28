@@ -1,10 +1,101 @@
 # Decisions I had to make because you were not available
 
-You went to bed on the night of 2026-08-25 and told me to run to the end of
-Part 3 without waking you. Every choice below is one I would usually have put
+The night of 2026-08-25 operator told me to run to the end of
+Part 3 without asking for operator input. Every choice below is one I would usually have put
 to you first. Each entry says what I decided, why, and how to undo it.
 
 Read the entries in order. The newest is at the bottom.
+
+---
+
+# SUMMARY — added 2026-08-27
+
+**What this is.** A reader's summary of the eighty entries below, written after the fact by a
+separate Claude Code session at the operator's request. It is not the director's work and it does
+not supersede anything: where this disagrees with an entry, the entry is the record of what was
+decided and this is a later reading of it.
+
+**What the rest of this document is.** Roughly fifty of the eighty entries are notes on *method* —
+how a test can be shaped so that it cannot fail, why a comment making a falsifiable claim should
+be a test instead, why a deliberate fault must resemble the defect rather than the detector. They
+are a genuinely good body of work about how this team checks itself, and worth reading once, some
+time. **None of them is a decision anybody needed to be woken for.** They are here because the
+instruction to "decide it yourself and write it down" was read as "write down everything."
+
+Everything an operator actually needs is below.
+
+## The one thing that actually went wrong
+
+**D80.** The compaction messages you added to the execution plan were deleted by the director on
+the first night, and **D2 — written at the time — described that event as a clean recovery.** Your
+text survives only because he copied the file aside out of caution before restoring it. It is now
+Appendix D of the execution plan.
+
+Two consequences. D2's alarm about "something on this machine writes into `C:\Projects\Claude` on
+a schedule" is probably **wrong** — the likelier mechanism is an editor saving a stale buffer — so
+there is no scheduled task to hunt. And the miss came from diffing the file in one direction only:
+he looked at what had been removed and never asked what had been added.
+
+## Still open — these need a decision from you
+
+1. **Phase 1 is gated, not finished.** T1.16 (DPI, pin-to-all-desktops, window placement) and
+   T1.17 (SQLite event log) were **never started**. The acceptance document was written without
+   them and needs a supplement when they land. — D14, D68, D72, D78
+2. **There is no installer, and no task in the plan owns one.** T1.19 produces a published exe and
+   asserts the logon task points at it, but nothing says where that exe lives or who puts it
+   there. Installing is a manual folder copy today. "Not MSIX" is deliberate and well argued;
+   nothing replaced it.
+3. **Nothing autostarts.** `LogonTask.Register` exists in the code and nothing calls it, so no
+   logon task is registered. Deliberate — one pointing at a staging build would start the wrong
+   executable. — D38
+4. **Worktrees: the director reversed himself.** D1 dropped them; **D51 recommends separate
+   working folders before Phase 2**, after three shared-tree environment failures each initially
+   indistinguishable from a real defect.
+5. **Your prompt text is unprotected in four objects at once** (issue #11). Nothing logs it today —
+   latent, not a leak — but the fix is four wrappings and every call site between them. — D75
+6. **The test suite crashes its host about once in twenty-four runs** and nobody can reproduce it.
+   — D78
+
+## Waiting on a manual step from you
+
+- **Install the package.** Staged at `%LOCALAPPDATA%\ClaudeDashboardApp.staging\`. Stop the running
+  build, swap the folder, launch. It registers its own hooks on start and removes them on quit.
+- **The security token is off** and that is deliberate, not an oversight. It is optional hardening.
+  If you ever switch it on, every Claude Code terminal must be *started after* the environment
+  variable exists, or they are all rejected.  — D38
+- **A dead `PermissionRequest` http hook is still in `~/.claude/settings.json`.** D39 says it was
+  removed. It was not. Your own `notify.ps1` on that event is fine and should stay.
+
+## Corrections to entries below
+
+- **D2 is wrong.** See D80.
+- **D13 / issue #5 is outdated.** Multi-user was broken by a fixed port; **T1.21 has since replaced
+  it with per-user port selection**, committed the evening of 26 August, after the last entry here
+  was written.
+- **D42 is done.** The stray `59918` allowlist entry is gone.
+- **D26 / D72:** the Phase 1 gate was driven by replaying recorded hook payloads, not by fifteen
+  real Claude Code terminals — deliberately, to conserve your usage. The gate names that gap.
+- **D76 / D77:** every test count quoted during the night came from a summary line that prints
+  `Failed: 0` even when the host has crashed and tests never ran. The figures were re-verified
+  afterwards with the suite size known in advance. **None moved.**
+
+## One premise worth knowing about
+
+A run of decisions — D4, D5, D6, D32, D38, D43 — rests on "the operator's dashboard is running on
+the default port and data folder and must not be disturbed." That was factually true: the
+25 August build ran continuously through the whole overnight session. **You believed you had
+stopped it.** `CLAUDE_DASHBOARD_HOME` was shipped as a product feature largely to work around it.
+The feature turned out to have independent value and surfaced a real bug (D28), so the work was
+not wasted — but the reason given for doing it that night did not need to hold, and the director
+decided twice (D32, D38) not to touch your build without ever asking whether he should.
+
+## Two entries worth reading in full
+
+**D35** and **D41**. The first records three occasions where one session's claim was checked by
+another and found wrong, and each time the one who was wrong found it or accepted it without
+argument — the argument for the three-session arrangement. The second is the one that matters to
+you: **issue #4 is measured, not argued.** A hook added starts firing in sessions already running;
+a hook removed stops firing in them. A dashboard that quits cleanly takes its hooks with it.
 
 ---
 
