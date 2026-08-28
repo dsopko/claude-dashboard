@@ -108,7 +108,7 @@ public sealed class NAudioSoundPlayerTests : IDisposable
 
         var catalog = new SoundCatalog(_overrides, _shipped);
         using var player = new NAudioSoundPlayer(
-            catalog, Logger.None, new FakeClock(), Endpoints(), settle: TimeSpan.Zero);
+            catalog, Logger.None, new FakeClock(), () => Endpoints(), settle: TimeSpan.Zero);
 
         player.Play(SoundId.Permission, 1.0, TimeSpan.Zero);
         player.Play(SoundId.Permission, 0.6, TimeSpan.FromMilliseconds(150));
@@ -267,7 +267,17 @@ public sealed class NAudioSoundPlayerTests : IDisposable
         endpoints.Default = null;
         endpoints.RaiseChanged();
 
-        Wait(() => !player.HasOutput, "the output to be given up");
+        // WAITING ON THE LOG LINE, NOT ON THE STATE FLAG, AND THIS IS NOT A STYLE CHOICE.
+        // The adapter sets its state inside the gate and writes the line after releasing it —
+        // deliberately, because logging under a lock held on the audio path would be worse. So a
+        // wait on HasOutput returns while the line is still unwritten, and the assertion below
+        // reads a log that is correct a moment later. Found in review as a real flake: 4 failures
+        // in 40 runs, and 10 in 10 with a 50ms sleep planted between the publish and the line.
+        // The rule this leaves behind: wait on the thing you are about to assert, not on a
+        // neighbour of it.
+        Wait(() => log.Containing("no working audio output") == 1, "the silence to be logged");
+
+        Assert.False(player.HasOutput);
 
         player.Play(SoundId.Finished, 1.0, TimeSpan.Zero);
         player.Play(SoundId.Finished, 1.0, TimeSpan.Zero);
@@ -286,14 +296,15 @@ public sealed class NAudioSoundPlayerTests : IDisposable
         endpoints.Default = Headset;
         endpoints.RaiseChanged();
 
-        Wait(() => player.HasOutput, "a new device to be bound");
+        // The same rule again: the recovery line is written after the publish is released, so a
+        // wait on HasOutput races it. The reviewer's probe showed this assertion failing the same
+        // way once the window was widened — it was the same defect, merely not yet seen to fail.
+        Wait(() => log.Containing("2 sound(s) were dropped") == 1, "the recovery to be logged");
 
+        Assert.True(player.HasOutput);
         Assert.Equal(Headset.ToString(), player.BoundEndpoint);
         Assert.Null(player.SilentReason);
         Assert.Equal(0, player.DroppedWhileSilent);
-        Assert.Contains(
-            log.Messages,
-            message => message.Contains("2 sound(s) were dropped", StringComparison.Ordinal));
     }
 
     /// <summary>
@@ -633,6 +644,65 @@ public sealed class NAudioSoundPlayerTests : IDisposable
         Assert.Equal(1, working.QueuedCount);
     }
 
+    /// <summary>
+    /// <strong>An audio stack that cannot be built is silence, not a dashboard that will not start.</strong>
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The failure T1.14 handled and T1.22 lost. <c>MMDeviceEnumerator</c> is a COM activation and
+    /// it fails on a machine whose audio service is stopped — an RDP session, a headless build
+    /// agent. It was created in a field initialiser, which runs before its own class's constructor
+    /// body, so no <c>try</c> inside that class could have caught it; the exception left the
+    /// player's constructor, and the container resolves the player eagerly during host start-up.
+    /// A beep would have stopped the whole dashboard.
+    /// </para>
+    /// <para>
+    /// <strong>What makes this assertable at all is that the seam creates rather than receives.</strong>
+    /// A parameter taking a finished <c>IAudioEndpoints</c> cannot express a failure to build one,
+    /// so the path was unreachable from a test — the defect lived exactly where the old seam could
+    /// not look, which is the same shape as the defect this whole task is about.
+    /// </para>
+    /// <para>
+    /// Every consequence is asserted, not just the absence of a throw: an adapter that swallowed
+    /// the failure and then behaved as though it had a device would satisfy "did not throw".
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void An_audio_stack_that_will_not_build_degrades_to_silence()
+    {
+        WriteTone(_shipped, SoundId.Finished);
+
+        var log = new RecordingLogSink();
+
+        // The constructor is the assertion. If it throws, the test fails here, which is what host
+        // start-up would have done.
+        using var player = new NAudioSoundPlayer(
+            new SoundCatalog(_overrides, _shipped),
+            Recording(log),
+            new FakeClock(),
+            // Not a COMException, which the analyzers reserve; the guard catches everything, so the
+            // type is not what is under test. The real one is a COM activation failure.
+            () => throw new InvalidOperationException("the audio service is not running"),
+            settle: TimeSpan.Zero);
+
+        player.Play(SoundId.Finished, 1.0, TimeSpan.Zero);
+
+        Assert.False(player.HasOutput);
+        Assert.Null(player.BoundEndpoint);
+        Assert.Equal(0, player.QueuedCount);
+        Assert.Equal(1, player.DegradedCount);
+        Assert.Equal(1, player.DroppedWhileSilent);
+
+        // The silence names its own cause. "No default output endpoint" would be true of a
+        // machine with the speakers unplugged, and would send the operator looking at a cable.
+        Assert.Contains("audio stack could not be created", player.SilentReason);
+        Assert.Equal(1, log.Containing("The Windows audio stack could not be created"));
+
+        // Disposing a player that never had a stack must be as safe as disposing one that did.
+        player.Dispose();
+        player.Dispose();
+    }
+
     /// <summary>Whatever else happens, nothing reaches the caller.</summary>
     [Fact]
     public void It_needs_its_dependencies_but_never_throws_from_play()
@@ -678,7 +748,7 @@ public sealed class NAudioSoundPlayerTests : IDisposable
             new ThrowingCatalog(_overrides, _shipped),
             Recording(log),
             new FakeClock(),
-            Endpoints(Speakers),
+            () => Endpoints(Speakers),
             settle: TimeSpan.Zero);
 
         player.Play(SoundId.Finished, 1.0, TimeSpan.Zero);
@@ -741,7 +811,7 @@ public sealed class NAudioSoundPlayerTests : IDisposable
             new SoundCatalog(_overrides, _shipped),
             logger ?? Logger.None,
             clock ?? new FakeClock(),
-            endpoints,
+            () => endpoints,
             settle: TimeSpan.Zero);
 
     /// <summary>A logger that keeps what it was told, so a log line can be asserted on.</summary>

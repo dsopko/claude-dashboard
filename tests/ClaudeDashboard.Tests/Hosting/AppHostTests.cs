@@ -1,3 +1,4 @@
+using System.Linq;
 using System.IO;
 using System.Text;
 using System.Reflection;
@@ -841,6 +842,59 @@ public sealed class AppHostTests : IDisposable
 
         // …and it is the one the engine will actually call, not a second instance.
         Assert.Same(player, host.Services.GetRequiredService<ISoundPlayer>());
+    }
+
+    /// <summary>
+    /// <strong>Building a host builds the audio stack, and a beep cannot stop the dashboard starting.</strong>
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The adapter is not constructed lazily on the first notice. <see cref="AppHost.Build"/>
+    /// resolves <see cref="SoundPolicyEngine"/> eagerly so the engine can subscribe on the
+    /// consumer thread, and the engine takes an <see cref="ISoundPlayer"/> — so building a host
+    /// opens the Windows audio stack, and anything the adapter's constructor throws comes out of
+    /// start-up rather than out of a beep. That is the fault this test exists for: a COM
+    /// activation failure once left this path unguarded, which turned "no sound on this machine"
+    /// into "the dashboard does not start on this machine".
+    /// </para>
+    /// <para>
+    /// <strong>What this test proves and what it cannot.</strong> It runs on a machine whose audio
+    /// stack works, so it proves the construction is really on the start-up path and really
+    /// completes. It cannot prove start-up survives a stack that will not build — that needs the
+    /// operator's audio service stopped, and it is measured instead one layer down, in
+    /// <c>NAudioSoundPlayerTests.An_audio_stack_that_will_not_build_degrades_to_silence</c>, where
+    /// the failure can be injected. Neither test covers the path alone: this one shows start-up
+    /// goes through the constructor, and that one shows the constructor never throws.
+    /// </para>
+    /// <para>
+    /// The dependency is asserted rather than assumed, because it is the whole reason the two
+    /// halves join up. If the engine ever took a factory or a lazy instead, construction would
+    /// move off the start-up path, this reasoning would stop holding, and this line would say so.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void Host_startup_builds_the_audio_stack_rather_than_deferring_it()
+    {
+        var takesThePlayerDirectly = typeof(SoundPolicyEngine)
+            .GetConstructors()
+            .SelectMany(constructor => constructor.GetParameters())
+            .Any(parameter => parameter.ParameterType == typeof(ISoundPlayer));
+
+        Assert.True(
+            takesThePlayerDirectly,
+            "SoundPolicyEngine no longer takes ISoundPlayer directly, so building a host may no "
+            + "longer construct the audio adapter. The reasoning that a guarded constructor keeps "
+            + "start-up safe depends on this.");
+
+        // The assertion is that this returns at all. Before the guard, an audio stack that would
+        // not build made this line throw.
+        using var host = Build();
+
+        var player = host.Services.GetRequiredService<ISoundPlayer>();
+
+        // …and the thing start-up built is usable, not merely present. A constructor that
+        // swallowed its failure and left a broken object would satisfy "did not throw".
+        player.Play(SoundId.Finished, 1.0, TimeSpan.Zero);
     }
 
     /// <summary>

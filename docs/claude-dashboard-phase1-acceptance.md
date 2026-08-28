@@ -364,6 +364,16 @@ open, and none of them is closed by running the suite again.
    claiming success for a device that is listed, reports itself active, accepts a stream, and is
    inaudible anyway. **The fix narrows the false "played" reading from "any dead device" to "no
    default endpoint at all". It does not close it.**
+5. **That host start-up survives an audio stack which will not build.** Added after review, and it
+   is the half of the start-up fault that stays unmeasured.
+   `Host_startup_builds_the_audio_stack_rather_than_deferring_it` runs on a machine whose audio
+   works. It shows start-up goes *through* the guarded constructor — it asserts the engine takes
+   the player directly, so building a host necessarily builds the stack — but it cannot show
+   start-up *surviving* a broken stack. That half needs the operator's audio service stopped.
+   Proved to be a real limit rather than assumed: the plant that removes the guard kills
+   `An_audio_stack_that_will_not_build_degrades_to_silence` and leaves this test passing. The two
+   tests together cover the path; neither covers it alone, and the second must not be read as
+   evidence about a machine with no audio.
 
 ### Residual: a hung endpoint that heals itself
 
@@ -380,6 +390,23 @@ and unlike the defect it is not silent in the log: entering that state writes on
 endpoint and the number of attempts.
 
 Nobody should read the closing of #13 as closing this.
+
+### Residual: the silence says which kind it is, but only three lines up
+
+An earlier draft of this section claimed the log could not distinguish one cause of silence from
+another. That was too strong, and the correction belongs here rather than being quietly dropped.
+
+Every failed attempt already writes its own distinguishing Warning before the silence is
+announced: a rejected format logs the endpoint and `capability.Reason`; a hung endpoint logs
+"stopped immediately after opening"; a stack that would not build logs "The Windows audio stack
+could not be created". What collapses to one sentence is only the *terminal* summary and the
+`SilentReason` readout — "it gave up on … after 3 failed attempts" — which says that the adapter
+stopped trying but not what went wrong three times.
+
+So this is an observability wrinkle, not a gap: the distinguishing evidence is always in the log,
+three lines above the summary. A proper fault taxonomy carried through to the summary would be new
+behaviour on an already large fix, and it is not worth adding here. Recorded so that anyone reading
+`SilentReason` alone knows to look up.
 
 ### The hardware acceptance card — NOT RUN
 
@@ -447,6 +474,64 @@ Recorded so nobody re-proposes it later as an obvious simplification.
 - **A `WasapiPlayer` raises `PlaybackStopped` when it is disposed**, with a null exception. So the
   adapter's own teardown raises the same signal a dying device does, and a player being released
   on purpose has to be marked or every deliberate swap books a strike against a healthy endpoint.
+
+### Two faults found in review, after the first commit
+
+**A degradation was lost, and the app could no longer start without an audio stack.**
+`MMDeviceEnumerator` is a COM activation and it fails on a machine whose audio service is stopped —
+an RDP session, a headless build agent. It was created in a *field initialiser*, which runs before
+its own class's constructor body, so no `try` inside that class could ever have caught it. The
+exception left the player's constructor, and the container resolves the player eagerly during
+host start-up. **A beep would have stopped the whole dashboard.** T1.14 had handled exactly this
+and said "the dashboard will run silently"; T1.22 restructured the `try` around a different call
+and lost it. Nothing in the diff removed the guard, which is why reading the diff would never have
+found it.
+
+It is fixed by making the seam *create* rather than *receive*: the thing that can fail is the
+construction, and a parameter taking a finished object cannot express that. The failure now
+degrades to a stand-in stack that reports no endpoint, so the ordinary no-device path handles it
+with no special case, and the silence names its own cause rather than blaming a cable.
+
+**The proof needs two tests and neither is sufficient alone**, which is worth stating because it is
+the honest shape of the coverage. `An_audio_stack_that_will_not_build_degrades_to_silence` injects
+the failure and shows the constructor never throws. `Host_startup_builds_the_audio_stack_rather_
+than_deferring_it` shows the construction really is on the start-up path — it asserts the engine
+takes the player directly, so a host build necessarily builds the stack. The second runs on a
+machine whose audio works and **cannot** show start-up surviving a broken stack; that half is only
+reachable with the operator's audio service stopped. Confirmed by planting: narrowing the guard so
+it no longer covers the failure kills the first test and leaves the second passing.
+
+**A flaky test shipped in the first commit — the fourth flake on this project.** It waited on a
+state flag set inside the gate, then asserted a log line written after the gate was released, so
+the assertion could read a log that was correct a moment later: 4 failures in 40 runs. Fixed in
+the test, not the product — logging under a lock on the audio path would be worse. Both waits now
+wait on the log line itself.
+
+The fix was proved with the instrument that exposed the defect rather than by re-running and
+hoping: with a 50ms sleep planted between the publish and the line, the old waits fail 5 of 5 and
+the new waits pass 10 of 10. The control matters as much as the result — without showing the probe
+still bites, ten green runs would only have shown the probe did nothing.
+
+**The rule this leaves behind: wait on the thing you are about to assert, not on a neighbour of
+it.** A second assertion in the same test had the same defect and had simply never been seen to
+fail.
+
+### Declined: reading the registration table instead of resolving the player
+
+`The_sound_player_is_the_real_adapter` resolves `ISoundPlayer` from a built host. The proposal was
+to read `ImplementationType` and `Lifetime` off the `ServiceDescriptor` instead — identical
+protection for those two facts, and it would hand back the native surface the suite gained on this
+task.
+
+**Measured, and the second half does not hold, so it is declined.** Reaching the descriptors needs
+`IReadOnlyList<ServiceDescriptor>` resolved from a built host, and `AppHost.Build` resolves
+`SoundPolicyEngine` eagerly — which takes `ISoundPlayer` — so building a host constructs the real
+audio stack *before it returns*. A descriptor read therefore constructs exactly as much as the
+resolving test does. It hands back nothing.
+
+Nor is this test the surface. `AppHostTests` alone builds 28 hosts, and five other test files build
+more; every one of them constructs the audio stack. Converting this test would change one of at
+least twenty-eight, for no reduction and a slightly weaker assertion.
 
 ### One new thing the suite itself now does, named for issue #12
 

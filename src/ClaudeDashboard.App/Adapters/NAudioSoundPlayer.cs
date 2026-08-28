@@ -58,8 +58,9 @@ namespace ClaudeDashboard.App.Adapters;
 /// </para>
 /// <para>
 /// <strong>What this still cannot see.</strong> The false "played" reading is narrowed, not
-/// removed. <see cref="HasOutput"/> becomes false when Windows reports no default endpoint, and
-/// when the current stream reports itself stopped. It does not become false for a device that is
+/// removed. <see cref="HasOutput"/> becomes false when the audio stack could not be created at
+/// all, when Windows reports no default endpoint, and when the current stream reports itself
+/// stopped. It does not become false for a device that is
 /// listed, reports itself active, accepts a stream, and is nonetheless inaudible. Nothing this
 /// process can ask would distinguish that from a working device with the volume down.
 /// </para>
@@ -124,6 +125,7 @@ public sealed class NAudioSoundPlayer : ISoundPlayer, IDisposable
     private readonly ILogger _logger;
     private readonly IClock _clock;
     private readonly IAudioEndpoints _endpoints;
+    private readonly string? _endpointsFault;
     private readonly bool _ownsEndpoints;
     private readonly int _maxStrikes;
     private readonly TimeSpan _strikeWindow;
@@ -168,9 +170,17 @@ public sealed class NAudioSoundPlayer : ISoundPlayer, IDisposable
     /// that went away from one that does not work.
     /// </param>
     /// <param name="endpoints">
-    /// The Windows side. Defaults to <see cref="WindowsAudioEndpoints"/>; tests pass a fake that
-    /// names endpoints, changes which is default, and raises the notification on demand. When it
-    /// is defaulted this object owns it and disposes it; when it is passed in, the caller does.
+    /// <strong>How to create</strong> the Windows side, not an instance of it. Defaults to
+    /// <see cref="WindowsAudioEndpoints"/>; tests pass one that returns a fake, or one that
+    /// throws. When it is defaulted this object owns what it made and disposes it.
+    /// <para>
+    /// <strong>A factory rather than an object, and that is the whole of the fix for the fault
+    /// found in review.</strong> The thing that can fail here is the <em>creation</em>:
+    /// <c>MMDeviceEnumerator</c> is a COM activation, and it fails on a machine whose audio
+    /// service is stopped. A parameter that takes a finished object cannot express that failure,
+    /// so no test could reach the path — and the path led out of this constructor, through the
+    /// container, and stopped the whole dashboard starting over a beep.
+    /// </para>
     /// </param>
     /// <param name="maxStrikes">Overrides <see cref="DefaultMaxStrikes"/>.</param>
     /// <param name="strikeWindow">Overrides <see cref="DefaultStrikeWindow"/>.</param>
@@ -182,7 +192,7 @@ public sealed class NAudioSoundPlayer : ISoundPlayer, IDisposable
         SoundCatalog catalog,
         ILogger logger,
         IClock clock,
-        IAudioEndpoints? endpoints,
+        Func<IAudioEndpoints>? endpoints,
         int maxStrikes = DefaultMaxStrikes,
         TimeSpan? strikeWindow = null,
         TimeSpan? settle = null)
@@ -196,7 +206,30 @@ public sealed class NAudioSoundPlayer : ISoundPlayer, IDisposable
         _logger = logger;
         _clock = clock;
         _ownsEndpoints = endpoints is null;
-        _endpoints = endpoints ?? new WindowsAudioEndpoints(logger);
+
+        // THE AUDIO STACK IS BUILT INSIDE A TRY, AND IT HAS TO BE HERE RATHER THAN INSIDE
+        // WindowsAudioEndpoints. Its enumerator is a field initialiser, which runs before its own
+        // constructor body, so no try in that class could ever catch this. T1.14 caught this class
+        // of failure and said "the dashboard will run silently"; T1.22 restructured the try around
+        // a different call and lost it, which turned a quiet dashboard into one that would not
+        // start. Nothing in the diff removed the guard, which is why it took a reader to find it.
+        try
+        {
+            _endpoints = (endpoints ?? (() => new WindowsAudioEndpoints(logger)))();
+        }
+        catch (Exception ex)
+        {
+            // An RDP session, a headless build agent, a machine whose audio service is stopped.
+            // The dashboard runs; it is simply deaf, and it says so once.
+            _logger.Warning(
+                ex,
+                "The Windows audio stack could not be created. The dashboard will run silently.");
+
+            _endpoints = NoAudioEndpoints.Instance;
+            _endpointsFault = "the Windows audio stack could not be created";
+            _ownsEndpoints = false;
+        }
+
         _maxStrikes = maxStrikes;
         _strikeWindow = strikeWindow ?? DefaultStrikeWindow;
         _settle = settle ?? DefaultSettle;
@@ -606,7 +639,7 @@ public sealed class NAudioSoundPlayer : ISoundPlayer, IDisposable
 
         if (target is not { } endpoint)
         {
-            GoSilent("Windows reports no default output endpoint");
+            GoSilent(_endpointsFault ?? "Windows reports no default output endpoint");
 
             return;
         }

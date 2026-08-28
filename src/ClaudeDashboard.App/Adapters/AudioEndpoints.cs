@@ -70,6 +70,60 @@ internal interface IAudioEndpoints
 }
 
 /// <summary>
+/// The audio stack of a machine that has none: no endpoint, nothing to open, nothing to watch.
+/// </summary>
+/// <remarks>
+/// <para>
+/// Stands in when <see cref="WindowsAudioEndpoints"/> itself cannot be created — a stopped audio
+/// service, an RDP session, a headless build agent — so that a failure to reach COM degrades the
+/// dashboard to silence instead of stopping it from starting. TS §IV.7: every platform capability
+/// fails soft.
+/// </para>
+/// <para>
+/// <strong>A stand-in rather than a null field.</strong> The alternative is a nullable
+/// <c>IAudioEndpoints</c> and a check at every use, which is three chances to forget one. This
+/// object answers every question truthfully — there is no default endpoint, and there never will
+/// be — so the ordinary no-device path in the adapter handles it with no special case at all.
+/// </para>
+/// </remarks>
+internal sealed class NoAudioEndpoints : IAudioEndpoints
+{
+    /// <summary>The only instance. It has no state and no machine behind it.</summary>
+    public static readonly NoAudioEndpoints Instance = new();
+
+    private NoAudioEndpoints()
+    {
+    }
+
+    /// <inheritdoc/>
+    public AudioEndpoint? Default => null;
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Unreachable while <see cref="Default"/> is null, because the adapter only opens what the
+    /// default resolves to. It throws rather than returning something, because a silent stand-in
+    /// output would be the false success this whole task exists to remove.
+    /// </remarks>
+    public AudioOutput Open(AudioEndpoint endpoint, WaveFormat format) =>
+        throw new InvalidOperationException("There is no audio stack on this machine to open.");
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Returns a subscription to nothing. Windows cannot tell us about a device change through a
+    /// stack we could not create, so nothing will ever arrive — and the adapter's disposal path
+    /// stays identical either way.
+    /// </remarks>
+    public IDisposable Watch(Action onChanged) => new NothingToUnwatch();
+
+    private sealed class NothingToUnwatch : IDisposable
+    {
+        public void Dispose()
+        {
+        }
+    }
+}
+
+/// <summary>
 /// <see cref="IAudioEndpoints"/> over WASAPI (NAudio 3.0.1).
 /// </summary>
 /// <remarks>
