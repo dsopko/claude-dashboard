@@ -367,8 +367,9 @@ open, and none of them is closed by running the suite again.
 5. **That host start-up survives an audio stack which will not build.** Added after review, and it
    is the half of the start-up fault that stays unmeasured.
    `Host_startup_builds_the_audio_stack_rather_than_deferring_it` runs on a machine whose audio
-   works. It shows start-up goes *through* the guarded constructor — it asserts the engine takes
-   the player directly, so building a host necessarily builds the stack — but it cannot show
+   works. It shows start-up goes *through* the guarded constructor — `AppHost.Build` resolves
+   `SoundPolicyEngine` before it returns, and the test asserts the engine takes the player
+   directly, so building a host necessarily builds the stack — but it cannot show
    start-up *surviving* a broken stack. That half needs the operator's audio service stopped.
    Proved to be a real limit rather than assumed: the plant that removes the guard kills
    `An_audio_stack_that_will_not_build_degrades_to_silence` and leaves this test passing. The two

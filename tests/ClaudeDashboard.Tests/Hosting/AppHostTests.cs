@@ -871,6 +871,15 @@ public sealed class AppHostTests : IDisposable
     /// halves join up. If the engine ever took a factory or a lazy instead, construction would
     /// move off the start-up path, this reasoning would stop holding, and this line would say so.
     /// </para>
+    /// <para>
+    /// <strong>The reasoning rests on a second premise, and only the first is asserted here.</strong>
+    /// It also needs <see cref="AppHost.Build"/> to resolve the engine <em>eagerly</em>, which it
+    /// does at the <c>GetRequiredService&lt;SoundPolicyEngine&gt;</c> before its return — measured
+    /// there, not here, so if that resolve ever moved this test would stay green while the claim
+    /// in its name went false. It is left unasserted deliberately: dropping the eager resolve
+    /// would take the audio stack <em>off</em> the start-up path and make start-up safer, so the
+    /// gap cannot hide a hazard, only a stale name.
+    /// </para>
     /// </remarks>
     [Fact]
     public void Host_startup_builds_the_audio_stack_rather_than_deferring_it()
