@@ -14,7 +14,7 @@ namespace ClaudeDashboard.Core;
 /// accepted. Comparison is ordinal, so two ids differing only by case are two different sessions.
 /// </para>
 /// <para>
-/// <strong>It is shown to the operator, and since T1.23 it is.</strong> This remark used to end
+/// <strong>It may be shown to the operator, and since T1.23 it is.</strong> This remark used to end
 /// "never a display string", which stopped being true when the expanded row started showing the
 /// first eight characters with the whole value in a tooltip (issue #15). The sentence is rewritten
 /// rather than preserved by routing the display through a differently-named property: the value

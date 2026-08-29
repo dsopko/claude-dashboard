@@ -272,28 +272,6 @@ public sealed partial class SessionViewModel : DashboardRow
     /// </remarks>
     public bool CanAcknowledge => Acknowledgment.Applies(_session.State);
 
-    /// <summary>
-    /// Acknowledges this session (Design Document §4 tier 2).
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// <strong>It publishes an event; it does not change anything.</strong> The row still reads
-    /// the projection, so what appears on screen is what the Registry decided, arriving by the
-    /// same route as every hook. Nothing here goes grey optimistically — see the remarks on the
-    /// command's own summary.
-    /// </para>
-    /// <para>
-    /// One command for both the row's Ack and the expanded row's, because they are the same act;
-    /// two would be two things to keep enabled in step.
-    /// </para>
-    /// </remarks>
-    /// <remarks>
-    /// The body re-checks rather than trusting <c>CanExecute</c>. A binding will not invoke a
-    /// disabled command, but <c>RelayCommand.Execute</c> does not gate on it, so anything holding
-    /// the command object can raise an ack the Registry will only decline. The channel is bounded
-    /// and drops its oldest entry when full (Impl §4) — publishing events already known to be
-    /// no-ops is how a real one gets evicted.
-    /// </remarks>
     /// <summary>Puts the <em>whole</em> session id on the clipboard (issue #15).</summary>
     /// <remarks>
     /// <para>
@@ -332,6 +310,28 @@ public sealed partial class SessionViewModel : DashboardRow
     /// </remarks>
     private bool CanCopyId() => !Id.IsEmpty;
 
+    /// <summary>
+    /// Acknowledges this session (Design Document §4 tier 2).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>It publishes an event; it does not change anything.</strong> The row still reads
+    /// the projection, so what appears on screen is what the Registry decided, arriving by the
+    /// same route as every hook. Nothing here goes grey optimistically — see the remarks on the
+    /// command's own summary.
+    /// </para>
+    /// <para>
+    /// One command for both the row's Ack and the expanded row's, because they are the same act;
+    /// two would be two things to keep enabled in step.
+    /// </para>
+    /// </remarks>
+    /// <remarks>
+    /// The body re-checks rather than trusting <c>CanExecute</c>. A binding will not invoke a
+    /// disabled command, but <c>RelayCommand.Execute</c> does not gate on it, so anything holding
+    /// the command object can raise an ack the Registry will only decline. The channel is bounded
+    /// and drops its oldest entry when full (Impl §4) — publishing events already known to be
+    /// no-ops is how a real one gets evicted.
+    /// </remarks>
     [RelayCommand(CanExecute = nameof(CanRaiseAck))]
     private void Acknowledge()
     {

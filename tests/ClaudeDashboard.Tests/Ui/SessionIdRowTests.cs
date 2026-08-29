@@ -22,14 +22,20 @@ namespace ClaudeDashboard.Tests.Ui;
 /// </remarks>
 public sealed class SessionIdRowTests
 {
-    /// <summary>
-    /// A realistic Claude Code session id: 36 characters, hyphenated, and NOT all-hex in the
-    /// first eight.
-    /// </summary>
+    /// <summary>A realistic Claude Code session id: 36 characters, hyphenated.</summary>
     /// <remarks>
-    /// The first eight characters are deliberately distinguishable from the rest of the value. A
-    /// value whose prefix could be confused with the whole would let a copy of the wrong string
-    /// pass unnoticed, which is the one defect most likely to reach production here.
+    /// <para>
+    /// The property this value has to carry is that <strong>its first eight characters are not
+    /// mistakable for the whole</strong> — different length, and the remainder is not a repeat of
+    /// the prefix. A value whose preview could be confused with the full id would let a copy of
+    /// the wrong string pass unnoticed, which is the defect most likely to reach production here.
+    /// </para>
+    /// <para>
+    /// An earlier version of this remark claimed the first eight characters were "not all-hex".
+    /// They are all hex. Nothing depended on it — the property above is what the tests actually
+    /// need and it holds — but the sentence was false, which in a file about a false sentence is
+    /// worth saying rather than quietly deleting.
+    /// </para>
     /// </remarks>
     private const string FullId = "88a85f67-4c21-4f0e-9d3b-a1b2c3d4e5f6";
 

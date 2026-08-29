@@ -291,6 +291,26 @@ native crash at 1 in 24. But the number in §6 — and every "the suite is green
 in this repository — is a statement about runs that could, at that rate, have been truncated.
 Section 6a says what was done about that.
 
+### The stale assembly does not only fake a pass. It can serve another experiment's answer.
+
+Found during T1.23's review, and it is the worst form of this trap seen so far.
+
+A planted mutation failed to build — a XAML error, `MC3089`. The next command was
+`dotnet test --no-build`, which duly ran the **previous** assembly and reported
+`Failed: 2, Total: 1160`. Those two failures were real, reproducible, and belonged to a
+**different plant that had already been reverted**.
+
+Every earlier instance of this trap in this repository produced a **green** that looked like a
+survival — a mutation that appeared not to matter. This one produced a **plausible red belonging to
+another experiment**, which is worse in two ways: a red is what a planter is hoping for, so it
+invites no suspicion; and the failing test names are consistent with a story, so the result reads
+as a finding rather than as noise.
+
+**The consequence for method.** Checking the build result before believing a test result was
+already the rule. What this adds is that the rule cannot be relaxed when the result looks like the
+one you wanted — a red is not self-validating, and "the plant killed a test" needs the same
+`0 Error(s)` in front of it as "the plant survived".
+
 ---
 
 
@@ -582,14 +602,33 @@ defect this task was most likely to ship. What follows is what none of that reac
 Item 3 is the one a later reader is most likely to mistake for a gap somebody forgot to fill. It
 was a decision, and it is recorded in the class as well as here.
 
-### Residual: the failure marker outlives nothing
+### Residual: the failure marker is hidden while the row is collapsed
 
 A copy that fails puts a static "copy failed" marker beside the id. It appears at the moment of the
-click and stays until a copy works — but **it lives on the expanded row, so a failed copy followed
-by collapsing that row leaves only the log line.** The operator would not see it again.
+click and stays until a copy works.
 
-That is accepted rather than fixed. The alternative surfaces are all worse: a dialog interrupts, a
-toast moves, and the collapsed row is the one place §9 says the id must never appear.
+**It is hidden while the row is collapsed, not lost.** `CopyFailed` is instance state on the row
+view model, `MainViewModel` caches rows in `_sessionRows` and does not rebuild one on collapse, and
+the marker binds its visibility to the flag — so re-expanding the row brings the marker back.
+Measured over the real visual tree with a failing clipboard: visible after the failure, absent
+while collapsed, visible again after re-expanding, with the flag still set throughout.
+
+**The true boundary is elsewhere:** the row is discarded, marker included, when the session leaves
+the projection — `MainViewModel.Forget` at :383. That is correct behaviour rather than a defect; a
+session that is gone should not keep reporting a stale copy failure.
+
+An earlier draft of this section said the operator "would not see it again". That was wrong, and
+pessimistically wrong, which is no better: §5f is the operator-facing artefact and a limit
+overstated here is as misleading as one understated.
+
+**Which of these is measured and which is true by construction**, because the two are different
+kinds of claim and neither is asserted by a test:
+
+- **True by construction:** the marker is per row. `CopyFailed` is an instance field on
+  `SessionViewModel`, there is no static state behind it, and every row is its own view model — so
+  one session's failed copy cannot mark another's row. No test asserts this; it follows from the
+  shape of the type, and it would stop following if the flag ever moved to shared state.
+- **Measured:** the re-expand behaviour above, over the real visual tree.
 
 ### Why success is silent, and why that was measured rather than assumed
 
