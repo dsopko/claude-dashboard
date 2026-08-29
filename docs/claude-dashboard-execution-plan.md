@@ -586,7 +586,7 @@ There's **no skill, and none is needed**: `SendMessage`/`ListAgents` are native 
 ### D.1 Director
 
 ```
-/compact Preserve the orchestration state that lives only in this session and can't be rebuilt from the repo:
+Preserve the orchestration state that lives only in this session and can't be rebuilt from the repo:
 - The task ledger: every task and its status — APPROVED/Done, in-flight (and with which session), or blocked (and on what).
 - My position in Execution Plan Appendix A's dependency order, and what's next.
 - Every ruling or decision I've made this run and its rationale (task-order changes, spec ratifications, any doc amendments committed), plus every decision still pending with the human.
@@ -600,7 +600,7 @@ My authoritative role is CLAUDE.md and Appendix B.2 — re-read them rather than
 ### D.2 Coder
 
 ```
-/compact Preserve the build state that lives only in this session:
+Preserve the build state that lives only in this session:
 - The current task ID with its acceptance criteria and guardrails, and how far along I am.
 - Every commit I've landed (refs + files) and what each did.
 - Every decision I made with downstream impact, and WHY — e.g. path/casing normalization, a type that's now an identity rather than a display string, any entry point I added that the task block didn't name.
@@ -613,7 +613,7 @@ My authoritative role and working agreements are CLAUDE.md and Appendix B.1 — 
 ### D.3 Reviewer
 
 ```
-/compact Preserve the review state that lives only in this session:
+Preserve the review state that lives only in this session:
 - The tasks I've reviewed and the verdict I issued for each.
 - Any CHANGES_REQUESTED items still outstanding — sent back and not yet re-reviewed and cleared.
 - Recurring issues or patterns I've been flagging, so my standard stays consistent across tasks.
