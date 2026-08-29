@@ -52,7 +52,7 @@ public sealed class MainWindowTests(StaHarness harness)
         {
             using var registry = new RegistryHarness();
             using var policy = new MotionPolicy(() => motionAllowed, observeChanges: false);
-            using var viewModel = new MainViewModel(registry.Projection, policy, new StubAckPublisher());
+            using var viewModel = new MainViewModel(registry.Projection, policy, new StubAckPublisher(), new FakeClipboard());
 
             arrange(registry);
 
@@ -350,6 +350,68 @@ public sealed class MainWindowTests(StaHarness harness)
         Assert.False(found.TerminalEnabled);
     }
 
+    /// <summary>
+    /// <strong>The expanded row shows the id, and the collapsed row does not.</strong>
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Both halves in one test because they are one rule, and §9 now states it: "The id appears
+    /// here only — the session row does not carry it." §9 lists exactly four things on the session
+    /// row and an id is not among them.
+    /// </para>
+    /// <para>
+    /// <strong>The negative half is the load-bearing one.</strong> The expanded content lives
+    /// inside the same template as the collapsed row, so an id placed a few lines further out
+    /// would render on every row in the window and nothing else in the suite would notice — it
+    /// would simply look like a slightly busier list.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void The_id_appears_on_the_expanded_row_and_nowhere_else()
+    {
+        const string SessionId = "88a85f67-4c21-4f0e-9d3b-a1b2c3d4e5f6";
+
+        var found = WithWindow(
+            registry =>
+            {
+                var promptId = registry.Working(SessionId, At, prompt: "write the tests");
+                registry.Finished(SessionId, At.AddMinutes(1), promptId, answer: "Added 23 tests.");
+            },
+            (window, viewModel) =>
+            {
+                var row = viewModel.Rows.OfType<SessionViewModel>().Single();
+
+                var collapsed = VisibleTexts(window, SessionId);
+
+                row.IsExpanded = true;
+                window.UpdateLayout();
+
+                var expanded = VisibleTexts(window, SessionId);
+
+                return (Collapsed: collapsed, Expanded: expanded);
+            });
+
+        // Expanded: the first eight characters, bare — no label, no ellipsis, no prefix.
+        Assert.Contains("88a85f67", found.Expanded);
+
+        // …and never the whole thing on the row itself. The full value lives in the tooltip.
+        Assert.DoesNotContain(SessionId, found.Expanded);
+
+        // Collapsed: neither form appears at all.
+        Assert.DoesNotContain("88a85f67", found.Collapsed);
+        Assert.DoesNotContain(SessionId, found.Collapsed);
+
+        // The control: the collapsed row is not simply empty — it renders, so the absence above
+        // is the id being withheld rather than the row failing to draw.
+        Assert.Contains("write the tests", found.Collapsed);
+    }
+
+    /// <summary>Every visible TextBlock in one session's row.</summary>
+    private static List<string> VisibleTexts(MainWindow window, string sessionId) =>
+        [.. StaHarness.FindAll<TextBlock>(RowFor(window, sessionId))
+            .Where(block => block.IsVisible)
+            .Select(block => block.Text)];
+
     [Fact]
     public void A_collapsed_row_shows_no_exchange()
     {
@@ -395,7 +457,8 @@ public sealed class MainWindowTests(StaHarness harness)
             using var viewModel = new MainViewModel(
                 registry.Projection,
                 policy,
-                new AckPublisher(sink, new FakeClock(), Serilog.Core.Logger.None));
+                new AckPublisher(sink, new FakeClock(), Serilog.Core.Logger.None),
+                new FakeClipboard());
 
             var promptId = registry.Working("finished", FakeClock.DefaultStart);
             registry.Finished("finished", FakeClock.DefaultStart.AddMinutes(1), promptId);
@@ -506,7 +569,7 @@ public sealed class MainWindowTests(StaHarness harness)
             using var viewModel = new MainViewModel(
                 registry.Projection,
                 new MotionPolicy(() => false, observeChanges: false),
-                new StubAckPublisher());
+                new StubAckPublisher(), new FakeClipboard());
             var window = new MainWindow(viewModel);
 
             window.Close();
@@ -541,7 +604,7 @@ public sealed class MainWindowTests(StaHarness harness)
             using var viewModel = new MainViewModel(
                 registry.Projection,
                 new MotionPolicy(() => false, observeChanges: false),
-                new StubAckPublisher());
+                new StubAckPublisher(), new FakeClipboard());
             var window = new MainWindow(viewModel);
             window.Left = -32000;
             window.Top = -32000;
@@ -583,7 +646,7 @@ public sealed class MainWindowTests(StaHarness harness)
             using var viewModel = new MainViewModel(
                 registry.Projection,
                 new MotionPolicy(() => false, observeChanges: false),
-                new StubAckPublisher());
+                new StubAckPublisher(), new FakeClipboard());
             var window = new MainWindow(viewModel);
             window.Left = -32000;
             window.Top = -32000;

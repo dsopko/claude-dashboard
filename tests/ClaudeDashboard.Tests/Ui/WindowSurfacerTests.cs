@@ -154,7 +154,8 @@ public sealed class WindowSurfacerTests(StaHarness harness)
         var window = new MainWindow(new MainViewModel(
             registry.Projection,
             new MotionPolicy(() => false, observeChanges: false),
-            new StubAckPublisher()))
+            new StubAckPublisher(),
+            new FakeClipboard()))
         {
             WindowStartupLocation = WindowStartupLocation.Manual,
             Left = -32000,

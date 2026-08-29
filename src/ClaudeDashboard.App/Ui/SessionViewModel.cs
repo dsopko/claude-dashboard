@@ -27,11 +27,21 @@ public sealed partial class SessionViewModel : DashboardRow
     /// <summary>How much of the prompt the collapsed row shows before eliding.</summary>
     public const int SnippetLength = 140;
 
+    /// <summary>How much of the session id the expanded row shows (issue #15).</summary>
+    /// <remarks>
+    /// Eight is the operator's choice, made with all three lengths rendered in front of them. It
+    /// is enough to tell two live sessions apart at a glance and short enough not to crowd the
+    /// button row it sits in.
+    /// </remarks>
+    public const int IdPreviewLength = 8;
+
     private readonly MotionPolicy _motion;
     private readonly IAckPublisher? _ack;
+    private readonly IClipboard? _clipboard;
     private Session _session;
     private DateTimeOffset _now;
     private bool _isExpanded;
+    private bool _copyFailed;
 
     /// <summary>Wraps <paramref name="session"/>.</summary>
     /// <param name="session">The session this row shows.</param>
@@ -45,8 +55,17 @@ public sealed partial class SessionViewModel : DashboardRow
     /// whether a session <em>can</em> be acknowledged is a fact about the session, not about
     /// whether this row was wired up.
     /// </param>
+    /// <param name="clipboard">
+    /// Where the id goes when the operator clicks it. Null in tests that are not about copying,
+    /// which leaves the id visible and readable — showing it and copying it are separate things,
+    /// and a row nobody wired a clipboard to should still show which session it is.
+    /// </param>
     /// <exception cref="ArgumentNullException"><paramref name="session"/> is null.</exception>
-    public SessionViewModel(Session session, MotionPolicy? motion = null, IAckPublisher? ack = null)
+    public SessionViewModel(
+        Session session,
+        MotionPolicy? motion = null,
+        IAckPublisher? ack = null,
+        IClipboard? clipboard = null)
     {
         ArgumentNullException.ThrowIfNull(session);
 
@@ -54,10 +73,85 @@ public sealed partial class SessionViewModel : DashboardRow
         _now = session.LastActivity;
         _motion = motion ?? MotionPolicy.System;
         _ack = ack;
+        _clipboard = clipboard;
     }
 
     /// <summary>The session's id — stable for this view model's whole life.</summary>
     public SessionId Id => _session.Id;
+
+    /// <summary>
+    /// The first <see cref="IdPreviewLength"/> characters of the session id, or empty for a
+    /// session that has none.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>Why this lives here and not in the XAML, and why it is NOT what keeps
+    /// <see cref="SessionId"/>'s doc comment honest.</strong> Truncation and tooltip wording are
+    /// view-model work: putting them here is what makes them assertable without a window. That is
+    /// the whole reason. It is emphatically <em>not</em> a device for keeping the old claim that a
+    /// session id is "never a display string" — that claim stopped being true when this row
+    /// started showing one, and it was rewritten rather than routed around. A property with a
+    /// display-sounding name does not turn a displayed value into a hidden one.
+    /// </para>
+    /// <para>
+    /// Truncation is by length rather than by format. A <see cref="SessionId"/> wraps any
+    /// non-empty string and is not guaranteed to be a GUID, so an id shorter than the preview
+    /// length is shown whole rather than throwing.
+    /// </para>
+    /// </remarks>
+    public string ShortId =>
+        Id.IsEmpty ? string.Empty : Id.Value[..Math.Min(IdPreviewLength, Id.Value.Length)];
+
+    /// <summary>What hovering the id says: the label, the whole id, and what a click does.</summary>
+    /// <remarks>
+    /// The full value, because the preview is not enough to paste anywhere and the tooltip is the
+    /// only place the operator can read the rest without copying it first.
+    /// </remarks>
+    public string IdTooltip =>
+        Id.IsEmpty
+            ? string.Empty
+            : string.Create(
+                CultureInfo.CurrentCulture,
+                $"Claude Session ID:\n{Id.Value}\n\nClick to copy.");
+
+    /// <summary>
+    /// Whether the last attempt to copy the id failed. Shown on the row; cleared by a copy that
+    /// works.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>Failure gets a surface and success does not, and that asymmetry was measured
+    /// rather than assumed.</strong> The obvious design puts "Copied." in the tooltip, but a WPF
+    /// tooltip closes on the click that would trigger it and does not re-open while the pointer
+    /// stays where it is — and its default <c>InitialShowDelay</c> is a full second even after
+    /// the pointer leaves and returns. So the tooltip cannot say anything at the moment the click
+    /// happens, which is the only moment that matters.
+    /// </para>
+    /// <para>
+    /// Success is the expected case and needs nothing: the absence of this marker <em>is</em> the
+    /// success signal. A failure must not be silent, because a copy that failed invisibly sends
+    /// the operator to paste whatever was on the clipboard before — a success that did not
+    /// happen, which is the defect class T1.22 existed to remove.
+    /// </para>
+    /// <para>
+    /// It appears and stays; it does not animate, fade, or time out. Design §9: "red blinks;
+    /// working breathes; nothing else moves."
+    /// </para>
+    /// </remarks>
+    public bool CopyFailed
+    {
+        get => _copyFailed;
+        private set
+        {
+            if (_copyFailed == value)
+            {
+                return;
+            }
+
+            _copyFailed = value;
+            OnPropertyChanged(nameof(CopyFailed));
+        }
+    }
 
     /// <summary>The session as it currently stands.</summary>
     public Session Session
@@ -200,6 +294,44 @@ public sealed partial class SessionViewModel : DashboardRow
     /// and drops its oldest entry when full (Impl §4) — publishing events already known to be
     /// no-ops is how a real one gets evicted.
     /// </remarks>
+    /// <summary>Puts the <em>whole</em> session id on the clipboard (issue #15).</summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>The full value, never <see cref="ShortId"/>, and that is the one defect most
+    /// likely to reach production here.</strong> Eight characters is a preview for the eye; it is
+    /// useless in a command line or a search box, which is the entire reason the operator asked
+    /// for this. Copying the preview would look correct on the row, produce a plausible string on
+    /// the clipboard, and fail only later, somewhere else.
+    /// </para>
+    /// <para>
+    /// The body re-checks the id rather than trusting <c>CanExecute</c>, for the reason the
+    /// acknowledge command gives: a binding will not invoke a disabled command, but anything
+    /// holding the command object can.
+    /// </para>
+    /// </remarks>
+    [RelayCommand(CanExecute = nameof(CanCopyId))]
+    private void CopyId()
+    {
+        if (Id.IsEmpty)
+        {
+            return;
+        }
+
+        // A row with no clipboard wired cannot copy, and saying so is truthful: the operator
+        // clicked and nothing reached the clipboard. Reporting success would be the false reading
+        // this whole affordance is shaped to avoid.
+        CopyFailed = _clipboard?.TrySet(Id.Value) is not true;
+    }
+
+    /// <summary>Whether there is an id to copy at all.</summary>
+    /// <remarks>
+    /// Deliberately not gated on the clipboard being wired. Whether a session <em>has</em> an id
+    /// is a fact about the session; whether this row was handed a clipboard is a fact about the
+    /// wiring, and hiding the affordance for the second would make a wiring fault look like a
+    /// session without an id.
+    /// </remarks>
+    private bool CanCopyId() => !Id.IsEmpty;
+
     [RelayCommand(CanExecute = nameof(CanRaiseAck))]
     private void Acknowledge()
     {

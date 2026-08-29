@@ -173,6 +173,12 @@ public sealed class UnprotectedTextInventory
         "SessionViewModel.AgeText", "SessionViewModel.AskedAtText", "SessionViewModel.BadgeText",
         "SessionViewModel.Cwd", "SessionViewModel.Detail", "SessionViewModel.ErrorKind",
         "SessionViewModel.GroupTag",
+
+        // The session id on the expanded row (T1.23, issue #15). An IDENTIFIER, not operator or
+        // Claude text — Claude Code mints it and nothing the operator typed reaches it — so issue
+        // #11's wrapping of unprotected text does not extend here. It is displayed deliberately,
+        // and SessionId's own remark was rewritten to stop claiming otherwise.
+        "SessionViewModel.ShortId", "SessionViewModel.IdTooltip",
         "TrayViewModel.MuteAllLabel", "TrayViewModel.PauseLabel", "TrayViewModel.Tooltip",
 
         // Configuration, paths and operational results.

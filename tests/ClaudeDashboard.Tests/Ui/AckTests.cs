@@ -37,7 +37,8 @@ public sealed class AckTests : IDisposable
         _viewModel = new MainViewModel(
             _harness.Projection,
             new MotionPolicy(() => false, observeChanges: false),
-            new AckPublisher(_sink, _clock, Logger.None));
+            new AckPublisher(_sink, _clock, Logger.None),
+            new FakeClipboard());
     }
 
     public void Dispose()

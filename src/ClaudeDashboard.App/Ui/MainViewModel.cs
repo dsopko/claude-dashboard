@@ -49,6 +49,7 @@ public sealed partial class MainViewModel : ObservableObject, IUiTickTarget, IDi
     private readonly SessionProjection _projection;
     private readonly MotionPolicy _motion;
     private readonly IAckPublisher _ack;
+    private readonly IClipboard _clipboard;
     private readonly Dictionary<SessionId, SessionViewModel> _sessionRows = [];
     private readonly Dictionary<GroupKey, GroupViewModel> _groupHeaders = [];
     private readonly Dictionary<AttentionBand, BandHeaderViewModel> _bandHeaders = [];
@@ -98,16 +99,28 @@ public sealed partial class MainViewModel : ObservableObject, IUiTickTarget, IDi
     /// Where a row sends a manual acknowledgment (Design Document §4 tier 2). Passed to every row
     /// this builds.
     /// </param>
+    /// <param name="clipboard">
+    /// Where a row sends the session id when it is clicked (issue #15). Required for the same
+    /// reason as the others, and the composition guard is what enforced it: it is a registered
+    /// service, so an optional form here would turn a deleted registration into a copy affordance
+    /// that silently does nothing — the exact failure the remark above describes for <c>ack</c>.
+    /// </param>
     /// <exception cref="ArgumentNullException">Any argument is null.</exception>
-    public MainViewModel(SessionProjection projection, MotionPolicy motion, IAckPublisher ack)
+    public MainViewModel(
+        SessionProjection projection,
+        MotionPolicy motion,
+        IAckPublisher ack,
+        IClipboard clipboard)
     {
         ArgumentNullException.ThrowIfNull(projection);
         ArgumentNullException.ThrowIfNull(motion);
         ArgumentNullException.ThrowIfNull(ack);
+        ArgumentNullException.ThrowIfNull(clipboard);
 
         _projection = projection;
         _motion = motion;
         _ack = ack;
+        _clipboard = clipboard;
         _projection.Sessions.CollectionChanged += OnSessionsChanged;
         _motion.PropertyChanged += OnMotionChanged;
 
@@ -412,7 +425,7 @@ public sealed partial class MainViewModel : ObservableObject, IUiTickTarget, IDi
             return existing;
         }
 
-        var created = new SessionViewModel(session, _motion, _ack);
+        var created = new SessionViewModel(session, _motion, _ack, _clipboard);
         created.RefreshAge(_now > session.LastActivity ? _now : session.LastActivity);
         _sessionRows[session.Id] = created;
         return created;

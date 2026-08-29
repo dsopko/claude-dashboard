@@ -246,6 +246,40 @@
         </Setter>
     </Style>
 
+    <!--
+        The session id on the expanded row (§9, issue #15). Quiet by default — it is a reference,
+        not an action the operator is being asked to take — and it lifts on hover the same way the
+        Ack chip does, so it reads as clickable without saying so in words.
+
+        NO STORYBOARD, and that is a rule rather than an omission: the hover is a static brush
+        swap, exactly like AckButtonStyle above. "Red blinks; working breathes; nothing else
+        moves." A test walks this dictionary and fails if a third animation appears.
+    -->
+    <Style x:Key="SessionIdButtonStyle" TargetType="Button">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Foreground" Value="{StaticResource Ink3Brush}" />
+        <Setter Property="FontSize" Value="11" />
+        <Setter Property="Padding" Value="8,3" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="Chip"
+                            Background="{TemplateBinding Background}"
+                            CornerRadius="6">
+                        <ContentPresenter Margin="{TemplateBinding Padding}" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Chip" Property="Background" Value="{StaticResource RaisedBrush}" />
+                            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <!-- A slot reserved for a phase that has not arrived: visible, inert, and honest about it. -->
     <Style x:Key="ReservedButtonStyle" TargetType="Button">
         <Setter Property="IsEnabled" Value="False" />
@@ -381,6 +415,45 @@
                                     <TextBlock Text="PHASE 2" FontSize="9" Margin="5,0,0,0" VerticalAlignment="Center" />
                                 </StackPanel>
                             </Button>
+
+                            <!--
+                                The session id (§9, issue #15). A Button rather than a TextBlock
+                                with a mouse handler, so it is reachable by keyboard and announces
+                                itself to a screen reader — clicking it is an action, and the
+                                control that means "action" is the one to use.
+
+                                Collapsed entirely when the session has no id. §9's expanded row is
+                                a short list of things that are all there for a reason, and an
+                                empty box or a bare "…" would be a fifth thing that means nothing.
+
+                                Monospace for the same reason the prompt snippet is: it is terminal
+                                text, and an id read character by character wants fixed advance.
+                            -->
+                            <Button Style="{StaticResource SessionIdButtonStyle}"
+                                    Command="{Binding CopyIdCommand}"
+                                    ToolTip="{Binding IdTooltip}"
+                                    AutomationProperties.Name="{Binding IdTooltip}"
+                                    Visibility="{Binding ShortId, Converter={StaticResource EmptyToCollapsed}}">
+                                <TextBlock Text="{Binding ShortId}" FontFamily="{StaticResource MonoFont}" />
+                            </Button>
+
+                            <!--
+                                Failure gets a surface; success gets none. A WPF tooltip closes on
+                                the click that would trigger it and will not reopen while the
+                                pointer stays put, so "Copied." could never be read at the moment
+                                it meant anything — measured, not assumed. The absence of this
+                                marker is the success signal.
+
+                                It appears and stays. No animation, no fade, no timer: "red blinks;
+                                working breathes; nothing else moves."
+                            -->
+                            <TextBlock Text="copy failed"
+                                       FontSize="10"
+                                       Margin="6,0,0,0"
+                                       VerticalAlignment="Center"
+                                       Foreground="{StaticResource RedBrush}"
+                                       ToolTip="The clipboard was held by another program. Try again."
+                                       Visibility="{Binding CopyFailed, Converter={StaticResource BoolToVisible}}" />
                         </StackPanel>
                     </StackPanel>
                 </StackPanel>

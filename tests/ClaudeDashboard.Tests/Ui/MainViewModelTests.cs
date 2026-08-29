@@ -37,7 +37,7 @@ public sealed class MainViewModelTests : IDisposable
     public MainViewModelTests()
     {
         _projection = new SessionProjection(_registry, _dispatcher);
-        _viewModel = new MainViewModel(_projection, new MotionPolicy(() => false, observeChanges: false), new StubAckPublisher());
+        _viewModel = new MainViewModel(_projection, new MotionPolicy(() => false, observeChanges: false), new StubAckPublisher(), new FakeClipboard());
         _viewModel.Rows.CollectionChanged += (_, e) => _rowChanges.Add(e);
     }
 
@@ -415,9 +415,12 @@ public sealed class MainViewModelTests : IDisposable
         var motion = new MotionPolicy(() => false, observeChanges: false);
         var ack = new StubAckPublisher();
 
-        Assert.Throws<ArgumentNullException>(() => new MainViewModel(null!, motion, ack));
-        Assert.Throws<ArgumentNullException>(() => new MainViewModel(_projection, null!, ack));
-        Assert.Throws<ArgumentNullException>(() => new MainViewModel(_projection, motion, null!));
+        var clipboard = new FakeClipboard();
+
+        Assert.Throws<ArgumentNullException>(() => new MainViewModel(null!, motion, ack, clipboard));
+        Assert.Throws<ArgumentNullException>(() => new MainViewModel(_projection, null!, ack, clipboard));
+        Assert.Throws<ArgumentNullException>(() => new MainViewModel(_projection, motion, null!, clipboard));
+        Assert.Throws<ArgumentNullException>(() => new MainViewModel(_projection, motion, ack, null!));
     }
 }
 

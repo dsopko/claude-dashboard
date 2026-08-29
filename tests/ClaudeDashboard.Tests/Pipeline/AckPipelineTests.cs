@@ -52,7 +52,8 @@ public sealed class AckPipelineTests : IAsyncLifetime
         _viewModel = new MainViewModel(
             _projection,
             new MotionPolicy(() => false, observeChanges: false),
-            new AckPublisher(_pipeline.Sink, _clock, Logger.None));
+            new AckPublisher(_pipeline.Sink, _clock, Logger.None),
+            new FakeClipboard());
 
         _consumer = new EventConsumer(
             _pipeline,

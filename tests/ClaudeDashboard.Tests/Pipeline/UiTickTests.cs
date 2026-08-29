@@ -49,7 +49,7 @@ public sealed class UiTickTests : IAsyncLifetime
     public Task InitializeAsync()
     {
         _projection = new SessionProjection(_registry, _dispatcher);
-        _viewModel = new MainViewModel(_projection, new MotionPolicy(() => false, observeChanges: false), new StubAckPublisher());
+        _viewModel = new MainViewModel(_projection, new MotionPolicy(() => false, observeChanges: false), new StubAckPublisher(), new FakeClipboard());
         _tick = new UiTick(_dispatcher);
 
         _consumer = new EventConsumer(

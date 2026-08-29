@@ -165,6 +165,7 @@ public static class AppHost
         // TS §I.3 requires every ack source to travel one path, and the Registry is lock-free on
         // the assumption that the consumer is its only writer.
         builder.Services.AddSingleton<IAckPublisher, AckPublisher>();
+        builder.Services.AddSingleton<IClipboard, WindowsClipboard>();
         builder.Services.AddSingleton<MotionPolicy>();
         builder.Services.AddSingleton<UiTick>();
         builder.Services.AddSingleton<IUiTick>(sp => sp.GetRequiredService<UiTick>());

@@ -125,7 +125,7 @@ Vocabulary: a **notice** is the first sound for an event; a **nudge** is the rem
 - **Header:** app name · counts strip ("3 need you · 2 unread · 1 working") · Grouped/Flat toggle · mute.
 - **Body:** groups (or bands) of session rows.
 - **Session row:** status LED · prompt snippet (the session's name, in monospace — it *is* terminal text) · state + age line · Ack action on unread rows.
-- **Expanded row:** the full latest exchange — "You asked …" / "Claude answered …" — with Ack, and a disabled "Open terminal" slot reserved for Phase 2.
+- **Expanded row:** the full latest exchange — "You asked …" / "Claude answered …" — with Ack, a disabled "Open terminal" slot reserved for Phase 2, and the session id: the first eight characters, which copy in full on a click. The id appears here only — the session row does not carry it.
 - **Tray icon:** always-ambient summary — grey all-quiet, blue working, red with a needs-you count badge. The dashboard can be closed and the tray still tells the truth.
 
 Motion discipline: red blinks; working breathes; nothing else moves.

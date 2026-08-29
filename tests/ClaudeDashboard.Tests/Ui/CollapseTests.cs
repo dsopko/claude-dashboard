@@ -31,7 +31,8 @@ public sealed class CollapseTests : IDisposable
         _viewModel = new MainViewModel(
             _harness.Projection,
             new MotionPolicy(() => false, observeChanges: false),
-            new StubAckPublisher());
+            new StubAckPublisher(),
+            new FakeClipboard());
     }
 
     public void Dispose()
