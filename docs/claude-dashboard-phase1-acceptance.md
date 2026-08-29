@@ -556,6 +556,68 @@ notification sounds and voice commands; `eMultimedia` for music, movies and narr
 notification sound. `eCommunications` is rejected deliberately — a notice must not follow the audio
 path of a call the operator is in.
 
+## 5f · T1.23 — what the session id does not prove
+
+The expanded row shows the first eight characters of the session id, carries the whole value in a
+tooltip, and copies the whole value on a click (issue #15, commit `b97596d`). Design §9 was amended
+in the same commit, so the authority on row anatomy names the element rather than going stale
+around it.
+
+Eleven tests cover it and five planted mutations confirmed they are load-bearing — most importantly
+that copying the eight-character preview instead of the whole value kills a test, which is the
+defect this task was most likely to ship. What follows is what none of that reaches.
+
+### The three things the suite cannot reach
+
+1. **That the real Windows clipboard received anything.** The fake records a string and answers
+   yes. A wrong data format, an apartment problem, or a hold that outlasts the single attempt are
+   all untouched by every test here.
+2. **That the operator can paste it.** Nothing in-process observes that, and nothing could.
+3. **`WindowsClipboard` has no test at all, and that is deliberate rather than an oversight.**
+   Exercising it would write to the operator's real clipboard and destroy whatever they had
+   copied, to prove a point about a row; save-and-restore is racy and still destructive. Every
+   caller of the port is tested through a fake, and the adapter itself is not. If it is ever to be
+   covered it is a **hardware-card row needing the operator's consent**, not a suite test.
+
+Item 3 is the one a later reader is most likely to mistake for a gap somebody forgot to fill. It
+was a decision, and it is recorded in the class as well as here.
+
+### Residual: the failure marker outlives nothing
+
+A copy that fails puts a static "copy failed" marker beside the id. It appears at the moment of the
+click and stays until a copy works — but **it lives on the expanded row, so a failed copy followed
+by collapsing that row leaves only the log line.** The operator would not see it again.
+
+That is accepted rather than fixed. The alternative surfaces are all worse: a dialog interrupts, a
+toast moves, and the collapsed row is the one place §9 says the id must never appear.
+
+### Why success is silent, and why that was measured rather than assumed
+
+The obvious design puts "Copied." in the tooltip. It cannot work, and the numbers say so:
+
+- `ToolTipService.InitialShowDelay` is **1000 ms** — a full second of hover before a tooltip
+  appears at all.
+- `PopupControlService` — `OnPostProcessInput`, `ProcessMouseUp`, `DismissCurrentToolTip` — is what
+  closes a tooltip on input, and it does not re-show while the pointer stays where it is.
+
+So a tooltip can say nothing at the moment of a click, which is the only moment that matters. The
+design removes the dependence on that answer instead of guessing at it: **failure gets a surface,
+success gets none, and the absence of the marker is the success signal.**
+
+**What was not measured, stated as such.** The end-to-end dismissal was not observed. An
+automation-driven click does not produce the mouse input that dismisses a tooltip, so a headless
+"the tooltip is still open" would have been an artefact of the harness rather than a fact about the
+product. What was measured is the framework's own machinery and its delay defaults — which is
+enough to settle the design, and is not the same claim.
+
+### One correction carried forward
+
+An earlier note in this task's reasoning said `Clipboard.SetDataObject` retries on a busy clipboard.
+**It does not.** The four-argument retrying overload belongs to *WinForms*' `Clipboard`; WPF's
+exposes only `SetDataObject(object)` and `SetDataObject(object, bool)`. The adapter makes one
+attempt, because a hand-rolled retry loop would sleep on the dispatcher thread and freeze the
+window — trading a visible failure the operator can act on for an invisible stall they cannot.
+
 ## 6 · Was the harness capable of producing the other outcome?
 
 A green run proves nothing unless a red one was reachable. Five defects were planted, each taken
