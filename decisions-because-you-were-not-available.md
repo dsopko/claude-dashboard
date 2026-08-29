@@ -1461,3 +1461,77 @@ is invisible the moment the issue closes.
 Two oracles now exist where there was none: the notification client says which endpoint *should*
 be bound, and `PlaybackStopped` — raised by the audio stack, not by us — says *this stream is
 dead*. Neither can produce the other's evidence.
+
+## D88 — The number was the instrument's setting
+A mutation's failure count was reported as 8. The true number was 21.
+
+The plant harness ended every run with `| head -8`. The run produced 21 failures and a summary
+line — 22 lines. `head -8` showed eight failure lines and **cut the summary**. The visible lines
+were then counted: three in one file, five in another. **3 + 5 = 8 = the head limit.**
+
+The reported number was the truncation limit. It measured nothing.
+
+Two things make this more than a slip. It broke a rule this project already had — *never filter the
+output of a run whose result is not yet known* — inside a harness written to enforce rigour. And
+`head` eats exactly the line that would have caught it: **the summary's Total is the only number in
+a test run that is not a count of things the author could already see.**
+
+A second, different defect was separated out in the same pass. T1.22's "13 survivors" was read
+correctly off a summary; the error was the next step — asserting that a count of 13 *was* a
+particular set of 11 tests, with no membership check. **A count is not a set.** I relayed that one
+to a reviewer as fact.
+
+## D89 — The question above the rules
+Two fixes were offered: never cap a run's output; never say a count is a set without listing the
+set. Both are right and both are **an enumeration**, and an enumeration does not catch the third
+instance.
+
+Neither closes a `--filter` that legitimately shrinks Total, a timeout truncating a run, a `grep -c`
+with a wrong pattern, or a `find` sweeping `bin`/`obj`. The general form is one question, and it is
+recorded **above** the two rules rather than beside them:
+
+> **Could this number have been produced by the instrument rather than by the thing being
+> measured?**
+
+Recorded as rules, they get applied where they were written. Recorded as instances of the question,
+they get applied where they were not.
+
+**The reviewer put itself inside the finding**, which is what makes it load-bearing. In the same
+review it ran `grep -rl 'ZZ' src tests | wc -l` to check its probes were gone and got **299** —
+because the sweep included binaries under `bin`/`obj`. Same defect, same shape. It caught that one
+only because 299 was absurd; at 3 it would have passed.
+
+**Plausibility is what decides whether an enumeration is ever consulted.** The 8 was plausible.
+
+## D90 — A doc comment moved to a different method and nothing objected
+A new command's code was inserted **between** an existing command's documentation and the method it
+belonged to. The whole block reattached to the new member: one method ended up carrying two
+`<summary>` and three `<remarks>` describing a different method, and the original was left with
+none — including a spec reference that silently left the thing it referred to.
+
+**Nothing in the toolchain diagnoses this.** CS1571 reports 0 even with documentation generation
+on, and a duplicate `<summary>` is not diagnosed at all. It was found only by generating the XML
+and reading it, and fixed the same way — the source is what shipped it, so the source is not the
+oracle.
+
+Filed as issue #19, with the split stated: generation closes the **reference** category (broken and
+ambiguous crefs — it found one immediately, an ambiguous `NameFor`) and the **completeness**
+category (CS1573), and does **not** close the **attachment** category. Detecting attachment needs
+something that compares a member's documented subject with the member. The price is also on the
+issue: 92 items across three projects, because warnings are errors here.
+
+Two near-misses while fixing it, both the same shape and both caught: the coder's first count ran
+past `</member>` into an adjacent member; the reviewer's first pattern searched for `M:` and
+reported a property as undocumented. **The extraction window is part of the measurement.**
+
+## D91 — A trend nobody has put to the operator
+The habit of *recording a correction rather than deleting it* is now in **7 files, 9 occurrences**
+of that phrasing, plus at least one worded differently in `tools/verify-pin.ps1`. Every instance is
+individually justified and several were approved by the reviewer that raised this.
+
+Nobody has asked whether the aggregate is still readable — whether a reader arriving in a year
+meets the code, or a history of what the code used to claim.
+
+Nothing is being removed. The cost of removing them is losing the evidence that made this project's
+standard real. What is recorded is that **the question has never been put**, and it belongs in Phase
+2 planning rather than to any one task.
