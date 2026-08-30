@@ -143,6 +143,21 @@
     See Program's remarks.
   -->
   <ItemGroup>
+    <!--
+      AND THE SAME FILE AGAIN, AS A WPF RESOURCE. <ApplicationIcon> above puts app.ico in the
+      apphost's Win32 resources, which is what the taskbar, Alt-Tab and the old title bar read —
+      but nothing in the managed assembly can reach it, and the drawn caption of design option 2c
+      has an icon slot to fill. This line embeds it in the assembly so MainWindow can bind to it.
+
+      The publish output still gains no file: it is inside ClaudeDashboard.App.dll, not beside
+      it. The cost is the assembly growing by the .ico's size, and it is one file rather than
+      two — a second, smaller copy for the caption would be a second thing to regenerate, and the
+      one that fell behind would be the one nobody looks at directly.
+    -->
+    <Resource Include="Assets\app.ico" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ApplicationDefinition Remove="App.xaml" />
     <Page Include="App.xaml" SubType="Designer" Generator="MSBuild:Compile" />
   </ItemGroup>

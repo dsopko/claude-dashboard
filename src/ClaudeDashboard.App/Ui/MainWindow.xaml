@@ -1,6 +1,7 @@
 <Window x:Class="ClaudeDashboard.App.Ui.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         xmlns:ui="clr-namespace:ClaudeDashboard.App.Ui"
         Title="Claude Dashboard"
         Width="400" Height="760"
@@ -10,8 +11,9 @@
         TextOptions.TextFormattingMode="Display">
 
     <!--
-        The narrow side panel of Design Document §9. Chrome is the platform's own: a custom
-        title bar is Win32 work, and T1.11 may make no OS call beyond WPF.
+        The narrow side panel of Design Document §9, under the branded caption of design option
+        2c. Every colour, size and space in the caption is a named resource read off that design;
+        there is no hex literal in this file.
     -->
 
     <Window.Resources>
@@ -23,50 +25,245 @@
         </ResourceDictionary>
     </Window.Resources>
 
-    <Border Background="{StaticResource SurfaceBrush}">
+    <!--
+        THE CAPTION IS OURS NOW, AND THE WINDOW IS STILL A WINDOW.
+
+        WindowChrome rather than WindowStyle="None" with AllowsTransparency="True": that pair
+        makes the HWND layered, and a layered window loses the DWM drop shadow, the Windows 11
+        rounded corners and the snap animations — none of which can be drawn back in XAML.
+        WindowStyle therefore stays at its default and GlassFrameThickness keeps a one-pixel
+        frame extended into the client area, which is what the shadow hangs from. Nothing paints
+        there: the root Border below is opaque over it.
+
+        CaptionHeight is the design's 48 and is read from the same resource the caption's own
+        Border is sized by, so the drag region and the drawn bar cannot drift apart.
+    -->
+    <shell:WindowChrome.WindowChrome>
+        <shell:WindowChrome CaptionHeight="{StaticResource CaptionHeight}"
+                            GlassFrameThickness="0,0,0,1"
+                            ResizeBorderThickness="6"
+                            CornerRadius="0"
+                            UseAeroCaptionButtons="False" />
+    </shell:WindowChrome.WindowChrome>
+
+    <!--
+        The caption buttons go through SystemCommands, which is what makes them the system's
+        actions rather than imitations of them. Close in particular: SystemCommands.CloseWindow
+        raises the same close the stock X raised, so OnClosing still cancels it and hides — the
+        button's meaning is inherited rather than restated.
+    -->
+    <Window.CommandBindings>
+        <CommandBinding Command="{x:Static SystemCommands.MinimizeWindowCommand}" Executed="OnMinimizeWindow" />
+        <CommandBinding Command="{x:Static SystemCommands.MaximizeWindowCommand}" Executed="OnMaximizeWindow" />
+        <CommandBinding Command="{x:Static SystemCommands.RestoreWindowCommand}" Executed="OnRestoreWindow" />
+        <CommandBinding Command="{x:Static SystemCommands.CloseWindowCommand}" Executed="OnCloseWindow" />
+    </Window.CommandBindings>
+
+    <!--
+        RootBorder carries the maximized inset. A WindowChrome window's rect is inflated past the
+        work area by its frame while maximized, and with the non-client area gone that inflation
+        is content hanging off the screen. MainWindow.ApplyMaximizedInset gives it back.
+    -->
+    <Border x:Name="RootBorder" Background="{StaticResource SurfaceBrush}">
         <Grid>
             <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
             </Grid.RowDefinitions>
 
-            <!-- ==== Header: counts · Grouped/Flat · mute (Design Document §9) ==================== -->
-            <Border Grid.Row="0" Padding="12,10"
+            <!-- ==== Caption: icon · title · summary · help · window buttons (option 2c) ======== -->
+            <Border Grid.Row="0"
+                    Height="{StaticResource CaptionHeight}"
+                    Background="{StaticResource CaptionBrush}"
+                    BorderBrush="{StaticResource CaptionRuleBrush}"
+                    BorderThickness="0,0,0,1">
+                <Grid>
+                    <!-- The warm light off the top right, over the vertical wash. -->
+                    <Rectangle Fill="{StaticResource CaptionGlowBrush}" />
+
+                    <!--
+                        A GRID, NOT A DOCKPANEL, AND THE STARRED COLUMN IS THE POINT. Everything
+                        but the summary is fixed: the icon, the title, the divider, the help slot
+                        and the three window buttons all take what they need. The summary takes
+                        what is left, which is what lets it know how much of itself it can show.
+                        A DockPanel would hand it infinity and it would clip instead.
+                    -->
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+
+                        <!--
+                            The application icon of issue #17, at the design's 20 DIP. The 32 px
+                            frame is asked for by name: 20 DIP is 20 device pixels at 100% and 30
+                            at 150%, so the 32 is a reduction at every scaling this runs at, and a
+                            reduction is what stays crisp. The 16 would have to be enlarged.
+                        -->
+                        <Image Grid.Column="0"
+                               Width="20" Height="20" Margin="14,0"
+                               VerticalAlignment="Center"
+                               RenderOptions.BitmapScalingMode="HighQuality">
+                            <Image.Source>
+                                <BitmapImage UriSource="/ClaudeDashboard.App;component/Assets/app.ico"
+                                             DecodePixelWidth="32" />
+                            </Image.Source>
+                        </Image>
+
+                        <TextBlock Grid.Column="1"
+                                   Text="Claude Dashboard"
+                                   VerticalAlignment="Center"
+                                   FontFamily="{StaticResource TitleFont}"
+                                   FontSize="15"
+                                   FontWeight="Medium"
+                                   Foreground="{StaticResource InkBrush}" />
+
+                        <StackPanel Grid.Column="5" Orientation="Horizontal">
+                            <Button Style="{StaticResource CaptionButtonStyle}"
+                                    Command="{x:Static SystemCommands.MinimizeWindowCommand}"
+                                    AutomationProperties.Name="Minimize"
+                                    ToolTip="Minimize">
+                                <Path Data="M0,5 H10" StrokeThickness="1"
+                                      Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
+                            </Button>
+
+                            <Button x:Name="MaximizeButton"
+                                    Style="{StaticResource CaptionMaximizeButtonStyle}"
+                                    Command="{x:Static SystemCommands.MaximizeWindowCommand}"
+                                    AutomationProperties.Name="Maximize"
+                                    ToolTip="Maximize">
+                                <Rectangle Width="9" Height="9" StrokeThickness="1"
+                                           Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
+                            </Button>
+
+                            <!--
+                                2c draws no maximized window, so this glyph is the platform's own
+                                overlapping squares rather than anything read off the design. The
+                                alternative was to leave the maximize square showing on a window
+                                that is already maximized, which would be wrong rather than
+                                merely unspecified.
+                            -->
+                            <Button x:Name="RestoreButton"
+                                    Style="{StaticResource CaptionRestoreButtonStyle}"
+                                    Command="{x:Static SystemCommands.RestoreWindowCommand}"
+                                    AutomationProperties.Name="Restore"
+                                    ToolTip="Restore">
+                                <Path Data="M0,3 H7 V10 H0 Z M3,3 V0 H10 V7 H7" StrokeThickness="1"
+                                      Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
+                            </Button>
+
+                            <Button Style="{StaticResource CaptionCloseButtonStyle}"
+                                    Command="{x:Static SystemCommands.CloseWindowCommand}"
+                                    AutomationProperties.Name="Close"
+                                    ToolTip="Close to the tray">
+                                <Path Data="M0,0 L10,10 M10,0 L0,10" StrokeThickness="1"
+                                      Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
+                            </Button>
+                        </StackPanel>
+
+                        <!--
+                            THE COUNTS STRIP, MOVED RATHER THAN COPIED. It read the same numbers
+                            on the row below until 2c gave the caption a summary slot and left the
+                            row to its controls; it is one strip and there is still one of it.
+
+                            2c's slot shows "11 sessions · 3 need you" and stops there, but the
+                            unread and working counts are not the mockup's to drop — they are what
+                            the operator has been reading, and this task changes where the window
+                            says things and not what it says. They keep their brushes and their
+                            zero-collapsing, and follow "need you" in the same separated pattern.
+
+                            AND ALL FOUR DO NOT FIT, which is the one place 2c had to bend. The
+                            design is drawn in an 820-pixel window; this one opens at 520, where
+                            the slot holds about 190 pixels and the four counts want about 250. So
+                            the strip is a FittingStrip, which drops whole counts from the right
+                            rather than clipping a word in half. Measured: everything shows from
+                            roughly 600 up, "11 sessions · 1 need you" at the 520 the window
+                            actually opens at — which is exactly what 2c draws — and the summary
+                            steps aside altogether below about 470.
+
+                            Tabular figures per the design's font-feature-settings:'tnum', so a
+                            count ticking 9 -> 10 does not shove the words beside it.
+                        -->
+                        <ui:FittingStrip Grid.Column="2"
+                                         VerticalAlignment="Center"
+                                         HorizontalAlignment="Right"
+                                         Margin="14,0,0,0">
+                            <TextBlock Text="{Binding SessionsText}"
+                                       FontFamily="{StaticResource UiFont}" FontSize="12"
+                                       Foreground="{StaticResource Ink2Brush}"
+                                       Typography.NumeralAlignment="Tabular" />
+
+                            <StackPanel Orientation="Horizontal"
+                                        Visibility="{Binding NeedsYouCount, Converter={StaticResource ZeroToCollapsed}}">
+                                <TextBlock Text=" · " FontFamily="{StaticResource UiFont}" FontSize="12"
+                                           Foreground="{StaticResource Ink2Brush}" />
+                                <TextBlock Text="{Binding NeedsYouCount}"
+                                           FontFamily="{StaticResource UiFont}" FontSize="12" FontWeight="SemiBold"
+                                           Foreground="{StaticResource RedBrush}"
+                                           Typography.NumeralAlignment="Tabular" />
+                                <TextBlock Text=" need you" FontFamily="{StaticResource UiFont}" FontSize="12"
+                                           Foreground="{StaticResource Ink2Brush}" />
+                            </StackPanel>
+
+                            <StackPanel Orientation="Horizontal"
+                                        Visibility="{Binding UnreadCount, Converter={StaticResource ZeroToCollapsed}}">
+                                <TextBlock Text=" · " FontFamily="{StaticResource UiFont}" FontSize="12"
+                                           Foreground="{StaticResource Ink2Brush}" />
+                                <TextBlock Text="{Binding UnreadCount}"
+                                           FontFamily="{StaticResource UiFont}" FontSize="12" FontWeight="SemiBold"
+                                           Foreground="{StaticResource GreenBrush}"
+                                           Typography.NumeralAlignment="Tabular" />
+                                <TextBlock Text=" unread" FontFamily="{StaticResource UiFont}" FontSize="12"
+                                           Foreground="{StaticResource Ink2Brush}" />
+                            </StackPanel>
+
+                            <StackPanel Orientation="Horizontal"
+                                        Visibility="{Binding WorkingCount, Converter={StaticResource ZeroToCollapsed}}">
+                                <TextBlock Text=" · " FontFamily="{StaticResource UiFont}" FontSize="12"
+                                           Foreground="{StaticResource Ink2Brush}" />
+                                <TextBlock Text="{Binding WorkingCount}"
+                                           FontFamily="{StaticResource UiFont}" FontSize="12" FontWeight="SemiBold"
+                                           Foreground="{StaticResource BlueBrush}"
+                                           Typography.NumeralAlignment="Tabular" />
+                                <TextBlock Text=" working" FontFamily="{StaticResource UiFont}" FontSize="12"
+                                           Foreground="{StaticResource Ink2Brush}" />
+                            </StackPanel>
+                        </ui:FittingStrip>
+
+                        <Rectangle Grid.Column="3"
+                                   Width="1" Height="18" Margin="14,0"
+                                   VerticalAlignment="Center"
+                                   Fill="{StaticResource HairlineBrush}" />
+
+                        <Button Grid.Column="4"
+                                Content="?"
+                                Margin="0,0,14,0"
+                                Style="{StaticResource CaptionHelpButtonStyle}"
+                                VerticalAlignment="Center"
+                                AutomationProperties.Name="Help"
+                                ToolTip="Help has no home yet; the slot is here for it." />
+                    </Grid>
+                </Grid>
+            </Border>
+
+            <!-- ==== Toolbar: Grouped/Flat · Select · Mute all (option 2c's idle row) ========== -->
+            <Border Grid.Row="1" Padding="12,10"
                     BorderBrush="{StaticResource HairlineBrush}" BorderThickness="0,0,0,1">
                 <Grid>
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
 
-                    <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
-                        <StackPanel Orientation="Horizontal"
-                                    Visibility="{Binding NeedsYouCount, Converter={StaticResource ZeroToCollapsed}}">
-                            <TextBlock Text="{Binding NeedsYouCount}" FontSize="12" FontWeight="SemiBold"
-                                       Foreground="{StaticResource RedBrush}" />
-                            <TextBlock Text=" need you" FontSize="12" Foreground="{StaticResource Ink2Brush}" />
-                        </StackPanel>
-                        <TextBlock Text=" · " FontSize="12" Foreground="{StaticResource Ink3Brush}"
-                                   Visibility="{Binding UnreadCount, Converter={StaticResource ZeroToCollapsed}}" />
-                        <StackPanel Orientation="Horizontal"
-                                    Visibility="{Binding UnreadCount, Converter={StaticResource ZeroToCollapsed}}">
-                            <TextBlock Text="{Binding UnreadCount}" FontSize="12" FontWeight="SemiBold"
-                                       Foreground="{StaticResource GreenBrush}" />
-                            <TextBlock Text=" unread" FontSize="12" Foreground="{StaticResource Ink2Brush}" />
-                        </StackPanel>
-                        <TextBlock Text=" · " FontSize="12" Foreground="{StaticResource Ink3Brush}"
-                                   Visibility="{Binding WorkingCount, Converter={StaticResource ZeroToCollapsed}}" />
-                        <StackPanel Orientation="Horizontal"
-                                    Visibility="{Binding WorkingCount, Converter={StaticResource ZeroToCollapsed}}">
-                            <TextBlock Text="{Binding WorkingCount}" FontSize="12" FontWeight="SemiBold"
-                                       Foreground="{StaticResource BlueBrush}" />
-                            <TextBlock Text=" working" FontSize="12" Foreground="{StaticResource Ink2Brush}" />
-                        </StackPanel>
-                    </StackPanel>
-
-                    <Border Grid.Column="1" CornerRadius="6" Margin="8,0"
+                    <Border Grid.Column="0" CornerRadius="6"
+                            VerticalAlignment="Center"
                             BorderBrush="{StaticResource HairlineBrush}" BorderThickness="1">
                         <StackPanel Orientation="Horizontal">
                             <ToggleButton x:Name="GroupedToggle"
@@ -83,13 +280,16 @@
                         SELECTION MODE, AND IT ANNOUNCES ITSELF (Design Document §9). That is the
                         whole answer to "a mode is a state and a state can be wrong": a mode that can
                         be on unseen is a mode nobody knows is on. Off, it costs one button; on, the
-                        header says so and carries the count and both ways out of it.
+                        row says so and carries the count and both ways out of it.
+
+                        2c draws only the idle row, so only the idle row is restyled. What the
+                        mockup does not show still works exactly as it did.
                     -->
-                    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center"
+                                Margin="0,0,10,0">
                         <Button x:Name="BeginSelectionButton"
                                 Content="Select"
                                 Style="{StaticResource HeaderButtonStyle}"
-                                Margin="0,0,8,0"
                                 Command="{Binding BeginSelectionCommand}"
                                 Visibility="{Binding IsSelecting, Converter={StaticResource BoolToCollapsed}}"
                                 ToolTip="Pick sessions to group together." />
@@ -100,8 +300,9 @@
                             <TextBlock x:Name="SelectionText"
                                        Text="{Binding SelectionText}"
                                        VerticalAlignment="Center"
-                                       Margin="0,0,8,0"
-                                       FontSize="12"
+                                       Margin="0,0,10,0"
+                                       FontFamily="{StaticResource UiFont}"
+                                       FontSize="11.5"
                                        Foreground="{StaticResource Ink2Brush}" />
                             <Button x:Name="GroupTheseButton"
                                     Content="Group these"
@@ -111,24 +312,22 @@
                             <Button x:Name="CancelSelectionButton"
                                     Content="Cancel"
                                     Style="{StaticResource HeaderButtonStyle}"
-                                    Margin="0,0,8,0"
                                     Command="{Binding CancelSelectionCommand}" />
                         </StackPanel>
                     </StackPanel>
 
                     <!--
                         Mute all belongs to the tray's menu (Impl §5.2) and per-session mute to the
-                        sound engine (T1.5). The header keeps §9's slot for it, inert until then.
+                        sound engine (T1.5). The row keeps §9's slot for it, inert until then.
                     -->
                     <Button Grid.Column="3" Content="Mute all"
-                            Style="{StaticResource ReservedButtonStyle}"
-                            Margin="0"
+                            Style="{StaticResource HeaderReservedButtonStyle}"
                             ToolTip="Muting arrives with the tray menu (T1.13)." />
                 </Grid>
             </Border>
 
             <!-- ==== Body: the rows, in the order T1.10 assembled them ========================= -->
-            <ScrollViewer Grid.Row="1"
+            <ScrollViewer Grid.Row="2"
                           VerticalScrollBarVisibility="Auto"
                           HorizontalScrollBarVisibility="Disabled"
                           Focusable="False">

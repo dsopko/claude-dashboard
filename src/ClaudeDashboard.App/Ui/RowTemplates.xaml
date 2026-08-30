@@ -1,5 +1,6 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
                     xmlns:sys="clr-namespace:System;assembly=System.Runtime"
                     xmlns:ui="clr-namespace:ClaudeDashboard.App.Ui">
 
@@ -35,6 +36,167 @@
 
     <FontFamily x:Key="UiFont">Segoe UI Variable Text, Segoe UI</FontFamily>
     <FontFamily x:Key="MonoFont">Cascadia Code, Cascadia Mono, Consolas</FontFamily>
+
+    <!-- ==== The branded caption (design option 2c) ============================================= -->
+    <!--
+        EVERY NUMBER AND COLOUR BELOW IS READ OFF THE DESIGN, not chosen here. The source is
+        `Claude Dashboard Window.dc.html`, option 2c, over the `classical-claude` system's
+        `styles.css`:
+
+          height:48px
+          background: radial-gradient(120% 200% at 78% -60%, rgba(182,130,53,.16) 0%,
+                                      rgba(182,130,53,0) 62%),
+                      linear-gradient(180deg, #1f2429 0%, #1a1e23 100%)
+          border-bottom: 1px solid rgba(182,130,53,.30)
+          .cap  { width:46px; color:rgba(232,234,237,.85) }
+          .cap:hover   { background:rgba(255,255,255,.06) }
+          .cap-x:hover { background:#c42b1c; color:#fff }
+
+        #b68235 is the system's accent colour, the same gold the application icon is drawn in,
+        which is what makes the rule and the glow read as the app's own rather than as chrome.
+        The alphas are the CSS fractions rounded to a byte: .16 -> 0x29, .30 -> 0x4D,
+        .85 -> 0xD9, .06 -> 0x0F.
+    -->
+    <sys:Double x:Key="CaptionHeight">48</sys:Double>
+
+    <LinearGradientBrush x:Key="CaptionBrush" StartPoint="0,0" EndPoint="0,1">
+        <GradientStop Color="#FF1F2429" Offset="0" />
+        <GradientStop Color="#FF1A1E23" Offset="1" />
+    </LinearGradientBrush>
+
+    <!--
+        The warm light off the top right. The CSS ellipse is 120% of the bar's width by 200% of
+        its height, centred above the bar at (78%, -60%) — so only its lower edge falls across
+        the caption, and the tint is strongest behind the summary rather than behind the title.
+    -->
+    <RadialGradientBrush x:Key="CaptionGlowBrush"
+                         Center="0.78,-0.6" GradientOrigin="0.78,-0.6"
+                         RadiusX="1.2" RadiusY="2.0">
+        <GradientStop Color="#29B68235" Offset="0" />
+        <GradientStop Color="#00B68235" Offset="0.62" />
+    </RadialGradientBrush>
+
+    <SolidColorBrush x:Key="CaptionRuleBrush" Color="#4DB68235" />
+    <SolidColorBrush x:Key="CaptionGlyphBrush" Color="#D9E8EAED" />
+    <SolidColorBrush x:Key="CaptionHoverBrush" Color="#0FFFFFFF" />
+    <SolidColorBrush x:Key="CaptionCloseBrush" Color="#FFC42B1C" />
+    <SolidColorBrush x:Key="CaptionCloseGlyphBrush" Color="#FFFFFFFF" />
+
+    <!--
+        THE DESIGN'S SERIF IS NOT A WINDOWS FONT. 2c sets the title in Cormorant Garamond, which
+        ships with the design system off Google Fonts and with nothing else; the task forbids
+        downloading it. Constantia is the fallback and the one that will actually render on a
+        stock install: a screen-cut old-style serif in the box since Vista, so the title carries
+        the same voice on every machine rather than on the ones that happen to have Office.
+        Cormorant Garamond stays at the head of the chain so an install that has it wins.
+    -->
+    <FontFamily x:Key="TitleFont">Cormorant Garamond, Constantia, Georgia, Times New Roman</FontFamily>
+
+    <!--
+        A caption button. 46 wide and the full height of the bar, which is the Windows 11
+        geometry the design copied, and hit-test-visible in chrome so WindowChrome hands it the
+        click instead of treating it as somewhere to drag from.
+    -->
+    <Style x:Key="CaptionButtonStyle" TargetType="Button">
+        <Setter Property="Width" Value="46" />
+        <Setter Property="VerticalAlignment" Value="Stretch" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Foreground" Value="{StaticResource CaptionGlyphBrush}" />
+        <Setter Property="Focusable" Value="False" />
+        <Setter Property="SnapsToDevicePixels" Value="True" />
+        <Setter Property="shell:WindowChrome.IsHitTestVisibleInChrome" Value="True" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="Chip" Background="{TemplateBinding Background}">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Chip" Property="Background" Value="{StaticResource CaptionHoverBrush}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!--
+        MAXIMIZE AND RESTORE ARE TWO BUTTONS, one showing at a time. One button with a swapped
+        command would leave the automation name and the glyph telling the operator to maximize a
+        window that is already maximized, and 2c draws no maximized window to copy either from.
+
+        THE HOVER IS BOUND, NOT TRIGGERED. CaptionChrome answers HTMAXBUTTON for this button so
+        Windows will offer the Snap Layouts flyout, and that answer routes the pointer past WPF —
+        IsMouseOver is never true here. The window reports the hover instead.
+    -->
+    <Style x:Key="CaptionMaximizeButtonStyle" TargetType="Button" BasedOn="{StaticResource CaptionButtonStyle}">
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding WindowState, RelativeSource={RelativeSource AncestorType=Window}}" Value="Maximized">
+                <Setter Property="Visibility" Value="Collapsed" />
+            </DataTrigger>
+            <DataTrigger Binding="{Binding IsMaximizeHovered, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
+                <Setter Property="Background" Value="{StaticResource CaptionHoverBrush}" />
+            </DataTrigger>
+        </Style.Triggers>
+    </Style>
+
+    <Style x:Key="CaptionRestoreButtonStyle" TargetType="Button" BasedOn="{StaticResource CaptionButtonStyle}">
+        <Setter Property="Visibility" Value="Collapsed" />
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding WindowState, RelativeSource={RelativeSource AncestorType=Window}}" Value="Maximized">
+                <Setter Property="Visibility" Value="Visible" />
+            </DataTrigger>
+            <DataTrigger Binding="{Binding IsMaximizeHovered, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
+                <Setter Property="Background" Value="{StaticResource CaptionHoverBrush}" />
+            </DataTrigger>
+        </Style.Triggers>
+    </Style>
+
+    <!-- Close keeps the platform's red, which is the one thing about a caption nobody re-reads. -->
+    <Style x:Key="CaptionCloseButtonStyle" TargetType="Button" BasedOn="{StaticResource CaptionButtonStyle}">
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="Chip" Background="{TemplateBinding Background}">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Chip" Property="Background" Value="{StaticResource CaptionCloseBrush}" />
+                            <Setter Property="Foreground" Value="{StaticResource CaptionCloseGlyphBrush}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!--
+        The caption's help slot. A bare glyph in 2c — no border, no chip — and inert here for the
+        same reason "Mute all" below is: the action it would invoke does not exist yet. It is in
+        the markup so the slot is claimed and whoever adds help has somewhere to put it.
+    -->
+    <Style x:Key="CaptionHelpButtonStyle" TargetType="Button">
+        <Setter Property="IsEnabled" Value="False" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Foreground" Value="{StaticResource Ink3Brush}" />
+        <Setter Property="FontFamily" Value="{StaticResource UiFont}" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="Focusable" Value="False" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="shell:WindowChrome.IsHitTestVisibleInChrome" Value="True" />
+        <Setter Property="ToolTipService.ShowOnDisabled" Value="True" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border Background="{TemplateBinding Background}">
+                        <ContentPresenter Margin="{TemplateBinding Padding}" />
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
 
     <ui:ZeroToCollapsedConverter x:Key="ZeroToCollapsed" />
     <ui:EmptyToCollapsedConverter x:Key="EmptyToCollapsed" />
@@ -190,10 +352,11 @@
         </Setter>
     </Style>
 
-    <!-- The header's Grouped/Flat segmented control (mockups' .seg). -->
+    <!-- The toolbar's Grouped/Flat segmented control (2c's .seg: 11.5px, padding 5px 10px). -->
     <Style x:Key="SegmentStyle" TargetType="ToggleButton">
+        <Setter Property="FontFamily" Value="{StaticResource UiFont}" />
         <Setter Property="FontSize" Value="11.5" />
-        <Setter Property="Padding" Value="10,4" />
+        <Setter Property="Padding" Value="10,5" />
         <Setter Property="Foreground" Value="{StaticResource Ink3Brush}" />
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="Template">
@@ -304,10 +467,59 @@
         </Setter>
     </Style>
 
-    <!-- The header's live buttons: the reserved look, but actually enabled. -->
-    <Style x:Key="HeaderButtonStyle" TargetType="Button" BasedOn="{StaticResource ReservedButtonStyle}">
-        <Setter Property="IsEnabled" Value="True" />
-        <Setter Property="Foreground" Value="{StaticResource Ink2Brush}" />
+    <!--
+        The toolbar row's buttons — 2c's `.mute`, which is one look for every button on that row:
+
+          font: 400 11.5px [ui]; color: [ink3];
+          border: 1px solid [hairline]; border-radius: 6px; padding: 5px 9px;
+          :hover { background: [raised]; color: [ink2] }
+
+        (The design names those five as CSS custom properties; they are written in brackets here
+        only because an XML comment cannot carry two dashes in a row.)
+
+        NO LONGER BASED ON ReservedButtonStyle. That style belongs to the row's terminal slot,
+        which this task does not touch, and the two had drifted into sharing a base only because
+        they once looked alike. Splitting them is what lets this row take the design's metrics
+        without moving anything below it.
+    -->
+    <Style x:Key="HeaderButtonStyle" TargetType="Button">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Foreground" Value="{StaticResource Ink3Brush}" />
+        <Setter Property="FontFamily" Value="{StaticResource UiFont}" />
+        <Setter Property="FontSize" Value="11.5" />
+        <Setter Property="Padding" Value="9,5" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="Chip"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="{StaticResource HairlineBrush}"
+                            BorderThickness="1"
+                            CornerRadius="6">
+                        <ContentPresenter Margin="{TemplateBinding Padding}" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Chip" Property="Background" Value="{StaticResource RaisedBrush}" />
+                            <Setter Property="Foreground" Value="{StaticResource Ink2Brush}" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter TargetName="Chip" Property="Opacity" Value="0.75" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!--
+        And the same button for a slot whose phase has not arrived. 2c draws "Mute all" at full
+        strength, and it is drawn dimmed anyway: the design shows the row it is going to be, and
+        a control that cannot act must not look like one that can.
+    -->
+    <Style x:Key="HeaderReservedButtonStyle" TargetType="Button" BasedOn="{StaticResource HeaderButtonStyle}">
+        <Setter Property="IsEnabled" Value="False" />
+        <Setter Property="ToolTipService.ShowOnDisabled" Value="True" />
     </Style>
 
 

@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Windows;
+using System.Windows.Input;
 
 namespace ClaudeDashboard.App.Ui;
 
@@ -9,7 +10,9 @@ namespace ClaudeDashboard.App.Ui;
 /// <remarks>
 /// <para>
 /// Thin on purpose. Everything on screen comes from <see cref="MainViewModel"/> through bindings,
-/// and the only behaviour here is the one thing a view model cannot express: what closing means.
+/// and the only behaviour here is what a view model cannot express: what closing means, and the
+/// two duties a drawn caption leaves to the window (design option 2c). The Win32 half of those
+/// two lives in <see cref="CaptionChrome"/> rather than here.
 /// </para>
 /// <para>
 /// <strong>Closing hides.</strong> Impl §5.1: the window is shown and hidden, never recreated, so
@@ -33,6 +36,28 @@ public partial class MainWindow : Window
 
     /// <summary>What the window is showing.</summary>
     public MainViewModel ViewModel { get; }
+
+    /// <summary>
+    /// Whether the pointer is over the maximize or restore button.
+    /// </summary>
+    /// <remarks>
+    /// Reported by <see cref="CaptionChrome"/> and bound by the two buttons' styles, because
+    /// neither can see the pointer for itself: the hit-test answer that earns the Snap Layouts
+    /// flyout sends it to Windows instead of to WPF, so <c>IsMouseOver</c> is never true there.
+    /// </remarks>
+    public static readonly DependencyProperty IsMaximizeHoveredProperty =
+        DependencyProperty.Register(
+            nameof(IsMaximizeHovered),
+            typeof(bool),
+            typeof(MainWindow),
+            new PropertyMetadata(false));
+
+    /// <inheritdoc cref="IsMaximizeHoveredProperty"/>
+    public bool IsMaximizeHovered
+    {
+        get => (bool)GetValue(IsMaximizeHoveredProperty);
+        private set => SetValue(IsMaximizeHoveredProperty, value);
+    }
 
     /// <summary>Brings the window back, wherever it was left (Impl §5.1, §5.3).</summary>
     public void ShowDashboard()
@@ -67,6 +92,71 @@ public partial class MainWindow : Window
 
         ShowDashboard();
     }
+
+    /// <inheritdoc/>
+    protected override void OnSourceInitialized(EventArgs e)
+    {
+        base.OnSourceInitialized(e);
+
+        CaptionChrome.Attach(
+            this,
+            () => WindowState == WindowState.Maximized ? RestoreButton : MaximizeButton,
+            hovered => IsMaximizeHovered = hovered);
+
+        ApplyMaximizedInset();
+    }
+
+    /// <inheritdoc/>
+    protected override void OnStateChanged(EventArgs e)
+    {
+        base.OnStateChanged(e);
+
+        ApplyMaximizedInset();
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// The inset is measured in device pixels and spent in device-independent ones, so it has to
+    /// be taken again when the window crosses onto a monitor that scales differently.
+    /// </remarks>
+    protected override void OnDpiChanged(DpiScale oldDpi, DpiScale newDpi)
+    {
+        base.OnDpiChanged(oldDpi, newDpi);
+
+        ApplyMaximizedInset();
+    }
+
+    /// <summary>
+    /// Keeps a maximized window's content inside the screen it is maximized on.
+    /// </summary>
+    /// <remarks>
+    /// See <see cref="CaptionChrome.MaximizedInset"/>: the overflow is the window frame, which is
+    /// invisible while it is non-client and is content once the caption is drawn instead.
+    /// </remarks>
+    private void ApplyMaximizedInset() =>
+        RootBorder.Margin = WindowState == WindowState.Maximized
+            ? CaptionChrome.MaximizedInset(this)
+            : default;
+
+    private void OnMinimizeWindow(object sender, ExecutedRoutedEventArgs e) =>
+        SystemCommands.MinimizeWindow(this);
+
+    private void OnMaximizeWindow(object sender, ExecutedRoutedEventArgs e) =>
+        SystemCommands.MaximizeWindow(this);
+
+    private void OnRestoreWindow(object sender, ExecutedRoutedEventArgs e) =>
+        SystemCommands.RestoreWindow(this);
+
+    /// <summary>
+    /// The caption's X, which means what the stock one meant.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="SystemCommands.CloseWindow"/> raises the ordinary close, so
+    /// <see cref="OnClosing"/> cancels it and hides — the two X's share one path rather than two
+    /// implementations of one rule.
+    /// </remarks>
+    private void OnCloseWindow(object sender, ExecutedRoutedEventArgs e) =>
+        SystemCommands.CloseWindow(this);
 
     protected override void OnClosing(CancelEventArgs e)
     {

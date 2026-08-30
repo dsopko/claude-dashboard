@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.ComponentModel;
+using System.Globalization;
 using ClaudeDashboard.App.Configuration;
 using ClaudeDashboard.Core;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -70,6 +71,20 @@ public sealed partial class MainViewModel : ObservableObject, IUiTickTarget, IDi
     [ObservableProperty]
     private bool _isGrouped = true;
 
+    /// <summary>
+    /// How many sessions the dashboard knows about, for the caption's "11 sessions"
+    /// (design option 2c).
+    /// </summary>
+    /// <remarks>
+    /// Every session in the projection, the quiet and the ended included — the caption says how
+    /// many there are, and the bands beside it say how many are worth looking at. It is therefore
+    /// the sum of the five band counts below and is derived from the same list on the same pass,
+    /// so it cannot disagree with them.
+    /// </remarks>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SessionsText))]
+    private int _sessionCount;
+
     [ObservableProperty]
     private int _needsYouCount;
 
@@ -84,6 +99,18 @@ public sealed partial class MainViewModel : ObservableObject, IUiTickTarget, IDi
 
     [ObservableProperty]
     private int _endedCount;
+
+    /// <summary>The caption's total, worded: "11 sessions", "1 session", "0 sessions".</summary>
+    /// <remarks>
+    /// Singular and plural rather than "1 sessions". The counts beside it are not worded this way
+    /// — "unread" and "working" are adjectives there and take no plural — so the rule is stated
+    /// once here rather than guessed from a suffix, exactly as <see cref="TrayTooltip"/> states
+    /// it for the tray.
+    /// </remarks>
+    public string SessionsText =>
+        string.Create(
+            CultureInfo.CurrentCulture,
+            $"{SessionCount} {(SessionCount == 1 ? "session" : "sessions")}");
 
     /// <summary>Binds to <paramref name="projection"/>.</summary>
     /// <remarks>
@@ -639,6 +666,7 @@ public sealed partial class MainViewModel : ObservableObject, IUiTickTarget, IDi
         var byBand = sessions.CountBy(session => AttentionOrder.BandOf(session.State))
             .ToDictionary(pair => pair.Key, pair => pair.Value);
 
+        SessionCount = sessions.Count;
         NeedsYouCount = byBand.GetValueOrDefault(AttentionBand.NeedsYou);
         UnreadCount = byBand.GetValueOrDefault(AttentionBand.Unread);
         WorkingCount = byBand.GetValueOrDefault(AttentionBand.Working);
