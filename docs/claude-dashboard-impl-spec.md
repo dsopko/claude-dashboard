@@ -118,9 +118,9 @@ Whatever is finally bound is written to `port.txt` and is the port the hook URL 
 
 Two users therefore do not queue from a base port; they derive different candidates because their SIDs differ, and never contend. The walk exists only for a hash collision or a stranger.
 
-> **Correction (2026-08-26).** This section previously read *"at a fixed default port… Fixed because the hook URL must be stable (Part 9)"*. That reason was true while the hook URL was written once by first-run setup. **§9.3 now registers the handlers at every start and removes them at every quit**, and a running Claude Code session was measured picking up both the addition and the removal without restarting — so the URL no longer needs a stable port to be correct. The stated reason had outlived the design it described.
+> **Correction (2026-08-26, superseded 2026-08-30).** This section once read *"at a fixed default port… Fixed because the hook URL must be stable (Part 9)"*. That reason was true while first-run setup wrote the hook URL once. §9.3 then registered the handlers at every start and removed them at every quit, which made the URL follow the bound port instead — and **issue #29 has now removed the URL from the hook altogether**. The handler names a script, the script reads `listening.txt` for the port, and no port appears anywhere in Claude Code's settings. The port is free to move for the reason §3.1 gives — one per user — and for no other.
 >
-> **Accepted residual, ruled by the operator.** A port that moves — because a stranger held the derived one on one day and not the next — leaves an extra entry in `allowedHttpHookUrls`, and §9.3 removes allowlist entries never. Three users mean three entries; a user who never returns leaves one behind. An entry pointing at no hook is inert, and the operator has accepted the accumulation rather than pay for pruning.
+> **The allowlist residual is closed rather than accepted.** A moving port used to leave an entry in `allowedHttpHookUrls` that nothing removed, and the operator accepted the accumulation. A command hook is not on that allowlist, so nothing accumulates, and `--remove-hooks` clears the entries an earlier build left.
 
 ### 3.2 Endpoints
 
@@ -369,68 +369,49 @@ Notes:
 - `transcript_path` is **fallback only**: it is written asynchronously and may lag the live turn, which is precisely why `prompt` and `last_assistant_message` are read inline instead.
 - `UserPromptSubmit`, `Stop`, and `CwdChanged` take **no matcher** (they always fire); `SessionStart`, `Notification`, `StopFailure`, `SessionEnd` filter by the matcher values above.
 
-### 9.2 Example `settings.json` block (HTTP hooks)
+### 9.2 Example `settings.json` block (command hook)
 
 ```json
 {
-  "allowedHttpHookUrls": ["http://127.0.0.1:52789/hook"],
-  "httpHookAllowedEnvVars": ["CLAUDE_DASHBOARD_TOKEN"],
   "hooks": {
     "SessionStart": [
-      { "hooks": [ { "type": "http", "url": "http://127.0.0.1:52789/hook",
-        "headers": { "X-Dashboard-Token": "$CLAUDE_DASHBOARD_TOKEN" },
-        "allowedEnvVars": ["CLAUDE_DASHBOARD_TOKEN"] } ] }
-    ],
-    "UserPromptSubmit": [
-      { "hooks": [ { "type": "http", "url": "http://127.0.0.1:52789/hook",
-        "headers": { "X-Dashboard-Token": "$CLAUDE_DASHBOARD_TOKEN" },
-        "allowedEnvVars": ["CLAUDE_DASHBOARD_TOKEN"] } ] }
-    ],
-    "Notification": [
-      { "hooks": [ { "type": "http", "url": "http://127.0.0.1:52789/hook",
-        "headers": { "X-Dashboard-Token": "$CLAUDE_DASHBOARD_TOKEN" },
-        "allowedEnvVars": ["CLAUDE_DASHBOARD_TOKEN"] } ] }
-    ],
-    "Stop": [
-      { "hooks": [ { "type": "http", "url": "http://127.0.0.1:52789/hook",
-        "headers": { "X-Dashboard-Token": "$CLAUDE_DASHBOARD_TOKEN" },
-        "allowedEnvVars": ["CLAUDE_DASHBOARD_TOKEN"] } ] }
-    ],
-    "StopFailure": [
-      { "hooks": [ { "type": "http", "url": "http://127.0.0.1:52789/hook",
-        "headers": { "X-Dashboard-Token": "$CLAUDE_DASHBOARD_TOKEN" },
-        "allowedEnvVars": ["CLAUDE_DASHBOARD_TOKEN"] } ] }
-    ],
-    "SessionEnd": [
-      { "hooks": [ { "type": "http", "url": "http://127.0.0.1:52789/hook",
-        "headers": { "X-Dashboard-Token": "$CLAUDE_DASHBOARD_TOKEN" },
-        "allowedEnvVars": ["CLAUDE_DASHBOARD_TOKEN"] } ] }
+      { "hooks": [ { "type": "command",
+        "command": "C:\\Windows\\System32\\cmd.exe",
+        "args": ["/c", "C:\\Users\\<user>\\AppData\\Local\\ClaudeDashboard\\post-status.cmd"],
+        "async": true } ] }
     ]
   }
 }
 ```
 
-- The **`allowedHttpHookUrls`** allowlist is mandatory — Claude Code runs an HTTP hook only if its URL matches. The first-run setup writes it.
-- The token is interpolated from **`CLAUDE_DASHBOARD_TOKEN`**, which must be listed in both `allowedEnvVars` (per-handler) and `httpHookAllowedEnvVars` (global), and set in the user environment. It never appears literally in the committed file.
+One entry of that shape per accepted event, taken from `HookEventNames.Accepted`: `SessionStart`, `UserPromptSubmit`, `Notification`, `Stop`, `StopFailure`, `SessionEnd`, `CwdChanged`, `PostToolBatch`.
+
+- **The exec form — `command` plus `args` — so no shell runs.** On Windows the `shell` field defaults to `bash`, or to `powershell` when Git Bash is not installed, so it varies by machine and cannot be chosen by us; the two disagree about backslash paths and quoting. Both paths are absolute and resolved at install time, because nothing expands `%SystemRoot%` or `%LOCALAPPDATA%` in this form.
+- **`async: true`**, so the hook never delays a turn. **No `asyncRewake`**: it acts on an exit code, and the script exits 0 on every path by design.
+- **No allowlists and no `headers`.** A command hook inherits the whole environment, so `post-status.cmd` reads `CLAUDE_DASHBOARD_TOKEN` itself and sends `X-Dashboard-Token` only when it is set. `allowedHttpHookUrls`, `allowedEnvVars` and `httpHookAllowedEnvVars` are all unnecessary and none is written.
 - The dashboard verifies `X-Dashboard-Token` at `/hook` and drops mismatches (§3.4).
 
-### 9.3 Merge, don't clobber — and register for only as long as we are listening
+### 9.3 Merge, don't clobber — and install once rather than at every start
 
-Hook entries merge across settings scopes, but *within* `~/.claude/settings.json` the dashboard must **append** its handlers to the relevant arrays and add the two allowlists without overwriting the user's existing hooks. Parse, merge, write back — never replace the file wholesale.
+Hook entries merge across settings scopes, but *within* `~/.claude/settings.json` the dashboard must **append** its handler to the relevant arrays without overwriting the user's existing hooks. Parse, merge, write back — never replace the file wholesale.
 
-**Registration is a process lifecycle, not an install step.** The dashboard **adds** its handlers when it starts and **removes** them when it quits. A hook exists only while something is listening on the port it names.
+**Registration is an install step, not a process lifecycle** (issue #29, revising this section's own 2026-08-26 ruling). The dashboard writes the operator's settings **only** from the explicit switches `--install-hooks` and `--remove-hooks`. A running dashboard reads that file and never writes it.
 
-Why, and it is not tidiness. When no dashboard is listening, Claude Code shows the user a hook error on **every turn**. There is no per-hook suppression — only the global `disableAllHooks` — and the message names no cause beyond "a hook ran and threw an error", so it neither explains itself nor goes away. A crashed dashboard would therefore degrade Claude Code itself, which contradicts the pure-observer principle of §3.3 in spirit even though ingress obeys it to the letter. The dashboard's own failure must cost the user nothing but the dashboard.
+The lifecycle it replaces added handlers at start and removed them at quit, because a hook naming a dead port makes Claude Code print an error on every turn and there is no per-hook suppression. That closed the error and left two holes it could not close: **a Claude Code session already open keeps the settings it started with**, so it kept posting to a port nothing answered until it restarted; and **a dashboard that was killed left the handlers behind**. Both are structural to a design that edits the file at every start.
 
-The rules that follow from it:
+The command hook removes the question. `post-status.cmd` reads `listening.txt` and does nothing, silently, when no dashboard is bound — so one entry is correct whether the dashboard is running or not, and neither hole exists.
 
-- **Ours is identified by URL** — an `http` handler whose `url` is the dashboard's loopback hook URL. Never by an added marker key: the settings schema is not ours to extend, and an unknown key may be rejected by a future version. Removing a handler a user happened to add with the same URL is harmless, because the next start puts it back.
-- **The URL carries the port actually bound**, not the compiled-in default. The two differ whenever the operator overrides the port, and registering a URL nothing is listening on has the same symptom as registering nothing: no sessions appear.
-- **The two allowlists stay.** An `allowedHttpHookUrls` entry pointing at no hook does nothing and causes no error. Leaving them halves the writes to the file and removes a class of half-written state.
+The rules that follow:
+
+- **Ours is identified by the script path in `args`**, compared after `Path.GetFullPath`, ordinal-ignore-case. Never by an added marker key: the settings schema is not ours to extend, and an unknown key a future version rejects would leave handlers that can never be removed. The path does not move, which is what the URL did. *Accepted limit: an 8.3 short path does not match, and cannot arise from our own writing.*
+- **The two files are not one file.** `port.txt` records the port last bound and is an **input** — §3.1's first attempt, and how a second launch finds the running instance for `POST /show` (§5.3). `listening.txt` says a dashboard is bound **now**: written after a successful bind, overwritten at every start, deleted on a clean exit, and written temp-then-rename so the script cannot read half a number. Merging them breaks §3.1 and §5.3 in silence.
+- **Nothing is announced unless ingress is bound.** A port held by a stranger means no `listening.txt`, because hook payloads carry the operator's prompts.
 - **An array emptied by removal is deleted**, and so is `hooks` if it empties.
-- **Registration is idempotent.** Starting twice must not produce two handlers.
-- **Write atomically and back up first.** Every Claude Code session on the machine reads this file, and a half-written one is worse than a wrong one. The backup must be a plain copy at a stated path, restorable by hand with the dashboard uninstalled, deleted, or refusing to start — never a restore that depends on the thing that broke.
-- **Residual, stated plainly.** A hard kill leaves the handlers registered. The logon scheduled task of §10.1 shortens that window; it does not close it. While the port is closed the consequence is a loud error and no delay, because a closed loopback port resets at once. If some other process then takes the port and accepts without answering, the loud error becomes a silent timeout the operator cannot see — which is the case that most needs writing down, because it is the one they cannot detect.
+- **Installing is idempotent.** Running the switch twice produces one handler.
+- **Write atomically and back up first.** Every Claude Code session on the machine reads this file, and a half-written one is worse than a wrong one. The backup is a plain copy at a stated path, restorable by hand with the dashboard uninstalled, deleted, or refusing to start.
+- **`--remove-hooks` removes both shapes and prints every entry by name.** The command handler, the legacy `http://127.0.0.1:<port>/hook` handlers of the old design, and the matching `allowedHttpHookUrls` entries. Both rules match a *shape*, so an entry the operator wrote themselves can match — printing what left their file is the safeguard. `httpHookAllowedEnvVars` is left alone. **Nothing removes an `http` handler automatically.**
+- **The dashboard checks at start and says nothing else.** It reads the file, logs a warning when its handler is absent or partial, and names both the path it expects and any `post-status.cmd` installed under another data folder — `CLAUDE_DASHBOARD_HOME` makes that a real configuration. Without this, a hook removed by anything at all is undetectable: the dashboard receives nothing, which looks exactly like a quiet day.
+- **Residual, stated plainly.** A hard kill leaves `listening.txt` naming the last bound port. Until the next start the script posts there, and if something else has taken the port it receives the operator's prompts. Overwriting at every start is what bounds it. `TerminateProcess`, a CLR fast-fail and power loss reach none of the four withdrawal points; every exit the application initiates or observes reaches one.
 
 ---
 
@@ -450,8 +431,8 @@ Realizes the "logon tray app, not a service" decision (TS integration constraint
 - **Publish:** `dotnet publish -c Release -r win-x64 --self-contained` as a single-file exe. **Not MSIX** — its sandboxing fights writing the scheduled task and merging Claude Code's settings, both of which this tool must do.
 - **First-run setup** (the step that realizes everything above):
   1. Register the logon scheduled task (via `schtasks`, or `Microsoft.Win32.TaskScheduler` for a typed API).
-  2. Write `port.txt`; ensure `CLAUDE_DASHBOARD_TOKEN` exists (generate and set if absent). Set it at **User** scope, not process scope, or no Claude Code session will inherit it. Note that a terminal already open when it is set never sees it: those sessions have no token and their hooks are rejected until they restart.
-  3. Merging the hook config into `~/.claude/settings.json` is **not** a setup step. It moves to the process lifecycle of §9.3 — added at start, removed at quit. Setup and start must not both write those handlers by different routes.
+  2. Ensure `CLAUDE_DASHBOARD_TOKEN` exists (generate and set if absent). Set it at **User** scope, not process scope, or no Claude Code session will inherit it. A terminal already open when it is set never sees it: those sessions have no token and their hooks are rejected until they restart. **The generated token uses `[A-Za-z0-9_-]` only** — measured 2026-08-30: a token containing a double quote does not survive `cmd`'s argument quoting on its way into the `X-Dashboard-Token` header. An `&` does survive, so this is a fidelity limit rather than an injection, and it costs nothing to avoid.
+  3. Merge the hook configuration into `~/.claude/settings.json` **once**, by calling the same path `--install-hooks` calls (§9.3). It is an install step again, as it was before 2026-08-26 and for a better reason: the handler names a script rather than a port, so it does not need renewing. `port.txt` is written by the dashboard at every bind and is not a setup step.
 - A later **Settings UI** (Phase 6) re-runs/repairs the task and hook config, and edits thresholds and sounds.
 
 ---

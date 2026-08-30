@@ -1,7 +1,7 @@
 # Claude Code hook events — reference
 
 **Source:** <https://code.claude.com/docs/en/hooks> (canonical; `docs.claude.com/en/docs/claude-code/hooks` 301s here)
-**Transcribed:** 2026-08-24 · **Events documented: 31** · **Consumed by the dashboard: 8** — Part 1's seven plus `PostToolBatch` from Part 2, which was adopted for issue #2 and is registered by the code · **Command hook mechanics added 2026-08-30 (issue #29)**
+**Transcribed:** 2026-08-24 · **Events documented: 31** · **Consumed by the dashboard: 8** · **Command hook mechanics added 2026-08-30 (issue #29)**
 
 This document exists because "I don't know whether there is a hook for that" is not an acceptable answer in a project whose entire input surface *is* the hook contract. Everything below is transcribed from the source page on the date above, not recalled. **It is a snapshot: re-fetch and re-check before relying on it for a new integration.**
 
@@ -41,7 +41,7 @@ Field names are quoted exactly as documented. Where our own observations disagre
 
 # Part 1 — Events the dashboard consumes
 
-Seven of thirty-one. This is the whole integration surface.
+Eight of thirty-one. This is the whole integration surface.
 
 ### ✅ `SessionStart`
 
@@ -115,21 +115,21 @@ Seven of thirty-one. This is the whole integration surface.
 
 > **Dashboard:** re-derive the session's **Group**. Accepted by ingress; not currently registered as a hook in the operator's `settings.json`, so it has never fired in production.
 
----
-
-# Part 2 — Candidates that bear on open problems
-
-Not used today. Each one is here because it answers a question we are currently stuck on.
-
-### ⭐ `PostToolBatch` — the strongest candidate for issue #2
+### ✅ `PostToolBatch`
 
 **Fires:** after a full batch of parallel tool calls resolves, **before the next model call**.
 **Matchers:** none — always fires.
 **Documented fields:** `tool_calls` (array of results) · `batch_id`
 **Blocking:** **yes** — exit 2 stops the agentic loop before the next model call.
 
-> **Why it matters.** [Issue #2](https://github.com/dsopko/claude-dashboard/issues/2): a resolved permission never returns to **Working**, because nothing tells the dashboard a turn resumed. `PostToolBatch` is exactly that signal — *the agent is between model calls, therefore executing* — and it fires **once per batch rather than once per tool**, which answers the volume objection that made `PostToolUse` unattractive. It is a better fit than a permission-specific hook would be, because it also covers a resolved question and an error that recovers on retry.
-> Carries blocking power. Pure-observer discipline applies.
+> **Dashboard:** the turn is running, so the session returns to **Working**. This is the signal [issue #2](https://github.com/dsopko/claude-dashboard/issues/2) needed — *the agent is between model calls, therefore executing* — and it fires **once per batch rather than once per tool**, which answered the volume objection that made `PostToolUse` unattractive. It covers a resolved permission, a resolved question and an error that recovers on retry, which a permission-specific hook would not.
+> **It carries blocking power and we never use it.** Ingress answers `200` with an empty body and the command hook exits 0 on every path, so nothing here can stop a turn (Impl §3.3).
+
+---
+
+# Part 2 — Candidates that bear on open problems
+
+Not used today. Each one is here because it answers a question we are currently stuck on.
 
 ### ⭐ `PostToolUse`
 
