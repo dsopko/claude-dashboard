@@ -1065,9 +1065,21 @@ session itself reported. A typed name would make "exact" something else, and the
 a name that looks right, matches nothing, and reports no error anywhere.
 
 So the operator ticks rows, and the only text input in the whole window is the **roster's** own
-label, which is compared against nothing. `RosterUiGuardTests` asserts the exact set of text
+label, which is compared against nothing.
+
+**Two nets, and the second is the stronger one.** `RosterUiGuardTests` asserts the exact set of text
 bindings in the markup rather than merely omitting one, because a convenience added later would
-otherwise be a one-line change with no test to argue with.
+otherwise be a one-line change with no test to argue with — and it now *enumerates* the application's
+markup files rather than naming them, so a panel in a new `.xaml` cannot arrive unscanned. But
+`MainWindowTests.Selection_mode_and_the_prompt_render_without_binding_errors` counts the `TextBox`
+controls in the realized visual tree, **in the state with the most inputs there is** — selection mode
+on, prompt open — and finds exactly one. That is a runtime count over the whole window, so it would
+catch a box added in code-behind or in a file no scan opened.
+
+What neither reaches is a panel that opens from a menu: the scan would see it only if it were markup
+under the app, and the runtime count never realizes that state. The measured position today is three
+markup files, one `TextBox`, no editable `ComboBox`, no `RichTextBox` or `PasswordBox`, and no
+code-behind text binding.
 
 ### Selection is a mode, and the motion rule decided that
 
@@ -1170,7 +1182,20 @@ Three plants, each verified present by md5 **and verified back**:
 |---|---|
 | Removal never reaches the store | **fails** — 4 tests, incl. `Removal_takes_the_name_out_of_the_roster` |
 | Accepting the prompt persists nothing | **fails** — `Remembering_writes_the_roster`, `The_roster_can_be_renamed_in_the_prompt` |
-| The heading falls back to a directory label | **fails** — 6 tests, incl. `Ticking_two_rows_forms_a_group_at_once` |
+| The heading falls back to a directory label | **fails** — 5 tests, incl. `Ticking_two_rows_forms_a_group_at_once` |
+
+**The first version of this table said 6, and the number was the problem rather than the guard.**
+The count was honest about the run; the plant was not honest about what it tested. Disabling the
+roster branch by rewriting its condition to `Kind == GroupKeyKind.Session` also *redirected the
+session-kind case into it*, so a sixth test —
+`MainViewModelTests.A_group_for_a_session_with_no_workspace_shows_no_path` — died of a second,
+unintended mutation that happened to travel with the first. Re-planted as
+`Kind == GroupKeyKind.Unknown`, which disables the roster branch and touches nothing else, it kills
+**5** — the same five, every time.
+
+**A plant that produces the wrong count is more often the wrong plant than a wrong guard.** This is
+the `head -8` family arriving from the other direction: not a truncated instrument, but one
+measuring two things at once and reporting both under one name.
 
 A fourth attempt — disabling the heading branch with `if (false)` — **did not compile**, because
 unreachable code is an error here. That is T1.22's trap and the rule held: no result was read from a

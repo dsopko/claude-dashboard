@@ -74,10 +74,46 @@ public sealed class RosterUiGuardTests
         Assert.Contains("settingsStore.Save(current with { Window =", program, StringComparison.Ordinal);
     }
 
-    private static IEnumerable<string> Markup() =>
-        new[] { "RowTemplates.xaml", "MainWindow.xaml" }
-            .Select(name => File.ReadAllText(
-                Path.Combine(RepoLayout.Root.FullName, "src", "ClaudeDashboard.App", "Ui", name)));
+    /// <summary>Every markup file in the application, found rather than named.</summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>Enumerated, because the breach this guard exists to argue with is a NEW file.</strong>
+    /// A hard-coded list closes the files that exist today and lets a roster-editing panel in
+    /// <c>Ui/RosterPanel.xaml</c> straight past — which is exactly the "one-line change with no test
+    /// to argue with" this test was written to prevent, arriving as a one-line change to the test.
+    /// The whole project rather than <c>Ui/</c>, so <c>App.xaml</c> is covered too.
+    /// </para>
+    /// <para>
+    /// Build output is excluded, or every file would be counted again from <c>obj</c> and the
+    /// assertion would be about copies.
+    /// </para>
+    /// </remarks>
+    private static IReadOnlyList<string> Markup()
+    {
+        var app = Path.Combine(RepoLayout.Root.FullName, "src", "ClaudeDashboard.App");
+
+        var files = Directory
+            .EnumerateFiles(app, "*.xaml", SearchOption.AllDirectories)
+            .Where(path => !IsBuildOutput(path))
+            .OrderBy(path => path, StringComparer.Ordinal)
+            .ToList();
+
+        // An enumeration that found nothing would make the whole guard vacuous, and would look like
+        // a clean pass rather than a broken one.
+        Assert.True(files.Count >= 3, $"Only {files.Count} markup file(s) found under {app}.");
+
+        return [.. files.Select(File.ReadAllText)];
+    }
+
+    /// <summary>Whether a path runs through a build-output folder.</summary>
+    /// <remarks>
+    /// Without this every markup file is counted again from <c>obj</c>, and the assertion becomes
+    /// one about copies rather than one about the application.
+    /// </remarks>
+    private static bool IsBuildOutput(string path) =>
+        path.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            .Any(part => string.Equals(part, "bin", StringComparison.Ordinal)
+                || string.Equals(part, "obj", StringComparison.Ordinal));
 
     /// <summary>The property every <c>TextBox</c> in the markup binds its text to.</summary>
     private static IEnumerable<string> TextBoxBindings(string xaml)

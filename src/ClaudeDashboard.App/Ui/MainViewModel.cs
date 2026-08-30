@@ -110,8 +110,16 @@ public sealed partial class MainViewModel : ObservableObject, IUiTickTarget, IDi
     /// Where an accepted roster is written so it survives a restart. <strong>Required, not
     /// defaulted.</strong> It is a registered service, and an optional parameter that resolves to
     /// nothing would leave every accepted roster silently unremembered — a feature that works
-    /// perfectly until the operator restarts. That is the failure ServiceCompositionTests exists to
-    /// refuse.
+    /// perfectly until the operator restarts.
+    /// <para>
+    /// <strong>What actually protects it, measured rather than assumed:</strong> removing the
+    /// registration fails <c>AppHostTests</c> twice and <c>PhaseOneAcceptanceTests</c> twice,
+    /// because a required parameter makes the container throw when the service is missing.
+    /// <c>ServiceCompositionTests</c> is <em>not</em> among them — it refuses an <em>optional</em>
+    /// parameter that is also registered, which is the shape this deliberately is not. Knowing which
+    /// test protects what is the point of the exercise, and the first version of this remark named
+    /// the wrong one from memory.
+    /// </para>
     /// </param>
     /// <param name="clipboard">
     /// Where a row sends the session id when it is clicked (issue #15). Required for the same

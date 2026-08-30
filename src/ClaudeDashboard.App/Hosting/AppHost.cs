@@ -155,14 +155,15 @@ public static class AppHost
         builder.Services.AddSingleton<SingleWriterGuard>();
         builder.Services.AddSingleton<EventPipeline>();
         builder.Services.AddSingleton<IEventSink>(sp => sp.GetRequiredService<EventPipeline>().Sink);
-        // Built through the container rather than beside the settings, because RosterStore now
-        // announces every change on the pipeline and so needs the sink — which only exists once
-        // EventPipeline is registered. The initial load is itself a change, and announcing it costs
-        // one wake-up the consumer would have taken on its first tick anyway.
-        builder.Services.AddSingleton(sp =>
-        {
-            return new RosterStore(sp.GetRequiredService<IEventSink>(), book);
-        });
+        // Built through the container rather than beside the settings, because RosterStore announces
+        // every change on the pipeline and so needs the sink — which only exists once EventPipeline
+        // is registered.
+        //
+        // THE LOADED BOOK GOES TO THE CONSTRUCTOR, SO LOADING THE FILE ANNOUNCES NOTHING. Replace is
+        // the only mutator and can therefore announce unconditionally; reading a file at startup is
+        // not a change to a running system, and an announcement here would put an event at the head
+        // of the pipeline before the consumer has started.
+        builder.Services.AddSingleton(sp => new RosterStore(sp.GetRequiredService<IEventSink>(), book));
         builder.Services.AddSingleton<SessionRegistry>();
         builder.Services.AddSingleton<SoundCatalog>();
         builder.Services.AddSingleton<ISoundPlayer, NAudioSoundPlayer>();
