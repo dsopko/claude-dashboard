@@ -22,25 +22,59 @@
       Not the tray glyph. Ui/TrayIcons.cs draws a status light that changes colour; this is a
       fixed mark. They are separate on purpose and share nothing.
 
-      Regenerable from docs/Claude Dashboard Icon-selection.png, the operator's own sheet. It is
-      drawn at 2x throughout, so every step below is a reduction and none is an upscale:
+      REGENERABLE FROM docs/Claude Dashboard Icon-selection.png, the operator's own sheet, which
+      is drawn at 2x throughout — so every step here is a reduction and none is an upscale. Each
+      line is one command:
 
-        magick "docs\Claude Dashboard Icon-selection.png" -crop 512x512+58+54 +repage app-512.png
-        magick app-512.png -alpha set -fuzz 5% -fill none
-          -draw "alpha 0,0 floodfill"   -draw "alpha 511,0 floodfill"
-          -draw "alpha 0,511 floodfill" -draw "alpha 511,511 floodfill" app-512-rounded.png
-        magick app-512-rounded.png -resize 256x256 app-256.png
-        magick app-256.png -define icon:auto-resize=256,48,32,16 Assets\app.ico
+        magick "docs\Claude Dashboard Icon-selection.png" -crop 512x512+58+54 +repage raw512.png
+        magick raw512.png -alpha set -fuzz 5% -fill none -draw "alpha 0,0 floodfill" -draw "alpha 511,0 floodfill" -draw "alpha 0,511 floodfill" -draw "alpha 511,511 floodfill" base512.png
+        magick base512.png -crop 293x321+93+81 +repage g-src.png
+        magick g-src.png -colorspace Gray -level 7%,52% g-mask.png
+        magick g-src.png g-mask.png -alpha off -compose CopyOpacity -composite g-cut.png
+        magick base512.png -fill "rgb(20,19,15)" -draw "rectangle 93,81 385,401" tile-clean.png
+        magick g-cut.png -resize 381x417! g-130.png
+        magick tile-clean.png g-130.png -geometry +49+33 -compose over -composite art512.png
+        magick art512.png -filter Mitchell -resize 256x256 f256.png
+        magick art512.png -filter Mitchell -resize 48x48 -sigmoidal-contrast 3x40% f48.png
+        magick art512.png -filter Mitchell -resize 32x32 -sigmoidal-contrast 4x40% f32.png
+        magick art512.png -filter Mitchell -resize 16x16 -sigmoidal-contrast 4x40% f16.png
+        magick f256.png f48.png f32.png f16.png -type TrueColorAlpha Assets\app.ico
 
-      The crop is the 256 tile, verified on the sheet: the outline spans x 58..569 and y 54..565,
-      512 px each way.
+      Every number above is measured, and none of them is free to change on its own.
 
-      The fuzz is 5% because the tile interior and the sheet background are the same colour,
+      THE CROP is the 256 tile: the outline spans x 58..569 and y 54..565 on the sheet, 512 px
+      each way.
+
+      THE FUZZ is 5% because the tile interior and the sheet background are the same colour,
       #14130F, and only the gold outline separates them. The floodfill therefore follows the
       drawn curve and no corner radius has to be guessed. At 10% it crosses the outline's
       antialiasing and hollows the icon out, leaving a gold ring around nothing: 7,268
-      transparent pixels at 5%, 239,635 at 10%. Both numbers are measured. 5% is half the
-      distance to that edge and still clears the dark fringe outside the curve.
+      transparent pixels at 5%, 239,635 at 10%. 5% is half the distance to that edge.
+
+      THE GLYPH IS ENLARGED TO 130%. As drawn it occupies 253x281 at (113, 101), which is 49% of
+      the tile width where a glyph normally fills 65-80%; at 16 px a stroke that thin averages
+      into the dark tile whatever filter reduces it. 130% takes it to 64%. The scale is about the
+      glyph's own centre (239.5, 241.5) and NOT the tile's: the design runs the crescent left and
+      sets the dot right of middle, so recentring the bounding box would move the dot and change
+      the operator's composition. 293x321+93+81 is the glyph box plus a 20 px margin; 381x417 is
+      that at 130%; +49+33 puts it back on the centre it came from. The -level 7%,52% turns
+      luminance into a soft alpha — tile ~19, gold ~135 — so the glyph lifts out with its
+      antialiasing rather than with a hard fringe, and the paint-out rectangle stays far from the
+      outline so the rounded edge survives untouched.
+
+      MITCHELL WITH SIGMOIDAL CONTRAST, NOT LANCZOS WITH UNSHARP. Unsharp rings, and at 16 px the
+      halo reads as noise rather than as a letter. Sigmoidal lifts the gold's luminance without
+      it. Each size is reduced separately so it can carry its own amount.
+
+      -type TrueColorAlpha IS LOAD-BEARING, AND THIS IS THE LINE TO READ BEFORE REGENERATING.
+      Packing four PNGs without it writes the 48, 32 and 16 frames as 8-bit palettised images
+      with a 1-bit transparency mask. Partial alpha cannot survive that: the 16 px corner, which
+      is legitimately about 12% opaque because one pixel there covers a 32x32 block of the art
+      and catches a sliver of tile, flattens to fully opaque and the rounded corner squares off
+      at exactly the size where the corner is one pixel of shape. Nothing reports it. PROBE THE
+      PACKED FILE, NOT THE INTERMEDIATE PNGs — every intermediate here is correct either way.
+      Expected after packing: alpha 0 at the corners of 256, 48 and 32, and 0.1176 at 16, which
+      must be neither 0 nor 1.
     -->
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
 
