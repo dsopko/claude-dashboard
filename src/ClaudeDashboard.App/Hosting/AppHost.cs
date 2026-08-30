@@ -139,7 +139,8 @@ public static class AppHost
         builder.Services.AddSingleton<ClaudeCodePaths>();
         builder.Services.AddSingleton<IVirtualDesktopService, VirtualDesktopService>();
         builder.Services.AddSingleton<WindowPresence>();
-        builder.Services.AddSingleton<HookLifecycle>();
+        builder.Services.AddSingleton<HookInstaller>();
+        builder.Services.AddSingleton<IngressAnnouncement>();
         builder.Services.AddSingleton(settingsStore);
         builder.Services.AddSingleton(loaded.Settings);
         builder.Services.AddSingleton<ILogger>(logger);

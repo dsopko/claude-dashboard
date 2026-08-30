@@ -1,12 +1,32 @@
+using System.IO;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using ClaudeDashboard.App.Ingress;
 
 namespace ClaudeDashboard.App.Setup;
 
+/// <summary>What one removal took out of the settings file, by name.</summary>
+/// <remarks>
+/// <strong>By name rather than by count, and that is a requirement rather than a nicety.</strong>
+/// Both removal rules match on a <em>shape</em> — a script path, or a loopback URL ending
+/// <c>/hook</c> — so an entry the operator wrote themselves can match. Printing exactly what left
+/// their file is the whole safeguard against that, and a number cannot do it.
+/// </remarks>
+public sealed record HookRemoval(
+    IReadOnlyList<string> ScriptPaths,
+    IReadOnlyList<string> Urls,
+    IReadOnlyList<string> AllowListUrls)
+{
+    /// <summary>Nothing of ours was there.</summary>
+    public static HookRemoval None { get; } = new([], [], []);
+
+    /// <summary>How many entries were taken out altogether.</summary>
+    public int Total => ScriptPaths.Count + Urls.Count + AllowListUrls.Count;
+}
+
 /// <summary>
-/// Merges the dashboard's hook handlers into Claude Code's settings, and takes them out again
-/// (Impl §9.2, §9.3).
+/// Merges the dashboard's hook handler into Claude Code's settings, and takes it out again
+/// (Impl §9.2, §9.3; issue #29).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -16,16 +36,37 @@ namespace ClaudeDashboard.App.Setup;
 /// and holds settings they spent time on.
 /// </para>
 /// <para>
-/// <strong>Ours are identified by URL and by nothing else.</strong> An <c>http</c> handler whose
-/// <c>url</c> is the dashboard's loopback hook URL is ours. Not a marker key: the settings schema
-/// is not this project's to extend, and a key a future version rejects would leave handlers that
-/// can never be removed. Removing one an operator happened to add with the same URL is harmless —
-/// the next start puts it back.
+/// <strong>ONE COMMAND HANDLER, NOT EIGHT HTTP ONES (issue #29).</strong> An <c>http</c> handler
+/// names a port, so it is only correct while something is answering that port — which is why the
+/// handlers used to be added at start and removed at quit, and why a dashboard that was killed
+/// left Claude Code printing an error on every turn in every session. A command handler names a
+/// script instead. The script is what discovers whether a dashboard is listening, so the handler
+/// is right whether one is or not, and it can be installed once and left alone.
 /// </para>
 /// <para>
-/// <strong>Registration is add-after-remove, which is what makes it idempotent.</strong> Starting
-/// twice cannot produce two handlers, and a handler left over from an older build — a different
-/// shape, a missing header — is replaced rather than duplicated, because it matches by URL.
+/// <strong>The exec form, and it is not a preference.</strong> <c>command</c> plus <c>args</c>
+/// spawns the executable directly with no shell. The alternative — a single <c>command</c> string
+/// — runs under the hook's <c>shell</c> field, which on Windows defaults to <c>bash</c>, or to
+/// <c>powershell</c> when Git Bash is not installed. The shell therefore varies by machine and
+/// cannot be chosen by us, and bash and PowerShell disagree about backslash paths and quoting. The
+/// same settings block would behave differently on two operators' machines.
+/// </para>
+/// <para>
+/// <strong>Both paths are absolute and are resolved by the caller.</strong> With no shell, nothing
+/// expands <c>%SystemRoot%</c> or <c>%LOCALAPPDATA%</c> in <c>command</c> or <c>args</c>. Inside
+/// the <c>.cmd</c> file expansion works normally, because that <em>is</em> a shell.
+/// </para>
+/// <para>
+/// <strong>Ours is identified by the script path and by nothing else.</strong> Not by a marker
+/// key: the settings schema is not this project's to extend, and a key a future version rejects
+/// would leave handlers that can never be removed. The identity used to be the URL, which moved
+/// with the port; the script path does not move, which is the second thing issue #29 buys.
+/// </para>
+/// <para>
+/// <strong>Registration is add-after-remove, which is what makes it idempotent.</strong>
+/// Installing twice cannot produce two handlers, and a handler written by an older build — a
+/// different shape, a missing field — is replaced rather than sat beside, because it matches by
+/// path.
 /// </para>
 /// <para>
 /// <strong>The events registered are exactly the events ingress accepts.</strong> They come from
@@ -35,22 +76,50 @@ namespace ClaudeDashboard.App.Setup;
 /// literals over in <see cref="HookEventNames"/>, which is right — Claude Code owns those, not
 /// this code.
 /// </para>
+/// <para>
+/// <strong>Nothing here writes an allowlist any more.</strong> A command hook inherits the whole
+/// environment, so the token needs neither <c>allowedEnvVars</c> nor <c>httpHookAllowedEnvVars</c>,
+/// and <c>allowedHttpHookUrls</c> does not apply to a command hook at all. The keys survive as
+/// constants because <see cref="RemoveLegacyHttp"/> still has to find them.
+/// </para>
 /// </remarks>
 public static class HookRegistration
 {
     /// <summary>The settings key holding the per-event hook configuration.</summary>
     public const string HooksKey = "hooks";
 
-    /// <summary>The allowlist of URLs Claude Code will post to. Without it, no http hook runs.</summary>
+    /// <summary>The allowlist of URLs Claude Code will post to. Read only to clean it out.</summary>
     public const string UrlAllowListKey = "allowedHttpHookUrls";
 
     /// <summary>The global allowlist of environment variables that may be interpolated.</summary>
+    /// <remarks>
+    /// <strong>Deliberately never written and never removed.</strong> A command hook does not need
+    /// it, so nothing puts it there; and an entry naming <c>CLAUDE_DASHBOARD_TOKEN</c> may be
+    /// serving something of the operator's, so nothing takes it away either.
+    /// </remarks>
     public const string EnvVarAllowListKey = "httpHookAllowedEnvVars";
+
+    /// <summary>The name of the script, used to recognise a handler that is nearly ours.</summary>
+    /// <remarks>
+    /// Diagnosis only — see <see cref="ForeignScriptPaths"/>. Nothing is ever removed on the
+    /// strength of a file name.
+    /// </remarks>
+    public const string ScriptFileName = "post-status.cmd";
 
     private const string HandlerListKey = "hooks";
     private const string TypeKey = "type";
     private const string UrlKey = "url";
+    private const string CommandKey = "command";
+    private const string ArgsKey = "args";
+    private const string AsyncKey = "async";
     private const string HttpType = "http";
+    private const string CommandType = "command";
+
+    /// <summary>What a loopback hook URL starts with, whichever port it names.</summary>
+    private const string LoopbackHookPrefix = "http://127.0.0.1:";
+
+    /// <summary>…and what it ends with.</summary>
+    private const string LoopbackHookSuffix = "/hook";
 
     private static readonly JsonDocumentOptions ReadOptions = new()
     {
@@ -62,12 +131,36 @@ public static class HookRegistration
 
     /// <summary>Parses settings text into a mutable tree.</summary>
     /// <remarks>
+    /// <para>
     /// Comments and trailing commas are tolerated because this is a hand-editable file and people
     /// write both. Note that they are <em>not</em> preserved on the way out: a merge rewrites the
     /// file, and <see cref="JsonNode"/> carries no comment. That is a real cost of touching the
     /// file at all, and it is why the backup exists.
+    /// </para>
+    /// <para>
+    /// <strong>EVERY FAILURE IS A <see cref="JsonException"/>, INCLUDING THE ONE THAT ARRIVES
+    /// LATE.</strong> A duplicate key — <c>"Stop"</c> twice in one object, which is legal JSON and
+    /// happens when somebody merges two blocks by hand — does not fail here on its own.
+    /// <see cref="JsonNode"/> builds its dictionary lazily, so the throw is an
+    /// <see cref="ArgumentException"/> from the first indexer that touches the offending object,
+    /// arbitrarily far from any parse. Measured, not assumed.
+    /// </para>
+    /// <para>
+    /// That mattered enough to fix here rather than at the call sites. Every caller already catches
+    /// <see cref="JsonException"/> and none of them catches <see cref="ArgumentException"/>, so the
+    /// throw escaped — and since issue #29 put a settings read on the startup path, one duplicate
+    /// key in the operator's file would have stopped the dashboard starting. It would have
+    /// presented as the application being gone.
+    /// </para>
+    /// <para>
+    /// So the tree is materialised here, where the outcome is still "this file cannot be read" and
+    /// the file is still untouched. <strong>Refusing is right and repairing would not be:</strong>
+    /// keeping the last of two duplicates would write the operator's file back with one of their
+    /// keys silently dropped, which is the same objection that makes a malformed file throw rather
+    /// than default.
+    /// </para>
     /// </remarks>
-    /// <exception cref="JsonException">The text is not valid JSON.</exception>
+    /// <exception cref="JsonException">The text is not valid JSON, or cannot be made into settings.</exception>
     public static JsonObject Parse(string json)
     {
         ArgumentNullException.ThrowIfNull(json);
@@ -78,8 +171,48 @@ public static class HookRegistration
             return [];
         }
 
-        return JsonNode.Parse(json, documentOptions: ReadOptions) as JsonObject
+        var settings = JsonNode.Parse(json, documentOptions: ReadOptions) as JsonObject
             ?? throw new JsonException("Claude Code's settings file did not contain a JSON object.");
+
+        try
+        {
+            Materialize(settings);
+        }
+        catch (ArgumentException ex)
+        {
+            throw new JsonException(
+                $"Claude Code's settings file cannot be read as settings: {ex.Message}", ex);
+        }
+
+        return settings;
+    }
+
+    /// <summary>Touches every object in the tree, so a lazy failure happens now rather than later.</summary>
+    /// <remarks>
+    /// Enumerating a <see cref="JsonObject"/> is what builds its dictionary, and the dictionary is
+    /// what rejects a duplicate key. Arrays are walked because the duplicate may be inside one — a
+    /// hook group is an object inside an array inside an object.
+    /// </remarks>
+    private static void Materialize(JsonNode? node)
+    {
+        switch (node)
+        {
+            case JsonObject o:
+                foreach (var pair in o)
+                {
+                    Materialize(pair.Value);
+                }
+
+                break;
+
+            case JsonArray a:
+                foreach (var item in a)
+                {
+                    Materialize(item);
+                }
+
+                break;
+        }
     }
 
     /// <summary>Renders a settings tree back to text.</summary>
@@ -91,23 +224,22 @@ public static class HookRegistration
     }
 
     /// <summary>
-    /// Adds the dashboard's handlers for every accepted event, replacing any already present.
+    /// Adds the dashboard's command handler to every accepted event, replacing any already there.
     /// </summary>
     /// <param name="settings">The parsed settings; modified in place.</param>
-    /// <param name="hookUrl">The dashboard's hook URL, carrying the <strong>bound</strong> port.</param>
-    /// <param name="tokenVariable">
-    /// The environment variable holding the ingress token, or null to register handlers that send
-    /// no token. Null is the honest choice when no token is configured: a header interpolating an
-    /// unset variable is sent empty, which ingress would then have to treat as absent anyway.
-    /// </param>
-    public static void Register(JsonObject settings, string hookUrl, string? tokenVariable)
+    /// <param name="interpreter">The absolute path to <c>cmd.exe</c>.</param>
+    /// <param name="scriptPath">The absolute path to <c>post-status.cmd</c>.</param>
+    /// <returns>How many events now carry the handler.</returns>
+    /// <exception cref="ArgumentException">Either path is null, empty, or whitespace.</exception>
+    public static int Register(JsonObject settings, string interpreter, string scriptPath)
     {
         ArgumentNullException.ThrowIfNull(settings);
-        ArgumentException.ThrowIfNullOrWhiteSpace(hookUrl);
+        ArgumentException.ThrowIfNullOrWhiteSpace(interpreter);
+        ArgumentException.ThrowIfNullOrWhiteSpace(scriptPath);
 
-        // Remove first. This is the whole of what makes registering twice a no-op, and it also
+        // Remove first. This is the whole of what makes installing twice a no-op, and it also
         // upgrades a handler written by an older build rather than sitting beside it.
-        Unregister(settings, hookUrl);
+        Unregister(settings, scriptPath);
 
         var hooks = settings[HooksKey] as JsonObject;
 
@@ -116,6 +248,8 @@ public static class HookRegistration
             hooks = [];
             settings[HooksKey] = hooks;
         }
+
+        var registered = 0;
 
         foreach (var eventName in HookEventNames.Accepted.OrderBy(name => name, StringComparer.Ordinal))
         {
@@ -129,55 +263,297 @@ public static class HookRegistration
             // sharing one would make our handler inherit a filter we did not choose.
             groups.Add(new JsonObject
             {
-                [HandlerListKey] = new JsonArray(Handler(hookUrl, tokenVariable)),
+                [HandlerListKey] = new JsonArray(Handler(interpreter, scriptPath)),
             });
+
+            registered++;
         }
 
-        AddToAllowList(settings, UrlAllowListKey, hookUrl);
+        return registered;
+    }
 
-        if (tokenVariable is not null)
-        {
-            AddToAllowList(settings, EnvVarAllowListKey, tokenVariable);
-        }
+    /// <summary>Removes every command handler that runs <paramref name="scriptPath"/>.</summary>
+    /// <remarks>
+    /// Returns the path each removed handler named, so a caller can report what left the operator's
+    /// file rather than how much of it did.
+    /// </remarks>
+    /// <exception cref="ArgumentException"><paramref name="scriptPath"/> is null, empty, or whitespace.</exception>
+    public static IReadOnlyList<string> Unregister(JsonObject settings, string scriptPath)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        ArgumentException.ThrowIfNullOrWhiteSpace(scriptPath);
+
+        var ours = Normalize(scriptPath);
+        var removed = new List<string>();
+
+        RemoveHandlers(
+            settings,
+            handler => ScriptPathOf(handler) is { } path && PathsMatch(path, ours),
+            handler => removed.Add(ScriptPathOf(handler)!));
+
+        return removed;
     }
 
     /// <summary>
-    /// Removes every handler pointing at <paramref name="hookUrl"/>, and any container left empty.
+    /// Removes the <em>legacy</em> HTTP handlers of the pre-issue-#29 design, and the
+    /// <c>allowedHttpHookUrls</c> entries that went with them.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <strong>The allowlists deliberately stay, and not for the reason first written here.</strong>
-    /// It said leaving them halved the writes; that was simply untrue — removing the URL would
-    /// happen inside the same <c>Modify</c> call that removes the handlers, so it is one write
-    /// either way, with one more field changed. The real reason is smaller and honest: an entry
-    /// pointing at no hook is inert, and a removal path that touches fewer things has fewer ways
-    /// to be wrong on the way out of a process that is already stopping.
+    /// <strong>LEGACY. Nothing in the running dashboard reaches this.</strong> It exists so that
+    /// <c>--remove-hooks</c> is a complete migration tool: an operator upgrading from a build that
+    /// registered HTTP handlers runs <c>--remove-hooks</c> and then <c>--install-hooks</c>, and is
+    /// done. Removing an <c>http</c> handler must never be automatic — the old design added and
+    /// removed them at every start and quit, and a new build doing either on its own would be
+    /// indistinguishable from that.
     /// </para>
     /// <para>
-    /// <strong>The cost is real and is not hypothetical.</strong> Entries accumulate, one per
-    /// distinct URL ever registered, and nothing ever removes them — so an operator who changes
-    /// port, or runs a build on a scratch port, is left with a line in their settings that only a
-    /// human will clear. That happened on this feature's first live use: a scratch port from
-    /// testing is in the operator's file now. If that becomes annoying rather than merely untidy,
-    /// the fix is to remove our URL here too, and the only thing that argues against it is the
-    /// paragraph above.
+    /// <strong>Matched by URL shape, which is the rule the old <c>IsOurs</c> used.</strong> Any
+    /// <c>http</c> handler posting to <c>http://127.0.0.1:&lt;digits&gt;/hook</c>. Every port, not
+    /// only the current one: the port derivation of Impl §3.1 moves, so a machine can carry
+    /// entries for several. An operator's own handler at that address would match, which is
+    /// precisely why every removal is printed by name.
     /// </para>
     /// <para>
-    /// Returns the number of handlers taken out, so a caller can tell "nothing of ours was there"
-    /// from "we removed some" without re-reading the file.
+    /// <strong>The URL allowlist goes with them and the two variable allowlists do not.</strong>
+    /// Impl §9.3 ruled that allowlists stay, and that ruling was about a URL still in use. After
+    /// issue #29 no loopback hook URL is ours or anyone's, so an entry for one is dead. A variable
+    /// name is different: <c>CLAUDE_DASHBOARD_TOKEN</c> in <c>httpHookAllowedEnvVars</c> costs
+    /// nothing and may be serving something the operator set up.
     /// </para>
     /// </remarks>
-    public static int Unregister(JsonObject settings, string hookUrl)
+    public static HookRemoval RemoveLegacyHttp(JsonObject settings)
     {
         ArgumentNullException.ThrowIfNull(settings);
-        ArgumentException.ThrowIfNullOrWhiteSpace(hookUrl);
 
-        if (settings[HooksKey] is not JsonObject hooks)
+        var urls = new List<string>();
+
+        RemoveHandlers(
+            settings,
+            handler => handler[TypeKey]?.GetValue<string>() == HttpType
+                && IsLoopbackHookUrl(Text(handler[UrlKey])),
+            handler => urls.Add(Text(handler[UrlKey])!));
+
+        var allowList = new List<string>();
+
+        if (settings[UrlAllowListKey] is JsonArray list)
         {
-            return 0;
+            for (var i = list.Count - 1; i >= 0; i--)
+            {
+                if (Text(list[i]) is { } entry && IsLoopbackHookUrl(entry))
+                {
+                    allowList.Add(entry);
+                    list.RemoveAt(i);
+                }
+            }
+
+            if (list.Count == 0)
+            {
+                settings.Remove(UrlAllowListKey);
+            }
         }
 
-        var removed = 0;
+        allowList.Reverse();
+
+        return new HookRemoval([], urls, allowList);
+    }
+
+    /// <summary>How many events carry our handler for <paramref name="scriptPath"/>.</summary>
+    /// <remarks>
+    /// The start check of issue #29 reads this and warns when it is not
+    /// <see cref="HookEventNames.Accepted"/>'s size. Partial is worth naming separately from
+    /// absent: it means somebody edited the file, rather than that nothing was ever installed.
+    /// </remarks>
+    /// <exception cref="ArgumentException"><paramref name="scriptPath"/> is null, empty, or whitespace.</exception>
+    public static int CountInstalled(JsonObject settings, string scriptPath)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        ArgumentException.ThrowIfNullOrWhiteSpace(scriptPath);
+
+        var ours = Normalize(scriptPath);
+
+        return EventGroups(settings)
+            .Count(handlers => handlers
+                .Any(handler => ScriptPathOf(handler) is { } path && PathsMatch(path, ours)));
+    }
+
+    /// <summary>
+    /// Script paths that look like ours but are not — a hook installed under a different data
+    /// folder.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>Diagnosis only, and it is what makes the start warning explain itself.</strong>
+    /// <c>CLAUDE_DASHBOARD_HOME</c> moves the data folder, so a hook installed under one root and
+    /// a dashboard started under another is a real configuration and not a corruption. A warning
+    /// that named only the path this process expected would leave the operator looking for a
+    /// missing entry that is in fact right there, spelled differently.
+    /// </para>
+    /// <para>
+    /// Matched on the file name, which is a weaker rule than the identity rule and is deliberately
+    /// confined to this method. <strong>Nothing is ever removed on the strength of it.</strong>
+    /// </para>
+    /// </remarks>
+    /// <exception cref="ArgumentException"><paramref name="scriptPath"/> is null, empty, or whitespace.</exception>
+    public static IReadOnlyList<string> ForeignScriptPaths(JsonObject settings, string scriptPath)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        ArgumentException.ThrowIfNullOrWhiteSpace(scriptPath);
+
+        var ours = Normalize(scriptPath);
+
+        return
+        [
+            .. EventGroups(settings)
+                .SelectMany(handlers => handlers)
+                .Select(ScriptPathOf)
+                .Where(path => path is not null && !PathsMatch(path, ours))
+                .Select(path => path!)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Order(StringComparer.OrdinalIgnoreCase),
+        ];
+    }
+
+    /// <summary>Builds one handler, in the exec form.</summary>
+    /// <remarks>
+    /// <para>
+    /// <c>async</c> is <see langword="true"/> so the script runs in the background and never delays
+    /// a turn. <c>asyncRewake</c> is deliberately absent: it exists to act on a hook's exit code,
+    /// and this hook's exit code is always zero by design.
+    /// </para>
+    /// <para>
+    /// No <c>headers</c> and no <c>allowedEnvVars</c>. A command hook inherits the whole
+    /// environment, so the script reads <c>CLAUDE_DASHBOARD_TOKEN</c> for itself.
+    /// </para>
+    /// </remarks>
+    private static JsonObject Handler(string interpreter, string scriptPath) => new()
+    {
+        [TypeKey] = CommandType,
+        [CommandKey] = interpreter,
+        [ArgsKey] = new JsonArray("/c", scriptPath),
+        [AsyncKey] = true,
+    };
+
+    /// <summary>The script a command handler runs, or null if it is not that shape.</summary>
+    /// <remarks>
+    /// The <em>last</em> argument, not any of them. <c>/c</c> is an argument too, and a rule of
+    /// "any argument that matches" would let a handler be identified by a switch.
+    /// </remarks>
+    private static string? ScriptPathOf(JsonNode? node) =>
+        node is JsonObject handler
+        && handler[TypeKey]?.GetValue<string>() == CommandType
+        && handler[ArgsKey] is JsonArray args
+        && args.Count > 0
+            ? Text(args[^1])
+            : null;
+
+    /// <summary>Whether two path strings name the same file.</summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>Compared after <see cref="Path.GetFullPath(string)"/>, which is what stops the start
+    /// check warning falsely.</strong> A hand-edited entry written with forward slashes, or with a
+    /// redundant <c>.\</c>, names the same file and must count as ours — otherwise the dashboard
+    /// warns that its hook is missing while looking straight at it, and an operator who then runs
+    /// <c>--install-hooks</c> gets a second handler.
+    /// </para>
+    /// <para>
+    /// <strong>Ordinal-ignore-case, because Windows paths are.</strong>
+    /// </para>
+    /// <para>
+    /// <strong>Accepted limit: an 8.3 short path does not match.</strong>
+    /// <c>C:\PROGRA~1\…</c> and its long form name one file and compare unequal here.
+    /// <see cref="Path.GetFullPath(string)"/> does not expand short names. It cannot arise from our
+    /// own writing — the path is built from
+    /// <see cref="Environment.GetFolderPath(Environment.SpecialFolder)"/>, which returns the long
+    /// form — so this is a limit of the matcher rather than a defect in it.
+    /// </para>
+    /// </remarks>
+    private static bool PathsMatch(string? candidate, string normalizedOurs) =>
+        candidate is not null
+        && string.Equals(Normalize(candidate), normalizedOurs, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>A path in a comparable form, or the original when it cannot be made into one.</summary>
+    /// <remarks>
+    /// Falling back rather than throwing: the input is a string out of the operator's settings file
+    /// and may be anything at all. An unusable value simply fails to match, which is the right
+    /// answer, and it must not take the start check down with it.
+    /// </remarks>
+    private static string Normalize(string path)
+    {
+        try
+        {
+            return Path.GetFullPath(path);
+        }
+        catch (Exception ex) when (
+            ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return path;
+        }
+    }
+
+    /// <summary>Whether a URL is a loopback hook URL of the pre-issue-#29 design, on any port.</summary>
+    /// <remarks>
+    /// Parsed by hand rather than by <see cref="Uri"/>, so that the shape asserted is exactly the
+    /// shape the old <c>HookUrlFor</c> produced and nothing wider. <c>localhost</c> is not accepted
+    /// and never was written.
+    /// </remarks>
+    private static bool IsLoopbackHookUrl(string? url)
+    {
+        if (url is null
+            || !url.StartsWith(LoopbackHookPrefix, StringComparison.OrdinalIgnoreCase)
+            || !url.EndsWith(LoopbackHookSuffix, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var port = url[LoopbackHookPrefix.Length..^LoopbackHookSuffix.Length];
+
+        return port.Length > 0 && port.All(char.IsAsciiDigit);
+    }
+
+    /// <summary>One sequence of handlers per event, in file order.</summary>
+    /// <remarks>
+    /// Grouped by event rather than flattened, because the start check counts <em>events</em> that
+    /// carry the handler and not handlers. Flattening here would make "installed on six of eight
+    /// events" indistinguishable from "installed six times on one event", which is the difference
+    /// between a partial install and a duplicated one.
+    /// </remarks>
+    private static IEnumerable<IEnumerable<JsonNode?>> EventGroups(JsonObject settings)
+    {
+        if (settings[HooksKey] is not JsonObject hooks)
+        {
+            yield break;
+        }
+
+        foreach (var pair in hooks)
+        {
+            yield return HandlersIn(pair.Value);
+        }
+    }
+
+    /// <summary>Every handler under one event's group array.</summary>
+    private static IEnumerable<JsonNode?> HandlersIn(JsonNode? groups) =>
+        (groups as JsonArray ?? [])
+            .OfType<JsonObject>()
+            .SelectMany(group => group[HandlerListKey] as JsonArray ?? []);
+
+    /// <summary>
+    /// Takes out every handler <paramref name="isOurs"/> accepts, and any container left empty.
+    /// </summary>
+    /// <remarks>
+    /// One walk shared by both removal rules, so the two can differ in what they match and cannot
+    /// differ in how they tidy up. A group whose handlers we emptied was ours alone; one that still
+    /// holds the operator's handlers stays exactly as it is, matcher included.
+    /// </remarks>
+    private static void RemoveHandlers(
+        JsonObject settings,
+        Func<JsonObject, bool> isOurs,
+        Action<JsonObject> onRemoved)
+    {
+        if (settings[HooksKey] is not JsonObject hooks)
+        {
+            return;
+        }
 
         foreach (var eventName in hooks.Select(pair => pair.Key).ToList())
         {
@@ -195,15 +571,13 @@ public static class HookRegistration
 
                 for (var h = handlers.Count - 1; h >= 0; h--)
                 {
-                    if (IsOurs(handlers[h], hookUrl))
+                    if (handlers[h] is JsonObject handler && isOurs(handler))
                     {
+                        onRemoved(handler);
                         handlers.RemoveAt(h);
-                        removed++;
                     }
                 }
 
-                // A group whose handlers we emptied was ours alone; one that still holds the
-                // operator's handlers stays exactly as it is, matcher included.
                 if (handlers.Count == 0)
                 {
                     groups.RemoveAt(g);
@@ -220,59 +594,9 @@ public static class HookRegistration
         {
             settings.Remove(HooksKey);
         }
-
-        return removed;
     }
 
-    /// <summary>Whether <paramref name="node"/> is a handler this dashboard installed.</summary>
-    private static bool IsOurs(JsonNode? node, string hookUrl) =>
-        node is JsonObject handler
-        && handler[TypeKey]?.GetValue<string>() == HttpType
-        && string.Equals(handler[UrlKey]?.GetValue<string>(), hookUrl, StringComparison.OrdinalIgnoreCase);
-
-    /// <summary>Builds one handler, exactly as Impl §9.2 spells it.</summary>
-    private static JsonObject Handler(string hookUrl, string? tokenVariable)
-    {
-        var handler = new JsonObject
-        {
-            [TypeKey] = HttpType,
-            [UrlKey] = hookUrl,
-        };
-
-        if (tokenVariable is null)
-        {
-            return handler;
-        }
-
-        handler["headers"] = new JsonObject
-        {
-            [IngressToken.HeaderName] = "$" + tokenVariable,
-        };
-
-        // Per-handler as well as global: Claude Code replaces a reference to an unlisted variable
-        // with an empty string, so both allowlists are required for the token to arrive at all.
-        handler["allowedEnvVars"] = new JsonArray(tokenVariable);
-
-        return handler;
-    }
-
-    /// <summary>Adds <paramref name="value"/> to an allowlist array, without duplicating it.</summary>
-    private static void AddToAllowList(JsonObject settings, string key, string value)
-    {
-        if (settings[key] is not JsonArray list)
-        {
-            list = [];
-            settings[key] = list;
-        }
-
-        var present = list.Any(entry =>
-            entry is JsonValue item
-            && item.TryGetValue<string>(out var text)
-            && string.Equals(text, value, StringComparison.OrdinalIgnoreCase));
-
-        if (!present)
-        {
-            list.Add(value);
-        }
-    }
+    /// <summary>A node's string value, or null when it does not hold one.</summary>
+    private static string? Text(JsonNode? node) =>
+        node is JsonValue value && value.TryGetValue<string>(out var text) ? text : null;
 }

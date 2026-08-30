@@ -132,6 +132,44 @@ public sealed class DashboardPaths
     /// </remarks>
     public string PortFile => Path.Combine(Root, "port.txt");
 
+    /// <summary>
+    /// The port bound <strong>right now</strong>, written after the socket is taken and deleted on
+    /// a clean exit (issue #29).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>The same number as <see cref="PortFile"/> and a different fact.</strong>
+    /// <c>port.txt</c> says "this user was last on this port", and it says so for ever, which is
+    /// what makes it an input to the next start. This says "a dashboard is listening on this port
+    /// at this moment", and its absence is the whole of how <c>post-status.cmd</c> knows to do
+    /// nothing.
+    /// </para>
+    /// <para>
+    /// <strong>One file cannot carry both meanings.</strong> Deleting <c>port.txt</c> on shutdown
+    /// to give it this one would break the port continuity of §3.1 and the second launch's
+    /// <c>POST /show</c> of §5.3, both silently. Two files that can disagree is the smaller cost,
+    /// and after a hard kill they do disagree — see the <c>ListeningFile</c> class for what that costs.
+    /// </para>
+    /// </remarks>
+    public string ListeningFile => Path.Combine(Root, "listening.txt");
+
+    /// <summary>The hook forwarder Claude Code runs — <c>post-status.cmd</c> (issue #29).</summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>In the data folder, never beside the executable.</strong> The live install, the
+    /// staging install and a development run all resolve one identical path, so the single hook
+    /// entry in the operator's settings can never point at a copy that has moved. An entry naming
+    /// a path beside an executable would break the moment the operator published somewhere else.
+    /// </para>
+    /// <para>
+    /// It sits beside <see cref="ListeningFile"/> on purpose: the script reads
+    /// <c>%~dp0listening.txt</c> — its own directory — so the script and the port file can never
+    /// disagree about which data folder they belong to, even under
+    /// <see cref="HomeVariable"/>.
+    /// </para>
+    /// </remarks>
+    public string HookScriptFile => Path.Combine(Root, "post-status.cmd");
+
     /// <summary>The durable event log (Impl Part 8).</summary>
     /// <remarks>
     /// Under the same root as everything else, so <c>CLAUDE_DASHBOARD_HOME</c> moves it too. It is

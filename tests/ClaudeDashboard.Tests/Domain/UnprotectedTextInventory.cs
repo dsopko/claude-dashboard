@@ -233,9 +233,16 @@ public sealed class UnprotectedTextInventory
         // Configuration, paths and operational results.
         "ClaudeCodePaths.ConfigDirectory", "ClaudeCodePaths.UserSettingsFile",
         "DashboardPaths.DatabaseFile", "DashboardPaths.LogFile", "DashboardPaths.LogFolder",
+        "DashboardPaths.HookScriptFile", "DashboardPaths.ListeningFile",
         "DashboardPaths.PortFile", "DashboardPaths.Root", "DashboardPaths.RootProblem",
         "DashboardPaths.SettingsFile", "DashboardPaths.SoundFolder",
         "HealthProbeResult.Instance", "HealthProbeResult.Problem",
+
+        // Issue #29's hook installer. ScriptPath is a path in the dashboard's own data folder.
+        // HookPresence.Problem is why Claude Code's settings file could not be read — an exception
+        // message about the file, never anything out of it. THE CHECK MUST NEVER LOG THE FILE'S
+        // CONTENTS: those are the operator's hooks, and one of them may carry their prompt text.
+        "HookInstaller.ScriptPath", "HookPresence.Problem",
         "IngressStatus.Fault",
         "LogonTaskFacts.Command", "LogonTaskFacts.RestartInterval", "LogonTaskFacts.RunLevel",
         "SettingsFileWriter.LockPath", "SettingsLoadResult.Problem",

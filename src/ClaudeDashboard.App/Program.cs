@@ -54,7 +54,7 @@ public static class Program
     /// launch that produced no window can say so to anything but the log.
     /// </returns>
     [STAThread]
-    public static int Main()
+    public static int Main(string[] args)
     {
         IHost? host = null;
 
@@ -65,12 +65,29 @@ public static class Program
         // raise nothing (see WindowSurfacer).
         WindowSurfacer? surfacer = null;
 
+        // Declared out here so the finally can withdraw the announcement (issue #29). THAT IS THE
+        // FOURTH DELETION SITE AND IT COVERS A HOLE THE OLD LIFECYCLE HAD: both catch blocks below
+        // return without reaching the ordinary quit, so a throw after the bind and before the
+        // window ran — a view model that would not build, a settings file that would not load —
+        // left the dashboard announced on an exit that was otherwise perfectly orderly.
+        IngressAnnouncement? announcement = null;
+
         DashboardPaths paths;
         SingleInstanceGate gate;
 
         try
         {
             paths = new DashboardPaths();
+
+            // The one-shot hook switches, and they run BEFORE the gate deliberately (issue #29).
+            // An operator whose dashboard is running must still be able to repair their hooks, and
+            // a switch that stood down because the application was open would be useless exactly
+            // when it was wanted. Neither switch starts the UI or the host.
+            if (HookSwitches.Requested(args) is { } requested)
+            {
+                return RunHookSwitch(requested, paths);
+            }
+
             gate = SingleInstanceGate.Acquire(paths.Root);
         }
         catch (Exception ex)
@@ -156,26 +173,38 @@ public static class Program
                         "abandoned. This one has taken it over.");
                 }
 
-                // Impl §9.3: a hook exists only while something is answering the port it names.
-                // After Start, never before — between registering and binding there would be a
-                // window in which Claude Code posts to a port nothing answers, which is the state
-                // the whole lifecycle exists to avoid.
-                var hooks = host.Services.GetRequiredService<HookLifecycle>();
-                hooks.Register();
+                // Issue #29: the hook is installed once and left alone, so nothing here writes
+                // Claude Code's settings. What the dashboard does at start is say where it is
+                // listening, and read the settings to check its handler is still there.
+                //
+                // AFTER Start, never before — between announcing and binding there would be a
+                // window in which the script posts to a port nothing answers.
+                announcement = host.Services.GetRequiredService<IngressAnnouncement>();
+                announcement.Announce();
+
+                // Rewritten at every start when it differs, so a fix in the build reaches an
+                // install that already exists. See HookScript.
+                HookScript.EnsureWritten(paths, host.Services.GetRequiredService<Serilog.ILogger>());
+
+                // Read-only, and it warns when our handler is gone. Without it a hook removed by
+                // anything at all is undetectable: the dashboard receives nothing, which looks
+                // exactly like a quiet day.
+                host.Services.GetRequiredService<HookInstaller>().Check();
 
                 var policy = host.Services.GetRequiredService<UnhandledExceptionPolicy>();
 
                 // Best effort on the way down. A terminating fault runs managed code once more,
-                // and taking the handlers out then is the difference between the operator's next
-                // Claude Code turn being normal and it carrying an error they cannot diagnose.
-                using var handlers = AppHost.WireProcessExceptionHandlers(policy, () => hooks.Unregister());
+                // and withdrawing the announcement then is the difference between the next hook
+                // event doing nothing and it posting the operator's prompt to whatever has taken
+                // the port.
+                using var handlers = AppHost.WireProcessExceptionHandlers(policy, () => announcement.Withdraw());
 
                 var app = new App(policy);
 
                 // Logoff and shutdown. WPF raises this before it tears the application down, and
-                // nothing handled it before — so until now, every logoff left the handlers
-                // registered with nothing listening until the next logon.
-                app.SessionEnding += (_, _) => hooks.Unregister();
+                // nothing handled it before — so until now, every logoff left the dashboard
+                // announced with nothing listening until the next logon.
+                app.SessionEnding += (_, _) => announcement.Withdraw();
 
                 // This is the UI thread, and the only place the window and its view model may be
                 // built. Attaching the tick here rather than inside the container is what keeps the
@@ -225,8 +254,8 @@ public static class Program
                 }
 
                 // The ordinary quit — the tray's Quit item, and a logoff that already ran the
-                // handler above. Removing twice is a no-op, so both paths can call it.
-                hooks.Unregister();
+                // handler above. Withdrawing twice is a no-op, so both paths can call it.
+                announcement.Withdraw();
 
                 host.StopAsync().GetAwaiter().GetResult();
                 Log.Information("Claude Dashboard exited with code {ExitCode}.", exitCode);
@@ -254,6 +283,12 @@ public static class Program
             }
             finally
             {
+                // The fourth withdrawal, and the one that catches an orderly failure: every path
+                // out of the block above runs this, including both catch arms. It is null when the
+                // bind never happened, and withdrawing twice is a no-op — so this is safe to run
+                // after the ordinary quit has already done it.
+                announcement?.Withdraw();
+
                 host?.Dispose();
                 Log.CloseAndFlush();
             }
@@ -278,6 +313,58 @@ public static class Program
     /// folder is what the gate exists to prevent — but exiting quietly is not.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// Runs <c>--install-hooks</c> or <c>--remove-hooks</c> and exits, without starting anything
+    /// (issue #29).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>No host, no gate, no window.</strong> This is a one-shot that edits Claude Code's
+    /// settings and leaves. It builds only what it needs: the data folder, a logger, and the
+    /// installer.
+    /// </para>
+    /// <para>
+    /// <strong>Every line goes to the log as well as to the console.</strong> The console is
+    /// borrowed and may not be there at all — from Explorer, from a scheduled task, from a T10.2
+    /// that redirects its own streams there is no parent to attach to. The log is the channel that
+    /// is always there, and a record of what changed in the operator's settings file is worth
+    /// keeping in any case.
+    /// </para>
+    /// </remarks>
+    private static int RunHookSwitch(string requested, DashboardPaths paths)
+    {
+        // Before anything touches Console: .NET caches the standard streams on first use, and a
+        // single stray write would fix the discarding sink in place for the life of the process.
+        var attached = ConsoleReport.TryAttach();
+
+        var foldersReady = paths.TryEnsureCreated(out _);
+        var settings = new SettingsStore(paths).Load().Settings;
+        using var logger = AppHost.CreateLogger(paths, settings.Logging, foldersReady);
+
+        var installer = new HookInstaller(new ClaudeCodePaths(), paths, new Adapters.SystemClock(), logger);
+
+        var code = HookSwitches.Run(requested, installer, line =>
+        {
+            logger.Information("{Switch}: {Line}", requested, line);
+
+            if (attached)
+            {
+                Console.Out.WriteLine(line);
+            }
+        });
+
+        if (!attached)
+        {
+            logger.Information(
+                "{Switch} finished with exit code {Code}. There was no console to report to, so this " +
+                "log is the report.",
+                requested,
+                code);
+        }
+
+        return code;
+    }
+
     /// <summary>
     /// Works through §3.1's three attempts and says, once, how the port was arrived at.
     /// </summary>

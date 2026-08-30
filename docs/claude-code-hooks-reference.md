@@ -1,7 +1,7 @@
 # Claude Code hook events — reference
 
 **Source:** <https://code.claude.com/docs/en/hooks> (canonical; `docs.claude.com/en/docs/claude-code/hooks` 301s here)
-**Transcribed:** 2026-08-24 · **Events documented: 31** · **Consumed by the dashboard: 7**
+**Transcribed:** 2026-08-24 · **Events documented: 31** · **Consumed by the dashboard: 8** — Part 1's seven plus `PostToolBatch` from Part 2, which was adopted for issue #2 and is registered by the code · **Command hook mechanics added 2026-08-30 (issue #29)**
 
 This document exists because "I don't know whether there is a hook for that" is not an acceptable answer in a project whose entire input surface *is* the hook contract. Everything below is transcribed from the source page on the date above, not recalled. **It is a snapshot: re-fetch and re-check before relying on it for a new integration.**
 
@@ -265,6 +265,50 @@ Two things this confirms:
 **The pure-observer design is exactly right.** `200` with an empty body is the documented way to say "I observed this and I am deciding nothing". Anything else — a JSON body in particular — would put the dashboard in a position to alter a turn, which Impl §3.3 forbids unconditionally.
 
 **A dead dashboard cannot break a session** [verified]. Connection failure is explicitly a non-blocking error. Observed in production: with the app stopped, Claude Code prints `UserPromptSubmit hook error / connect ECONNREFUSED 127.0.0.1:52789` and continues normally. Noisy, harmless.
+
+---
+
+# Command hook mechanics
+
+**The dashboard uses a command hook, not an HTTP one, since issue #29.** The section above stays because it documents what the ingress contract is built on and what the migration is moving away from.
+
+Per-handler configuration:
+
+- **`command`** — the executable to run. Required.
+- **`args`** — an array of arguments. **Its presence is what selects the exec form**: with `args` given, the executable is spawned directly, "with no shell involved". Without it, `command` is a command line run under a shell.
+- **`shell`** — which shell runs a `command` with no `args`. On Windows it defaults to `bash`, or to `powershell` when Git Bash is not installed. **This is why the dashboard always supplies `args`**: the default varies by machine, cannot be chosen by us, and bash and PowerShell disagree about backslash paths and quoting — so one settings block would behave differently on two operators' machines.
+- **`async`** — run in the background. The turn does not wait for the hook.
+- **`asyncRewake`** — act on an async hook's result. Deliberately unset by the dashboard: it exists to react to an exit code, and the dashboard's hook exits `0` on every path by design.
+- **`timeout`** — as for HTTP hooks.
+
+**Nothing expands an environment variable in `command` or `args`** [verified]. With no shell there is nothing to do the expanding, so `%SystemRoot%` and `%LOCALAPPDATA%` arrive as literal text. Both paths in our handler are resolved in C# at install time. Inside the `.cmd` file expansion works normally — that *is* a shell.
+
+**The payload arrives on stdin** [verified], as the same JSON an HTTP hook receives as its POST body. `post-status.cmd` pipes stdin straight through to `curl --data-binary @-` and the body arrives byte for byte.
+
+**Exit codes:**
+
+| Exit | Effect |
+|---|---|
+| **0** | success |
+| 1 | **non-blocking error**, reported to the operator |
+| **2** | **BLOCKS the turn** — the dashboard must never do this |
+| other | non-blocking error |
+
+**Stdout is not always discarded, and this is the trap** [documented]. For **`UserPromptSubmit`** and **`SessionStart`** Claude Code adds a hook's stdout to the model's context, as if the operator had typed it. Both are events the dashboard registers. Every other event throws stdout away.
+
+So a stray line from a hook — a `curl` progress meter, `The system cannot find the path specified.` — **silently alters every prompt in every session, and nothing in the transcript shows it**. It is not a crash, not an error, and not observable from inside the session. It is the reason `post-status.cmd` redirects both streams on the `call` that wraps its whole body rather than per line, and the reason `HookScriptBehaviourTests` asserts empty streams for five arranged failures.
+
+A hook's JSON stdout carries decisions, which makes this the same rule as `200`-with-an-empty-body on the ingress side, at the other end of the wire.
+
+## What we have confirmed on the wire
+
+**The exec form is honoured** [verified] against **Claude Code 2.1.251**, 2026-08-30. An isolated dashboard on port 52889, a settings file carrying only the command handler, and one `claude -p` run: `SessionStart`, `UserPromptSubmit` and `Stop` arrived through `cmd.exe /c post-status.cmd` and were archived. Verified because `args` is documented rather than observed, and a Claude Code that ignored it would run `command` alone — the hook would do nothing, silently, which is indistinguishable from a quiet day.
+
+**Cost per invocation on this machine** [verified], 2026-08-30, 10 runs each: **97 ms** with a dashboard listening and the payload delivered; **65 ms** with no `listening.txt`, which is the ordinary case whenever the dashboard is closed. Both are background work under `async: true`, so no turn waits for either.
+
+**A stale announcement costs about 1.09 s per invocation on this machine** [verified]. A post to a *free* loopback port here spends the whole `--connect-timeout` rather than being refused — 0.34 s at `--connect-timeout 0.25`, so it is a timeout and not a refusal. That is not normal loopback behaviour and is probably a firewall dropping the SYN; on a machine that refuses fast the cost is near zero. It applies only between a hard kill and the next start.
+
+**`SessionEnd` was not observed** in the `claude -p` run above. Not investigated, and not needed for T1.28 — recorded so nobody reads the three events as a complete list.
 
 ---
 
