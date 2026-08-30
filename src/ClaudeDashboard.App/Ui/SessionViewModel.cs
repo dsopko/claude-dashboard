@@ -349,7 +349,13 @@ public sealed partial class SessionViewModel : DashboardRow
     /// </remarks>
     public string RowName => TitlePrefix + PromptSnippet;
 
-    /// <summary>The title, folded and measured once for the four properties above.</summary>
+    /// <summary>The title, folded and cut in one place for the four properties above.</summary>
+    /// <remarks>
+    /// One place, not one time: this is a computed property with no cache, so a full read of a row
+    /// runs <see cref="TitleText.From"/> once per property. That is a handful of short string walks
+    /// per row and it is not worth a cache — but it is not memoization either, and saying "once"
+    /// would have implied one.
+    /// </remarks>
     private TitleText TitleOfRow => TitleText.From(_session.Title);
 
     /// <summary>

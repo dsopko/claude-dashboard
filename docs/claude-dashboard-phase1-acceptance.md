@@ -728,10 +728,14 @@ behaviour in `SessionTitleLatchTests`, in the place a reader would go looking fo
 
 ### Two smaller residuals, stated so they are not mistaken for oversights
 
-- **The tooltip is not length-capped.** Issue #18 rules that a truncated title is shown in full on
-  hover, and a cap would make the tooltip a second truncation with no way to read past it. Folding
-  still applies, so a title full of line breaks cannot grow the popup vertically without limit —
-  but a pathological title is long there. Accepted.
+- **The tooltip is not length-capped, and the only bound is Kestrel's.** Issue #18 rules that a
+  truncated title is shown in full on hover, and a cap would make the tooltip a second truncation
+  with no way to read past it. Folding still applies, so a title full of line breaks cannot grow
+  the popup vertically without limit — but nothing between the wire and the popup caps the string's
+  length. The bound is therefore **Kestrel's default `MaxRequestBodySize`, 30,000,000 bytes**;
+  `AppHost.ConfigureKestrel` sets the listener and the server header and never touches `Limits`, so
+  the default is what stands. The title is one field inside that body, so it is at most that and in
+  practice less. Accepted, with the number named so the residual is actionable.
 - **A single grapheme cluster larger than the character ceiling shows as an ellipsis alone.** The
   ceiling cuts on a cluster boundary, and if the first boundary is already past the ceiling there
   is no boundary to cut at. Bounded and harmless, and it costs a row that could not have been
@@ -750,15 +754,39 @@ All on .NET 10, in a scratch console, before any of it was written into the code
   marks each is **8,040 characters** and passes a forty-cluster cut completely untouched. This is
   the whole reason there are two numbers in `SessionViewModel` rather than one, and it was not
   something the brief or the issue anticipated.
-- **`TextBlock.Text` returns `string.Empty` for a block whose content is two or more inlines.** The
-  UI tests read `TextBlock.Text`, so the new context line came back blank — and so, already, did
-  the group header's four-inline "· 1 sessions · idle 0s", which those assertions had been blind to
-  before this task touched anything. The helper now reads a `TextRange` over the block's content,
-  which returns the text in both shapes. **A blind spot here fails in the direction of a passing
-  test**: "the row does not show X" passes when the reader cannot see X at all.
+- **`TextBlock.Text` reads back only what was set through `Text`.** Content authored as inlines
+  reads back empty, *whatever the count — one `Run` included*. Measured: `Text = "plain"` gives
+  `Inlines.Count` 1 and reads back `plain`; one explicit `Run` gives `Inlines.Count` 1 and reads
+  back empty; two and four `Run`s likewise read back empty. The UI tests read `TextBlock.Text`, so
+  the new context line came back blank — and so, already, did the group header's four-inline
+  "· 1 sessions · idle 0s", which those assertions had been blind to before this task touched
+  anything. The helper now reads a `TextRange` over the block's content, which returns the text in
+  every shape. **A blind spot here fails in the direction of a passing test**: "the row does not
+  show X" passes when the reader cannot see X at all.
 - **`Run.Text` binds two-way by default**, and a two-way binding onto a read-only view-model
   property throws while the template loads — taking the whole window with it, not one row. Hence
   `Mode=OneWay` on both runs, which is load-bearing rather than decorative.
+
+**The first version of that first bullet said "two or more inlines", and the error cost a test.**
+Fix cycle 1. `MainWindowTests.A_row_shows_its_prompt_in_the_mono_face` located its subject by
+`candidate.Text == "draft a migration plan"`. The new context line's `Text` went empty, the
+predicate stopped matching it, and it matched the *expanded* row's prompt block instead — which is
+invisible while the row is collapsed. **The subject moved from a visible element to a hidden one
+and the test kept passing**: the row's context line could lose its monospace face entirely, in
+contradiction of §9, and nothing said so. Demonstrated by changing `MonoFont` to `UiFont` on the
+row's context line and running the whole suite: 1217 passed, 0 failed.
+
+The count was not merely the wrong threshold — it cannot discriminate at all, because the readable
+case reports `Inlines.Count` of 1 too. So an audit asking "which blocks have two or more inlines?"
+clears a single-`Run` block that is equally blind, which is exactly what happened: the sweep that
+fixed three call sites cleared the fourth. **A measurement written down slightly wrong is worse
+than one not written down, because the next reader trusts it.** The rule above is now stated by
+cause rather than by count, with the table that shows why the count says nothing.
+
+The repaired test selects on three things instead of one — inline-aware text, `IsVisible`, and
+`Single` so an ambiguous match fails loudly — and asserts the face on the `Run` that carries the
+prompt rather than on the block around it. Verified the way the defect was found: with `UiFont`
+planted on the context line it now fails, alone, 1216 passed 1 failed.
 
 ### The premise sweep (five statements, not two)
 

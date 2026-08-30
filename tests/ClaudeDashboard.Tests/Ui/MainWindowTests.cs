@@ -194,21 +194,51 @@ public sealed class MainWindowTests(StaHarness harness)
         Assert.Equal(3, counted.Expected);
     }
 
+    /// <summary>
+    /// <strong>The prompt on the COLLAPSED row is drawn in the mono face</strong> (Design §9 —
+    /// it *is* terminal text).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>This test spent one commit asserting the wrong element, and passed the whole
+    /// time.</strong> It located its subject by <c>candidate.Text == …</c>. When T1.24 made the
+    /// context line two <c>Run</c>s, that block's <c>Text</c> went empty (see <see cref="TextOf"/>),
+    /// the predicate stopped matching it, and it matched the <em>expanded</em> row's prompt block
+    /// instead — which is invisible while the row is collapsed. The subject moved from a visible
+    /// element to a hidden one and nothing said so: the row's context line could lose its
+    /// monospace face entirely and this test still passed.
+    /// </para>
+    /// <para>
+    /// So the selection is now three things rather than one. <see cref="TextOf"/> reads inline
+    /// content, <c>IsVisible</c> excludes the expanded row's copy, and <c>Single</c> makes an
+    /// ambiguous match a loud failure instead of a silent choice between two candidates.
+    /// </para>
+    /// <para>
+    /// The face is asserted on the <c>Run</c> that actually carries the prompt, not on the block
+    /// around it. <c>FontFamily</c> is inherited, so this reads the face the prompt is really
+    /// drawn in — and it stays true if the title's own <c>Run</c> is ever restyled, which asserting
+    /// the block's family would not.
+    /// </para>
+    /// </remarks>
     [Fact]
     public void A_row_shows_its_prompt_in_the_mono_face()
     {
+        const string Prompt = "draft a migration plan";
+
         var (text, family) = WithWindow(
-            registry => registry.Working("busy", At, prompt: "draft a migration plan"),
+            registry => registry.Working("busy", At, prompt: Prompt),
             (window, _) =>
             {
-                var block = StaHarness.Find<TextBlock>(
-                    RowFor(window, "busy"),
-                    candidate => candidate.Text == "draft a migration plan");
+                var block = StaHarness.FindAll<TextBlock>(RowFor(window, "busy"))
+                    .Single(candidate => candidate.IsVisible && TextOf(candidate) == Prompt);
 
-                return (block?.Text, block?.FontFamily.Source);
+                var promptRun = block.Inlines.OfType<Run>()
+                    .Single(run => run.Text == Prompt);
+
+                return (TextOf(block), promptRun.FontFamily.Source);
             });
 
-        Assert.Equal("draft a migration plan", text);
+        Assert.Equal(Prompt, text);
         Assert.Contains("Cascadia", family, StringComparison.Ordinal);
     }
 
@@ -524,15 +554,29 @@ public sealed class MainWindowTests(StaHarness harness)
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <c>TextBlock.Text</c> is not the right question and never was. Measured: a block whose
-    /// content is two or more inlines returns <c>string.Empty</c> from <c>Text</c>, whatever it
-    /// renders. So the context line — a title Run followed by a prompt Run since T1.24 — came back
-    /// blank, and so did the group header's "· 1 sessions · idle 0s", which has four inlines and
-    /// was already invisible to these assertions before this task touched anything.
+    /// <strong><c>TextBlock.Text</c> reads back only what was set through <c>Text</c>.</strong>
+    /// Content authored as inlines reads back empty — <em>whatever the count, one <c>Run</c>
+    /// included</em>. Measured on this harness:
+    /// </para>
+    /// <list type="table">
+    /// <item><description><c>Text = "plain"</c> → <c>Inlines.Count</c> 1, <c>Text</c> "plain"</description></item>
+    /// <item><description>one explicit <c>Run</c> → <c>Inlines.Count</c> 1, <c>Text</c> ""</description></item>
+    /// <item><description>two <c>Run</c>s → <c>Inlines.Count</c> 2, <c>Text</c> ""</description></item>
+    /// <item><description>four <c>Run</c>s → <c>Inlines.Count</c> 4, <c>Text</c> ""</description></item>
+    /// </list>
+    /// <para>
+    /// <strong>An earlier version of this remark said "two or more inlines", and that error cost a
+    /// test.</strong> The count cannot tell the two cases apart at all — the readable block and the
+    /// blind one both report <c>Inlines.Count</c> of 1 — so an audit asking "which blocks have two
+    /// or more inlines?" clears a single-<c>Run</c> block that is equally invisible. Writing the
+    /// threshold down slightly wrong was worse than not writing it down, because the next reader
+    /// trusts it: it is why
+    /// <see cref="A_row_shows_its_prompt_in_the_mono_face"/> was left asserting a hidden element
+    /// through the very commit that fixed this problem everywhere else.
     /// </para>
     /// <para>
     /// A <see cref="TextRange"/> over the block's own content start and end returns what is there
-    /// in both shapes. That makes an assertion of the form "the row does not show X" mean it,
+    /// in every shape. That makes an assertion of the form "the row does not show X" mean it,
     /// rather than passing because the reader could not see X at all — which is the direction a
     /// blind spot here fails in, and the reason this is worth a helper and a note.
     /// </para>
