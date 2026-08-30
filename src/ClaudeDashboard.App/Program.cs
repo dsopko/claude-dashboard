@@ -263,15 +263,22 @@ public static class Program
             }
             catch (IOException ex) when (ex.InnerException is AddressInUseException)
             {
-                // Impl §3.1 fixes the port so the hook URL stays stable, which makes "something
-                // else already has it" the likeliest startup failure this app will ever have. The
-                // operator has no console and no window, so the log line has to be the whole
-                // diagnosis — a stack trace alone would say what happened but not what to do.
+                // A loopback bind is machine-wide while everything else here is per user, so
+                // "something else already has it" stays a likely startup failure even with the port
+                // derived per user (Impl §3.1). The operator has no console and no window, so the
+                // log line has to be the whole diagnosis — a stack trace alone would say what
+                // happened but not what to do.
+                //
+                // AND SINCE ISSUE #29 THE ADVICE IS SHORTER, BECAUSE THE HOOK CARRIES NO PORT. It
+                // names post-status.cmd, which reads listening.txt at the moment it runs. This line
+                // used to end "remember that the hook URL registered with Claude Code must match
+                // it" — which now sends an operator who is already stuck into a file this build
+                // promises never to write, hunting a URL that is not there.
                 Log.Fatal(
                     ex,
                     "Claude Dashboard could not start: another process is already using the ingress port. " +
-                    "Stop that process, or set a different \"port\" in the settings file, and remember that " +
-                    "the hook URL registered with Claude Code must match it.");
+                    "Stop that process, or set a different \"port\" in the settings file, then restart. " +
+                    "Claude Code's hook settings need no change: the hook finds the new port by itself.");
                 return 1;
             }
             catch (Exception ex)

@@ -335,7 +335,7 @@ That was not a limitation of those runs — the behaviour did not exist to be ob
 | A fresh profile derives and binds; a recorded port is preferred; a taken one falls through; a stranger causes a walk; the walk is bounded and giving up is not a crash | `PortSelectionTests` — decided against a table of probe answers |
 | **Two users' ports differ and both bind at the same moment**, against real sockets | `TwoUsersBindTests` |
 | A real listener on the derived port is walked past, and classified rather than counted | `TwoUsersBindTests` |
-| The registered URL and `port.txt` carry the **bound** port | `HookLifecycleTests`, using a port that is neither the default nor inside the derivation range |
+| The registered URL and `port.txt` carry the **bound** port | `HookLifecycleTests`, using a port that is neither the default nor inside the derivation range. **T1.28 deleted that class** — the surviving half is `IngressAnnouncementTests`, which makes the same claim about `listening.txt` and `port.txt` (§5j) |
 
 **What no run here evidences.** Two *actual* signed-in Windows users have not been observed. Two
 identities and two data roots have, which is the part that can be exercised without a second
@@ -343,10 +343,14 @@ account; the hop from "a different SID derives a different port" to "a second si
 working dashboard" rests on the derivation being the only per-user input, and that is an argument
 rather than a measurement.
 
-**The accepted residual, ruled by the operator and not designed around.** Entries in
-`allowedHttpHookUrls` accumulate — one per distinct URL ever registered — and nothing removes them.
-Three users mean three entries; a user who never comes back leaves one behind; an entry pointing at
-no hook is inert. Pruning was declined rather than forgotten.
+**The accepted residual, ruled by the operator and not designed around — and now closed (§5j).**
+Entries in `allowedHttpHookUrls` accumulate — one per distinct URL ever registered — and nothing
+removes them. Three users mean three entries; a user who never comes back leaves one behind; an
+entry pointing at no hook is inert. Pruning was declined rather than forgotten.
+
+**Superseded by T1.28 (§5j, issue #29).** A command hook is not on that allowlist, so nothing
+accumulates any more, and `--remove-hooks` clears the entries earlier builds left. The paragraph
+above stands as the record of a ruling that was right for the design it was made about.
 
 ---
 ## 5e · Sound follows the default output device (T1.22, issue #13), and what is still open
@@ -1211,6 +1215,14 @@ Eight HTTP handlers, added at every start and removed at every quit, become one 
 running `post-status.cmd` in the data folder. The script reads `listening.txt`; finding none, it
 exits having opened nothing. So the hook is correct whether a dashboard is running or not, and it is
 installed once and left alone.
+
+**Two things in §5d are superseded here**, and both are pointed at from there as well as from here.
+Its evidence row cites `HookLifecycleTests`, which this task deleted — `IngressAnnouncementTests`
+makes the same claim about `listening.txt` and `port.txt`. And its accepted residual, the
+`allowedHttpHookUrls` entries that accumulate because nothing removes them, is closed: a command
+hook is not on that allowlist, and `--remove-hooks` clears what earlier builds left. **The ruling
+that accepted the accumulation was right about the design it was made about**, which is why it
+stands there rather than being edited away.
 
 ### The criterion nobody has observed, stated first
 

@@ -263,7 +263,8 @@ public static class PortSelection
     /// supplied none — which produced no error and nothing failing, just a dashboard bound to the
     /// machine-wide port. That is worse than the interlock bug this task already fixed: <em>that</em>
     /// one announced itself by starting deaf, while this one produces a working dashboard on
-    /// somebody else's port, with a hook URL that agrees with it and is wrong for this user.
+    /// somebody else's port, announcing that port in <c>listening.txt</c> so the hook agrees with
+    /// it, and wrong for this user.
     /// </para>
     /// <para>
     /// A remark saying "callers should pass a port" would have been the weakest fix available,

@@ -114,7 +114,7 @@ The choice is made in three attempts, and **binding is the only question ever as
 
 If all three fail, the dashboard **starts anyway**, logs at Error, and says so in the tray tooltip (§5.3). It never exits for want of a port.
 
-Whatever is finally bound is written to `port.txt` and is the port the hook URL carries (§9.3). **Nothing looks the number up afterwards** — the URL is built from the port actually bound.
+Whatever is finally bound is written to `port.txt`, and announced in `listening.txt` for as long as it stays bound (§9.3). **No port appears anywhere in Claude Code's settings** — the hook names a script, and the script reads the announcement at the moment it runs. So a port that moves costs the operator nothing: they restart, and nothing in their hook configuration needs touching.
 
 Two users therefore do not queue from a base port; they derive different candidates because their SIDs differ, and never contend. The walk exists only for a hash collision or a stranger.
 

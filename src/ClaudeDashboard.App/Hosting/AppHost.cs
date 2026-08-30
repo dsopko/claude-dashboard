@@ -84,10 +84,10 @@ public static class AppHost
 
         // NO SILENT FALL-BACK TO THE BASE PORT. A caller that supplies no port gets the same
         // §3.1 choice Program makes — pin, then port.txt, then derive, then walk — because the
-        // alternative is a working dashboard bound to the machine-wide port with a hook URL that
-        // agrees with it and is wrong for this user. The parameter stays optional so that a test
-        // which has already pinned a free port in its settings file keeps getting that port: a pin
-        // is attempt 0, so pinning still wins.
+        // alternative is a working dashboard bound to the machine-wide port, announcing itself in
+        // listening.txt so the hook agrees with it, and wrong for this user. The parameter stays
+        // optional so that a test which has already pinned a free port in its settings file keeps
+        // getting that port: a pin is attempt 0, so pinning still wins.
         if (ingress is null)
         {
             var chosen = PortSelection.ForDataFolder(resolved, loaded.Settings);
@@ -239,11 +239,17 @@ public static class AppHost
         {
             // Error, not Warning. The dashboard will look exactly like a quiet afternoon, and
             // this line is the only place the difference is written down.
+            //
+            // The advice is shorter since issue #29: the hook names a script, and the script reads
+            // listening.txt for the port when it runs, so changing the port changes nothing in
+            // Claude Code's settings. Telling a stuck operator to go and edit a URL there would
+            // send them looking for something this build never writes.
             logger.Error(
                 "Port {Port} is held by another process, so the dashboard cannot receive hooks and " +
                 "every session will be missing. It is starting anyway, with the reason in the tray " +
-                "tooltip. Free that port — or set a different \"port\" in {SettingsFile} and change " +
-                "the hook URL registered with Claude Code to match — then restart the dashboard.",
+                "tooltip. Free that port, or set a different \"port\" in {SettingsFile}, then restart " +
+                "the dashboard. Claude Code's hook settings need no change: the hook finds the new " +
+                "port by itself.",
                 ingress.Port,
                 resolved.SettingsFile);
         }

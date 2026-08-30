@@ -209,8 +209,9 @@ public static class HealthProbe
 
     /// <summary>Whether <paramref name="port"/> can be bound, which is to say nobody holds it.</summary>
     /// <remarks>
-    /// Only the IPv4 loopback address, matching what a probing process cares about: the hook URL
-    /// is <c>http://127.0.0.1:port</c>. Kestrel's <c>ListenLocalhost</c> binds both families and
+    /// Only the IPv4 loopback address, matching what a probing process cares about: what actually
+    /// connects is <c>post-status.cmd</c>, and it posts to <c>http://127.0.0.1:port/hook</c>.
+    /// Kestrel's <c>ListenLocalhost</c> binds both families and
     /// tolerates one of them failing, so an occupant that holds only <c>[::1]</c> is not a reason
     /// to declare the port taken here.
     /// </remarks>

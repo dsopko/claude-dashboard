@@ -33,8 +33,16 @@ public sealed record DashboardSettings
     /// Claude Code's settings must stay stable". That was true while first-run setup wrote the
     /// hooks once. <strong>§9.3 now registers them at every start and removes them at every
     /// quit</strong>, and a running Claude Code session was measured picking up both the addition
-    /// and the removal without restarting — so the URL is rebuilt from whatever port was actually
+    /// and the removal without restarting — so the URL was rebuilt from whatever port was actually
     /// bound, and never needed a fixed one.
+    /// </para>
+    /// <para>
+    /// <strong>Superseded again by issue #29, and the conclusion only got stronger.</strong> There
+    /// is no hook URL at all now: the handler names <c>post-status.cmd</c>, which reads
+    /// <c>listening.txt</c> for the port when it runs. So nothing anywhere needs this number to be
+    /// stable, and the register-at-start lifecycle the paragraph above appeals to is itself gone.
+    /// Left standing rather than rewritten, because the paragraph below is about not deleting the
+    /// history of a reason that turned out to be false.
     /// </para>
     /// <para>
     /// A comment whose stated reason has outlived the design it described is the defect this
