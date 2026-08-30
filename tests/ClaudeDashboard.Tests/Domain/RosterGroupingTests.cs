@@ -282,7 +282,7 @@ public sealed class RosterGroupingTests
             RosterBook.Empty));
 
         Assert.Equal(SessionState.Unread, RosterSettle.StateOf(group, At));
-        Assert.Null(RosterSettle.DeadlineOf(group));
+        Assert.Null(RosterSettle.PendingDeadlineOf(group, At));
     }
 
     /// <summary>A pending group reports a deadline; anything else reports none.</summary>
@@ -294,13 +294,19 @@ public sealed class RosterGroupingTests
     [Fact]
     public void Only_a_pending_roster_group_has_a_deadline()
     {
-        Assert.Equal(At + RosterSettle.DefaultWindow, RosterSettle.DeadlineOf(Quiet(At)));
+        Assert.Equal(At + RosterSettle.DefaultWindow, RosterSettle.PendingDeadlineOf(Quiet(At), At));
 
         var working = new Group(
             GroupKeys.ForRoster(Orchestration),
             [Member("s-1", "Director", SessionState.Working, entered: At)]);
 
-        Assert.Null(RosterSettle.DeadlineOf(working));
+        Assert.Null(RosterSettle.PendingDeadlineOf(working, At));
+
+        // AND A DEADLINE THAT HAS PASSED IS NOT PENDING. A settled group stays Unread until the
+        // operator acknowledges it, so reporting its elapsed deadline for ever is what left the
+        // consumer loop re-arming about a hundred times a second (fix cycle 1).
+        Assert.Null(RosterSettle.PendingDeadlineOf(Quiet(At), At + RosterSettle.DefaultWindow));
+        Assert.Null(RosterSettle.PendingDeadlineOf(Quiet(At), At + TimeSpan.FromHours(1)));
     }
 
     private static Group Quiet(DateTimeOffset entered) =>

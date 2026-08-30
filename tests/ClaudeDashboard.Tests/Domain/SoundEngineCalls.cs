@@ -3,7 +3,7 @@ using ClaudeDashboard.Core;
 namespace ClaudeDashboard.Tests.Domain;
 
 /// <summary>
-/// How a test says "this session is in no roster" when telling the sound engine about it.
+/// How a test says "this session is grouped by its workspace" when telling the sound engine.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -18,11 +18,17 @@ namespace ClaudeDashboard.Tests.Domain;
 /// A helper called <c>OnSessionChanged</c> would have reinstated the defaulted parameter under
 /// another name.
 /// </para>
+/// <para>
+/// <strong>And it says WORKSPACE group, not "ungrouped", because that is what it passes.</strong>
+/// A workspace group is a group: it has its own key and its own mute entry, so a session in one is
+/// not ungrouped in any sense the sound engine cares about. The earlier name was a small false
+/// statement sitting on top of a decision made to avoid exactly those.
+/// </para>
 /// </remarks>
 internal static class SoundEngineCalls
 {
-    /// <summary>Tells the engine about a session that is in no roster.</summary>
-    public static void ChangedUngrouped(this SoundPolicyEngine engine, Session session)
+    /// <summary>Tells the engine about a session grouped by its workspace — that is, in no roster.</summary>
+    public static void ChangedInWorkspaceGroup(this SoundPolicyEngine engine, Session session)
     {
         ArgumentNullException.ThrowIfNull(engine);
         ArgumentNullException.ThrowIfNull(session);

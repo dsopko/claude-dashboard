@@ -81,14 +81,14 @@ public static class RosterSettle
     {
         ArgumentNullException.ThrowIfNull(group);
 
-        return DeadlineOf(group, window) is { } deadline && now < deadline
+        return PendingDeadlineOf(group, now, window) is not null
             ? SessionState.Working
             : group.WorstState;
     }
 
     /// <summary>
-    /// When <paramref name="group"/> is next due to change state on its own, or null if it is not
-    /// waiting on the clock.
+    /// When <paramref name="group"/> is <strong>still</strong> due to change state on its own, or
+    /// null when it is not waiting on the clock at all.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -104,9 +104,10 @@ public static class RosterSettle
     /// </para>
     /// </remarks>
     /// <param name="group">The group to ask about.</param>
+    /// <param name="now">The instant to judge "still" against.</param>
     /// <param name="window">The settle window; <see cref="DefaultWindow"/> when null.</param>
     /// <exception cref="ArgumentNullException"><paramref name="group"/> is null.</exception>
-    public static DateTimeOffset? DeadlineOf(Group group, TimeSpan? window = null)
+    public static DateTimeOffset? PendingDeadlineOf(Group group, DateTimeOffset now, TimeSpan? window = null)
     {
         ArgumentNullException.ThrowIfNull(group);
 
@@ -115,7 +116,14 @@ public static class RosterSettle
             return null;
         }
 
-        return QuietSince(group) + (window ?? DefaultWindow);
+        var deadline = QuietSince(group) + (window ?? DefaultWindow);
+
+        // A DEADLINE THAT HAS PASSED IS NOT A PENDING DEADLINE, and taking `now` is what makes this
+        // method able to say so. Without it a settled group reported a deadline in the past for as
+        // long as it stayed unread — which is until the operator acknowledges it, and that is the
+        // state this product exists to leave sitting on screen. The host would then wake, find
+        // nothing to do, and re-arm on the same past instant, about a hundred times a second.
+        return deadline > now ? deadline : null;
     }
 
     /// <summary>

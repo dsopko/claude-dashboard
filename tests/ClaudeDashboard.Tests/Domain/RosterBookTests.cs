@@ -89,21 +89,30 @@ public sealed class RosterBookTests
         Assert.Null(RosterBook.From([("orchestration", ["Director"])]).RosterFor(title));
     }
 
-    /// <summary>Matching is exact: a title that differs by case is a different name.</summary>
+    /// <summary>Matching is exact in case; surrounding whitespace is not part of a name.</summary>
     /// <remarks>
+    /// <para>
     /// Stated as a test rather than left to the implementation because it is a judgement call.
     /// A roster's members are copied from titles the sessions themselves reported (T1.26 forms one
     /// by ticking live rows), so comparing exactly compares two copies of one string. Folding case
     /// would assert an equivalence nothing here has evidence for.
+    /// </para>
+    /// <para>
+    /// Whitespace is different, and this assertion changed in fix cycle 1: the store trims a member
+    /// on the way in, so refusing to trim the title would have made a stored name unable to match
+    /// itself. Trimming one side only is not a stricter rule — it is a broken one.
+    /// </para>
     /// </remarks>
     [Fact]
-    public void Matching_is_exact()
+    public void Matching_is_exact_in_case_and_forgiving_of_surrounding_space()
     {
         var book = RosterBook.From([("orchestration", ["Director"])]);
 
         Assert.Equal("orchestration", book.RosterFor("Director"));
+        Assert.Equal("orchestration", book.RosterFor("Director "));
+
         Assert.Null(book.RosterFor("director"));
-        Assert.Null(book.RosterFor("Director "));
+        Assert.Null(book.RosterFor("Direct or"));
     }
 
     /// <summary>
@@ -154,6 +163,48 @@ public sealed class RosterBookTests
         Assert.Equal(["Director", "Coder"], Assert.Single(book.Rosters).Members.ToArray());
     }
 
+
+    /// <summary>
+    /// <strong>A title with surrounding whitespace matches the member it was stored as.</strong>
+    /// </summary>
+    /// <remarks>
+    /// The store trims a member name on the way in, so matching an untrimmed title against it could
+    /// never succeed — a name that looks right, matches nothing, and reports no error. Narrow, and
+    /// it is the one place the "exact copy" guarantee leaked: both sides are trimmed now, so exact
+    /// means the same thing in both directions.
+    /// </remarks>
+    [Theory]
+    [InlineData("  Director")]
+    [InlineData("Director  ")]
+    [InlineData("\tDirector\t")]
+    public void A_title_matches_the_member_it_was_stored_as(string title)
+    {
+        Assert.Equal("orchestration", RosterBook.From([("orchestration", ["  Director  "])]).RosterFor(title));
+    }
+
+    /// <summary>
+    /// <strong>Editing a roster does not shuffle the list.</strong>
+    /// </summary>
+    /// <remarks>
+    /// Resolution order and exposed order are different questions. The edited roster has to be
+    /// resolved first, so that rule 4 takes contested names off the others rather than the other way
+    /// round — but it is still listed where it was, because T1.26 renders this list and an operator
+    /// whose rosters reordered themselves on every edit would rightly call that a bug.
+    /// </remarks>
+    [Fact]
+    public void Editing_a_roster_leaves_the_list_in_its_existing_order()
+    {
+        var book = RosterBook.From([("a", ["A"]), ("b", ["B"]), ("c", ["C"])]);
+
+        var edited = book.With("b", ["B", "D"]);
+
+        Assert.Equal(["a", "b", "c"], edited.Rosters.Select(roster => roster.Name).ToArray());
+
+        // …and a genuinely new roster goes on the end rather than the front.
+        Assert.Equal(
+            ["a", "b", "c", "d"],
+            edited.With("d", ["E"]).Rosters.Select(roster => roster.Name).ToArray());
+    }
     /// <summary>An empty book is the ordinary case and answers nothing.</summary>
     [Fact]
     public void An_empty_book_puts_nobody_in_a_roster()

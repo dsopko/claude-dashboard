@@ -822,6 +822,44 @@ A classification has to hold for every value the slot can carry, not for the com
 session id passes the test the title fails: Claude Code mints it and nothing the operator typed
 reaches it.
 
+
+### Fix cycle 1: the settled group that spun the loop
+
+**A settled roster group left the consumer loop waking about a hundred times a second, indefinitely.**
+Measured with the production 1.5-second window, not a zero-length one: 39 wakes in 600 ms against
+an ungrouped control of 3, each one re-resolving every group from the Registry and posting to the
+dispatcher thread.
+
+The mechanism was one missing question. `DeadlineOf` returned a deadline whenever a roster group's
+raw roll-up was `Unread`, and never asked whether that deadline had already passed — and a settled
+group stays `Unread` until the operator acknowledges it. So the deadline stayed "pending" for ever,
+the floor turned the negative wait into 10 ms, and the loop re-armed on the same past instant.
+
+**The trigger is the feature's success path.** An orchestration finishes, the group settles, the
+operator has not looked yet — which is exactly the state this product exists to leave sitting on
+screen. A tray app whose first principle is that it never polls spent it burning a core.
+
+The method is now `PendingDeadlineOf(group, now, window)` and returns null once the window has
+elapsed. The name says what it answers, and taking `now` is what makes it able to answer.
+
+**Four sentences here and in the code asserted the opposite of what the code did**, and that is the
+part worth keeping. `WaitFor`'s remark said a past deadline "costs one short sleep rather than
+spinning" — it cost an unbounded run of them; **the floor is a rate limiter, not a guard.** A test
+called `A_deadline_in_the_past_is_floored_rather_than_spun_on` asserted one call of a pure function
+while its name claimed the loop. This section said the wake happens once per settle. And the "what
+the suite cannot reach" list correctly identified that the loop was untested and then **named the
+harmless half of the gap** — real-time accuracy, which is `Task.Delay`'s — while the half that
+mattered was what the loop did after the deadline passed, which was this code's.
+
+That last one is the lesson. The instinct to write down the limit was right; the limit chosen was
+the one that could not hurt anybody. A residual that names the comfortable half of an untested area
+is worse than none, because it reads as though the area was considered.
+
+`SettleSpinTests` closes the gap the rest of the suite left: `SettleWakeTests` only ever exercised a
+pure function, and `RosterLoggingTests` stopped watching once the group settled. It runs the real
+consumer, settles a group, counts wake-ups over a window, and compares against an ungrouped control
+— so the number means something on any machine. It was shown failing on the unfixed code before the
+fix went in.
 ### Was the harness capable of producing the other outcome?
 
 Six plants, each verified present by md5 **before** any result was read, and each run to completion
@@ -876,10 +914,12 @@ after the work finished**, while every test passed, because tests drive the cloc
 never wait on the loop. The operator chose 1.5 s deliberately; a tick interval is an implementation
 detail and must not overrule it.
 
-The loop now waits until the earlier of the next tick and the next settle deadline. It is a wake,
-not a poll: the deadline is known the instant a group goes quiet, so one extra wake-up per settle
-is enough. A fast repeating timer would have caught the same window by firing thousands of times an
-hour on an idle machine, which is polling with a smaller number.
+The loop now waits until the earlier of the next tick and the next settle deadline. **It is a wake
+rather than a poll only because a deadline that has passed stops being reported as pending** — that
+was got wrong first time and is recorded below under the fix cycle. With that in place the deadline
+is known the instant a group goes quiet, so one extra wake-up per settle is enough. A fast repeating
+timer would have caught the same window by firing thousands of times an hour on an idle machine,
+which is polling with a smaller number.
 
 **2 · The settle needs no history at all.**
 `Session.EnteredAt` is when a session entered its current state, and the Registry advances it *only*
@@ -916,11 +956,12 @@ identifier alone, checked by pairing the diff.
 2. **That the settle window is the right length.** 1.5 s is a guess and is treated as one. Nothing
    here measures a real hand-off; the mis-mark warning is the instrument that will, and it has
    never run against live traffic.
-3. **That the loop's wake actually fires at the deadline.** `WaitFor` is asserted directly, in both
-   directions, and the settle is asserted through a running consumer — but with a tick interval of
-   20 ms and a settle window of zero, because a test that waited on a real 1.5 s would be a test
-   that sleeps. What is unproven is the *real-time* accuracy of the wake, which is `Task.Delay`'s
-   and not this code's.
+3. **What the loop does while a settle is pending, in real time.** `WaitFor` is asserted directly in
+   both directions, and `SettleSpinTests` now watches the running loop before and after a deadline
+   passes. What remains unproven is the real-time accuracy of the wake itself, which is
+   `Task.Delay`'s. **The earlier version of this list named that limit and only that limit, which
+   was the harmless half of the gap** — the half that mattered was what the loop did once the
+   deadline had passed, and that half was this code's. See the fix-cycle note below.
 4. **That two sessions sharing a rostered name behave sensibly beyond joining.** #16 accepts the
    collision; the row-level consequences are T1.26's.
 

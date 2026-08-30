@@ -469,8 +469,13 @@ public sealed class EventConsumer : BackgroundService
     /// time, because the caller advances the tick deadline only when it actually ticks.
     /// </para>
     /// <para>
-    /// Floored at <see cref="MinimumWait"/> so that a deadline already in the past — reachable
-    /// whenever a test holds the clock still — costs one short sleep rather than spinning.
+    /// <strong>The floor is a rate limiter, not a guard, and the difference cost a fix cycle.</strong>
+    /// <see cref="MinimumWait"/> stops a past deadline producing a zero-length wait; it does
+    /// <em>not</em> stop the loop waking again on the same past instant. What keeps a past deadline
+    /// out of here at all is <see cref="RosterSettle.PendingDeadlineOf"/>, which returns null once
+    /// the window has elapsed. Before it did, a settled group reported an elapsed deadline for as
+    /// long as it stayed unread and this loop woke about a hundred times a second — measured, on
+    /// the feature's success path.
     /// </para>
     /// </remarks>
     internal static TimeSpan WaitFor(DateTimeOffset now, DateTimeOffset nextTick, DateTimeOffset? settleDue)
@@ -531,7 +536,7 @@ public sealed class EventConsumer : BackgroundService
             }
         }
 
-        _settleDue = _watch.NextDeadline(groups);
+        _settleDue = _watch.NextDeadline(groups, now);
     }
     /// <summary>
     /// Asks the sound engine what has come due (TS §IV.5), and tells the UI what time it is.

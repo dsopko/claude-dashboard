@@ -122,7 +122,6 @@ public static class GroupKeys
         return new GroupKey(SessionPrefix + session.Value);
     }
 
-
     /// <summary>The key for an operator roster, derived from its name (issue #16).</summary>
     /// <exception cref="ArgumentException"><paramref name="roster"/> is null, empty, or whitespace.</exception>
     public static GroupKey ForRoster(string roster)
@@ -172,6 +171,7 @@ public static class GroupKeys
             ? ForRoster(roster)
             : session.WorkspaceGroup;
     }
+
     /// <summary>What <paramref name="key"/> was derived from.</summary>
     public static GroupKeyKind KindOf(GroupKey key) => key.Value switch
     {

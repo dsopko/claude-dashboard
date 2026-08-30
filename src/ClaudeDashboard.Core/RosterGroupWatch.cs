@@ -158,14 +158,15 @@ public sealed class RosterGroupWatch
     }
 
     /// <summary>
-    /// The earliest instant any of <paramref name="groups"/> is due to change on its own, or null.
+    /// The earliest instant any of <paramref name="groups"/> is STILL due to change on its own, or
+    /// null when none of them is waiting on the clock.
     /// </summary>
     /// <remarks>
     /// The host waits until this or until its ordinary tick, whichever is sooner. Null means
     /// nothing is pending and the ordinary tick is enough, which is the usual case.
     /// </remarks>
     /// <exception cref="ArgumentNullException"><paramref name="groups"/> is null.</exception>
-    public DateTimeOffset? NextDeadline(IEnumerable<Group> groups)
+    public DateTimeOffset? NextDeadline(IEnumerable<Group> groups, DateTimeOffset now)
     {
         ArgumentNullException.ThrowIfNull(groups);
 
@@ -173,7 +174,7 @@ public sealed class RosterGroupWatch
 
         foreach (var group in groups)
         {
-            if (group is not null && RosterSettle.DeadlineOf(group, _window) is { } deadline &&
+            if (group is not null && RosterSettle.PendingDeadlineOf(group, now, _window) is { } deadline &&
                 (earliest is null || deadline < earliest))
             {
                 earliest = deadline;

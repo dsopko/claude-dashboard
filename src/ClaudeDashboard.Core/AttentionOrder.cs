@@ -100,7 +100,6 @@ public static class AttentionOrder
         _ => 0,
     };
 
-
     /// <summary>
     /// How urgently <paramref name="state"/> wants the operator, under <paramref name="order"/>.
     /// </summary>
@@ -132,6 +131,7 @@ public static class AttentionOrder
 
         _ => Rank(state),
     };
+
     /// <summary>The band <paramref name="state"/> is displayed in (TS §IV.2).</summary>
     /// <remarks>
     /// A coarsening of <see cref="Rank"/>, not a second ordering: the three Needs-You states

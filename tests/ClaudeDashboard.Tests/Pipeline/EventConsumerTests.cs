@@ -33,7 +33,7 @@ public sealed class EventConsumerTests : IAsyncLifetime
     public Task InitializeAsync()
     {
         _sound = new SoundPolicyEngine(_player, _clock, _guard, new SoundPolicyOptions());
-        _registry.SessionChanged += (_, e) => _sound.ChangedUngrouped(e.Session);
+        _registry.SessionChanged += (_, e) => _sound.ChangedInWorkspaceGroup(e.Session);
 
         _consumer = new EventConsumer(
             _pipeline,

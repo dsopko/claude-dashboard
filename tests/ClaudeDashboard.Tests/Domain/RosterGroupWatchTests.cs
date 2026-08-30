@@ -147,8 +147,12 @@ public sealed class RosterGroupWatchTests
             GroupKeys.ForRoster("b"),
             [Member("s-2", SessionState.Unread, At + TimeSpan.FromSeconds(5))]);
 
-        Assert.Equal(At + RosterSettle.DefaultWindow, watch.NextDeadline([early, late]));
-        Assert.Null(watch.NextDeadline([]));
+        Assert.Equal(At + RosterSettle.DefaultWindow, watch.NextDeadline([early, late], At));
+        Assert.Null(watch.NextDeadline([], At));
+
+        // …and once both windows have elapsed nothing is pending, which is what keeps the host on
+        // its ordinary tick instead of re-arming on an instant already in the past.
+        Assert.Null(watch.NextDeadline([early, late], At + TimeSpan.FromMinutes(1)));
     }
 
     /// <summary>The windows are injectable, so a test never waits on a real one.</summary>

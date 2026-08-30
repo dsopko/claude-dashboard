@@ -151,12 +151,21 @@ public sealed class RosterBook
     /// The name of the roster <paramref name="title"/> belongs to, or null when it belongs to none.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// A session with no title can never be in a roster: there is nothing to match, and matching
     /// "no title" against "no title" would gather every unnamed session into one group — the one
     /// thing grouping must never invent (TS §IV.3).
+    /// </para>
+    /// <para>
+    /// <strong>The title is trimmed here because the member was trimmed on the way in.</strong>
+    /// Trimming one side and not the other is not a stricter rule, it is a broken one: a title with
+    /// surrounding whitespace would be stored trimmed and could then never match itself. Both sides
+    /// are trimmed so that "exact" means the same thing in both directions — which is the whole of
+    /// the guarantee, since a member name is a copy of a reported title.
+    /// </para>
     /// </remarks>
     public string? RosterFor(string? title) =>
-        !string.IsNullOrEmpty(title) && _rosterByMember.TryGetValue(title, out var roster)
+        !string.IsNullOrWhiteSpace(title) && _rosterByMember.TryGetValue(title.Trim(), out var roster)
             ? roster
             : null;
 
@@ -175,20 +184,40 @@ public sealed class RosterBook
         ArgumentNullException.ThrowIfNull(members);
 
         var incoming = members.ToList();
+        var edited = (name ?? string.Empty).Trim();
 
-        // The new roster is resolved FIRST, so rule 4 takes names off the others rather than the
+        // The new roster is RESOLVED first, so rule 4 takes names off the others rather than the
         // other way round: the operator's latest instruction is the one that wins.
-        var pairs = new List<(string, IEnumerable<string>)> { (name, incoming) };
+        var pairs = new List<(string, IEnumerable<string>)> { (edited, incoming) };
 
         foreach (var roster in _rosters)
         {
-            if (!string.Equals(roster.Name, name, StringComparison.Ordinal))
+            if (!string.Equals(roster.Name, edited, StringComparison.Ordinal))
             {
                 pairs.Add((roster.Name, roster.Members));
             }
         }
 
-        return From(pairs);
+        var resolved = From(pairs);
+
+        // …but it is EXPOSED in the order it was already in, because resolution order is a rule
+        // about who keeps a contested name and says nothing about how the rosters should be listed.
+        // Letting the two be the same thing would shuffle the operator's list every time they
+        // edited a roster, which T1.26 has to render.
+        var order = _rosters.Select(roster => roster.Name).ToList();
+
+        if (!order.Contains(edited, StringComparer.Ordinal))
+        {
+            order.Add(edited);
+        }
+
+        return new RosterBook(
+        [
+            .. order
+                .Select(exposed => resolved.Rosters.FirstOrDefault(
+                    roster => string.Equals(roster.Name, exposed, StringComparison.Ordinal)))
+                .OfType<Roster>(),
+        ]);
     }
 
     /// <summary>

@@ -87,7 +87,7 @@ public sealed class SoundPolicyEngineTests
     [InlineData(SessionState.Error, "error")]
     public void A_notice_fires_on_entry_with_the_sound_for_that_state(SessionState state, string expected)
     {
-        _engine.ChangedUngrouped(SessionIn(state, Start));
+        _engine.ChangedInWorkspaceGroup(SessionIn(state, Start));
 
         var notice = Assert.Single(Notices);
         Assert.Equal(expected, notice.Sound.Name);
@@ -101,10 +101,10 @@ public sealed class SoundPolicyEngineTests
     [Fact]
     public void The_four_notices_are_four_different_sounds()
     {
-        _engine.ChangedUngrouped(SessionIn(SessionState.Unread, Start, "s-1"));
-        _engine.ChangedUngrouped(SessionIn(SessionState.NeedsPermission, Start, "s-2"));
-        _engine.ChangedUngrouped(SessionIn(SessionState.NeedsQuestion, Start, "s-3"));
-        _engine.ChangedUngrouped(SessionIn(SessionState.Error, Start, "s-4"));
+        _engine.ChangedInWorkspaceGroup(SessionIn(SessionState.Unread, Start, "s-1"));
+        _engine.ChangedInWorkspaceGroup(SessionIn(SessionState.NeedsPermission, Start, "s-2"));
+        _engine.ChangedInWorkspaceGroup(SessionIn(SessionState.NeedsQuestion, Start, "s-3"));
+        _engine.ChangedInWorkspaceGroup(SessionIn(SessionState.Error, Start, "s-4"));
 
         Assert.Equal(4, Notices.Select(n => n.Sound).Distinct().Count());
     }
@@ -115,7 +115,7 @@ public sealed class SoundPolicyEngineTests
     [InlineData(SessionState.Ended)]
     public void States_that_want_nothing_announce_nothing(SessionState state)
     {
-        _engine.ChangedUngrouped(SessionIn(state, Start));
+        _engine.ChangedInWorkspaceGroup(SessionIn(state, Start));
 
         Assert.Empty(_player.Played);
     }
@@ -128,11 +128,11 @@ public sealed class SoundPolicyEngineTests
     public void A_change_that_is_not_an_entry_announces_nothing()
     {
         var blocked = SessionIn(SessionState.NeedsPermission, Start);
-        _engine.ChangedUngrouped(blocked);
+        _engine.ChangedInWorkspaceGroup(blocked);
         _player.Clear();
 
         // Same state, same entry instant — a directory move, say.
-        _engine.ChangedUngrouped(blocked with { Cwd = @"C:\elsewhere", LastActivity = Start.AddMinutes(1) });
+        _engine.ChangedInWorkspaceGroup(blocked with { Cwd = @"C:\elsewhere", LastActivity = Start.AddMinutes(1) });
 
         Assert.Empty(_player.Played);
     }
@@ -140,10 +140,10 @@ public sealed class SoundPolicyEngineTests
     [Fact]
     public void Re_entering_a_state_later_announces_again()
     {
-        _engine.ChangedUngrouped(SessionIn(SessionState.Unread, Start));
+        _engine.ChangedInWorkspaceGroup(SessionIn(SessionState.Unread, Start));
         _player.Clear();
 
-        _engine.ChangedUngrouped(SessionIn(SessionState.Unread, Start.AddMinutes(30)));
+        _engine.ChangedInWorkspaceGroup(SessionIn(SessionState.Unread, Start.AddMinutes(30)));
 
         Assert.Single(Notices);
     }
@@ -158,7 +158,7 @@ public sealed class SoundPolicyEngineTests
     [Fact]
     public void The_nudge_ladder_fires_at_two_then_seven_then_seventeen_minutes()
     {
-        _engine.ChangedUngrouped(SessionIn(SessionState.NeedsPermission, Start));
+        _engine.ChangedInWorkspaceGroup(SessionIn(SessionState.NeedsPermission, Start));
 
         var firedAt = new List<double>();
         for (var minute = 0.0; minute <= 20.0; minute += 0.5)
@@ -178,7 +178,7 @@ public sealed class SoundPolicyEngineTests
     [Fact]
     public void The_last_interval_repeats_rather_than_stopping()
     {
-        _engine.ChangedUngrouped(SessionIn(SessionState.NeedsPermission, Start));
+        _engine.ChangedInWorkspaceGroup(SessionIn(SessionState.NeedsPermission, Start));
 
         var firedAt = new List<double>();
         for (var minute = 0.0; minute <= 50.0; minute += 0.5)
@@ -204,7 +204,7 @@ public sealed class SoundPolicyEngineTests
     [InlineData(17.0)]
     public void Nothing_fires_before_a_boundary_and_exactly_one_thing_fires_after(double boundary)
     {
-        _engine.ChangedUngrouped(SessionIn(SessionState.NeedsPermission, Start));
+        _engine.ChangedInWorkspaceGroup(SessionIn(SessionState.NeedsPermission, Start));
 
         // Walk the ladder up to just before the boundary under test.
         foreach (var earlier in LadderBoundaries.Where(b => b < boundary))
@@ -223,7 +223,7 @@ public sealed class SoundPolicyEngineTests
     [Fact]
     public void A_nudge_is_the_same_sound_as_the_notice_but_softer_and_faded()
     {
-        _engine.ChangedUngrouped(SessionIn(SessionState.NeedsQuestion, Start));
+        _engine.ChangedInWorkspaceGroup(SessionIn(SessionState.NeedsQuestion, Start));
         EvaluateAt(2);
 
         var notice = Assert.Single(Notices);
@@ -239,7 +239,7 @@ public sealed class SoundPolicyEngineTests
     [Fact]
     public void Every_nudge_plays_at_the_same_gain()
     {
-        _engine.ChangedUngrouped(SessionIn(SessionState.NeedsPermission, Start));
+        _engine.ChangedInWorkspaceGroup(SessionIn(SessionState.NeedsPermission, Start));
         foreach (var minute in new[] { 2.0, 7.0, 17.0, 27.0 })
         {
             EvaluateAt(minute);
@@ -252,7 +252,7 @@ public sealed class SoundPolicyEngineTests
     [Fact]
     public void Evaluating_more_often_than_nudges_are_due_fires_nothing_extra()
     {
-        _engine.ChangedUngrouped(SessionIn(SessionState.NeedsPermission, Start));
+        _engine.ChangedInWorkspaceGroup(SessionIn(SessionState.NeedsPermission, Start));
 
         for (var minute = 0.0; minute <= 6.0; minute += 0.1)
         {
@@ -269,7 +269,7 @@ public sealed class SoundPolicyEngineTests
     [Fact]
     public void Evaluating_late_fires_once_and_reschedules_from_now()
     {
-        _engine.ChangedUngrouped(SessionIn(SessionState.NeedsPermission, Start));
+        _engine.ChangedInWorkspaceGroup(SessionIn(SessionState.NeedsPermission, Start));
 
         EvaluateAt(30);
 
@@ -282,7 +282,7 @@ public sealed class SoundPolicyEngineTests
     [InlineData(SessionState.NeedsQuestion)]
     public void Both_needs_you_states_nudge(SessionState state)
     {
-        _engine.ChangedUngrouped(SessionIn(state, Start));
+        _engine.ChangedInWorkspaceGroup(SessionIn(state, Start));
         EvaluateAt(2);
 
         Assert.Single(Nudges);
@@ -296,7 +296,7 @@ public sealed class SoundPolicyEngineTests
     [Fact]
     public void An_errored_session_nudges_by_default()
     {
-        _engine.ChangedUngrouped(SessionIn(SessionState.Error, Start));
+        _engine.ChangedInWorkspaceGroup(SessionIn(SessionState.Error, Start));
         EvaluateAt(2);
 
         Assert.Single(Nudges);
@@ -307,7 +307,7 @@ public sealed class SoundPolicyEngineTests
     {
         var engine = new SoundPolicyEngine(_player, _clock, new SingleWriterGuard(), new SoundPolicyOptions { NudgeOnError = false });
 
-        engine.ChangedUngrouped(SessionIn(SessionState.Error, Start));
+        engine.ChangedInWorkspaceGroup(SessionIn(SessionState.Error, Start));
         engine.Evaluate(Start.AddMinutes(60));
 
         Assert.Single(Notices);
@@ -319,7 +319,7 @@ public sealed class SoundPolicyEngineTests
     [InlineData(SessionState.Acked)]
     public void States_that_are_not_waiting_never_nudge(SessionState state)
     {
-        _engine.ChangedUngrouped(SessionIn(state, Start));
+        _engine.ChangedInWorkspaceGroup(SessionIn(state, Start));
 
         EvaluateAt(60);
 
@@ -336,10 +336,10 @@ public sealed class SoundPolicyEngineTests
     [Fact]
     public void Acking_cancels_the_scheduled_nudge()
     {
-        _engine.ChangedUngrouped(SessionIn(SessionState.NeedsPermission, Start));
+        _engine.ChangedInWorkspaceGroup(SessionIn(SessionState.NeedsPermission, Start));
         _player.Clear();
 
-        _engine.ChangedUngrouped(SessionIn(SessionState.Acked, Start.AddSeconds(30)));
+        _engine.ChangedInWorkspaceGroup(SessionIn(SessionState.Acked, Start.AddSeconds(30)));
         Assert.Null(_engine.NextNudgeAt(new SessionId("s-1")));
 
         EvaluateAt(2);
@@ -353,12 +353,12 @@ public sealed class SoundPolicyEngineTests
     [Fact]
     public void Acking_mid_ladder_stops_every_later_nudge()
     {
-        _engine.ChangedUngrouped(SessionIn(SessionState.NeedsPermission, Start));
+        _engine.ChangedInWorkspaceGroup(SessionIn(SessionState.NeedsPermission, Start));
         EvaluateAt(2);
         Assert.Single(Nudges);
         _player.Clear();
 
-        _engine.ChangedUngrouped(SessionIn(SessionState.Acked, Start.AddMinutes(3)));
+        _engine.ChangedInWorkspaceGroup(SessionIn(SessionState.Acked, Start.AddMinutes(3)));
         EvaluateAt(7);
         EvaluateAt(17);
         EvaluateAt(60);
@@ -373,10 +373,10 @@ public sealed class SoundPolicyEngineTests
     [Fact]
     public void A_new_prompt_also_stops_the_nudges()
     {
-        _engine.ChangedUngrouped(SessionIn(SessionState.NeedsQuestion, Start));
+        _engine.ChangedInWorkspaceGroup(SessionIn(SessionState.NeedsQuestion, Start));
         _player.Clear();
 
-        _engine.ChangedUngrouped(SessionIn(SessionState.Working, Start.AddMinutes(1)));
+        _engine.ChangedInWorkspaceGroup(SessionIn(SessionState.Working, Start.AddMinutes(1)));
 
         EvaluateAt(2);
         EvaluateAt(60);
@@ -386,10 +386,10 @@ public sealed class SoundPolicyEngineTests
     [Fact]
     public void Ending_a_session_stops_the_nudges()
     {
-        _engine.ChangedUngrouped(SessionIn(SessionState.Error, Start));
+        _engine.ChangedInWorkspaceGroup(SessionIn(SessionState.Error, Start));
         _player.Clear();
 
-        _engine.ChangedUngrouped(SessionIn(SessionState.Ended, Start.AddMinutes(1)));
+        _engine.ChangedInWorkspaceGroup(SessionIn(SessionState.Ended, Start.AddMinutes(1)));
 
         EvaluateAt(60);
         Assert.Empty(_player.Played);
@@ -400,7 +400,7 @@ public sealed class SoundPolicyEngineTests
     [Fact]
     public void An_unread_result_gets_one_soft_nudge_at_five_minutes()
     {
-        _engine.ChangedUngrouped(SessionIn(SessionState.Unread, Start));
+        _engine.ChangedInWorkspaceGroup(SessionIn(SessionState.Unread, Start));
         _player.Clear();
 
         EvaluateAt(4.999);
@@ -414,7 +414,7 @@ public sealed class SoundPolicyEngineTests
     [Fact]
     public void An_unread_result_never_gets_a_second_nudge()
     {
-        _engine.ChangedUngrouped(SessionIn(SessionState.Unread, Start));
+        _engine.ChangedInWorkspaceGroup(SessionIn(SessionState.Unread, Start));
         EvaluateAt(5);
         _player.Clear();
 
@@ -432,7 +432,7 @@ public sealed class SoundPolicyEngineTests
         var engine = new SoundPolicyEngine(
             _player, _clock, new SingleWriterGuard(), new SoundPolicyOptions { UnreadNudgeAfter = null });
 
-        engine.ChangedUngrouped(SessionIn(SessionState.Unread, Start));
+        engine.ChangedInWorkspaceGroup(SessionIn(SessionState.Unread, Start));
         engine.Evaluate(Start.AddMinutes(600));
 
         Assert.Single(Notices);
@@ -443,7 +443,7 @@ public sealed class SoundPolicyEngineTests
     [Fact]
     public void An_unread_result_does_not_use_the_blocked_ladder()
     {
-        _engine.ChangedUngrouped(SessionIn(SessionState.Unread, Start));
+        _engine.ChangedInWorkspaceGroup(SessionIn(SessionState.Unread, Start));
 
         EvaluateAt(2);
 
@@ -457,7 +457,7 @@ public sealed class SoundPolicyEngineTests
     {
         _engine.SetSessionMuted(new SessionId("s-1"), true);
 
-        _engine.ChangedUngrouped(SessionIn(SessionState.NeedsPermission, Start));
+        _engine.ChangedInWorkspaceGroup(SessionIn(SessionState.NeedsPermission, Start));
         EvaluateAt(2);
         EvaluateAt(7);
 
@@ -469,8 +469,8 @@ public sealed class SoundPolicyEngineTests
     {
         _engine.SetGroupMuted(GroupKeys.ForWorkspace(Cwd), true);
 
-        _engine.ChangedUngrouped(SessionIn(SessionState.NeedsPermission, Start, "s-1"));
-        _engine.ChangedUngrouped(SessionIn(SessionState.Error, Start, "s-2"));
+        _engine.ChangedInWorkspaceGroup(SessionIn(SessionState.NeedsPermission, Start, "s-1"));
+        _engine.ChangedInWorkspaceGroup(SessionIn(SessionState.Error, Start, "s-2"));
         EvaluateAt(2);
 
         Assert.Empty(_player.Played);
@@ -481,8 +481,8 @@ public sealed class SoundPolicyEngineTests
     {
         _engine.SetGroupMuted(GroupKeys.ForWorkspace(Cwd), true);
 
-        _engine.ChangedUngrouped(SessionIn(SessionState.NeedsPermission, Start, "s-1"));
-        _engine.ChangedUngrouped(SessionIn(SessionState.NeedsPermission, Start, "s-2", @"C:\elsewhere"));
+        _engine.ChangedInWorkspaceGroup(SessionIn(SessionState.NeedsPermission, Start, "s-1"));
+        _engine.ChangedInWorkspaceGroup(SessionIn(SessionState.NeedsPermission, Start, "s-2", @"C:\elsewhere"));
 
         Assert.Single(Notices);
     }
@@ -492,7 +492,7 @@ public sealed class SoundPolicyEngineTests
     {
         var id = new SessionId("s-1");
         _engine.SetSessionMuted(id, true);
-        _engine.ChangedUngrouped(SessionIn(SessionState.NeedsPermission, Start));
+        _engine.ChangedInWorkspaceGroup(SessionIn(SessionState.NeedsPermission, Start));
         Assert.Empty(_player.Played);
 
         _engine.SetSessionMuted(id, false);
@@ -510,7 +510,7 @@ public sealed class SoundPolicyEngineTests
     {
         var id = new SessionId("s-1");
         _engine.SetSessionMuted(id, true);
-        _engine.ChangedUngrouped(SessionIn(SessionState.NeedsPermission, Start));
+        _engine.ChangedInWorkspaceGroup(SessionIn(SessionState.NeedsPermission, Start));
 
         EvaluateAt(2);
         EvaluateAt(7);
@@ -537,11 +537,11 @@ public sealed class SoundPolicyEngineTests
     {
         var moved = GroupKeys.ForWorkspace(@"C:\elsewhere");
         var blocked = SessionIn(SessionState.NeedsPermission, Start);
-        _engine.ChangedUngrouped(blocked);
+        _engine.ChangedInWorkspaceGroup(blocked);
         _player.Clear();
 
         // Same state and entry instant — a directory move, not a new blocker.
-        _engine.ChangedUngrouped(blocked with
+        _engine.ChangedInWorkspaceGroup(blocked with
         {
             Cwd = @"C:\elsewhere",
             WorkspaceGroup = moved,
@@ -585,8 +585,8 @@ public sealed class SoundPolicyEngineTests
     [Fact]
     public void Sessions_are_nudged_on_their_own_schedules()
     {
-        _engine.ChangedUngrouped(SessionIn(SessionState.NeedsPermission, Start, "s-1"));
-        _engine.ChangedUngrouped(SessionIn(SessionState.NeedsQuestion, Start.AddMinutes(5), "s-2"));
+        _engine.ChangedInWorkspaceGroup(SessionIn(SessionState.NeedsPermission, Start, "s-1"));
+        _engine.ChangedInWorkspaceGroup(SessionIn(SessionState.NeedsQuestion, Start.AddMinutes(5), "s-2"));
         _player.Clear();
 
         EvaluateAt(2);
@@ -601,11 +601,11 @@ public sealed class SoundPolicyEngineTests
     [Fact]
     public void Acking_one_session_leaves_another_nudging()
     {
-        _engine.ChangedUngrouped(SessionIn(SessionState.NeedsPermission, Start, "s-1"));
-        _engine.ChangedUngrouped(SessionIn(SessionState.NeedsQuestion, Start, "s-2"));
+        _engine.ChangedInWorkspaceGroup(SessionIn(SessionState.NeedsPermission, Start, "s-1"));
+        _engine.ChangedInWorkspaceGroup(SessionIn(SessionState.NeedsQuestion, Start, "s-2"));
         _player.Clear();
 
-        _engine.ChangedUngrouped(SessionIn(SessionState.Acked, Start.AddMinutes(1), "s-1"));
+        _engine.ChangedInWorkspaceGroup(SessionIn(SessionState.Acked, Start.AddMinutes(1), "s-1"));
         EvaluateAt(2);
 
         Assert.Equal([SoundId.Question], Nudges.Select(n => n.Sound));
@@ -620,10 +620,10 @@ public sealed class SoundPolicyEngineTests
     [Fact]
     public void Permission_becoming_a_question_is_a_fresh_notice_and_a_fresh_ladder()
     {
-        _engine.ChangedUngrouped(SessionIn(SessionState.NeedsPermission, Start));
+        _engine.ChangedInWorkspaceGroup(SessionIn(SessionState.NeedsPermission, Start));
         _player.Clear();
 
-        _engine.ChangedUngrouped(SessionIn(SessionState.NeedsQuestion, Start.AddMinutes(1.5)));
+        _engine.ChangedInWorkspaceGroup(SessionIn(SessionState.NeedsQuestion, Start.AddMinutes(1.5)));
 
         Assert.Equal([SoundId.Question], Notices.Select(n => n.Sound));
 
@@ -640,7 +640,7 @@ public sealed class SoundPolicyEngineTests
     [Fact]
     public void Evaluate_reads_the_clock_when_given_no_instant()
     {
-        _engine.ChangedUngrouped(SessionIn(SessionState.NeedsPermission, Start));
+        _engine.ChangedInWorkspaceGroup(SessionIn(SessionState.NeedsPermission, Start));
         _player.Clear();
 
         _clock.AdvanceMinutes(2);
@@ -660,7 +660,7 @@ public sealed class SoundPolicyEngineTests
     [Fact]
     public void The_next_nudge_time_is_visible_without_waiting_for_it()
     {
-        _engine.ChangedUngrouped(SessionIn(SessionState.NeedsPermission, Start));
+        _engine.ChangedInWorkspaceGroup(SessionIn(SessionState.NeedsPermission, Start));
 
         Assert.Equal(Start.AddMinutes(2), _engine.NextNudgeAt(new SessionId("s-1")));
         Assert.Null(_engine.NextNudgeAt(new SessionId("never-seen")));
@@ -703,7 +703,7 @@ public sealed class SoundPolicyEngineTests
             new SingleWriterGuard(),
             new SoundPolicyOptions { NudgeLadder = [TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(3)] });
 
-        engine.ChangedUngrouped(SessionIn(SessionState.NeedsPermission, Start));
+        engine.ChangedInWorkspaceGroup(SessionIn(SessionState.NeedsPermission, Start));
 
         engine.Evaluate(Start.AddMinutes(1));
         Assert.Single(Nudges);
@@ -733,7 +733,7 @@ public sealed class SoundPolicyEngineTests
     {
         _engine.SetAllMuted(muted: true);
 
-        _engine.ChangedUngrouped(SessionIn(SessionState.NeedsPermission, Start));
+        _engine.ChangedInWorkspaceGroup(SessionIn(SessionState.NeedsPermission, Start));
         EvaluateAt(2);
         EvaluateAt(7);
         EvaluateAt(60);
@@ -747,7 +747,7 @@ public sealed class SoundPolicyEngineTests
     {
         _engine.SetMonitoringPaused(paused: true);
 
-        _engine.ChangedUngrouped(SessionIn(SessionState.Error, Start));
+        _engine.ChangedInWorkspaceGroup(SessionIn(SessionState.Error, Start));
         EvaluateAt(2);
         EvaluateAt(60);
 
@@ -767,7 +767,7 @@ public sealed class SoundPolicyEngineTests
     {
         _engine.SetAllMuted(muted: true, Start.AddMinutes(30));
 
-        _engine.ChangedUngrouped(SessionIn(SessionState.NeedsPermission, Start));
+        _engine.ChangedInWorkspaceGroup(SessionIn(SessionState.NeedsPermission, Start));
         _clock.AdvanceMinutes(2);
         EvaluateAt(2);
         Assert.Empty(_player.Played);
@@ -792,7 +792,7 @@ public sealed class SoundPolicyEngineTests
     public void Unmuting_does_not_release_a_backlog()
     {
         _engine.SetAllMuted(muted: true);
-        _engine.ChangedUngrouped(SessionIn(SessionState.NeedsPermission, Start));
+        _engine.ChangedInWorkspaceGroup(SessionIn(SessionState.NeedsPermission, Start));
 
         EvaluateAt(2);
         EvaluateAt(7);
@@ -811,11 +811,11 @@ public sealed class SoundPolicyEngineTests
     public void Unmuting_lets_the_next_notice_through()
     {
         _engine.SetAllMuted(muted: true);
-        _engine.ChangedUngrouped(SessionIn(SessionState.NeedsPermission, Start));
+        _engine.ChangedInWorkspaceGroup(SessionIn(SessionState.NeedsPermission, Start));
         Assert.Empty(_player.Played);
 
         _engine.SetAllMuted(muted: false);
-        _engine.ChangedUngrouped(SessionIn(SessionState.Error, Start.AddMinutes(1), "s-2"));
+        _engine.ChangedInWorkspaceGroup(SessionIn(SessionState.Error, Start.AddMinutes(1), "s-2"));
 
         Assert.Single(Notices);
     }
@@ -841,7 +841,7 @@ public sealed class SoundPolicyEngineTests
             new SingleWriterGuard(),
             new SoundPolicyOptions { MasterVolume = 0.5 });
 
-        engine.ChangedUngrouped(SessionIn(SessionState.NeedsPermission, Start));
+        engine.ChangedInWorkspaceGroup(SessionIn(SessionState.NeedsPermission, Start));
         engine.Evaluate(Start.AddMinutes(2));
 
         Assert.Equal(2, _player.Played.Count);
@@ -870,7 +870,7 @@ public sealed class SoundPolicyEngineTests
             new SingleWriterGuard(),
             new SoundPolicyOptions { MasterVolume = 0.0 });
 
-        silentByVolume.ChangedUngrouped(SessionIn(SessionState.NeedsPermission, Start));
+        silentByVolume.ChangedInWorkspaceGroup(SessionIn(SessionState.NeedsPermission, Start));
 
         // Emitted, at nothing.
         Assert.Single(_player.Played);
@@ -881,7 +881,7 @@ public sealed class SoundPolicyEngineTests
         // Muted: not emitted at all. Same session, same state, same player.
         var muted = new SoundPolicyEngine(_player, _clock, new SingleWriterGuard(), new SoundPolicyOptions());
         muted.SetAllMuted(muted: true);
-        muted.ChangedUngrouped(SessionIn(SessionState.NeedsPermission, Start));
+        muted.ChangedInWorkspaceGroup(SessionIn(SessionState.NeedsPermission, Start));
 
         Assert.Empty(_player.Played);
     }

@@ -69,15 +69,17 @@ public sealed class SettleWakeTests
     }
 
     /// <summary>
-    /// <strong>A deadline already past costs one short sleep rather than spinning.</strong>
+    /// A past deadline produces the floor rather than a zero-length wait.
     /// </summary>
     /// <remarks>
-    /// Reachable whenever the clock is held still, which is every test in this suite: the loop
-    /// waits in real time while the domain's clock does not move, so a deadline can stay in the
-    /// past however long the loop waits. Without the floor that is a busy loop burning a core.
+    /// <strong>This asserts one call of a pure function, and that is all it ever asserted.</strong>
+    /// It was once named for the loop and remarked as though the floor removed a busy loop. The
+    /// floor does not remove one — it sets its frequency. What the loop does after a deadline has
+    /// passed is <c>SettleSpinTests</c>'s, and it had to be, because no assertion on this function
+    /// could ever have caught it.
     /// </remarks>
     [Fact]
-    public void A_deadline_in_the_past_is_floored_rather_than_spun_on()
+    public void A_past_deadline_produces_the_floor_rather_than_a_zero_wait()
     {
         var nextTick = At + EventConsumer.DefaultTickInterval;
 
