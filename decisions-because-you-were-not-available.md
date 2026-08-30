@@ -1696,3 +1696,79 @@ caught that because "one" was implausible.
 The generalisation is worth more than the instance: **the shape is a test whose subject is an
 interaction between two components where the fixture builds only one — and it hides from a naive
 grep, because the missing collaborator is usually constructed in a field initialiser.**
+
+## D102 — A ruling that extended a document without updating it
+I issued five extra acceptance criteria for T1.26 in a **message** and never wrote them into the
+brief file. The artefact both sessions read was stale from that moment, and my review request cited
+criteria the reviewer could not see.
+
+It could have inferred them from what the code does. It refused, in one line:
+
+> **I am not going to infer them from what the code happens to do — that is grading the answer
+> against itself.**
+
+Then it verified the brief actually carried the fix rather than taking my word that I had made it.
+
+Second failure of the same family in one night, after D97. **Both are the record and the reality
+diverging while I reported the record** — from the session whose whole job is the record.
+
+**A brief file is the durable artefact. A ruling that extends it must be written back into it.**
+
+## D103 — A plant that measured two things and reported both under one name
+A recorded plant count said six; it reproduced as five, three different ways.
+
+The cause was not miscounting. The mutation rewrote a condition to a *different* enum member, which
+did not merely disable the branch under test — **it redirected a second case into it**. One test
+died of an unintended mutation travelling with the intended one, and both were attributed to the
+guard.
+
+**The tell is what makes this worth writing down.** A truncated instrument gives an implausible
+number, which is why the `head -8` count was eventually caught. This one gives a **plausible**
+number, one higher than the truth — the direction nobody investigates, because a guard that kills
+more tests than expected looks stronger, not broken.
+
+The rule that catches it, now in the acceptance record: **a plant that produces the wrong count is
+more often the wrong plant than a wrong guard.**
+
+## D104 — "Zero warnings" read from an instrument that could not have said otherwise
+A hand-back reported "0 errors 0 warnings". There was one, in both configurations. The test project
+does not treat warnings as errors, so nothing failed — **the claim was read from the exit code, and
+the exit code could not have reported it.**
+
+Reading the count line instead caught something else within the hour: a later attempt left **18
+build errors**, and the test run used the *previous* assembly and reported the affected tests
+passing. Fifth firing of the stale-assembly trap this week, and the only thing that noticed was the
+new habit of reading `Error(s)` rather than the exit status.
+
+Three instances of one shape landed in a single commit — a bad plant count, a wrong test
+attribution reasoned from an earlier task's precedent, and this — and the coder named the
+through-line itself: **reasoning where it should have measured.**
+
+## D105 — A reviewer that declined to require something, and said why
+The floor on a file enumeration was over-credited by its own comment: the remark claimed that
+without it an empty enumeration "would look like a clean pass", and measured, it would not — the
+assertion compares against a non-empty expected set, so an empty result fails either way. The
+floor's real value is the diagnostic, not the catch.
+
+The reviewer recorded it and **deliberately did not send it back**, with the reasoning on record so
+the standard would not appear to have moved: the two things it *had* required this run were claims
+that caused or concealed a defect; this one over-credits a guard that works, in the direction of
+more care rather than less. One sentence is not worth parking a task in front of an absent operator.
+
+Worth keeping as the shape of a proportionate call, not just its outcome.
+
+## D106 — The trend the reviewer has now raised three times, and it is yours
+The habit of **recording a correction rather than deleting it** now appears in **eight files**.
+Every instance is individually justified; the reviewer approved several itself and asked for others.
+
+It declined to add a ninth this cycle, on the grounds that the through-line was already stated three
+times in the same document and a fourth paragraph would cost readability without adding anything a
+reader needs. Its words: *the document is not short of self-awareness; it is at the point where more
+of it costs legibility.*
+
+The question it keeps putting, and nobody has answered: **does a reader arriving in a year meet the
+specification, or a history of what the specification used to say?**
+
+Nothing is being removed — the cost of removing them is losing the evidence that made this
+project's standard real. What is recorded is that the question is now three times asked and still
+open, and it belongs to you at Phase 2 planning rather than to any task.
