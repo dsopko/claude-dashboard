@@ -1616,3 +1616,83 @@ as well as going in.
 of 22 where 23 was right, caught by arithmetic when per-file counts did not sum to the run's own
 total. Once leaving a mutation's binaries on disk overnight, where a `--no-build` run the next
 morning would have read a broken feature and reported it without complaint.
+
+## D97 — I accepted a printed URL as proof a write landed
+My four rewrites of GitHub issue #16 never applied. Each `gh issue edit` printed the issue's URL and
+exited zero; the body on GitHub stayed the original throughout, including when I reported it to you
+as "107 lines" and "rewritten". The local file was correct the whole time.
+
+Found only because I re-read the issue before briefing work from it. Fixed, and verified by reading
+the body back — 121 lines, both marker phrases present. #18 was checked the same way and was fine.
+
+**The tool printed the identifier of the thing I asked it to change, not evidence that it changed.**
+That is the shape I had spent two days pointing at in other people's work: `Failed: 0` is not green;
+a mutation reporting a pass and a mutation never applied are the same observation; a number can be
+the instrument's setting rather than a measurement.
+
+**Read back what you wrote, from the place it was written to.**
+
+## D98 — #16 split, and four rulings taken in the operator's absence
+Split into **T1.25** (roster store, membership, roll-up, settle, sound — no operator surface) and
+**T1.26** (tick to form, the prompt, removal, the header). T1.24 was 1742 lines in one commit; #16
+is bigger, and the operator-facing half is independently reviewable.
+
+Taken without you, each because the alternative was worse rather than because it was obvious:
+
+- **Rosters live in the existing settings file.** A better-behaved store built for one feature
+  leaves every other setting on the worse one and gives us two write paths to reason about.
+- **Rules 4 and 6 are invariants of the store, not the UI.** A rule a caller must remember is a rule
+  the second caller breaks.
+- **The group is the sound unit for *done* only.** Permission, question and error still sound per
+  member immediately — suppressing those would hide exactly what this product exists to surface.
+- **`Session.Group` renamed to `Session.WorkspaceGroup`, in its own commit.** With a roster overlay
+  above it, `Group` promised "the group" while meaning "the observed group".
+
+## D99 — The tick is fifteen seconds, and nothing said so
+You ruled the settle window at 1.5 seconds, having rejected 30 as a terrible guess. The event
+pipeline's tick is **15 seconds**, so a 1.5-second window evaluated on it would have delivered the
+group's *finished* — and the chime — up to fifteen seconds late.
+
+Every test would have passed, because tests drive the clock directly. **Your ruling would have been
+overruled by a number neither of us could see from outside the code.** Found by reading the consumer
+loop rather than the brief.
+
+Ruled: wake once at the deadline. A 4 Hz timer was the alternative and it is polling with a smaller
+number, in a product whose first principle is that it never polls.
+
+## D100 — The feature's success path spun the loop at 100 Hz
+Shipped in T1.25 and caught in review. After a roster group settled, the loop woke every 10 ms
+forever: a settled group stays `Unread` until acknowledged, so the code kept returning a deadline
+already in the past, and the floor on the wait turned a negative interval into a fast heartbeat.
+
+Measured on the production window, twice, from two harnesses: 66 wakes a second against a control of
+5; then 39 in 600 ms against a control of 3.
+
+**The trigger is the state this product exists to create** — an orchestration finished and the
+operator has not looked yet. In it, a tray app that never polls burned a core.
+
+**Four confident sentences said otherwise**, and they are the reason it would have survived: a code
+remark saying a past deadline "costs one short sleep rather than spinning"; a test *named* for the
+loop that asserted a pure function; an acceptance record reading "it is a wake, not a poll"; and a
+residual naming what was unproven about the loop as `Task.Delay`'s accuracy.
+
+That last one produced the rule worth keeping, and the reviewer sharpened it:
+
+> **A residual that names the comfortable half of an untested area is worse than none, because it
+> reads as though the area was considered.** The tell: *the comfortable half is usually the half
+> attributed to someone else.* When a residual's subject belongs to a library, ask what the same
+> paragraph would have said about your own code.
+
+## D101 — A test that could not fail, and the shape it hides in
+A mutation removing the group sound-suppression did not break the test written to prove it. The
+fixture never subscribed the sound engine to the Registry, so no member was ever announced to it and
+the only done sound in the run was always the group's. It counted, and it proved nothing.
+
+Third instance this week of a test passing while asserting nothing, by a different mechanism each
+time. The sweep for others came back empty across ten files — **and the reviewer's first sweep said
+one, wrongly**, because it grepped `new SessionRegistry` while the fixtures use `= new(...)`. It
+caught that because "one" was implausible.
+
+The generalisation is worth more than the instance: **the shape is a test whose subject is an
+interaction between two components where the fixture builds only one — and it hides from a naive
+grep, because the missing collaborator is usually constructed in a field initialiser.**
