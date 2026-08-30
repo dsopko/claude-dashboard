@@ -16,7 +16,7 @@ namespace ClaudeDashboard.Core;
 /// <para>
 /// Re-derivation is also what TS §IV.3 asks for: the key is "re-derived on directory-change
 /// events, not fixed at session start". A session whose <c>cwd</c> moved simply carries a
-/// different <see cref="Session.Group"/> the next time this runs, and lands in the right group
+/// different <see cref="Session.WorkspaceGroup"/> the next time this runs, and lands in the right group
 /// with no membership bookkeeping.
 /// </para>
 /// <para>
@@ -36,7 +36,7 @@ public static class GroupResolver
     /// Partitions <paramref name="sessions"/> into the groups their keys imply.
     /// </summary>
     /// <returns>
-    /// One <see cref="Group"/> per distinct <see cref="Session.Group"/> key, ordered by key.
+    /// One <see cref="Group"/> per distinct <see cref="Session.WorkspaceGroup"/> key, ordered by key.
     /// Never contains an empty group: a group is derived from its members, so it exists exactly
     /// as long as one does, and a session leaving takes its group with it when it was the last.
     /// </returns>
@@ -55,7 +55,7 @@ public static class GroupResolver
         return
         [
             .. members
-                .GroupBy(static session => session.Group)
+                .GroupBy(static session => session.WorkspaceGroup)
                 .OrderBy(static group => group.Key.Value, StringComparer.Ordinal)
                 .Select(static group => new Group(
                     group.Key,

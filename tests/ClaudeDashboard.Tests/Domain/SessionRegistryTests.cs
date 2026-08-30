@@ -899,7 +899,7 @@ public sealed class SessionRegistryTests
         Assert.Equal(ApplyOutcome.Applied, Apply(Moved(@"C:\projects\elsewhere")));
 
         Assert.Equal(@"C:\projects\elsewhere", Current.Cwd);
-        Assert.Equal(GroupKeys.ForWorkspace(@"C:\projects\elsewhere"), Current.Group);
+        Assert.Equal(GroupKeys.ForWorkspace(@"C:\projects\elsewhere"), Current.WorkspaceGroup);
         Assert.Equal(SessionState.Working, Current.State);
     }
 
@@ -926,7 +926,7 @@ public sealed class SessionRegistryTests
             SessionId = Id, Timestamp = _clock.Now, Cwd = string.Empty, Prompt = "p", PromptId = "p-1",
         });
 
-        Assert.Equal(GroupKeys.ForUngrouped(Id), Current.Group);
+        Assert.Equal(GroupKeys.ForUngrouped(Id), Current.WorkspaceGroup);
     }
 
     // ---- Change notification ----------------------------------------------------------------------------

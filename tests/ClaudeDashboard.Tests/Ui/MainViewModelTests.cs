@@ -444,7 +444,7 @@ public sealed class SessionViewModelTextTests
                 AnsweredAt = answer is null ? null : At,
             },
             Cwd = @"C:\w",
-            Group = GroupKeys.ForWorkspace(@"C:\w"),
+            WorkspaceGroup = GroupKeys.ForWorkspace(@"C:\w"),
             EnteredAt = At,
             LastActivity = At,
         });

@@ -57,7 +57,7 @@ public sealed class SingleWriterInvariantTests
             State = SessionState.NeedsPermission,
             Latest = new Exchange { Prompt = "p", StartedAt = enteredAt },
             Cwd = @"C:\w",
-            Group = GroupKeys.ForWorkspace(@"C:\w"),
+            WorkspaceGroup = GroupKeys.ForWorkspace(@"C:\w"),
             EnteredAt = enteredAt,
             LastActivity = enteredAt,
         };

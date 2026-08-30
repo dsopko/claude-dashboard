@@ -288,7 +288,7 @@ public sealed class SessionTitleRowTests
                 State = SessionState.Working,
                 Latest = new Exchange { Prompt = prompt, StartedAt = At },
                 Cwd = @"C:\w",
-                Group = GroupKeys.ForWorkspace(@"C:\w"),
+                WorkspaceGroup = GroupKeys.ForWorkspace(@"C:\w"),
                 EnteredAt = At,
                 LastActivity = At,
                 Title = title,

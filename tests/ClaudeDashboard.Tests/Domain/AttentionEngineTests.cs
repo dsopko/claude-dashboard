@@ -26,7 +26,7 @@ public sealed class AttentionEngineTests
             State = state,
             Latest = new Exchange { Prompt = "p", StartedAt = Now.AddMinutes(-ageMinutes) },
             Cwd = cwd,
-            Group = GroupKeys.ForSession(cwd, sessionId),
+            WorkspaceGroup = GroupKeys.ForSession(cwd, sessionId),
             EnteredAt = Now.AddMinutes(-ageMinutes),
             LastActivity = Now.AddMinutes(-(idleMinutes ?? ageMinutes)),
         };

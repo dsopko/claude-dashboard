@@ -69,7 +69,7 @@ public sealed class SoundPolicyEngineTests
             State = state,
             Latest = new Exchange { Prompt = "p", StartedAt = enteredAt },
             Cwd = cwd,
-            Group = GroupKeys.ForSession(cwd, sessionId),
+            WorkspaceGroup = GroupKeys.ForSession(cwd, sessionId),
             EnteredAt = enteredAt,
             LastActivity = enteredAt,
         };
@@ -544,7 +544,7 @@ public sealed class SoundPolicyEngineTests
         _engine.OnSessionChanged(blocked with
         {
             Cwd = @"C:\elsewhere",
-            Group = moved,
+            WorkspaceGroup = moved,
             LastActivity = Start.AddMinutes(1),
         });
 

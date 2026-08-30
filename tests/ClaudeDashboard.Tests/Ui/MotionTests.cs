@@ -36,7 +36,7 @@ public sealed class MotionTests
                 State = state,
                 Latest = new Exchange { Prompt = "run the tests", StartedAt = At },
                 Cwd = @"C:\dev\PennCustQuote",
-                Group = GroupKeys.ForWorkspace(@"C:\dev\PennCustQuote"),
+                WorkspaceGroup = GroupKeys.ForWorkspace(@"C:\dev\PennCustQuote"),
                 EnteredAt = At,
                 LastActivity = At,
             },

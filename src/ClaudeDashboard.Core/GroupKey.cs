@@ -7,7 +7,7 @@ namespace ClaudeDashboard.Core;
 /// Impl §2.1 gives <see cref="Session"/> a <c>Group</c> member and also names <see cref="Group"/>
 /// as "a derived container keyed by <c>Cwd</c>". Those cannot be the same thing: a container
 /// holding its members while each member holds the container would be a cycle, and an
-/// immutable record graph cannot express one. So <see cref="Session.Group"/> carries this
+/// immutable record graph cannot express one. So <see cref="Session.WorkspaceGroup"/> carries this
 /// <em>key</em>, and <see cref="Group"/> is the container derived from sessions sharing it.
 ///
 /// Phase 1 keys on <c>cwd</c>; Phase 4 keys on virtual-desktop id (TS §IV.3). The key is

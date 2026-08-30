@@ -12,7 +12,7 @@ public sealed class SessionTests
         State = SessionState.Working,
         Latest = new Exchange { Prompt = "run the tests", StartedAt = At },
         Cwd = @"C:\projects\dashboard",
-        Group = new GroupKey(@"C:\projects\dashboard"),
+        WorkspaceGroup = new GroupKey(@"C:\projects\dashboard"),
         EnteredAt = At,
         LastActivity = At,
     };
@@ -26,7 +26,7 @@ public sealed class SessionTests
         Assert.Equal(SessionState.Working, session.State);
         Assert.Equal("run the tests", session.Latest.Prompt);
         Assert.Equal(@"C:\projects\dashboard", session.Cwd);
-        Assert.Equal(new GroupKey(@"C:\projects\dashboard"), session.Group);
+        Assert.Equal(new GroupKey(@"C:\projects\dashboard"), session.WorkspaceGroup);
         Assert.Equal(At, session.EnteredAt);
         Assert.Equal(At, session.LastActivity);
     }
@@ -68,7 +68,7 @@ public sealed class SessionTests
     [Fact]
     public void Rejects_a_group_key_that_names_no_group()
     {
-        var thrown = Assert.Throws<ArgumentException>(() => NewSession() with { Group = default });
+        var thrown = Assert.Throws<ArgumentException>(() => NewSession() with { WorkspaceGroup = default });
 
         Assert.Equal("value", thrown.ParamName);
     }
@@ -120,7 +120,7 @@ public sealed class SessionTests
         Assert.NotEqual(baseline, baseline with { Id = new SessionId("s-2") });
         Assert.NotEqual(baseline, baseline with { State = SessionState.Unread });
         Assert.NotEqual(baseline, baseline with { Cwd = @"C:\elsewhere" });
-        Assert.NotEqual(baseline, baseline with { Group = new GroupKey(@"C:\elsewhere") });
+        Assert.NotEqual(baseline, baseline with { WorkspaceGroup = new GroupKey(@"C:\elsewhere") });
         Assert.NotEqual(baseline, baseline with { EnteredAt = At.AddSeconds(1) });
         Assert.NotEqual(baseline, baseline with { LastActivity = At.AddSeconds(1) });
         Assert.NotEqual(baseline, baseline with { ErrorKind = "rate_limit" });

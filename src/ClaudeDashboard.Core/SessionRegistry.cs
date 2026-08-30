@@ -281,7 +281,7 @@ public sealed class SessionRegistry(SingleWriterGuard guard)
             State = initial,
             Latest = InitialExchange(inboundEvent),
             Cwd = inboundEvent.Cwd,
-            Group = DeriveGroup(inboundEvent.Cwd, inboundEvent.SessionId),
+            WorkspaceGroup = DeriveGroup(inboundEvent.Cwd, inboundEvent.SessionId),
             EnteredAt = inboundEvent.Timestamp,
             LastActivity = inboundEvent.Timestamp,
             ErrorKind = (inboundEvent as StopFailure)?.ErrorKind,
@@ -569,7 +569,7 @@ public sealed class SessionRegistry(SingleWriterGuard guard)
         return current with
         {
             Cwd = inboundEvent.Cwd,
-            Group = DeriveGroup(inboundEvent.Cwd, current.Id),
+            WorkspaceGroup = DeriveGroup(inboundEvent.Cwd, current.Id),
             LastActivity = inboundEvent.Timestamp,
         };
     }
@@ -588,7 +588,7 @@ public sealed class SessionRegistry(SingleWriterGuard guard)
         {
             State = SessionState.Acked,
             Cwd = start.Cwd,
-            Group = DeriveGroup(start.Cwd, current.Id),
+            WorkspaceGroup = DeriveGroup(start.Cwd, current.Id),
             ErrorKind = null,
             EnteredAt = start.Timestamp,
             LastActivity = start.Timestamp,
@@ -668,7 +668,7 @@ public sealed class SessionRegistry(SingleWriterGuard guard)
     /// The key a session groups under.
     /// </summary>
     /// <remarks>
-    /// The Registry stamps a key onto every session because <see cref="Session.Group"/> cannot
+    /// The Registry stamps a key onto every session because <see cref="Session.WorkspaceGroup"/> cannot
     /// be left unset, but it does not <em>decide</em> the key: the policy — including
     /// normalization and the no-workspace case — belongs to <see cref="GroupKeys"/>, which is
     /// its only home. Keeping a second rule here is exactly how the Registry and the resolver

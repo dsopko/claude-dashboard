@@ -16,7 +16,7 @@ public sealed class GroupTests
             State = state,
             Latest = new Exchange { Prompt = "p", StartedAt = At },
             Cwd = Key.Value,
-            Group = Key,
+            WorkspaceGroup = Key,
             EnteredAt = At,
             LastActivity = lastActivity ?? At,
         };

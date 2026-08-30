@@ -154,7 +154,7 @@ public sealed class SessionTitleLoggingTests : IAsyncLifetime
             State = SessionState.Working,
             Latest = new Exchange { Prompt = "run the tests", StartedAt = At },
             Cwd = @"C:\w",
-            Group = GroupKeys.ForWorkspace(@"C:\w"),
+            WorkspaceGroup = GroupKeys.ForWorkspace(@"C:\w"),
             EnteredAt = At,
             LastActivity = At,
             Title = Marker,

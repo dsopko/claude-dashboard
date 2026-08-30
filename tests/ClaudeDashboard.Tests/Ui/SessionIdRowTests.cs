@@ -211,7 +211,7 @@ public sealed class SessionIdRowTests
                 State = SessionState.Unread,
                 Latest = new Exchange { Prompt = "run the tests", StartedAt = At, AnsweredAt = At },
                 Cwd = @"C:\w",
-                Group = GroupKeys.ForWorkspace(@"C:\w"),
+                WorkspaceGroup = GroupKeys.ForWorkspace(@"C:\w"),
                 EnteredAt = At,
                 LastActivity = At,
             },

@@ -104,7 +104,7 @@ public sealed class AcknowledgmentTests
         registry.Apply(ack);
         var after = registry.Sessions[before.Id];
         Assert.Equal(before.Cwd, after.Cwd);
-        Assert.Equal(before.Group, after.Group);
+        Assert.Equal(before.WorkspaceGroup, after.WorkspaceGroup);
     }
 
     [Fact]

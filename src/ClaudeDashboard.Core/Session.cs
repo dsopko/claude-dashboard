@@ -53,11 +53,24 @@ public sealed record Session
     }
 
     /// <summary>
-    /// The key of the group this session rolls up into — derived, never operator-assigned
+    /// The key of the group this session's <em>observable reality</em> puts it in — its
+    /// workspace, or itself when no workspace is known. Derived, never operator-assigned
     /// (TS §IV.3). Deriving it is the group resolver's job (T1.4).
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>The name says what the value is rather than what a reader might hope it is.</strong>
+    /// This was called <c>Group</c>, which promised "the group" — and a name that promises more
+    /// than the thing behind it is how a reader ends up with the wrong value and no error. Issue
+    /// #16 adds a second and truer notion above this one, so the promise is being narrowed to the
+    /// truth before anything can be written against the wider reading.
+    /// </para>
+    /// <para>
+    /// This is a rename and nothing else: the value, the guard and every use of it are unchanged.
+    /// </para>
+    /// </remarks>
     /// <exception cref="ArgumentException">Set to a <c>default</c> key, which names no group.</exception>
-    public required GroupKey Group
+    public required GroupKey WorkspaceGroup
     {
         get => _group;
         init => _group = value.IsEmpty

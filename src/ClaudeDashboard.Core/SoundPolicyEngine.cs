@@ -134,7 +134,7 @@ public sealed class SoundPolicyEngine : ISoundModeReader
         {
             // Same state, same entry: nothing sounded, and the ladder must not restart. Only
             // the group can have moved, and that changes which mute applies.
-            existing!.Group = session.Group;
+            existing!.Group = session.WorkspaceGroup;
             return;
         }
 
@@ -142,7 +142,7 @@ public sealed class SoundPolicyEngine : ISoundModeReader
         {
             State = session.State,
             EnteredAt = session.EnteredAt,
-            Group = session.Group,
+            Group = session.WorkspaceGroup,
             Step = 0,
             NextNudgeAt = FirstNudgeAt(session),
         };

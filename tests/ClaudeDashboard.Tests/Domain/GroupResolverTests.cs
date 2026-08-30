@@ -22,7 +22,7 @@ public sealed class GroupResolverTests
             State = state,
             Latest = new Exchange { Prompt = "p", StartedAt = At },
             Cwd = cwd,
-            Group = GroupKeys.ForSession(cwd, sessionId),
+            WorkspaceGroup = GroupKeys.ForSession(cwd, sessionId),
             EnteredAt = At,
             LastActivity = lastActivity ?? At,
         };

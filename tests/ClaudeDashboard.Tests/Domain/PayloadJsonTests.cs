@@ -245,7 +245,7 @@ public sealed class PayloadJsonTests
                 StartedAt = DateTimeOffset.UnixEpoch,
             },
             Cwd = @"C:\work",
-            Group = new ClaudeDashboard.Core.GroupKey("work"),
+            WorkspaceGroup = new ClaudeDashboard.Core.GroupKey("work"),
             EnteredAt = DateTimeOffset.UnixEpoch,
             LastActivity = DateTimeOffset.UnixEpoch,
         };
