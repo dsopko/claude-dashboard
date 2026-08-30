@@ -100,13 +100,13 @@ public static class AppHost
         var builder = WebApplication.CreateSlimBuilder();
 
         // Route the framework's own diagnostics into the rolling file. Without this bridge,
-        // Kestrel's bind failure on the fixed port — the likeliest startup failure this app has
+        // Kestrel's bind failure on the ingress port — the likeliest startup failure this app has
         // — would reach no sink at all, and the operator would see a dashboard that starts,
         // says so, and then never receives a hook, with nothing anywhere explaining why.
         builder.Logging.ClearProviders();
         builder.Logging.AddSerilog(logger, dispose: false);
 
-        // Impl §3.1: loopback only, fixed default port, configurable. Loopback is the whole of
+        // Impl §3.1: loopback only, with the port chosen per user since T1.21. Loopback is the whole of
         // the network boundary — nothing off-machine may post events (TS §II.5).
         //
         // When the configured port is held by something that is not us, Kestrel is pointed at an
@@ -337,7 +337,7 @@ public static class AppHost
             // endpoint executing, status code, request finished. Across fifteen busy sessions
             // that buries the dashboard's own diagnostics in its own traffic, in a file kept for
             // a fortnight. Framework warnings and errors still reach the file, which is what the
-            // bridge is for: a Kestrel bind failure on the fixed port is the likeliest startup
+            // bridge is for: a Kestrel bind failure on the ingress port is the likeliest startup
             // failure this app has, and it must not be silent.
             .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
 

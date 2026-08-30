@@ -9,7 +9,7 @@ namespace ClaudeDashboard.Tests.Hosting;
 /// The table is written out cell by cell rather than as a rule, because the defect this guards
 /// against is a rule that looks right. "The port is in use, so I am the second instance" is such
 /// a rule, and it silently stops the dashboard from ever starting once anything else takes the
-/// fixed port.
+/// ingress port.
 /// </remarks>
 public sealed class StartupDecisionTests
 {

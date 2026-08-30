@@ -41,9 +41,11 @@ public readonly record struct HealthProbeResult(
 /// </summary>
 /// <remarks>
 /// <para>
-/// <strong>The port cannot decide this on its own, and neither can a bare "ok".</strong> The
-/// port is fixed, so after a hard kill any process may take it — a dev server, a tunnel,
-/// anything that also liked a memorable number. And a healthy dashboard answering on it is not
+/// <strong>The port cannot decide this on its own, and neither can a bare "ok".</strong> A port
+/// this dashboard releases is a port anything may take — a dev server, a tunnel, anything that
+/// liked the same number — so after a hard kill the occupant is simply unknown. Deriving the port
+/// per user (§3.1, T1.21) made that less likely and not less possible, which is the same thing
+/// here. And a healthy dashboard answering on it is not
 /// necessarily <em>ours</em>: a loopback bind is machine-wide while the gate is per logon
 /// session and per data folder, so under fast user switching the dashboard on that port can
 /// belong to another signed-in user. Signalling it would raise <em>their</em> window on

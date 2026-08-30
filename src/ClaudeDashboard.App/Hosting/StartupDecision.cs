@@ -28,10 +28,12 @@ public enum StartupAction
 /// </summary>
 /// <remarks>
 /// <para>
-/// <strong>The gate is the authority; the port corroborates.</strong> The port is fixed, so
-/// after a hard kill anything may hold it, and "the port is in use" never means "another copy of
-/// us is running". Reading a failed bind as "I must be the second instance" would have this
-/// process signal a stranger and exit, and the dashboard would silently never start.
+/// <strong>The gate is the authority; the port corroborates.</strong> A port this dashboard
+/// releases is a port anything may hold, so after a hard kill "the port is in use" never means
+/// "another copy of us is running". Reading a failed bind as "I must be the second instance"
+/// would have this process signal a stranger and exit, and the dashboard would silently never
+/// start. Deriving the port per user (§3.1, T1.21) does not change that: it makes a collision
+/// rarer, and this ruling is about what happens when there is one.
 /// </para>
 /// <para>
 /// <strong>But the gate is silent in exactly one case, and that case is the trap.</strong> When
