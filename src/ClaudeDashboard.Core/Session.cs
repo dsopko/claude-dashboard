@@ -90,6 +90,31 @@ public sealed record Session
     /// </remarks>
     public string? ErrorKind { get; init; }
 
+    /// <summary>
+    /// The session's title as Claude Code last reported it — a name the operator set with
+    /// <c>--name</c> or <c>/rename</c>, or one Claude Code generated — or null if none has ever
+    /// arrived (issue #18).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>Latched, not read per event.</strong> Only 72 of 1,210 archived payloads carry a
+    /// title and <c>Stop</c> never does, so a row that has just finished has no title on the
+    /// event that finished it. The latch rule lives in <see cref="SessionRegistry"/>.
+    /// </para>
+    /// <para>
+    /// <strong>Verbatim, and it can carry the operator's words.</strong> A session the operator
+    /// did not name gets a title written by a background model call summarising their first
+    /// prompt, so this is prose rather than an identifier: rendered and escaped, never logged and
+    /// never interpreted (TS §II.5). Folding and truncation for display are the view model's, and
+    /// this value is untouched by them.
+    /// </para>
+    /// <para>
+    /// Null and empty mean the same thing to every reader — no title has been seen — and the
+    /// latch never writes empty, so a caller need not tell them apart.
+    /// </para>
+    /// </remarks>
+    public string? Title { get; init; }
+
     /// <summary>The recent state history, oldest first. Never null; empty by default.</summary>
     /// <exception cref="ArgumentNullException">Set to null.</exception>
     public TransitionLog Transitions

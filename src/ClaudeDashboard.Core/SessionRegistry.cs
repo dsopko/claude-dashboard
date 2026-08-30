@@ -125,15 +125,105 @@ public sealed class SessionRegistry(SingleWriterGuard guard)
         }
 
         var (next, outcome) = Transition(current, inboundEvent);
-        if (next is null)
+
+        // The title latch runs whatever the transition decided. See Latched for why that is not
+        // an optimisation but the only thing that makes the feature work at all.
+        var titled = Latched(next ?? current, inboundEvent);
+
+        if (next is null && titled is null)
         {
             return outcome;
         }
 
-        _sessions[next.Id] = next;
-        SessionChanged?.Invoke(this, new SessionChangedEventArgs(SessionChangeKind.Updated, next));
+        var applied = titled ?? next!;
+
+        _sessions[applied.Id] = applied;
+        SessionChanged?.Invoke(this, new SessionChangedEventArgs(SessionChangeKind.Updated, applied));
         return ApplyOutcome.Applied;
     }
+
+    // ---- The title latch ---------------------------------------------------------------------
+
+    /// <summary>
+    /// Applies <paramref name="inboundEvent"/>'s <c>session_title</c> to <paramref name="session"/>,
+    /// or returns null if the title it holds should not change (issue #18).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>THIS RUNS WHATEVER THE TRANSITION DECIDED, AND THAT IS THE WHOLE FEATURE.</strong>
+    /// The events that carry a title are, in the main, the events that decline. A
+    /// <see cref="PostToolBatch"/> on an already-<see cref="SessionState.Working"/> session is
+    /// <see cref="ApplyOutcome.Ignored"/> — that is 799 of the 1,210 payloads in the archive. An
+    /// <c>idle_prompt</c> <see cref="Notification"/> is <see cref="ApplyOutcome.Ignored"/> too, and
+    /// <see cref="Moved"/> returns null whenever nothing else differs. Latch inside the transition
+    /// table and every one of those titles is dropped on the floor, while the tests stay green,
+    /// because a test that hands the title to a state-<em>changing</em> event never walks the path
+    /// that loses it.
+    /// </para>
+    /// <para>
+    /// So a title alone can produce an <see cref="ApplyOutcome.Applied"/> and a
+    /// <see cref="SessionChanged"/>. Nothing keys on that outcome for behaviour — the consumer
+    /// uses it for counters and a log level — so this widens what "applied" covers without
+    /// changing what anything does with it.
+    /// </para>
+    /// <para>
+    /// <strong>The rule.</strong> Absent, null or whitespace-only leaves the latched value alone,
+    /// so a <see cref="Stop"/> — which never carries a title — cannot blank a row. A non-empty
+    /// title that differs replaces it, which is what lands all three renames Claude Code documents,
+    /// including the startup collision variant the operator never asked for. An identical title is
+    /// a no-op. There is no way to <em>remove</em> a title: nothing on the wire says "untitled", so
+    /// the dashboard cannot represent one.
+    /// </para>
+    /// <para>
+    /// <strong>A title change never advances <see cref="Session.LastActivity"/> or
+    /// <see cref="Session.EnteredAt"/></strong>, which is why this returns
+    /// <c>session with { Title = … }</c> and not a <see cref="Moved"/>. <c>LastActivity</c> is the
+    /// sort key for the Working and Quiet bands and <c>EnteredAt</c> is the age clock, so a
+    /// rename that reordered the list or reset an age would be a cosmetic fact rewriting an
+    /// attention fact. This is the same refusal <see cref="Moved"/> already makes for
+    /// redeliveries, and it is stated here so that nobody later "fixes" the omission.
+    /// </para>
+    /// <para>
+    /// <strong>THERE IS NO ORDERING GUARD ON THE TITLE, NONE IS AVAILABLE, AND HERE IS WHY.</strong>
+    /// Ingress stamps events from <c>IClock</c> at <em>arrival</em>, not occurrence — hook payloads
+    /// carry no timestamp of their own — and <see cref="Apply"/> has one writer behind a FIFO
+    /// channel, so arrival order is total and stamps are monotonic <em>because of</em> that order.
+    /// A stamp comparison here could therefore never disagree with arrival order; it would be a
+    /// restatement wearing the name of a guard. The wire offers nothing else: no occurrence time,
+    /// no title version, no sequence number.
+    /// </para>
+    /// <para>
+    /// And underneath that is the part no field would fix. <strong>A stale title arriving late and
+    /// a genuine rename back to a previous name are the same observation, byte for byte.</strong>
+    /// Any rule that rejects the first rejects the second, and Claude Code documents the second as
+    /// real. So the rule is the most recently arrived different non-empty title, and the residual
+    /// is accepted: a rename racing a same-session event inside the gap between two loopback posts
+    /// can show the previous title until the next event carrying the new one. Self-healing,
+    /// cosmetic, and never wrong about state.
+    /// </para>
+    /// </remarks>
+    private static Session? Latched(Session session, InboundEvent inboundEvent)
+    {
+        if (TitleOn(inboundEvent) is not { } incoming ||
+            string.Equals(incoming, session.Title, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        return session with { Title = incoming };
+    }
+
+    /// <summary>
+    /// The usable title on <paramref name="inboundEvent"/>, or null when it carries none.
+    /// </summary>
+    /// <remarks>
+    /// Whitespace-only counts as none. It is normalized here rather than at ingress so that the
+    /// rule holds for a replayed event and for a hand-built one in a test, not only for a payload
+    /// that happened to come through the mapper. The value itself is never trimmed or reshaped —
+    /// that is display work, and the domain keeps what arrived.
+    /// </remarks>
+    private static string? TitleOn(InboundEvent inboundEvent) =>
+        string.IsNullOrWhiteSpace(inboundEvent.SessionTitle) ? null : inboundEvent.SessionTitle;
 
     /// <summary>A transition's result: the session it produced, or why it produced none.</summary>
     private readonly record struct Transitioned(Session? Next, ApplyOutcome Outcome)
@@ -195,6 +285,11 @@ public sealed class SessionRegistry(SingleWriterGuard guard)
             EnteredAt = inboundEvent.Timestamp,
             LastActivity = inboundEvent.Timestamp,
             ErrorKind = (inboundEvent as StopFailure)?.ErrorKind,
+
+            // The very first event a session is seen on may already carry the title, so the latch
+            // starts here rather than waiting for a second event to change something.
+            Title = TitleOn(inboundEvent),
+
             Transitions = TransitionLog.Empty.Append(
                 new StateTransition(initial, initial, inboundEvent.Timestamp, inboundEvent.HookEventName)),
         };

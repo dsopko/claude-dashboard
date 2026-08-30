@@ -657,6 +657,178 @@ exposes only `SetDataObject(object)` and `SetDataObject(object, bool)`. The adap
 attempt, because a hand-rolled retry loop would sleep on the dispatcher thread and freeze the
 window — trading a visible failure the operator can act on for an invisible stall they cannot.
 
+## 5g · T1.24 — the session title on the row, and what it does not prove
+
+The row's context line now reads `Director — run the tests`: the session's title where it has one,
+cut to 40 grapheme clusters, then the prompt exactly as before (issue #18). Design §9 and §3, the
+markup comment, the hooks reference's Discrepancy 3 and one sentence of the TS were amended in the
+same commit, because five statements stopped being true at once.
+
+Fifty-seven tests cover it. Six planted mutations confirmed they are load-bearing — the table is at
+the end of this section. What follows is what none of that reaches.
+
+### The finding that changed the design, and was not in the brief
+
+**The latch cannot live in the transition table, and a suite can be entirely green while the
+feature never appears.** The events that carry a title are, in the main, the events whose
+transition *declines*: a `PostToolBatch` on an already-Working session is `Ignored`, and that is
+799 of the archive's 1,210 payloads; an `idle_prompt` `Notification` is `Ignored` too; `Moved`
+returns null whenever nothing else differs. A latch inside the transition table drops every one of
+those on the floor — and a test that hands the title to a state-*changing* event never walks the
+path that loses it.
+
+This is the same shape as the defect the task was commissioned to fix, one layer further down.
+`SessionStart` had the field and never fired; the transition table would have had the latch and
+mostly declined. Both fail silently, and both fail *with the tests passing*.
+
+So the latch is an unconditional step in `Apply`, able to produce an `Applied` outcome and a
+`SessionChanged` on its own. That widening was checked rather than assumed: `ApplyOutcome` reaches
+only `EventConsumer.Report`, which uses it for counters and a log level, and nothing keys on
+`Applied` for behaviour.
+
+### The four things the suite cannot reach
+
+1. **That a title ever arrives from Claude Code on the events this build reads it from.** The
+   archive says 72 titles across 1,210 payloads and names which events carried them. Nothing here
+   observes a live one: every test supplies its own. The wire contract for `session_title` is
+   undocumented (Discrepancy 3), so there is no specification to test against either.
+2. **That a rename is seen promptly.** A title lands on the next event that happens to carry one,
+   and only 6% of payloads do. A session that is renamed and then sits idle keeps its old name on
+   the row for as long as it stays idle. Nothing measures that delay, and nothing could without a
+   live session to rename.
+3. **That the tooltip appears.** The same limit as the id tooltip in §5f: an automation-driven
+   hover does not produce the input WPF's tooltip machinery reacts to, so a headless assertion
+   about a popup would be an artefact of the harness. What is asserted is that `TitleTooltip` is
+   the whole title when the title was cut and **null** when it was not — null being what WPF reads
+   as "no tooltip", so an empty popup cannot open.
+4. **That a screen reader reads the row aloud correctly.** `AutomationProperties.Name` is asserted
+   to equal exactly what the row draws. Whether a real screen reader announces it is untested here
+   and would be a hardware-card row.
+
+### Residual: an old title arriving late wins, and no guard is possible
+
+A session is renamed; an event already in flight arrives afterwards carrying the previous title.
+It wins, and the row shows the old name until the next event carrying the new one.
+
+**This is recorded rather than fixed, because it cannot be fixed with what is on the wire.** Ingress
+stamps events at *arrival*, not occurrence — hook payloads carry no timestamp of their own — so the
+late event is stamped later and beats any comparison the domain could make. There is no title
+version and no sequence number. A stamp comparison would in any case be a restatement rather than a
+guard: `Apply` has one writer behind a FIFO channel, so arrival order is total and stamps are
+monotonic *because of* that order.
+
+And underneath the mechanics is the part no field would solve. **A stale title arriving late and a
+genuine rename back to a previous name are the same observation, byte for byte.** Any rule that
+rejected the first would reject the second, and Claude Code documents the second as real — a name
+collision at startup renames a session with no operator action at all.
+
+The trigger window is the gap between two loopback posts from one session, measured in
+milliseconds. The failure is cosmetic, self-healing, and never wrong about state. It is asserted as
+behaviour in `SessionTitleLatchTests`, in the place a reader would go looking for the guard.
+
+### Two smaller residuals, stated so they are not mistaken for oversights
+
+- **The tooltip is not length-capped.** Issue #18 rules that a truncated title is shown in full on
+  hover, and a cap would make the tooltip a second truncation with no way to read past it. Folding
+  still applies, so a title full of line breaks cannot grow the popup vertically without limit —
+  but a pathological title is long there. Accepted.
+- **A single grapheme cluster larger than the character ceiling shows as an ellipsis alone.** The
+  ceiling cuts on a cluster boundary, and if the first boundary is already past the ceiling there
+  is no boundary to cut at. Bounded and harmless, and it costs a row that could not have been
+  rendered legibly anyway.
+
+### What was measured rather than read
+
+All on .NET 10, in a scratch console, before any of it was written into the code:
+
+- **Cutting a title at 40 UTF-16 code units produces a lone surrogate** whenever the 41st position
+  is an astral character — `U+D83D` for 👍 and for a ZWJ family, `U+D83C` for a regional-indicator
+  flag. The result does not round-trip through UTF-8 and enumerates as `U+FFFD`. `é` cut that way
+  loses its accent and stays legible, which is the quieter version of the same defect.
+- **`StringInfo` cuts at 40 clusters keep all four whole.**
+- **A cluster budget is not a length bound.** Forty clusters of a letter plus two hundred combining
+  marks each is **8,040 characters** and passes a forty-cluster cut completely untouched. This is
+  the whole reason there are two numbers in `SessionViewModel` rather than one, and it was not
+  something the brief or the issue anticipated.
+- **`TextBlock.Text` returns `string.Empty` for a block whose content is two or more inlines.** The
+  UI tests read `TextBlock.Text`, so the new context line came back blank — and so, already, did
+  the group header's four-inline "· 1 sessions · idle 0s", which those assertions had been blind to
+  before this task touched anything. The helper now reads a `TextRange` over the block's content,
+  which returns the text in both shapes. **A blind spot here fails in the direction of a passing
+  test**: "the row does not show X" passes when the reader cannot see X at all.
+- **`Run.Text` binds two-way by default**, and a two-way binding onto a read-only view-model
+  property throws while the template loads — taking the whole window with it, not one row. Hence
+  `Mode=OneWay` on both runs, which is load-bearing rather than decorative.
+
+### The premise sweep (five statements, not two)
+
+The brief named two. The sweep found five:
+
+| Where | Said | Now |
+|---|---|---|
+| `RowTemplates.xaml` | "The prompt is the session's name" | Rewritten: the title names it, the prompt says what it is doing |
+| Design §9, session row | "prompt snippet (the session's name…)" | Replaced with the authorised text |
+| Design §3, Exchange | "the prompt snippet is what identifies the session in the list" | Replaced; points at §9 for what names a session |
+| TS §II.2 | "the session's **identifying** line" | "the session's **context** line"; the rest of the sentence stands, since its load is about the payload arriving inline |
+| Design §12, Open questions | "Session naming: always derived from the latest prompt, or allow a manual rename that sticks?" | Deleted — it is answered: the name comes from Claude Code and the dashboard never sets one |
+
+The hooks reference's Discrepancy 3 was also updated: its heading claimed we read `session_title`
+on `SessionStart`, which stopped being true here.
+
+### Never logged, proven two ways
+
+`SessionTitleLoggingTests` drives a real ingest with a marker title on every event, deliberately
+walking the two paths that *do* write lines — the Debug decline and the uncorrelated-completion
+Warning — and asserts no emitted line contains the marker, with a control asserting those lines
+were actually written. Planting the title into the decline template kills it.
+
+The second test asserts the opposite and is equally necessary: the title *does* come back through
+`{Event}` on a record and `{@Row}` on the view model. That is the measurement behind its
+classification in `UnprotectedTextInventory`, which is meant to be measured rather than reasoned
+into.
+
+**The classification is `CarriesOperatorText`, and #15's `ShortId` precedent does not carry.** One
+slot holds two kinds of value with nothing to tell them apart: a name the operator set, and — for
+a session nobody named — a title a background model call wrote by summarising their first prompt.
+A classification has to hold for every value the slot can carry, not for the common one. The
+session id passes the test the title fails: Claude Code mints it and nothing the operator typed
+reaches it.
+
+### Was the harness capable of producing the other outcome?
+
+Six plants, each verified present by md5 **before** any result was read, and each run to completion
+with the count taken from the run's summary line rather than from a display:
+
+| Planted defect | Result |
+|---|---|
+| The title read on the `SessionStart` arm only — the original issue #18 defect | **fails** — `Every_accepted_event_carries_the_session_title`, 7 of 8 cases (`SessionStart` still passes, correctly) |
+| The title spent out of the prompt snippet's 140 characters | **fails** — `The_prompt_keeps_its_whole_budget_when_a_title_is_present` |
+| The latch made conditional on the transition succeeding | **fails** — 6 tests, including `A_title_lands_on_an_event_whose_transition_is_declined` and `A_title_arriving_on_a_declined_event_reaches_the_screen` |
+| The title added to the Registry's decline log line | **fails** — `No_log_line_anywhere_contains_the_session_title` |
+| The cut done by character instead of by grapheme cluster | **fails** — all four cases of `A_cluster_straddling_the_cut_survives_whole` |
+| The character ceiling removed, leaving the cluster budget alone | **fails** — `A_title_of_forty_enormous_clusters_is_still_bounded` |
+
+**A third plant trap, found the expensive way and added to the two in §6.** Plant 1 was pulled with
+`git checkout -- <file>`, which restored the file to **HEAD** and silently discarded the task's own
+uncommitted change to it — leaving a tree that still compiled, still passed most tests, and no
+longer contained the feature. It was caught only because the md5 taken after the revert did not
+match the one taken before the plant. **Revert a plant from a copy of the file, never from git,
+while the file carries uncommitted work**, and keep taking the md5 on the way back as well as on
+the way in.
+
+**And §5c's stale-assembly finding turned up a third time, in the same hour.** Counting the new
+tests afterwards with `--no-build` read the assembly still carrying the sixth plant, so one test
+was reported as absent rather than as failing, and the total came out one short. It was caught by
+arithmetic — the per-file counts did not add up to the run's own total — and not by anything in
+the tooling. The counts in this section are from a rebuilt tree.
+
+### One observation that is not this task's to fix
+
+Toggling `IsGrouped` on a realized window raises WPF binding errors from the group headers being
+torn down — `IsStale` and `SessionCount` on `GroupViewModel`, neither of which this task touches.
+The two view tests each realize their own window with the mode set beforehand, so they assert the
+flat view rather than the toggle. Reported to the director rather than fixed here.
+
 ## 6 · Was the harness capable of producing the other outcome?
 
 A green run proves nothing unless a red one was reachable. Five defects were planted, each taken

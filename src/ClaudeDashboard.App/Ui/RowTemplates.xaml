@@ -307,7 +307,7 @@
     <DataTemplate DataType="{x:Type ui:SessionViewModel}">
         <ToggleButton Style="{StaticResource RowToggleStyle}"
                       IsChecked="{Binding IsExpanded, Mode=TwoWay}"
-                      AutomationProperties.Name="{Binding PromptSnippet}">
+                      AutomationProperties.Name="{Binding RowName}">
             <Grid Margin="0,7,10,8">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
@@ -321,18 +321,39 @@
 
                 <StackPanel Grid.Column="2">
                     <!--
-                        The prompt is the session's name and it is terminal text, so it is set in
-                        the mono face (Design Document §9). TextBlock renders a string as
-                        characters and parses nothing, which is what keeps hook text data.
+                        The context line is the session's TITLE, where it has one, and then the
+                        prompt (Design Document §9). It used to be the prompt alone, and the
+                        comment that stood here said the prompt was the session's name — which
+                        stopped being true the moment a title could precede it (issue #18).
+
+                        What names a session is its title; the prompt says what the session is
+                        DOING. Only the prompt is terminal text, so only the prompt is set in the
+                        mono face, and the two Runs are what let one wrapping line hold both.
+
+                        Truncation, folding and the tooltip text are all the view model's — see
+                        SessionViewModel.TitleClusters — so that they can be asserted without a
+                        window. Nothing here formats or parses: a TextBlock renders a string as
+                        characters, which is what keeps hook text data (TS §II.5).
+
+                        The Runs are written adjacent on purpose. Whitespace between them would
+                        become a space on the row, on top of the separator the view model already
+                        supplies.
+
+                        Mode=OneWay is required rather than decorative: Run.Text binds two-way by
+                        default, and a two-way binding onto a read-only property throws while the
+                        template loads — so the whole window fails to realize, not one row.
                     -->
-                    <TextBlock Text="{Binding PromptSnippet}"
-                               FontFamily="{StaticResource MonoFont}"
+                    <TextBlock FontFamily="{StaticResource MonoFont}"
                                FontSize="12"
                                LineHeight="16"
                                TextWrapping="Wrap"
                                MaxHeight="48"
                                TextTrimming="CharacterEllipsis"
-                               Foreground="{StaticResource InkBrush}" />
+                               Foreground="{StaticResource InkBrush}"><Run Text="{Binding TitlePrefix, Mode=OneWay}"
+                                    FontFamily="{StaticResource UiFont}"
+                                    FontWeight="SemiBold"
+                                    Foreground="{StaticResource Ink2Brush}"
+                                    ToolTip="{Binding TitleTooltip}" /><Run Text="{Binding PromptSnippet, Mode=OneWay}" /></TextBlock>
 
                     <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
                         <Border Style="{StaticResource BadgeStyle}" VerticalAlignment="Center">

@@ -91,7 +91,6 @@ public sealed class HookEventMapper(IClock clock)
                 SessionId = sessionId, Timestamp = timestamp, Cwd = cwd,
                 PromptId = promptId, TranscriptPath = transcript,
                 Source = payload.Source ?? payload.Matcher,
-                SessionTitle = payload.SessionTitle,
             },
 
             HookEventNames.UserPromptSubmit => new UserPromptSubmit
@@ -151,9 +150,20 @@ public sealed class HookEventMapper(IClock clock)
                 $"'{payload.HookEventName}' is accepted but unmapped; HookEventNames and HookEventMapper disagree."),
         };
 
-        // Attached once, here, rather than repeated in nine arms. The archive wants the body as it
-        // arrived — not a re-serialization of the fields above, which would silently be missing
-        // every field Phase 1 does not map and would not be found wanting until Phase 5.
-        return new HookMapping(mapped with { Payload = raw }, HookRejection.None);
+        // Both attached once, here, rather than repeated in nine arms.
+        //
+        // The archive wants the body as it arrived — not a re-serialization of the fields above,
+        // which would silently be missing every field Phase 1 does not map and would not be found
+        // wanting until Phase 5.
+        //
+        // `session_title` is here for a sharper reason. It described the session rather than the
+        // event all along, and it used to be read on the SessionStart arm alone — an arm that has
+        // never once run (issue #20), so no row ever showed a title while every test passed. A
+        // per-arm list would also be a guess about a field the published hook documentation does
+        // not describe at all. Reading it wherever it appears is the shape that cannot express
+        // the guess.
+        return new HookMapping(
+            mapped with { Payload = raw, SessionTitle = payload.SessionTitle },
+            HookRejection.None);
     }
 }

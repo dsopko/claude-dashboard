@@ -33,6 +33,27 @@ public sealed class InboundEventTests
     }
 
     /// <summary>
+    /// <strong>Every variant can carry a session title, because it is a fact about the session
+    /// rather than about the event.</strong>
+    /// </summary>
+    /// <remarks>
+    /// It sat on <see cref="SessionStart"/> alone until T1.24, and <c>SessionStart</c> has never
+    /// fired (issue #20) — so the field existed, was mapped, and reached nothing. It is common
+    /// now for the same reason <see cref="InboundEvent.SessionId"/> and <see cref="InboundEvent.Cwd"/>
+    /// are: it describes the session. The synthetic variants inherit it and always leave it null,
+    /// which the Registry's latch treats as "this event says nothing about the title".
+    /// </remarks>
+    [Fact]
+    public void Every_variant_can_carry_a_session_title()
+    {
+        foreach (var e in AllVariants())
+        {
+            Assert.Null(e.SessionTitle);
+            Assert.Equal("Director", (e with { SessionTitle = "Director" }).SessionTitle);
+        }
+    }
+
+    /// <summary>
     /// The variant's <c>HookEventName</c> must equal Claude Code's <c>hook_event_name</c>
     /// exactly — ingress dispatches on that wire value (T1.8).
     /// </summary>
@@ -139,17 +160,17 @@ public sealed class InboundEventTests
         Assert.NotEqual<InboundEvent>(Build<Stop>(), Build<CwdChanged>());
     }
 
-    // ---- SessionStart: source, session_title, cwd -------------------------------------
+    // ---- SessionStart: source and cwd. The title is common to every variant since T1.24 and
+    // is asserted against the base record below, not here.  ------------------------------------
 
     [Fact]
-    public void SessionStart_carries_source_and_session_title()
+    public void SessionStart_carries_source_and_cwd()
     {
-        var e = Build<SessionStart>() with { Source = "resume", SessionTitle = "dashboard build" };
+        var e = Build<SessionStart>() with { Source = "resume" };
 
         Assert.Equal("resume", e.Source);
-        Assert.Equal("dashboard build", e.SessionTitle);
         Assert.Equal(SessionStartSource.Resume, e.ParsedSource);
-        Assert.Equal(@"C:\projects\dashboard", e.Cwd);
+        Assert.Equal(Cwd, e.Cwd);
     }
 
     [Theory]

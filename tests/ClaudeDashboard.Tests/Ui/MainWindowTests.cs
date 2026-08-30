@@ -6,6 +6,7 @@ using System.Windows.Automation;
 using System.Windows.Automation.Peers;
 using System.Windows.Automation.Provider;
 using System.Windows.Controls.Primitives;
+using System.Windows.Documents;
 using System.Windows.Media;
 using System.Windows.Threading;
 using Ellipse = System.Windows.Shapes.Ellipse;
@@ -46,13 +47,19 @@ public sealed class MainWindowTests(StaHarness harness)
         Action<RegistryHarness> arrange,
         Func<MainWindow, MainViewModel, T> assert,
         bool motionAllowed = true,
-        bool showQuiet = false)
+        bool showQuiet = false,
+        bool grouped = true)
     {
         return _harness.Invoke(() =>
         {
             using var registry = new RegistryHarness();
             using var policy = new MotionPolicy(() => motionAllowed, observeChanges: false);
             using var viewModel = new MainViewModel(registry.Projection, policy, new StubAckPublisher(), new FakeClipboard());
+
+            // Set before the window is realized. Toggling it on a live window raises transient
+            // binding errors from the group headers being torn down, which BindingErrorWatch
+            // rightly reports and which have nothing to do with what any test here asserts.
+            viewModel.IsGrouped = grouped;
 
             arrange(registry);
 
@@ -216,7 +223,7 @@ public sealed class MainWindowTests(StaHarness harness)
             },
             (window, _) => StaHarness.FindAll<TextBlock>(window)
                 .Where(block => block.IsVisible)
-                .Select(block => block.Text)
+                .Select(TextOf)
                 .ToList());
 
         Assert.Contains(" need you", texts);
@@ -328,12 +335,12 @@ public sealed class MainWindowTests(StaHarness harness)
 
                 var texts = StaHarness.FindAll<TextBlock>(RowFor(window, "finished"))
                     .Where(block => block.IsVisible)
-                    .Select(block => block.Text)
+                    .Select(TextOf)
                     .ToList();
 
                 var terminal = StaHarness.FindAll<Button>(RowFor(window, "finished"))
                     .SelectMany(button => StaHarness.FindAll<TextBlock>(button)
-                        .Where(block => block.Text == "Open terminal")
+                        .Where(block => TextOf(block) == "Open terminal")
                         .Select(_ => button))
                     .SingleOrDefault();
 
@@ -406,11 +413,132 @@ public sealed class MainWindowTests(StaHarness harness)
         Assert.Contains("write the tests", found.Collapsed);
     }
 
+    /// <summary>
+    /// <strong>The title reaches the row, in the grouped view and in the flat one.</strong>
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The row is one implicit <c>DataTemplate</c> keyed by type, so both views draw the same
+    /// markup and the title reaches both without a second code path. That is a reason not to
+    /// write one; it is not evidence, so the flat view is realized and read rather than argued
+    /// about.
+    /// </para>
+    /// <para>
+    /// The title and the prompt live in two <c>Run</c>s inside one <c>TextBlock</c>, and the
+    /// assertion is on the whole line rather than on the title alone — a title rendered into its
+    /// own block, or with the separator lost, would satisfy "the row mentions Director" and would
+    /// look wrong on screen.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void The_title_precedes_the_prompt_on_the_row_in_both_views()
+    {
+        const string Id = "titled";
+
+        var grouped = WithWindow(
+            registry => registry.Working(Id, At, prompt: "run the tests", title: "Director"),
+            (window, _) => VisibleTexts(window, Id));
+
+        var flat = WithWindow(
+            registry => registry.Working(Id, At, prompt: "run the tests", title: "Director"),
+            (window, _) => VisibleTexts(window, Id),
+            grouped: false);
+
+        Assert.Contains("Director — run the tests", grouped);
+        Assert.Contains("Director — run the tests", flat);
+
+        // The control: the flat view really was flat, and this is not the grouped one twice.
+        Assert.Contains("WORKING", flat);
+        Assert.DoesNotContain(flat, text => text.Contains("sessions", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// <strong>An untitled row draws exactly what it drew before, with no separator.</strong>
+    /// </summary>
+    /// <remarks>
+    /// Most sessions in the archive have no title, so this is the common row rather than the edge
+    /// case. The assertion is equality with the prompt, not "the row contains the prompt": an
+    /// empty prefix that still emitted its separator would leave every one of those rows opening
+    /// with a dash, and a containment check would not see it.
+    /// </remarks>
+    [Fact]
+    public void An_untitled_row_shows_the_prompt_alone()
+    {
+        const string Id = "untitled";
+
+        var texts = WithWindow(
+            registry => registry.Working(Id, At, prompt: "run the tests"),
+            (window, _) => VisibleTexts(window, Id));
+
+        Assert.Contains("run the tests", texts);
+        Assert.DoesNotContain(texts, text => text.Contains('—'));
+    }
+
+    /// <summary>
+    /// <strong>A title latched from a declined event still repaints the row.</strong>
+    /// </summary>
+    /// <remarks>
+    /// The end-to-end version of the Registry's latch test, through a real projection and a real
+    /// template: the session is already working, so the tool batch carrying the name changes no
+    /// state at all. If the latch did not raise a change, the Registry would hold the title and
+    /// the screen would never show it — the failure this feature is most likely to ship, and one
+    /// that no view-model test can see.
+    /// </remarks>
+    [Fact]
+    public void A_title_arriving_on_a_declined_event_reaches_the_screen()
+    {
+        const string Id = "late-title";
+
+        RegistryHarness? live = null;
+
+        var found = WithWindow(
+            registry =>
+            {
+                live = registry;
+                registry.Working(Id, At, prompt: "run the tests");
+            },
+            (window, _) =>
+            {
+                var before = VisibleTexts(window, Id);
+
+                // A tool batch on a session that is already Working: the transition declines, so
+                // only the latch can put this name on the screen.
+                live!.Batch(Id, At.AddSeconds(1), title: "Director");
+                window.UpdateLayout();
+
+                return (Before: before, After: VisibleTexts(window, Id));
+            });
+
+        Assert.Contains("run the tests", found.Before);
+        Assert.Contains("Director — run the tests", found.After);
+    }
+
     /// <summary>Every visible TextBlock in one session's row.</summary>
     private static List<string> VisibleTexts(MainWindow window, string sessionId) =>
         [.. StaHarness.FindAll<TextBlock>(RowFor(window, sessionId))
             .Where(block => block.IsVisible)
-            .Select(block => block.Text)];
+            .Select(TextOf)];
+
+    /// <summary>
+    /// What a <see cref="TextBlock"/> actually holds, <strong>inline runs included</strong>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>TextBlock.Text</c> is not the right question and never was. Measured: a block whose
+    /// content is two or more inlines returns <c>string.Empty</c> from <c>Text</c>, whatever it
+    /// renders. So the context line — a title Run followed by a prompt Run since T1.24 — came back
+    /// blank, and so did the group header's "· 1 sessions · idle 0s", which has four inlines and
+    /// was already invisible to these assertions before this task touched anything.
+    /// </para>
+    /// <para>
+    /// A <see cref="TextRange"/> over the block's own content start and end returns what is there
+    /// in both shapes. That makes an assertion of the form "the row does not show X" mean it,
+    /// rather than passing because the reader could not see X at all — which is the direction a
+    /// blind spot here fails in, and the reason this is worth a helper and a note.
+    /// </para>
+    /// </remarks>
+    private static string TextOf(TextBlock block) =>
+        new TextRange(block.ContentStart, block.ContentEnd).Text;
 
     [Fact]
     public void A_collapsed_row_shows_no_exchange()
@@ -423,7 +551,7 @@ public sealed class MainWindowTests(StaHarness harness)
             },
             (window, _) => StaHarness.FindAll<TextBlock>(RowFor(window, "finished"))
                 .Where(block => block.IsVisible)
-                .Select(block => block.Text)
+                .Select(TextOf)
                 .ToList());
 
         Assert.DoesNotContain("Added 23 tests.", texts);

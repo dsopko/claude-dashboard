@@ -63,6 +63,38 @@ public abstract record InboundEvent
     public string? TranscriptPath { get; init; }
 
     /// <summary>
+    /// Claude Code's <c>session_title</c> — the session's name, or null when this payload carried
+    /// none. Display text: data, never instruction.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>A common field rather than one per variant, and that is the whole point.</strong>
+    /// The title describes the <em>session</em>, exactly as <see cref="SessionId"/> and
+    /// <see cref="Cwd"/> do, not the event it happened to ride in on. It used to live on
+    /// <see cref="Events.SessionStart"/> alone — and that event has never fired once (issue #20),
+    /// so the field was read on an arm that never runs and no row ever showed a title.
+    /// </para>
+    /// <para>
+    /// <strong>A per-arm list would be a guess about an undocumented field, and the guess would
+    /// fail silently.</strong> <c>session_title</c> is not in the published hook documentation at
+    /// all (<c>docs/claude-code-hooks-reference.md</c>, Discrepancy #3), so nothing says which
+    /// events may carry it; the archive says only which ones <em>have</em>. Reading it wherever it
+    /// appears removes the guess rather than making a better one.
+    /// </para>
+    /// <para>
+    /// Null on every synthetic event — <see cref="Events.Ack"/> and
+    /// <see cref="Events.SoundCommand"/> never come off the wire. Harmless: a null never disturbs
+    /// the latched title. See <see cref="SessionRegistry"/> for the latch.
+    /// </para>
+    /// <para>
+    /// <strong>It can carry the operator's words.</strong> A session the operator did not name
+    /// gets a title written by a background model call summarising their first prompt, so this is
+    /// not an identifier and is never logged. See <c>UnprotectedTextInventory</c>.
+    /// </para>
+    /// </remarks>
+    public string? SessionTitle { get; init; }
+
+    /// <summary>
     /// The raw hook body this event was normalized from, for the event archive (Impl Part 8).
     /// Empty for events that did not come off the wire.
     /// </summary>

@@ -224,9 +224,11 @@ This is the single best argument for capturing a real payload rather than readin
 
 Nothing has verified ours, because `SessionEnd` has never fired in production — it was only registered today. If `end_reason` is correct, our end reason is silently null. The dashboard still reaches **Ended** (the state comes from the event, not the field), so the failure is a missing detail rather than a missing transition. Cheap to fix, cheap to confirm.
 
-### 3. `SessionStart`: we read `source` and `session_title`; the docs list neither
+### 3. `session_title` is undocumented, and we now read it from every event
 
 The page documents only `model` as a `SessionStart`-specific field, and gives `startup`/`resume`/`clear`/`compact`/`fork` as **matcher** values. We treat `source` as a payload field carrying that same information. Both may be true — matchers are commonly mirrored into the payload — but it is unconfirmed, and `session_title` appears nowhere in the documentation at all.
+
+**Updated at T1.24.** `session_title` used to be read on the `SessionStart` arm alone, which is why issue #18 found the feature dead: `SessionStart` has never fired (issue #20). It is now a common field on every event. The reason is this discrepancy rather than a guess about which events carry it — the documentation says nothing, so nothing tells us the set, and reading it wherever it appears is the only shape that cannot be wrong about a set nobody has published. Measured on the live archive: 72 titles across 1,210 payloads, and `Stop` never carries one.
 
 ### 4. Matcher lists we had truncated
 

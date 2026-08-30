@@ -36,7 +36,7 @@ Fifteen terminals across multiple virtual desktops, each running an agent on a d
 
 **Session** — one running Claude Code instance. It has an identity, a workspace (the folder it's working in), a derived group, a state, a current exchange, and a timeline of state changes.
 
-**Exchange** — one prompt-and-answer turn. The latest exchange is the session's context line: the prompt snippet is what identifies the session in the list, and the answer is what the operator reads when it finishes.
+**Exchange** — one prompt-and-answer turn. The latest exchange is the session's context line: the prompt snippet says what the session is doing, and the answer is what the operator reads when it finishes. What *names* a session is its title, where it has one (§9).
 
 **Session states**
 
@@ -124,7 +124,7 @@ Vocabulary: a **notice** is the first sound for an event; a **nudge** is the rem
 
 - **Header:** app name · counts strip ("3 need you · 2 unread · 1 working") · Grouped/Flat toggle · mute.
 - **Body:** groups (or bands) of session rows.
-- **Session row:** status LED · prompt snippet (the session's name, in monospace — it *is* terminal text) · state + age line · Ack action on unread rows.
+- **Session row:** status LED · the session's title where it has one, then the prompt snippet (monospace — it *is* terminal text) · state + age line · Ack action on unread rows. The title is whatever Claude Code calls the session — a name the operator set with `--name` or `/rename`, or one Claude Code generated. It is truncated, and sits outside the snippet's budget so a title never costs prompt text. A session with no title renders as it did before.
 - **Expanded row:** the full latest exchange — "You asked …" / "Claude answered …" — with Ack, a disabled "Open terminal" slot reserved for Phase 2, and the session id: the first eight characters, which copy in full on a click. The id appears here only — the session row does not carry it.
 - **Tray icon:** always-ambient summary — grey all-quiet, blue working, red with a needs-you count badge. The dashboard can be closed and the tray still tells the truth.
 
@@ -155,7 +155,6 @@ Each phase is independently shippable. Phase 7 is the reason the domain model st
 
 - Relationship to ClaudeSessions: does this absorb it (the `claudesessions://` scheme would slot straight into Phase 2 navigation), or are they siblings?
 - Unread rows that are never acked and never revisited — auto-fade after some hours, or sit forever?
-- Session naming: always derived from the latest prompt, or allow a manual rename that sticks?
 - Subagents: roll up into the parent session, or hide entirely?
 - Queued prompts (Claude Code lets you queue messages) — show a "1 queued" hint on working rows?
 - Retention: is "today only" enough until Phase 5?

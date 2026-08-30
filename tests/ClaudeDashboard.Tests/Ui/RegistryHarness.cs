@@ -52,7 +52,8 @@ internal sealed class RegistryHarness : IDisposable
         string id,
         DateTimeOffset at,
         string cwd = Workspace,
-        string prompt = "run the full test suite and summarize any failures")
+        string prompt = "run the full test suite and summarize any failures",
+        string? title = null)
     {
         var promptId = $"p-{++_prompts}";
 
@@ -63,22 +64,24 @@ internal sealed class RegistryHarness : IDisposable
             Cwd = cwd,
             PromptId = promptId,
             Prompt = prompt,
+            SessionTitle = title,
         });
 
         return promptId;
     }
 
     /// <summary>Claude is blocked on the operator.</summary>
-    public void Blocked(string id, DateTimeOffset at, string type = "permission_prompt", string cwd = Workspace) => Apply(new Notification
+    public void Blocked(string id, DateTimeOffset at, string type = "permission_prompt", string cwd = Workspace, string? title = null) => Apply(new Notification
     {
         SessionId = new SessionId(id),
         Timestamp = at,
         Cwd = cwd,
         NotificationType = type,
+        SessionTitle = title,
     });
 
     /// <summary>The turn finished and nobody has looked at it — unread.</summary>
-    public void Finished(string id, DateTimeOffset at, string promptId, string answer = "29 passed", string cwd = Workspace) =>
+    public void Finished(string id, DateTimeOffset at, string promptId, string answer = "29 passed", string cwd = Workspace, string? title = null) =>
         Apply(new Stop
         {
             SessionId = new SessionId(id),
@@ -86,7 +89,17 @@ internal sealed class RegistryHarness : IDisposable
             Cwd = cwd,
             PromptId = promptId,
             LastAssistantMessage = answer,
+            SessionTitle = title,
         });
+
+    /// <summary>A batch of tool calls finished — the event 799 of the archive's 1,210 payloads are.</summary>
+    public void Batch(string id, DateTimeOffset at, string cwd = Workspace, string? title = null) => Apply(new PostToolBatch
+    {
+        SessionId = new SessionId(id),
+        Timestamp = at,
+        Cwd = cwd,
+        SessionTitle = title,
+    });
 
     /// <summary>The turn died.</summary>
     public void Failed(string id, DateTimeOffset at, string promptId, string kind = "rate_limit", string cwd = Workspace) =>

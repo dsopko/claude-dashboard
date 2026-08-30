@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text;
 using ClaudeDashboard.Core;
 using CommunityToolkit.Mvvm.Input;
 
@@ -34,6 +35,54 @@ public sealed partial class SessionViewModel : DashboardRow
     /// button row it sits in.
     /// </remarks>
     public const int IdPreviewLength = 8;
+
+    /// <summary>
+    /// How much of the session's title the row shows, counted in <strong>grapheme clusters</strong>
+    /// (issue #18).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Forty is the operator's number: it shows in full every title in the archive — the longest is
+    /// 29 — and roughly 85% of the names across their live sessions, while bounding the tail.
+    /// </para>
+    /// <para>
+    /// <strong>Clusters, not characters, and the difference is visible.</strong> A title is
+    /// arbitrary text. Cutting at 40 UTF-16 code units splits a surrogate pair whenever the 41st
+    /// position is an astral character, which leaves a lone surrogate — measured on .NET 10 for
+    /// 👍, for a ZWJ family, and for a regional-indicator flag: the result does not round-trip
+    /// through UTF-8 and renders as the replacement glyph. Cutting by cluster keeps each of those
+    /// whole, and keeps a combining accent attached to its letter.
+    /// </para>
+    /// <para>
+    /// This is <em>not</em> what <see cref="SnippetLength"/> does to the prompt, which still cuts
+    /// by character. That is a known defect in the older property, filed separately, and it is
+    /// deliberately not copied here.
+    /// </para>
+    /// </remarks>
+    public const int TitleClusters = 40;
+
+    /// <summary>
+    /// The hard ceiling, in characters, on the title text a row will lay out.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>A cluster budget bounds what is shown and not what is laid out, which is why there
+    /// are two numbers here rather than one.</strong> Measured: forty clusters of a letter plus
+    /// two hundred combining marks each is <strong>8,040 characters</strong> and passes a
+    /// forty-cluster cut completely untouched. The title comes from outside the process, so the
+    /// row needs a bound on the string as well as on the glyph count.
+    /// </para>
+    /// <para>
+    /// A hundred and sixty is four times the cluster budget. The widest legitimate case measured —
+    /// forty clusters of ZWJ family emoji — lands at 48 characters, so this clears real text by a
+    /// wide margin and bites only on the degenerate case. The second cut still lands on a cluster
+    /// boundary, so the ceiling cannot reintroduce the split glyph the first cut exists to avoid.
+    /// </para>
+    /// </remarks>
+    public const int TitleCharacterCeiling = 160;
+
+    /// <summary>What separates the title from the prompt on the row: <c>Director — run the …</c>.</summary>
+    private const string TitleSeparator = " — ";
 
     private readonly MotionPolicy _motion;
     private readonly IAckPublisher? _ack;
@@ -248,6 +297,179 @@ public sealed partial class SessionViewModel : DashboardRow
     public string PromptSnippet =>
         Prompt.Length <= SnippetLength ? Prompt : Prompt[..SnippetLength] + "…";
 
+    /// <summary>Whether this session has a title to show before its prompt.</summary>
+    public bool HasTitle => TitleOfRow.Shown.Length > 0;
+
+    /// <summary>
+    /// The session's title as the row shows it: folded to one line, cut to
+    /// <see cref="TitleClusters"/> clusters with an ellipsis, or empty when there is none.
+    /// </summary>
+    /// <remarks>
+    /// A session with no title gives an empty string here and an empty
+    /// <see cref="TitlePrefix"/>, so the row renders exactly as it did before issue #18 — no
+    /// separator, no empty prefix, and the prompt keeps every one of its
+    /// <see cref="SnippetLength"/> characters, because the title sits outside that budget.
+    /// </remarks>
+    public string TitleDisplay => TitleOfRow.Shown;
+
+    /// <summary>
+    /// What the row prints ahead of the prompt: the title and its separator, or empty.
+    /// </summary>
+    public string TitlePrefix => HasTitle ? TitleDisplay + TitleSeparator : string.Empty;
+
+    /// <summary>
+    /// The whole title, for hovering — <strong>only when it was cut</strong>. Null otherwise, so
+    /// no tooltip appears.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A tooltip repeating text already on screen is noise, so an untruncated title gets none.
+    /// Null rather than empty because that is what WPF reads as "no tooltip"; an empty string
+    /// would open an empty popup.
+    /// </para>
+    /// <para>
+    /// <strong>This is not length-capped, deliberately.</strong> Issue #18 rules that a truncated
+    /// title is shown here in full, and a cap would make the tooltip a second truncation with no
+    /// way to read past it. The folding still applies, so a title full of line breaks cannot grow
+    /// the popup vertically without limit — but a pathological title is long here, and that is a
+    /// recorded residual rather than an oversight.
+    /// </para>
+    /// </remarks>
+    public string? TitleTooltip => TitleOfRow.Truncated ? TitleOfRow.Full : null;
+
+    /// <summary>
+    /// What a screen reader hears for the row: the title and the prompt, exactly as they render.
+    /// </summary>
+    /// <remarks>
+    /// <c>AutomationProperties.Name</c> used to bind <see cref="PromptSnippet"/> alone, so a
+    /// screen reader would not have heard the title at all. It is built by the same concatenation
+    /// the row draws — <see cref="TitlePrefix"/> then <see cref="PromptSnippet"/> — so the
+    /// accessible name cannot drift from the visible one, which is the failure this property is
+    /// most likely to have.
+    /// </remarks>
+    public string RowName => TitlePrefix + PromptSnippet;
+
+    /// <summary>The title, folded and measured once for the four properties above.</summary>
+    private TitleText TitleOfRow => TitleText.From(_session.Title);
+
+    /// <summary>
+    /// A latched title prepared for a row: folded to one line, and cut to fit.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>Rendering, not interpreting.</strong> The domain keeps the title exactly as it
+    /// arrived (TS §II.5); everything here happens on the way to the screen and nothing here
+    /// parses, evaluates or formats the text into something that could be interpreted. Folding and
+    /// cutting are the two things a row needs and neither changes what the title says.
+    /// </para>
+    /// </remarks>
+    /// <param name="Full">The folded title, whole.</param>
+    /// <param name="Shown">The folded title cut to a row's worth.</param>
+    /// <param name="Truncated">Whether <paramref name="Shown"/> lost anything.</param>
+    private readonly record struct TitleText(string Full, string Shown, bool Truncated)
+    {
+        /// <summary>A session with no title.</summary>
+        public static readonly TitleText None = new(string.Empty, string.Empty, false);
+
+        /// <summary>Prepares <paramref name="raw"/>, the value the Registry latched.</summary>
+        public static TitleText From(string? raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                return None;
+            }
+
+            var folded = Fold(raw);
+            if (folded.Length == 0)
+            {
+                return None;
+            }
+
+            var (shown, truncated) = Shorten(folded);
+            return new TitleText(folded, shown, truncated);
+        }
+
+        /// <summary>
+        /// Collapses every run of whitespace — line breaks and control characters included — to a
+        /// single space, and trims the ends.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <strong>A newline is a bound that forty of anything does not cover.</strong> A
+        /// <c>TextBlock</c> breaks on one whatever the wrapping mode, so a two-line title would
+        /// double the row's height however few characters it held. Folding is what makes the row a
+        /// row.
+        /// </para>
+        /// <para>
+        /// <strong>Format characters are deliberately kept.</strong> U+200D, the zero-width joiner,
+        /// is what holds a family emoji together as one cluster; stripping the Format category
+        /// along with the control characters would shatter exactly the graphemes
+        /// <see cref="Shorten"/> exists to keep whole.
+        /// </para>
+        /// </remarks>
+        private static string Fold(string text)
+        {
+            var builder = new StringBuilder(text.Length);
+            var pending = false;
+            Span<char> utf16 = stackalloc char[2];
+
+            foreach (var rune in text.EnumerateRunes())
+            {
+                if (Rune.IsWhiteSpace(rune) ||
+                    Rune.GetUnicodeCategory(rune) is UnicodeCategory.Control
+                        or UnicodeCategory.LineSeparator
+                        or UnicodeCategory.ParagraphSeparator)
+                {
+                    // Leading whitespace is dropped rather than remembered, so the result is
+                    // trimmed at the front without a second pass.
+                    pending = builder.Length > 0;
+                    continue;
+                }
+
+                if (pending)
+                {
+                    builder.Append(' ');
+                    pending = false;
+                }
+
+                builder.Append(utf16[..rune.EncodeToUtf16(utf16)]);
+            }
+
+            return builder.ToString();
+        }
+
+        /// <summary>
+        /// Cuts <paramref name="folded"/> to <see cref="TitleClusters"/> clusters and
+        /// <see cref="TitleCharacterCeiling"/> characters, whichever bites first.
+        /// </summary>
+        /// <remarks>
+        /// Both bounds land on a cluster boundary, so neither can produce the split glyph the
+        /// cluster count exists to avoid. The two constants carry the argument for why there are
+        /// two of them.
+        /// </remarks>
+        private static (string Shown, bool Truncated) Shorten(string folded)
+        {
+            var elements = StringInfo.GetTextElementEnumerator(folded);
+            var clusters = 0;
+            var taken = 0;
+
+            while (elements.MoveNext())
+            {
+                var element = (string)elements.Current;
+
+                if (clusters == TitleClusters || taken + element.Length > TitleCharacterCeiling)
+                {
+                    return (folded[..taken] + "…", true);
+                }
+
+                clusters++;
+                taken += element.Length;
+            }
+
+            return (folded, false);
+        }
+    }
+
     /// <summary>Claude's answer once known, verbatim, or null (Design Document §9, expanded row).</summary>
     public string? Answer => _session.Latest.Answer;
 
@@ -401,6 +623,11 @@ public sealed partial class SessionViewModel : DashboardRow
         OnPropertyChanged(nameof(AskedAtText));
         OnPropertyChanged(nameof(Prompt));
         OnPropertyChanged(nameof(PromptSnippet));
+        OnPropertyChanged(nameof(HasTitle));
+        OnPropertyChanged(nameof(TitleDisplay));
+        OnPropertyChanged(nameof(TitlePrefix));
+        OnPropertyChanged(nameof(TitleTooltip));
+        OnPropertyChanged(nameof(RowName));
         OnPropertyChanged(nameof(Answer));
         OnPropertyChanged(nameof(HasAnswer));
         OnPropertyChanged(nameof(Cwd));

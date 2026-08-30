@@ -42,6 +42,60 @@ public sealed class HookEventMapperTests
         return Assert.IsType<T>(mapping.Event);
     }
 
+
+    /// <summary>
+    /// <strong>Every accepted event carries <c>session_title</c> through, not just the one arm
+    /// that used to read it.</strong>
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The theory runs over <see cref="HookEventNames.Accepted"/> itself rather than over a list
+    /// written here, so an event added to the allow-list and forgotten fails this test instead of
+    /// quietly losing titles. That is the shape of the defect this task exists to remove: the
+    /// field used to be read on the <c>SessionStart</c> arm alone, and <c>SessionStart</c> has
+    /// never fired (issue #20), so no row ever showed a title while every test passed.
+    /// </para>
+    /// <para>
+    /// The negative half is asserted too. A payload without the field must produce null rather
+    /// than an empty string, because the Registry's latch treats "no title on this event" and
+    /// "this event says the title is blank" as the same thing only by way of that null.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [MemberData(nameof(AcceptedEventNames))]
+    public void Every_accepted_event_carries_the_session_title(string hookEventName)
+    {
+        var carrying = MapJson($$"""
+            {
+              "hook_event_name": "{{hookEventName}}",
+              "session_id": "s-1",
+              "session_title": "Director"
+            }
+            """);
+
+        Assert.Equal("Director", Assert.IsAssignableFrom<InboundEvent>(carrying.Event).SessionTitle);
+
+        var without = MapJson($$"""
+            {
+              "hook_event_name": "{{hookEventName}}",
+              "session_id": "s-1"
+            }
+            """);
+
+        Assert.Null(Assert.IsAssignableFrom<InboundEvent>(without.Event).SessionTitle);
+    }
+
+    public static TheoryData<string> AcceptedEventNames()
+    {
+        var names = new TheoryData<string>();
+
+        foreach (var name in HookEventNames.Accepted)
+        {
+            names.Add(name);
+        }
+
+        return names;
+    }
     // ---- The common fields ---------------------------------------------------------------------
 
     [Fact]
@@ -88,21 +142,19 @@ public sealed class HookEventMapperTests
     // ---- Per-event fields, per §9.1 -----------------------------------------------------------------
 
     [Fact]
-    public void SessionStart_carries_source_session_title_and_cwd()
+    public void SessionStart_carries_source_and_cwd()
     {
         var start = MapTo<SessionStart>("""
             {
               "hook_event_name": "SessionStart",
               "session_id": "s-1",
               "source": "resume",
-              "session_title": "dashboard build",
               "cwd": "C:\\projects\\dashboard"
             }
             """);
 
         Assert.Equal("resume", start.Source);
         Assert.Equal(SessionStartSource.Resume, start.ParsedSource);
-        Assert.Equal("dashboard build", start.SessionTitle);
         Assert.Equal(@"C:\projects\dashboard", start.Cwd);
     }
 

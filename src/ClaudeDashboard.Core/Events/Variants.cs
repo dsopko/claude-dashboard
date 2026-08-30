@@ -16,11 +16,6 @@ public sealed record SessionStart : InboundEvent
 
     /// <summary>The parsed <see cref="Source"/>, or <see cref="SessionStartSource.Unknown"/>.</summary>
     public SessionStartSource ParsedSource => SessionStartSources.Parse(Source);
-
-    /// <summary>
-    /// Claude Code's <c>session_title</c>, or null. Display text — data, never instruction.
-    /// </summary>
-    public string? SessionTitle { get; init; }
 }
 
 /// <summary>

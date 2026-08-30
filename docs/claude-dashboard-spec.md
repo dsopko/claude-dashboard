@@ -103,7 +103,7 @@ The dashboard subscribes to a small subset of the available lifecycle events. Ea
 
 Two payload properties make the product possible and deserve emphasis:
 
-- **UserPromptSubmit carries the prompt text.** This is why the session's identifying line — the thing the operator recognizes it by — populates at the source, with no scrollback scraping.
+- **UserPromptSubmit carries the prompt text.** This is why the session's context line — the thing the operator recognizes it by — populates at the source, with no scrollback scraping.
 - **Stop carries the final assistant message directly.** This is why an expanded row can show the *answer* beside the *question*: both halves of the exchange arrive in events, so many checks resolve inside the dashboard without opening the terminal at all.
 
 ### II.3 Correlation and identity

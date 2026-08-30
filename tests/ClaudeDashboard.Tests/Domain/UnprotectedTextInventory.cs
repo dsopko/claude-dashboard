@@ -66,20 +66,26 @@ public sealed class UnprotectedTextInventory
     /// <para>
     /// <strong>Measured, not assumed.</strong> Each was rendered through a real Serilog pipeline
     /// with a marker in it and came back — the record-shaped ones through a plain <c>{Event}</c>,
-    /// <c>SessionViewModel</c>'s three through <c>{@Row}</c>. That pair is also the demonstration
-    /// of why both routes must be in scope: <c>{Row}</c> on the very same object is clean.
+    /// the ones on <c>SessionViewModel</c> through <c>{@Row}</c>. That pair is also the
+    /// demonstration of why both routes must be in scope: <c>{Row}</c> on the very same object is
+    /// clean. The entries T1.24 added are measured the same way, by
+    /// <c>SessionTitleLoggingTests</c>, rather than reasoned into the list.
     /// </para>
     /// <para>
     /// Four layers, all carrying the same words. <c>HookPayload</c> is the wire body as
-    /// deserialized; <c>UserPromptSubmit</c>, <c>Stop</c> and <c>SessionStart</c> are the domain
-    /// events mapped from it; <c>Exchange</c> is what the Registry keeps; <c>SessionViewModel</c>
-    /// is what the screen binds to. <strong>A single prompt exists as a plain string in four
-    /// objects at once</strong>, which is worth knowing before anyone estimates issue #11.
+    /// deserialized; <c>UserPromptSubmit</c>, <c>Stop</c> and <c>InboundEvent</c> are the domain
+    /// events mapped from it; <c>Exchange</c> and <c>Session</c> are what the Registry keeps;
+    /// <c>SessionViewModel</c> is what the screen binds to. <strong>A single prompt exists as a
+    /// plain string in four objects at once</strong>, which is worth knowing before anyone
+    /// estimates issue #11.
     /// </para>
     /// <para>
-    /// <c>Session</c> is not listed: it carries no prose string of its own, but it holds an
-    /// <c>Exchange</c>, and a record printing a record prints the nested one — so <c>{Session}</c>
-    /// exposes the <c>Exchange</c> entries transitively. Wrapping those closes that path too.
+    /// <strong><c>Session</c> is listed now, and it was not before.</strong> The old note here
+    /// said it "carries no prose string of its own" and reached the right conclusion for the
+    /// wrong reason — it did hold an <c>Exchange</c>, and a record printing a record prints the
+    /// nested one, so <c>{Session}</c> already exposed the prompt and the answer transitively.
+    /// Since T1.24 it also carries <c>Title</c> directly. The transitive path is still there and
+    /// wrapping the <c>Exchange</c> entries still closes it.
     /// </para>
     /// </remarks>
     private static readonly HashSet<string> CarriesOperatorText = new(StringComparer.Ordinal)
@@ -89,19 +95,25 @@ public sealed class UnprotectedTextInventory
         "HookPayload.LastAssistantMessage",
         "HookPayload.SessionTitle",
 
-        // The domain events mapped from it.
+        // The domain events mapped from it. `SessionTitle` is common to every variant since
+        // T1.24, so the scan reports it once against the base type rather than nine times.
         "UserPromptSubmit.Prompt",
         "Stop.LastAssistantMessage",
-        "SessionStart.SessionTitle",
+        "InboundEvent.SessionTitle",
 
         // What the Registry keeps.
         "Exchange.Prompt",
         "Exchange.Answer",
+        "Session.Title",
 
         // What the screen binds to — and the type most likely to be logged.
         "SessionViewModel.Prompt",
         "SessionViewModel.PromptSnippet",
         "SessionViewModel.Answer",
+        "SessionViewModel.TitleDisplay",
+        "SessionViewModel.TitlePrefix",
+        "SessionViewModel.TitleTooltip",
+        "SessionViewModel.RowName",
     };
 
     /// <summary>
@@ -179,6 +191,16 @@ public sealed class UnprotectedTextInventory
         // #11's wrapping of unprotected text does not extend here. It is displayed deliberately,
         // and SessionId's own remark was rewritten to stop claiming otherwise.
         "SessionViewModel.ShortId", "SessionViewModel.IdTooltip",
+
+        // AND ITS NEIGHBOUR GOES THE OTHER WAY, WHICH IS NOT AN INCONSISTENCY. The session's
+        // TITLE is a session-scoped string on the same view model and it is in
+        // CarriesOperatorText, because the slot holds two kinds of value with nothing to tell
+        // them apart: a name the operator set, and — for a session nobody named — a title a
+        // background model call wrote by summarising their first prompt. A classification has to
+        // hold for every value the slot can carry, not for the common one, so "Director" being an
+        // identifier does not make the slot one. The id above passes the test the title fails:
+        // Claude Code mints it and nothing the operator typed reaches it.
+
         "TrayViewModel.MuteAllLabel", "TrayViewModel.PauseLabel", "TrayViewModel.Tooltip",
 
         // Configuration, paths and operational results.
