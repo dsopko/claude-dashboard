@@ -479,45 +479,76 @@ public sealed class AppHostTests : IDisposable
     }
 
     /// <summary>
-    /// A malformed settings file leaves the defaults in the container, and the reason on disk
-    /// where the operator can find it — the only diagnostic channel a windowless app has.
+    /// A malformed settings file leaves the defaults in the container, logs the reason where the
+    /// operator can find it, and <strong>still starts a host that serves</strong>.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <strong>This test used to start the host, and no longer can. That is a deliberate loss,
-    /// and here is exactly what is no longer covered: nothing starts a host from a malformed
-    /// settings file.</strong>
+    /// <strong>THE START IS BACK, AND THE REASON IT WAS EVER REMOVED WAS FALSE.</strong> This
+    /// test was split in two, and the paragraph justifying the split said: "a malformed file
+    /// always yields <c>DefaultPort</c> — that is the fallback this very test asserts — so the
+    /// settings can never name a free port, and a host started from them always binds the fixed
+    /// one." Three claims, all wrong.
     /// </para>
     /// <para>
-    /// It cannot. A malformed file always yields <see cref="DashboardSettings.DefaultPort"/> —
-    /// that is the fallback this very test asserts — so the settings can never name a free port,
-    /// and a host started from them always binds the fixed one. Whenever a dashboard is running,
-    /// which on the developer's own machine is most of the time, that bind fails and the test is
-    /// red for a reason that has nothing to do with settings parsing. Keeping both claims in one
-    /// test would need a way to make the bound port differ from the settings port, and that is
-    /// not a product surface worth adding for a test.
+    /// <strong>A malformed file yields an <em>unset</em> port, not <c>DefaultPort</c></strong> —
+    /// <see cref="DashboardSettings.Port"/> is <c>int?</c> and its own remark says in bold that an
+    /// out-of-range value becomes unset rather than defaulted. That nullability is T1.21's whole
+    /// mechanism. The assertion below never said otherwise: it compares against a fresh
+    /// <see cref="DashboardSettings"/>, whose port is null. <strong>The remark cited this test as
+    /// its evidence and this test said something else.</strong>
     /// </para>
     /// <para>
-    /// The claim is recovered by composition, not by hope.
-    /// <see cref="A_started_host_binds_the_port_the_settings_name"/> starts a host from a
-    /// settings object that is default in everything except the port, and this one asserts that a
-    /// malformed file produces exactly the defaults. The two compose into "a malformed file still
-    /// starts", and the only gap left is a fault that lives in the fallback object alone —
-    /// which, since the assertion below is equality against a fresh <see cref="DashboardSettings"/>
-    /// and not merely a port comparison, would have to be a fault in a value neither test reads.
+    /// <strong>And an unset port is exactly the case the derivation exists for.</strong>
+    /// <c>AppHost.Build</c> with no ingress runs <c>PortSelection.ForDataFolder</c> — pin, then
+    /// <c>port.txt</c>, then a derivation from the SID, then a bounded walk — under a comment
+    /// headed "NO SILENT FALL-BACK TO THE BASE PORT". The old remark asserted the fall-back that
+    /// code exists to prevent. Far from binding an occupied port, a malformed file gets the same
+    /// free port any ordinary start would.
+    /// </para>
+    /// <para>
+    /// <strong>So the coverage came back rather than staying recovered by composition.</strong>
+    /// Two tests composing into "a malformed file still starts" was a real second-best; one test
+    /// that starts one is better, and there was never anything preventing it after T1.21. The
+    /// port is read from <see cref="IngressStatus"/> rather than from the settings, because the
+    /// point of the claim is that <em>nothing in the file chose it</em>.
     /// </para>
     /// </remarks>
     [Fact]
-    public void A_malformed_settings_file_falls_back_to_defaults_and_logs_the_reason()
+    public async Task A_malformed_settings_file_falls_back_to_defaults_and_still_serves()
     {
         Directory.CreateDirectory(_root);
         File.WriteAllText(_paths.SettingsFile, "{ \"port\": 51000,, }");
 
-        using (var host = Build())
+        using var host = Build();
+
+        // Equality against a fresh instance, not just the port: every value has to be ordinary,
+        // and a fault living in one the port assertion never reads would otherwise go unseen.
+        var settings = host.Services.GetRequiredService<DashboardSettings>();
+        Assert.Equal(new DashboardSettings(), settings);
+
+        // UNSET, and named separately from the equality above because this is the specific claim
+        // the deleted remark got wrong.
+        Assert.Null(settings.Port);
+
+        host.Start();
+
+        try
         {
-            // Equality against a fresh instance, not just the port: this is the object the test
-            // below relies on being ordinary, so "ordinary" is what gets asserted.
-            Assert.Equal(new DashboardSettings(), host.Services.GetRequiredService<DashboardSettings>());
+            var status = host.Services.GetRequiredService<IngressStatus>();
+
+            Assert.True(
+                status.CanReceiveHooks,
+                $"a malformed settings file left the host unable to hear on port {status.Port}");
+
+            using var client = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+            var body = await client.GetStringAsync(new Uri($"http://127.0.0.1:{status.Port}/health"));
+
+            Assert.Contains("\"status\":\"ok\"", body, StringComparison.Ordinal);
+        }
+        finally
+        {
+            await host.StopAsync();
         }
 
         var logs = ReadAllLogs();
