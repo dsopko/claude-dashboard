@@ -26,6 +26,14 @@ namespace ClaudeDashboard.App.Ui;
 /// 2c draws rather than an arbitrary subset of it.
 /// </para>
 /// <para>
+/// <strong>A PREFIX, WHICH MEANS THE FIRST MISS ENDS IT.</strong> Carrying on to try later,
+/// narrower children would fill the gap with whichever ones happened to fit — and every count
+/// after the first carries its own leading separator, so the caption would read
+/// "<c>· 5 unread</c>", a separator dangling off nothing. Reachable, too: the four counts are
+/// within about twelve pixels of each other, so a width that refuses the total refuses it by a
+/// margin that the next one along would slip inside.
+/// </para>
+/// <para>
 /// A child already collapsed — every count is, at zero — measures to nothing, costs no room, and
 /// so cannot push a later one out. Visibility is not touched here: the counts' own bindings own
 /// it, and a panel that wrote to the same property would fight them.
@@ -38,6 +46,7 @@ public sealed class FittingStrip : Panel
     {
         var used = 0.0;
         var height = 0.0;
+        var full = true;
 
         foreach (UIElement child in InternalChildren)
         {
@@ -52,9 +61,19 @@ public sealed class FittingStrip : Panel
             // the caption's line does not jump as counts come and go.
             height = Math.Max(height, wanted.Height);
 
+            if (!full)
+            {
+                continue;
+            }
+
             if (used + wanted.Width <= availableSize.Width)
             {
                 used += wanted.Width;
+            }
+            else
+            {
+                // The first child that will not fit ends the strip. See the prefix remark above.
+                full = false;
             }
         }
 
@@ -65,12 +84,13 @@ public sealed class FittingStrip : Panel
     protected override Size ArrangeOverride(Size finalSize)
     {
         var x = 0.0;
+        var full = true;
 
         foreach (UIElement child in InternalChildren)
         {
             var wanted = child.DesiredSize;
 
-            if (x + wanted.Width <= finalSize.Width)
+            if (full && x + wanted.Width <= finalSize.Width)
             {
                 child.Arrange(new Rect(x, 0, wanted.Width, finalSize.Height));
                 x += wanted.Width;
@@ -78,8 +98,10 @@ public sealed class FittingStrip : Panel
                 continue;
             }
 
-            // No room. Arranged empty rather than collapsed, so the count's own visibility
-            // binding is left alone and the child comes back the moment the window widens.
+            // No room, and none for anything after it either. Arranged empty rather than
+            // collapsed, so the count's own visibility binding is left alone and the child comes
+            // back the moment the window widens.
+            full = false;
             child.Arrange(default);
         }
 
