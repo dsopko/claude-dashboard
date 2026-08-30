@@ -1,3 +1,5 @@
+using ClaudeDashboard.App.Configuration;
+using ClaudeDashboard.Tests.Domain;
 using ClaudeDashboard.App.Storage;
 using ClaudeDashboard.App.Pipeline;
 using ClaudeDashboard.Core;
@@ -49,7 +51,7 @@ public sealed class SoundCommandPipelineTests : IAsyncLifetime
     public Task InitializeAsync()
     {
         _sound = new SoundPolicyEngine(_player, _clock, _guard, new SoundPolicyOptions());
-        _registry.SessionChanged += (_, e) => _sound.OnSessionChanged(e.Session);
+        _registry.SessionChanged += (_, e) => _sound.ChangedUngrouped(e.Session);
 
         _consumer = new EventConsumer(
             _pipeline,
@@ -60,6 +62,7 @@ public sealed class SoundCommandPipelineTests : IAsyncLifetime
             Logger.None,
             new RecordingUiTick(),
             _archive,
+            new RosterStore(),
             tickInterval: TimeSpan.FromMilliseconds(25));
 
         return _consumer.StartAsync(CancellationToken.None);

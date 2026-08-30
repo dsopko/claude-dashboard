@@ -1,3 +1,4 @@
+using ClaudeDashboard.App.Configuration;
 using ClaudeDashboard.App.Storage;
 using ClaudeDashboard.App.Ui;
 using ClaudeDashboard.Core;
@@ -47,6 +48,9 @@ public sealed class EventConsumer : BackgroundService
     /// </remarks>
     public static readonly TimeSpan DefaultTickInterval = TimeSpan.FromSeconds(15);
 
+    /// <summary>The shortest this loop will ever sleep, so a past deadline cannot spin it.</summary>
+    internal static readonly TimeSpan MinimumWait = TimeSpan.FromMilliseconds(10);
+
     private readonly EventPipeline _pipeline;
     private readonly SessionRegistry _registry;
     private readonly SoundPolicyEngine _sound;
@@ -55,6 +59,11 @@ public sealed class EventConsumer : BackgroundService
     private readonly ILogger _logger;
     private readonly TimeSpan _tickInterval;
     private readonly IUiTick _uiTick;
+    private readonly RosterStore _rosters;
+    private readonly RosterGroupWatch _watch;
+
+    /// <summary>When a roster group is next due to settle on its own, or null.</summary>
+    private DateTimeOffset? _settleDue;
     private readonly EventArchive _archive;
 
     /// <summary>Creates the consumer.</summary>
@@ -78,7 +87,9 @@ public sealed class EventConsumer : BackgroundService
         ILogger logger,
         IUiTick uiTick,
         EventArchive archive,
-        TimeSpan? tickInterval = null)
+        RosterStore rosters,
+        TimeSpan? tickInterval = null,
+        RosterGroupWatch? watch = null)
     {
         ArgumentNullException.ThrowIfNull(pipeline);
         ArgumentNullException.ThrowIfNull(registry);
@@ -88,8 +99,11 @@ public sealed class EventConsumer : BackgroundService
         ArgumentNullException.ThrowIfNull(logger);
         ArgumentNullException.ThrowIfNull(uiTick);
         ArgumentNullException.ThrowIfNull(archive);
+        ArgumentNullException.ThrowIfNull(rosters);
 
         _archive = archive;
+        _rosters = rosters;
+        _watch = watch ?? new RosterGroupWatch();
         _pipeline = pipeline;
         _registry = registry;
         _sound = sound;
@@ -99,6 +113,15 @@ public sealed class EventConsumer : BackgroundService
         _tickInterval = tickInterval ?? DefaultTickInterval;
         _uiTick = uiTick;
     }
+
+    /// <summary>How many roster groups have settled. Diagnostic only.</summary>
+    public long SettledCount { get; private set; }
+
+    /// <summary>How many settles turned out to be wrong. Diagnostic only.</summary>
+    public long MisMarkedCount { get; private set; }
+
+    /// <summary>When a roster group is next due to settle, or null. Diagnostic only.</summary>
+    internal DateTimeOffset? SettleDue => _settleDue;
 
     /// <summary>How many events have been applied to the Registry. Diagnostic only.</summary>
     public long AppliedCount { get; private set; }
@@ -139,10 +162,17 @@ public sealed class EventConsumer : BackgroundService
             "Event consumer started. Nudge evaluation every {TickSeconds}s, on the same loop as the channel read.",
             _tickInterval.TotalSeconds);
 
-        using var ticker = new PeriodicTimer(_tickInterval);
+        // A computed delay rather than a PeriodicTimer, because two deadlines share this loop now:
+        // the ordinary tick, and a roster group due to settle. See WaitFor.
+        var nextTick = _clock.Now + _tickInterval;
 
         var readable = _pipeline.Reader.WaitToReadAsync(stoppingToken).AsTask();
-        var ticked = ticker.WaitForNextTickAsync(stoppingToken).AsTask();
+
+        // WHY the timer was armed, recorded when it is armed. Deciding it afterwards by comparing
+        // the clock would be wrong the moment the clock is a test's: a held clock never reaches
+        // the tick deadline, so every wake would be read as a settle and the tick would never run.
+        var waitingForSettle = SettleIsSooner(nextTick);
+        var ticked = Task.Delay(WaitFor(_clock.Now, nextTick, _settleDue), stoppingToken);
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -165,7 +195,18 @@ public sealed class EventConsumer : BackgroundService
                 }
 
                 DrainAvailable();
+
+                // An event can settle a group as surely as time can: the last member stopping is
+                // what starts the window, and the next member starting is what cancels it.
+                Settle(_clock.Now);
+
                 readable = _pipeline.Reader.WaitToReadAsync(stoppingToken).AsTask();
+
+                if (ticked.IsCompleted)
+                {
+                    waitingForSettle = SettleIsSooner(nextTick);
+                    ticked = Task.Delay(WaitFor(_clock.Now, nextTick, _settleDue), stoppingToken);
+                }
             }
             else
             {
@@ -174,8 +215,24 @@ public sealed class EventConsumer : BackgroundService
                     break;
                 }
 
-                Tick();
-                ticked = ticker.WaitForNextTickAsync(stoppingToken).AsTask();
+                var woke = _clock.Now;
+
+                if (waitingForSettle)
+                {
+                    // Woken by a settle deadline rather than by the tick. The tick keeps its own
+                    // schedule — nextTick is untouched — so the settle PRECEDED it rather than
+                    // displacing it, and the ordinary cadence is unchanged.
+                    Settle(woke);
+                    _uiTick.Tick(woke);
+                }
+                else
+                {
+                    Tick();
+                    nextTick = woke + _tickInterval;
+                }
+
+                waitingForSettle = SettleIsSooner(nextTick);
+                ticked = Task.Delay(WaitFor(_clock.Now, nextTick, _settleDue), stoppingToken);
             }
         }
 
@@ -354,6 +411,128 @@ public sealed class EventConsumer : BackgroundService
             UncorrelatedCount);
     }
 
+
+
+
+    /// <summary>Whether a roster group is due to settle before the next ordinary tick.</summary>
+    private bool SettleIsSooner(DateTimeOffset nextTick) => _settleDue is { } due && due < nextTick;
+
+    /// <summary>
+    /// Runs the roster-group pass inside the single-writer region, and never lets it stop the
+    /// pipeline.
+    /// </summary>
+    /// <remarks>
+    /// It enumerates the Registry and touches the sound engine, so it belongs inside the region
+    /// for exactly the reason <c>Evaluate</c> does: the hazard is walking a collection another
+    /// writer could restructure, not two writes colliding.
+    /// </remarks>
+    private void Settle(DateTimeOffset now)
+    {
+        try
+        {
+            using (_guard.Enter("observing roster groups"))
+            {
+                ObserveRosterGroups(now);
+            }
+        }
+        catch (SingleWriterViolationException ex)
+        {
+            _logger.Error(ex, "The single-writer invariant was violated while observing roster groups.");
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "Observing roster groups failed. The pipeline continues.");
+        }
+    }
+    /// <summary>
+    /// The shortest time this loop may sleep for: until the next ordinary tick, or until a roster
+    /// group is due to settle, whichever comes first.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>This exists because the ordinary tick is fifteen seconds and the settle window is
+    /// one and a half.</strong> Evaluating a 1.5-second window only on a 15-second tick would
+    /// deliver the group's finished state — and its chime — up to fifteen seconds after the work
+    /// finished, which is not a settle window at all. The operator chose 1.5 s deliberately, and a
+    /// tick interval is an implementation detail that must not overrule it.
+    /// </para>
+    /// <para>
+    /// <strong>And it is a wake, not a poll.</strong> The deadline is known the instant a group
+    /// goes quiet, so exactly one extra wake-up is needed per settle. A fast repeating timer would
+    /// have caught the same window by firing thousands of times an hour on an idle machine — which
+    /// is polling with a smaller number, and this product's first principle is that it never polls.
+    /// </para>
+    /// <para>
+    /// <strong>The settle never displaces the tick; it only precedes it.</strong> When nothing is
+    /// pending this returns exactly the time left until the next tick, so the ordinary cadence is
+    /// untouched — and when something is pending, the tick that was due still falls due at its own
+    /// time, because the caller advances the tick deadline only when it actually ticks.
+    /// </para>
+    /// <para>
+    /// Floored at <see cref="MinimumWait"/> so that a deadline already in the past — reachable
+    /// whenever a test holds the clock still — costs one short sleep rather than spinning.
+    /// </para>
+    /// </remarks>
+    internal static TimeSpan WaitFor(DateTimeOffset now, DateTimeOffset nextTick, DateTimeOffset? settleDue)
+    {
+        var until = settleDue is { } due && due < nextTick ? due : nextTick;
+        var wait = until - now;
+
+        return wait < MinimumWait ? MinimumWait : wait;
+    }
+    /// <summary>
+    /// Looks at the roster groups as they stand and acts on whatever changed (issue #16).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Called after every drain and on every tick, so a settle can be reached either by an event
+    /// arriving or by time passing — which is the whole shape of the feature: a group settles
+    /// because <em>nothing</em> happened for a while, and nothing happening produces no event.
+    /// </para>
+    /// <para>
+    /// <strong>Groups are re-derived here rather than cached.</strong> Fifteen sessions bucketed
+    /// into a handful of groups is far below the cost of the dispatcher hop that follows, and a
+    /// cache that disagreed with the Registry would settle a group whose membership had moved —
+    /// the same argument <see cref="GroupResolver"/> already makes.
+    /// </para>
+    /// <para>
+    /// <strong>The mis-mark warning names the roster and never a member.</strong> A member name is
+    /// a session title, and a title can be a model-written summary of the operator's prompt.
+    /// </para>
+    /// </remarks>
+    private void ObserveRosterGroups(DateTimeOffset now)
+    {
+        var groups = GroupResolver.Resolve(_registry.Sessions.Values, _rosters.Book);
+
+        foreach (var change in _watch.Observe(groups, now))
+        {
+            switch (change.Event)
+            {
+                case RosterGroupEvent.Settled:
+                    _sound.OnRosterGroupSettled(change.Group, now);
+                    SettledCount++;
+                    break;
+
+                case RosterGroupEvent.Unsettled:
+                    _sound.OnRosterGroupUnsettled(change.Group);
+                    break;
+
+                case RosterGroupEvent.MisMarked:
+                    MisMarkedCount++;
+                    _logger.Warning(
+                        "Group {Group} read finished and went back to working within {Seconds}s, so that " +
+                        "finished was wrong and the settle window is too short.",
+                        change.Group.Value,
+                        RosterSettle.DefaultMisMarkWindow.TotalSeconds);
+                    break;
+
+                default:
+                    break;
+            }
+        }
+
+        _settleDue = _watch.NextDeadline(groups);
+    }
     /// <summary>
     /// Asks the sound engine what has come due (TS §IV.5), and tells the UI what time it is.
     /// </summary>
@@ -379,6 +558,7 @@ public sealed class EventConsumer : BackgroundService
             {
                 TickCount++;
                 _sound.Evaluate(now);
+                ObserveRosterGroups(now);
             }
         }
         catch (SingleWriterViolationException ex)

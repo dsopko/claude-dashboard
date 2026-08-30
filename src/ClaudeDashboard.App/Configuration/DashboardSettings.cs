@@ -93,6 +93,80 @@ public sealed record DashboardSettings
     /// <summary>Where the window was left, and whether it floats (Impl §5.4).</summary>
     [JsonPropertyName("window")]
     public WindowSettings Window { get; init; } = new();
+
+    /// <summary>
+    /// The operator's rosters: named sets of session names that group together (issue #16).
+    /// </summary>
+    /// <remarks>
+    /// Absent for every operator who has never made one, which is the ordinary case and produces
+    /// no rosters and no log line. A malformed value loses the whole file exactly as a malformed
+    /// <c>port</c> does — see <see cref="RosterSettings"/> for why that consistency was chosen over
+    /// isolating this one section.
+    /// </remarks>
+    [JsonPropertyName("rosters")]
+    public IReadOnlyDictionary<string, IReadOnlyList<string>> Rosters { get; init; } =
+        new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Value equality over every member, <strong>the rosters compared by content</strong>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Written by hand for the same measured reason <see cref="ClaudeDashboard.Core.Group"/> is:
+    /// the synthesized version compares <see cref="Rosters"/> by <em>reference</em>, so a settings
+    /// record that had been through the file compared unequal to the one that produced it even when
+    /// every roster in it matched. That is not an abstract concern — it is what the round-trip test
+    /// caught the moment this section was added.
+    /// </para>
+    /// <para>
+    /// <c>SettingsPropertiesAreAllCompared</c> in the test suite asserts the exact set of properties
+    /// this method has to cover, so a sixth member cannot be added and silently left out of it.
+    /// </para>
+    /// </remarks>
+    public bool Equals(DashboardSettings? other) =>
+        other is not null &&
+        Port == other.Port &&
+        Logging == other.Logging &&
+        Sound == other.Sound &&
+        Window == other.Window &&
+        SameRosters(Rosters, other.Rosters);
+
+    /// <inheritdoc/>
+    public override int GetHashCode()
+    {
+        var hash = default(HashCode);
+        hash.Add(Port);
+        hash.Add(Logging);
+        hash.Add(Sound);
+        hash.Add(Window);
+
+        // Count only: two books with the same rosters in a different dictionary order must hash
+        // alike, and hashing the contents in enumeration order would not guarantee that.
+        hash.Add(Rosters.Count);
+
+        return hash.ToHashCode();
+    }
+
+    private static bool SameRosters(
+        IReadOnlyDictionary<string, IReadOnlyList<string>> left,
+        IReadOnlyDictionary<string, IReadOnlyList<string>> right)
+    {
+        if (left.Count != right.Count)
+        {
+            return false;
+        }
+
+        foreach (var (name, members) in left)
+        {
+            if (!right.TryGetValue(name, out var theirs) ||
+                !(members ?? []).SequenceEqual(theirs ?? [], StringComparer.Ordinal))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
 }
 
 /// <summary>Rolling-file log retention (Impl Part 8).</summary>

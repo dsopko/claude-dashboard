@@ -1,3 +1,4 @@
+using ClaudeDashboard.App.Configuration;
 using ClaudeDashboard.App.Ui;
 using ClaudeDashboard.Core;
 using ClaudeDashboard.Tests.Fakes;
@@ -32,7 +33,7 @@ public sealed class CollapseTests : IDisposable
             _harness.Projection,
             new MotionPolicy(() => false, observeChanges: false),
             new StubAckPublisher(),
-            new FakeClipboard());
+            new FakeClipboard(), new RosterStore());
     }
 
     public void Dispose()

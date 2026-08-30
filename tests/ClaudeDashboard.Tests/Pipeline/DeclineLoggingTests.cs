@@ -1,3 +1,4 @@
+using ClaudeDashboard.App.Configuration;
 using ClaudeDashboard.App.Storage;
 using System.Collections.Concurrent;
 using ClaudeDashboard.App.Pipeline;
@@ -79,6 +80,7 @@ public sealed class DeclineLoggingTests : IAsyncLifetime
             _logger,
             new RecordingUiTick(),
             _archive,
+            new RosterStore(),
             tickInterval: TimeSpan.FromMinutes(5));
 
         return _consumer.StartAsync(CancellationToken.None);

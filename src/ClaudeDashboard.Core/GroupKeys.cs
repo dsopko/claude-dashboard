@@ -20,6 +20,18 @@ public enum GroupKeyKind
     /// alone.
     /// </summary>
     Session = 2,
+
+    /// <summary>
+    /// Keyed on an operator roster: a named set of session names (issue #16). The one kind the
+    /// operator's hand reaches, and it outranks <see cref="Workspace"/>.
+    /// </summary>
+    /// <remarks>
+    /// <strong>Derived from the roster's NAME and never from its membership.</strong> A key built
+    /// from members would change every time a session joined or left — and the settle window
+    /// (T1.25) identifies a group across ticks by its key, so it would lose its identity at exactly
+    /// the moment membership churn is what it exists to survive.
+    /// </remarks>
+    Roster = 3,
 }
 
 /// <summary>
@@ -70,6 +82,7 @@ public static class GroupKeys
 {
     private const string WorkspacePrefix = "workspace:";
     private const string SessionPrefix = "session:";
+    private const string RosterPrefix = "roster:";
 
     /// <summary>
     /// The key <paramref name="session"/> groups under, given the workspace
@@ -109,11 +122,62 @@ public static class GroupKeys
         return new GroupKey(SessionPrefix + session.Value);
     }
 
+
+    /// <summary>The key for an operator roster, derived from its name (issue #16).</summary>
+    /// <exception cref="ArgumentException"><paramref name="roster"/> is null, empty, or whitespace.</exception>
+    public static GroupKey ForRoster(string roster)
+    {
+        if (string.IsNullOrWhiteSpace(roster))
+        {
+            throw new ArgumentException("A roster key needs a name.", nameof(roster));
+        }
+
+        return new GroupKey(RosterPrefix + roster);
+    }
+
+    /// <summary>
+    /// The group <paramref name="session"/> is <strong>actually in</strong>: its roster's, if its
+    /// current title is in one, and otherwise the group its workspace implies.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>This is the only thing that answers "which group is this session in", and the
+    /// precedence lives here rather than in any caller.</strong> A roster group outranks the
+    /// workspace group: gathering sessions that <c>cwd</c> scatters is the entire point of a
+    /// roster, so if the workspace won, a roster would do nothing.
+    /// </para>
+    /// <para>
+    /// <strong>Why this is not stamped on the session by the Registry.</strong> A roster is
+    /// operator configuration that changes at runtime, and <em>there is no event for "the operator
+    /// edited a roster"</em>. A key stamped during <c>Apply</c> could only be corrected afterwards
+    /// by walking the dictionary and rewriting records — a mutation outside the event stream, in a
+    /// store whose whole design is that every value it writes comes from the event being applied,
+    /// so that a replay rebuilds the same world. Computing the overlay on read costs one dictionary
+    /// lookup and makes "editing a roster regroups live sessions immediately" free, which is the
+    /// same argument <see cref="GroupResolver"/> already makes for re-deriving rather than caching.
+    /// </para>
+    /// <para>
+    /// <see cref="Session.WorkspaceGroup"/> is named for what it is precisely because of this
+    /// function: it is the group observable reality implies, and this is the group the session is
+    /// displayed in. They differ exactly when a roster applies.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="ArgumentNullException"><paramref name="session"/> or <paramref name="rosters"/> is null.</exception>
+    public static GroupKey Effective(Session session, RosterBook rosters)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        ArgumentNullException.ThrowIfNull(rosters);
+
+        return rosters.RosterFor(session.Title) is { } roster
+            ? ForRoster(roster)
+            : session.WorkspaceGroup;
+    }
     /// <summary>What <paramref name="key"/> was derived from.</summary>
     public static GroupKeyKind KindOf(GroupKey key) => key.Value switch
     {
         var v when v.StartsWith(WorkspacePrefix, StringComparison.Ordinal) => GroupKeyKind.Workspace,
         var v when v.StartsWith(SessionPrefix, StringComparison.Ordinal) => GroupKeyKind.Session,
+        var v when v.StartsWith(RosterPrefix, StringComparison.Ordinal) => GroupKeyKind.Roster,
         _ => GroupKeyKind.Unknown,
     };
 

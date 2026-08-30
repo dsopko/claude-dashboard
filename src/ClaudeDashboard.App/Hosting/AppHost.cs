@@ -71,6 +71,19 @@ public static class AppHost
 
         ReportStartup(logger, resolved, loaded, foldersReady, folderFailure);
 
+        // Rosters, normalised on the way out of the file: a hand edit can hold a name in two
+        // rosters or a roster with no members, and RosterBook can represent neither. Each
+        // correction is logged BY ROSTER NAME ONLY — a member name is a session title, and a title
+        // can be a model-written summary of the operator's prompt (T1.24, issue #18).
+        var rosterStore = new RosterStore();
+        var (book, corrections) = new RosterSettings { Rosters = loaded.Settings.Rosters }.ToBook();
+        rosterStore.Replace(book);
+
+        foreach (var correction in corrections)
+        {
+            logger.Warning("The rosters in {SettingsFile} needed correcting. {Correction}", resolved.SettingsFile, correction);
+        }
+
         // NO SILENT FALL-BACK TO THE BASE PORT. A caller that supplies no port gets the same
         // §3.1 choice Program makes — pin, then port.txt, then derive, then walk — because the
         // alternative is a working dashboard bound to the machine-wide port with a hook URL that
@@ -144,6 +157,7 @@ public static class AppHost
         builder.Services.AddSingleton<SingleWriterGuard>();
         builder.Services.AddSingleton<EventPipeline>();
         builder.Services.AddSingleton<IEventSink>(sp => sp.GetRequiredService<EventPipeline>().Sink);
+        builder.Services.AddSingleton(rosterStore);
         builder.Services.AddSingleton<SessionRegistry>();
         builder.Services.AddSingleton<SoundCatalog>();
         builder.Services.AddSingleton<ISoundPlayer, NAudioSoundPlayer>();
@@ -200,7 +214,9 @@ public static class AppHost
         // hear about changes on the consumer thread that raised them.
         var registry = app.Services.GetRequiredService<SessionRegistry>();
         var sound = app.Services.GetRequiredService<SoundPolicyEngine>();
-        registry.SessionChanged += (_, e) => sound.OnSessionChanged(e.Session);
+        var rosters = app.Services.GetRequiredService<RosterStore>();
+        registry.SessionChanged += (_, e) =>
+            sound.OnSessionChanged(e.Session, GroupKeys.Effective(e.Session, rosters.Book));
         _ = app.Services.GetRequiredService<SessionProjection>();
         app.MapIngress(onShow);
 

@@ -153,11 +153,11 @@ public sealed class SingleWriterInvariantTests
     [Fact]
     public void Evaluate_racing_a_session_change_is_caught_as_a_violation_not_a_mangled_collection()
     {
-        _sound.OnSessionChanged(Blocked("s-1", At));
+        _sound.ChangedUngrouped(Blocked("s-1", At));
 
         using (_guard.Enter("evaluating the nudge schedule"))
         {
-            var thrown = OnAnotherThread(() => _sound.OnSessionChanged(Blocked("s-2", At)));
+            var thrown = OnAnotherThread(() => _sound.ChangedUngrouped(Blocked("s-2", At)));
 
             var violation = Assert.IsType<SingleWriterViolationException>(thrown);
             Assert.Contains("evaluating the nudge schedule", violation.Message, StringComparison.Ordinal);
@@ -303,6 +303,8 @@ public sealed class SingleWriterInvariantTests
             ["Evaluate"] = 2,
             ["SetSessionMuted"] = 1,
             ["SetGroupMuted"] = 1,
+            ["OnRosterGroupSettled"] = 1,
+            ["OnRosterGroupUnsettled"] = 1,
             ["SetAllMuted"] = 1,
             ["SetMonitoringPaused"] = 1,
             ["IsMuted"] = 1,
@@ -330,10 +332,12 @@ public sealed class SingleWriterInvariantTests
     private (string Name, Action Call)[] Mutators =>
     [
         ("SessionRegistry.Apply", () => _registry.Apply(Prompt("s-9", At))),
-        ("SoundPolicyEngine.OnSessionChanged", () => _sound.OnSessionChanged(Blocked("s-9", At))),
+        ("SoundPolicyEngine.OnSessionChanged", () => _sound.ChangedUngrouped(Blocked("s-9", At))),
         ("SoundPolicyEngine.Evaluate", () => _sound.Evaluate(_clock.Now)),
         ("SoundPolicyEngine.SetSessionMuted", () => _sound.SetSessionMuted(new SessionId("s-9"), true)),
-        ("SoundPolicyEngine.SetGroupMuted", () => _sound.SetGroupMuted(GroupKeys.ForWorkspace(@"C:\w"), true)),
+        ("SoundPolicyEngine.SetGroupMuted", () => _sound.SetGroupMuted(GroupKeys.ForWorkspace(@"C:w"), true)),
+        ("SoundPolicyEngine.OnRosterGroupSettled", () => _sound.OnRosterGroupSettled(GroupKeys.ForRoster("orchestration"), At)),
+        ("SoundPolicyEngine.OnRosterGroupUnsettled", () => _sound.OnRosterGroupUnsettled(GroupKeys.ForRoster("orchestration"))),
         ("SoundPolicyEngine.SetAllMuted", () => _sound.SetAllMuted(muted: true)),
         ("SoundPolicyEngine.SetMonitoringPaused", () => _sound.SetMonitoringPaused(paused: true)),
     ];
@@ -368,7 +372,7 @@ public sealed class SingleWriterInvariantTests
     [Fact]
     public void The_registry_notifying_the_sound_engine_on_one_thread_never_fires()
     {
-        _registry.SessionChanged += (_, e) => _sound.OnSessionChanged(e.Session);
+        _registry.SessionChanged += (_, e) => _sound.ChangedUngrouped(e.Session);
 
         for (var i = 0; i < 50; i++)
         {

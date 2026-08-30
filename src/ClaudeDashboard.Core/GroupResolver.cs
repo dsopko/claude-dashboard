@@ -42,9 +42,31 @@ public static class GroupResolver
     /// </returns>
     /// <exception cref="ArgumentNullException"><paramref name="sessions"/> is null.</exception>
     /// <exception cref="ArgumentException"><paramref name="sessions"/> contains null.</exception>
-    public static IReadOnlyList<Group> Resolve(IEnumerable<Session> sessions)
+    public static IReadOnlyList<Group> Resolve(IEnumerable<Session> sessions) =>
+        Resolve(sessions, RosterBook.Empty);
+
+    /// <summary>
+    /// Partitions <paramref name="sessions"/> into groups, with <paramref name="rosters"/> applied.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The roster overlay is applied here rather than being read from the session, because
+    /// <see cref="Session.WorkspaceGroup"/> is what the events reported and a roster is what the
+    /// operator asked for. <see cref="GroupKeys.Effective"/> owns the precedence; this method only
+    /// buckets by whatever it returns.
+    /// </para>
+    /// <para>
+    /// <strong>Re-deriving on every call is what makes a roster edit take effect immediately.</strong>
+    /// There is no membership bookkeeping to update and no cache to invalidate: the next resolve
+    /// simply buckets differently, which is the same argument this type already makes for not
+    /// caching groups across <c>cwd</c> changes.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="ArgumentNullException">Either argument is null.</exception>
+    public static IReadOnlyList<Group> Resolve(IEnumerable<Session> sessions, RosterBook rosters)
     {
         ArgumentNullException.ThrowIfNull(sessions);
+        ArgumentNullException.ThrowIfNull(rosters);
 
         var members = sessions.ToList();
         if (members.Exists(static session => session is null))
@@ -55,7 +77,7 @@ public static class GroupResolver
         return
         [
             .. members
-                .GroupBy(static session => session.WorkspaceGroup)
+                .GroupBy(session => GroupKeys.Effective(session, rosters))
                 .OrderBy(static group => group.Key.Value, StringComparer.Ordinal)
                 .Select(static group => new Group(
                     group.Key,

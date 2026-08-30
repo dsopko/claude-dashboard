@@ -1,3 +1,4 @@
+using ClaudeDashboard.App.Configuration;
 using System.Globalization;
 using ClaudeDashboard.App.Pipeline;
 using ClaudeDashboard.App.Storage;
@@ -72,6 +73,7 @@ public sealed class SessionTitleLoggingTests : IAsyncLifetime
             _logger,
             new RecordingUiTick(),
             _archive,
+            new RosterStore(),
             tickInterval: TimeSpan.FromMinutes(5));
 
         return _consumer.StartAsync(CancellationToken.None);

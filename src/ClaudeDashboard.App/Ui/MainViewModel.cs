@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.ComponentModel;
+using ClaudeDashboard.App.Configuration;
 using ClaudeDashboard.Core;
 using CommunityToolkit.Mvvm.ComponentModel;
 
@@ -50,6 +51,7 @@ public sealed partial class MainViewModel : ObservableObject, IUiTickTarget, IDi
     private readonly MotionPolicy _motion;
     private readonly IAckPublisher _ack;
     private readonly IClipboard _clipboard;
+    private readonly RosterStore _rosters;
     private readonly Dictionary<SessionId, SessionViewModel> _sessionRows = [];
     private readonly Dictionary<GroupKey, GroupViewModel> _groupHeaders = [];
     private readonly Dictionary<AttentionBand, BandHeaderViewModel> _bandHeaders = [];
@@ -110,17 +112,20 @@ public sealed partial class MainViewModel : ObservableObject, IUiTickTarget, IDi
         SessionProjection projection,
         MotionPolicy motion,
         IAckPublisher ack,
-        IClipboard clipboard)
+        IClipboard clipboard,
+        RosterStore rosters)
     {
         ArgumentNullException.ThrowIfNull(projection);
         ArgumentNullException.ThrowIfNull(motion);
         ArgumentNullException.ThrowIfNull(ack);
         ArgumentNullException.ThrowIfNull(clipboard);
+        ArgumentNullException.ThrowIfNull(rosters);
 
         _projection = projection;
         _motion = motion;
         _ack = ack;
         _clipboard = clipboard;
+        _rosters = rosters;
         _projection.Sessions.CollectionChanged += OnSessionsChanged;
         _motion.PropertyChanged += OnMotionChanged;
 
@@ -213,7 +218,7 @@ public sealed partial class MainViewModel : ObservableObject, IUiTickTarget, IDi
 
         Restate(sessions);
 
-        var groups = IsGrouped ? GroupResolver.Resolve(sessions) : null;
+        var groups = IsGrouped ? GroupResolver.Resolve(sessions, _rosters.Book) : null;
 
         Reconcile(groups is null ? FlatRows(sessions) : GroupedRows(groups));
         Forget(sessions, groups?.Select(group => group.Key).ToHashSet());
@@ -269,10 +274,11 @@ public sealed partial class MainViewModel : ObservableObject, IUiTickTarget, IDi
     {
         var rows = new List<DashboardRow>();
 
-        foreach (var group in AttentionEngine.OrderGroups(resolved))
+        foreach (var group in AttentionEngine.OrderGroups(resolved, group => RosterSettle.StateOf(group, _now)))
         {
             var header = HeaderFor(group);
 
+            header.WorstState = RosterSettle.StateOf(group, _now);
             header.IdleAge = _now - group.LastActivity;
             header.IsStale = group.Members.All(IsQuiet) && header.IdleAge >= StaleAfter;
 

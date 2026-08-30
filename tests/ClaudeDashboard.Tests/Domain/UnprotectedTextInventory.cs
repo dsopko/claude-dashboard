@@ -163,6 +163,17 @@ public sealed class UnprotectedTextInventory
         "Notification.NotificationType", "SessionEnd.Reason", "SessionStart.Source",
         "StopFailure.ErrorKind",
 
+        // The operator's own label for a roster (T1.25, issue #16). AN IDENTIFIER: they type it to
+        // name a group, it is never derived from a prompt or an answer, and it is deliberately
+        // logged — the mis-mark warning names the roster so that it need never name a member.
+        //
+        // A roster's MEMBERS are the other half and they are session titles, which T1.24 classified
+        // as operator text. They are absent from this list because the scan cannot see them: the
+        // predicate is a public instance STRING property, and members are a collection of strings.
+        // That hole is filed as its own issue rather than widened here; what closes the real
+        // exposure meanwhile is RosterLoggingTests, which proves no line names a member.
+        "Roster.Name",
+
         // The port choice (T1.21): a candidate list like "52888:Free → 52889:Unrecognised".
         // Port numbers and occupant names, formed here and never from a payload.
         "PortChoice.Trail",

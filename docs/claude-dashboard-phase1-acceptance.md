@@ -857,6 +857,133 @@ torn down — `IsStale` and `SessionCount` on `GroupViewModel`, neither of which
 The two view tests each realize their own window with the mode set beforehand, so they assert the
 flat view rather than the toggle. Reported to the director rather than fixed here.
 
+## 5h · T1.25 — roster grouping, and what it does not prove
+
+A roster is a named set of session names; a session whose current title is in one is grouped by it,
+wherever it is running (issue #16, part 1 of 2). The operator UI is T1.26 — **after this commit
+there is no way to create a roster from the running application**, by design, and the tests build
+them directly.
+
+Sixty-two tests cover it and four planted mutations confirmed they are load-bearing. TS §IV.3 was
+amended in the same commit. What follows is what none of that reaches.
+
+### The two findings that changed the design
+
+**1 · The tick is fifteen seconds and the settle window is one and a half.**
+`EventConsumer.DefaultTickInterval` is `TimeSpan.FromSeconds(15)`. A settle evaluated only on that
+tick would have delivered the group's finished state — and its done chime — **up to fifteen seconds
+after the work finished**, while every test passed, because tests drive the clock directly and
+never wait on the loop. The operator chose 1.5 s deliberately; a tick interval is an implementation
+detail and must not overrule it.
+
+The loop now waits until the earlier of the next tick and the next settle deadline. It is a wake,
+not a poll: the deadline is known the instant a group goes quiet, so one extra wake-up per settle
+is enough. A fast repeating timer would have caught the same window by firing thousands of times an
+hour on an idle machine, which is polling with a smaller number.
+
+**2 · The settle needs no history at all.**
+`Session.EnteredAt` is when a session entered its current state, and the Registry advances it *only*
+on a real state change. So for a group whose members have all stopped, the latest `EnteredAt` among
+them is exactly the moment the last one stopped — and the displayed state becomes a pure function of
+the group and the instant it is asked about. `Group` stays "the shape only", as its own remark says.
+
+`LastActivity` would have been wrong, and the difference is what makes this work: it advances on
+events that change no state — a tool batch on a session already working, a title latching — so
+measuring quietness with it would restart the window on things that are not the session going
+quiet.
+
+The only history left is the mis-mark monitor, which by definition compares two instants.
+
+### Where the roster is applied, and what `Session.Group` became
+
+Not the Registry, and the disqualifier is stronger than "config does not belong in the domain":
+**there is no event for "the operator edited a roster"**, so a stamped key could only be corrected
+by walking the dictionary and rewriting records — a mutation outside the event stream, in a store
+whose whole design is that every value it writes comes from the event being applied, so a replay
+rebuilds the same world.
+
+So the roster is an overlay computed on read, and `Session.Group` was renamed to
+**`Session.WorkspaceGroup`** in its own commit (`93f3e80`). `Group` promised "the group" while
+meaning "the group observable reality implies", with a truer notion sitting above it — the defect
+class that has cost this project three fix cycles in a week, caught here before any code could be
+written against the wider reading. Every changed line outside `Session.cs` in that commit is the
+identifier alone, checked by pairing the diff.
+
+### What the suite cannot reach
+
+1. **That the operator can make a roster.** There is no UI until T1.26. Everything here builds a
+   `RosterBook` directly, so nothing observes the path a real roster will actually arrive by.
+2. **That the settle window is the right length.** 1.5 s is a guess and is treated as one. Nothing
+   here measures a real hand-off; the mis-mark warning is the instrument that will, and it has
+   never run against live traffic.
+3. **That the loop's wake actually fires at the deadline.** `WaitFor` is asserted directly, in both
+   directions, and the settle is asserted through a running consumer — but with a tick interval of
+   20 ms and a settle window of zero, because a test that waited on a real 1.5 s would be a test
+   that sleeps. What is unproven is the *real-time* accuracy of the wake, which is `Task.Delay`'s
+   and not this code's.
+4. **That two sessions sharing a rostered name behave sensibly beyond joining.** #16 accepts the
+   collision; the row-level consequences are T1.26's.
+
+### Residual: a member renamed out mid-settle never sounds
+
+A member whose finished notice was suppressed, and which then leaves the roster before the group
+settles, never sounds at all. Accepted: the alternative is a done chime triggered by a rename,
+which is worse.
+
+### Residual: group mute does not follow a session across a roster edit
+
+**Per-session mute follows the session, always** — that is the one the operator set deliberately,
+and it is untouched by any roster edit. **Per-group mute does not follow.** A session muted through
+its workspace group becomes audible when it joins a roster, because the roster key is not in the
+muted set, and the reverse. Defensible — group mute means mute-this-group, and the session left
+that group — but **silent**, which is why it is written down here rather than left to be
+discovered.
+
+### Residual: a malformed rosters section loses the whole settings file
+
+Ruled to be consistent rather than special: a tolerant converter on the one property being added,
+while `"port": "abc"` still loses the file, would leave two behaviours for one class of fault and
+the newer one would look like the rule. The application still starts on defaults — "degrade, never
+crash" holds — but the operator's other settings are lost for that run. That is pre-existing
+behaviour of every field in the file and is filed separately.
+
+Load does **not** rewrite the file. A read that triggers a write is a new write path, and the one it
+would use is the non-atomic one (issue #7). The corrected shape reaches the file the next time the
+operator edits a roster.
+
+### The inventory cannot see a roster's members, and a test closes the gap instead
+
+`UnprotectedTextInventory` scans **public instance `string` properties**, so a *collection* of
+strings is invisible to it. A roster's members are session titles — operator text by T1.24's
+ruling — and would have been fully exposed to `{@Roster}` while the guard reported nothing. The
+guard has been claiming more than it delivers, and that is filed as its own issue rather than
+widened inside a feature commit.
+
+What closes the real exposure meanwhile is `RosterLoggingTests`: a real ingest, a marker member
+name, the settle and mis-mark paths both walked, and a control asserting those lines were actually
+written. `Roster.Name` is classified as an identifier — operator-authored, never derived from a
+prompt or an answer, and deliberately logged so that the mis-mark warning can name something.
+
+### Was the harness capable of producing the other outcome?
+
+Four plants, each verified present by md5 **and verified back**, each run to completion with the
+count taken from the run's summary line:
+
+| Planted defect | Result |
+|---|---|
+| The roster roll-up reverted to the single-session order | **fails** — 3 tests, incl. `Working_outranks_finished_in_a_roster_group_only` |
+| The settle window set to zero | **fails** — 5 tests, incl. `A_quiet_roster_group_reads_finished_only_after_the_settle_window` |
+| The sound suppression removed | **fails** — 4 tests, incl. `Members_finishing_one_at_a_time_produce_one_done_sound` |
+| Rule 4 disabled in the store | **fails** — 6 tests, incl. `A_name_added_to_a_second_roster_leaves_the_first` |
+
+**The third plant found a test of mine that was passing for the wrong reason**, which is what plants
+are for. `RosterLoggingTests.Only_the_group_sounds_when_a_member_finishes` claimed to prove the
+suppression end to end, and did not break when the suppression was deleted — because nothing in the
+fixture subscribed the sound engine to the Registry, so no member was ever announced to it and the
+only done sound in the run was always the group's. The fixture now wires it exactly as `AppHost`
+does, and with that line in place the plant kills the test. **A test that cannot fail is worse than
+a missing one, because it is counted.**
+
 ## 6 · Was the harness capable of producing the other outcome?
 
 A green run proves nothing unless a red one was reachable. Five defects were planted, each taken

@@ -155,6 +155,7 @@ public sealed class GroupViewModel : DashboardRow
     private bool _isExpanded;
     private bool _isStale;
     private TimeSpan _idleAge;
+    private SessionState? _displayState;
 
     /// <summary>Heads <paramref name="group"/>.</summary>
     /// <exception cref="ArgumentNullException"><paramref name="group"/> is null.</exception>
@@ -296,8 +297,39 @@ public sealed class GroupViewModel : DashboardRow
     public IReadOnlyList<Accent> MemberAccents =>
         [.. _group.Members.Select(member => RowVisuals.AccentOf(member.State))];
 
-    /// <summary>The group's roll-up state — from <see cref="Group.WorstState"/>, never computed here.</summary>
-    public SessionState WorstState => _group.WorstState;
+    /// <summary>
+    /// The group's roll-up state as the row reads it — the settle window included for a roster
+    /// group (issue #16).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Still never computed here. <see cref="Group.WorstState"/> supplies the raw roll-up and knows
+    /// which severity order applies; <see cref="RosterSettle.StateOf"/> holds a roster group at
+    /// working while a hand-off may still be in flight. Both are Core's, and this row is handed
+    /// the answer rather than deriving one.
+    /// </para>
+    /// <para>
+    /// <strong>Set by the caller because the settle needs a clock, and a row has none.</strong>
+    /// Defaulting to the raw roll-up means a row nobody has ticked reads what it would have read
+    /// before this feature existed, which is the right answer for every group that is not a roster.
+    /// </para>
+    /// </remarks>
+    public SessionState WorstState
+    {
+        get => _displayState ?? _group.WorstState;
+
+        set
+        {
+            if (_displayState == value)
+            {
+                return;
+            }
+
+            _displayState = value;
+            OnPropertyChanged(nameof(WorstState));
+            OnPropertyChanged(nameof(Accent));
+        }
+    }
 
     /// <summary>The most recent activity across its members.</summary>
     public DateTimeOffset LastActivity => _group.LastActivity;

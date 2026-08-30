@@ -1,3 +1,4 @@
+using ClaudeDashboard.App.Configuration;
 using System.Windows;
 using System.Windows.Threading;
 using ClaudeDashboard.App.Ui;
@@ -155,7 +156,7 @@ public sealed class WindowSurfacerTests(StaHarness harness)
             registry.Projection,
             new MotionPolicy(() => false, observeChanges: false),
             new StubAckPublisher(),
-            new FakeClipboard()))
+            new FakeClipboard(), new RosterStore()))
         {
             WindowStartupLocation = WindowStartupLocation.Manual,
             Left = -32000,

@@ -313,7 +313,8 @@ In **grouped** view this ordering runs *within* each group, and groups are order
 
 - **Phase 1 key:** workspace (`cwd`). Re-derived on directory-change events, not fixed at session start.
 - **Phase 4 key:** virtual desktop id (III.9), with desktop name as the group label.
-- **Group state** = worst member state (`NeedsYou.Permission` > `Error` > `NeedsYou.Question` > `Unread` > `Working` > `Quiet`).
+- **Group state** = worst member state (`NeedsYou.Permission` > `Error` > `NeedsYou.Question` > `Unread` > `Working` > `Quiet`). **In a roster group `Working` outranks `Unread`**, because its members are one piece of work passing between them and one member finishing while another works is a hand-off, not a result (issue #16). A roster group reads finished only after every member has been quiet for a settle window.
+- **Settle window:** 1.5 s, a starting value rather than a measured one. A group that reads finished and returns to working within 5 s wrote a wrong finished, and says so in the log — that line is what will decide whether 1.5 s holds.
 - **Group recency** = most recent member event.
 
 > **Correction (2026-08-24, ratified by the operator).** §IV.2 and this section
@@ -337,7 +338,11 @@ In **grouped** view this ordering runs *within* each group, and groups are order
 > exact ties only) with both renderings side by side. §IV.2's oldest-first
 > principle still governs *within* a kind.
 
-The operator never assigns groups by hand; grouping mirrors observable reality. A manual label or per-group checklist is a candidate refinement only if it later earns its place.
+**Grouping mirrors observable reality, and the dashboard never invents membership.** A group's key is derived from what the events reported — the workspace in Phase 1, the virtual desktop in Phase 4 — and is re-derived on directory-change events rather than fixed at session start.
+
+**The operator may define a roster: a named set of session names.** A session whose current title is in a roster is grouped by that roster, wherever it is running and whatever its workspace; a roster group outranks the workspace group, because gathering sessions that `cwd` scatters is the point. This is the one place the operator's hand reaches grouping, and it reaches only the *rule*, never the membership: **a roster matches names the sessions themselves report, so the dashboard still never asserts that two sessions belong together on its own authority.** A rename moves a session in or out with no restart, and a session in no roster is grouped exactly as before.
+
+> **Amendment (2026-08-30, T1.25, issue #16).** This paragraph previously read "The operator never assigns groups by hand; grouping mirrors observable reality. A manual label or per-group checklist is a candidate refinement only if it later earns its place." The first clause stopped being true when rosters landed. The rest of it did not, and is what the replacement keeps.
 
 ### IV.4 Space, staleness, collapse
 

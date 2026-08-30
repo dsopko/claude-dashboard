@@ -54,6 +54,19 @@ public sealed class SoundPolicyEngine : ISoundModeReader
     private readonly Dictionary<SessionId, Tracked> _tracked = [];
     private readonly HashSet<SessionId> _mutedSessions = [];
     private readonly HashSet<GroupKey> _mutedGroups = [];
+    private readonly Dictionary<GroupKey, TrackedGroup> _groups = [];
+
+    /// <summary>
+    /// The session a group notice is attributed to: none, because a group notice is the group's.
+    /// </summary>
+    /// <remarks>
+    /// This is what makes the mute rules come out right without a second predicate. Muting the
+    /// roster group silences its done chime, because <see cref="IsMuted"/> checks the group key;
+    /// muting one member does not, because the notice does not belong to that member. A caller
+    /// cannot reach this id — <see cref="SessionId"/> is empty only for <c>default</c>, which no
+    /// session can hold.
+    /// </remarks>
+    private static SessionId GroupNotice => default;
     private readonly SingleWriterGuard _guard;
 
     /// <summary>
@@ -114,8 +127,24 @@ public sealed class SoundPolicyEngine : ISoundModeReader
     /// ladder where it is. Entry is detected from <see cref="Session.EnteredAt"/>, which T1.2
     /// advances only on a real state change.
     /// </remarks>
+    /// <param name="session">The session that changed.</param>
+    /// <param name="effectiveGroup">
+    /// The group the session is ACTUALLY in — <see cref="GroupKeys.Effective"/>, not
+    /// <see cref="Session.WorkspaceGroup"/>, because an operator roster overrides it (issue #16).
+    /// <para>
+    /// <strong>Required rather than defaulted, deliberately.</strong> A parameter that could be
+    /// omitted would silently give every caller workspace behaviour: group mute would apply to the
+    /// wrong key and a roster member would sound its own finished chime, both of them wrong in a
+    /// way no test that forgot to pass it would notice. Making it required means the compiler finds
+    /// every call site instead.
+    /// </para>
+    /// <para>
+    /// This is also all the engine ever learns about rosters: it reads
+    /// <see cref="GroupKeys.KindOf"/> on the key and needs no roster book of its own.
+    /// </para>
+    /// </param>
     /// <exception cref="ArgumentNullException"><paramref name="session"/> is null.</exception>
-    public void OnSessionChanged(Session session)
+    public void OnSessionChanged(Session session, GroupKey effectiveGroup)
     {
         ArgumentNullException.ThrowIfNull(session);
 
@@ -134,7 +163,7 @@ public sealed class SoundPolicyEngine : ISoundModeReader
         {
             // Same state, same entry: nothing sounded, and the ladder must not restart. Only
             // the group can have moved, and that changes which mute applies.
-            existing!.Group = session.WorkspaceGroup;
+            existing!.Group = effectiveGroup;
             return;
         }
 
@@ -142,19 +171,95 @@ public sealed class SoundPolicyEngine : ISoundModeReader
         {
             State = session.State,
             EnteredAt = session.EnteredAt,
-            Group = session.WorkspaceGroup,
+            Group = effectiveGroup,
             Step = 0,
-            NextNudgeAt = FirstNudgeAt(session),
+            NextNudgeAt = FirstNudgeAt(session, effectiveGroup),
         };
 
         _tracked[session.Id] = tracked;
 
-        if (NoticeFor(session.State) is { } sound)
+        if (NoticeFor(session.State) is { } sound && !IsGroupDone(session.State, effectiveGroup))
         {
             Play(session.Id, tracked.Group, sound, _options.NoticeGain, TimeSpan.Zero);
         }
     }
 
+
+    /// <summary>
+    /// A roster group has settled: every member has been quiet for the settle window, so the
+    /// <em>group</em> announces it is done (issue #16).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>One notice for the group, not one per member.</strong> The members' own finished
+    /// notices were suppressed as they happened — see <see cref="IsGroupDone"/> — so this is the
+    /// first and only done sound the group produces, however many members finished and in whatever
+    /// order.
+    /// </para>
+    /// <para>
+    /// <strong>Nothing races, because nothing was queued.</strong> A member's finished notice is
+    /// suppressed at the point of emission, exactly as mute is, rather than being scheduled and
+    /// then cancelled — so there is nothing in flight for this to overtake. Both decisions happen
+    /// on the one consumer thread, in order.
+    /// </para>
+    /// <para>
+    /// Calling this again for a group that is already settled changes nothing and re-sounds
+    /// nothing: the settle is an edge, and the caller reports it once.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="ArgumentException"><paramref name="group"/> names no group.</exception>
+    public void OnRosterGroupSettled(GroupKey group, DateTimeOffset settledAt)
+    {
+        if (group.IsEmpty)
+        {
+            throw new ArgumentException("A settled group must have a key.", nameof(group));
+        }
+
+        using var writing = _guard.Enter("recording a roster group settling in the sound engine");
+
+        if (_groups.ContainsKey(group))
+        {
+            return;
+        }
+
+        _groups[group] = new TrackedGroup
+        {
+            NextNudgeAt = _options.UnreadNudgeAfter is { } after ? settledAt + after : null,
+        };
+
+        Play(GroupNotice, group, SoundId.Finished, _options.NoticeGain, TimeSpan.Zero);
+    }
+
+    /// <summary>
+    /// A roster group is no longer settled — a member started working again — so it stops nudging.
+    /// </summary>
+    /// <remarks>
+    /// Silent by design. The group going back to work is not an event the operator needs to hear;
+    /// it needs only to stop the reminder that the group is waiting, because it is not.
+    /// </remarks>
+    public void OnRosterGroupUnsettled(GroupKey group)
+    {
+        using var writing = _guard.Enter("clearing a roster group's settle in the sound engine");
+        _groups.Remove(group);
+    }
+
+    /// <summary>
+    /// Whether this state's notice belongs to the group rather than to the session.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>Done only, and every other sound is untouched.</strong> A member needing permission,
+    /// asking a question or erroring still notices and nudges immediately, grouped or not.
+    /// Suppressing those because a sibling happens to be working would hide precisely what this
+    /// product exists to surface — and unlike "done", they are about that member and nobody else.
+    /// </para>
+    /// <para>
+    /// The engine knows a roster group only by the kind of its key. It holds no roster book, does
+    /// not know what a roster is, and cannot be wrong about membership.
+    /// </para>
+    /// </remarks>
+    private static bool IsGroupDone(SessionState state, GroupKey group) =>
+        state == SessionState.Unread && GroupKeys.KindOf(group) == GroupKeyKind.Roster;
     /// <summary>Fires whatever nudges have come due, using the engine's clock.</summary>
     public void Evaluate() => Evaluate(_clock.Now);
 
@@ -207,6 +312,22 @@ public sealed class SoundPolicyEngine : ISoundModeReader
 
             tracked.Step++;
             tracked.NextNudgeAt = now + IntervalAt(tracked.Step);
+        }
+
+        // Settled roster groups nudge on the same pass and through the same Play, so mute, global
+        // silence and the master volume apply to a group notice without being written twice.
+        foreach (var (key, group) in _groups)
+        {
+            if (group.NextNudgeAt is not { } groupDue || groupDue > now)
+            {
+                continue;
+            }
+
+            Play(GroupNotice, key, SoundId.Finished, _options.NudgeGain, _options.NudgeFadeIn);
+
+            // TS §IV.5: an unread result gets at most one soft nudge, and a settled group is one
+            // unread result however many members produced it.
+            group.NextNudgeAt = null;
         }
     }
 
@@ -361,8 +482,15 @@ public sealed class SoundPolicyEngine : ISoundModeReader
     };
 
     /// <summary>When this session's first nudge falls due, or null if it is not nudge-eligible.</summary>
-    private DateTimeOffset? FirstNudgeAt(Session session) => session.State switch
+    /// <remarks>
+    /// A roster member never nudges on <see cref="SessionState.Unread"/>: its done notice belongs
+    /// to the group, and so does the reminder. Nudging per member would reinstate the noise the
+    /// suppression removes, one step later.
+    /// </remarks>
+    private DateTimeOffset? FirstNudgeAt(Session session, GroupKey effectiveGroup) => session.State switch
     {
+        _ when IsGroupDone(session.State, effectiveGroup) => null,
+
         SessionState.NeedsPermission or SessionState.NeedsQuestion =>
             session.EnteredAt + IntervalAt(0),
 
@@ -389,6 +517,17 @@ public sealed class SoundPolicyEngine : ISoundModeReader
         {
             set.Remove(value);
         }
+    }
+
+    /// <summary>What the engine remembers about one settled roster group.</summary>
+    /// <remarks>
+    /// Deliberately thinner than <see cref="Tracked"/>: a group has one sounding state — done —
+    /// so there is no state to remember and no ladder step to climb. TS §IV.5 gives an unread
+    /// result at most one soft nudge, and that is what a settled group gets.
+    /// </remarks>
+    private sealed class TrackedGroup
+    {
+        public required DateTimeOffset? NextNudgeAt { get; set; }
     }
 
     /// <summary>What the engine remembers about one session.</summary>

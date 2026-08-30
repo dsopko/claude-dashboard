@@ -1,3 +1,4 @@
+using ClaudeDashboard.App.Configuration;
 using ClaudeDashboard.App.Storage;
 using ClaudeDashboard.App.Pipeline;
 using ClaudeDashboard.App.Ui;
@@ -49,7 +50,7 @@ public sealed class UiTickTests : IAsyncLifetime
     public Task InitializeAsync()
     {
         _projection = new SessionProjection(_registry, _dispatcher);
-        _viewModel = new MainViewModel(_projection, new MotionPolicy(() => false, observeChanges: false), new StubAckPublisher(), new FakeClipboard());
+        _viewModel = new MainViewModel(_projection, new MotionPolicy(() => false, observeChanges: false), new StubAckPublisher(), new FakeClipboard(), new RosterStore());
         _tick = new UiTick(_dispatcher);
 
         _consumer = new EventConsumer(
@@ -60,6 +61,7 @@ public sealed class UiTickTests : IAsyncLifetime
             _guard,
             Logger.None,
             archive: _archive,
+            rosters: new RosterStore(),
             tickInterval: TimeSpan.FromMilliseconds(25),
             uiTick: _tick);
 
@@ -428,6 +430,7 @@ public sealed class UiTickTests : IAsyncLifetime
             _guard,
             Logger.None,
             archive: _archive,
+            rosters: new RosterStore(),
             tickInterval: TimeSpan.FromMilliseconds(25),
             uiTick: failing);
 

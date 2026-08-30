@@ -1,3 +1,4 @@
+using ClaudeDashboard.App.Configuration;
 using System.Diagnostics;
 using System.IO;
 using System.Windows;
@@ -54,7 +55,7 @@ public sealed class MainWindowTests(StaHarness harness)
         {
             using var registry = new RegistryHarness();
             using var policy = new MotionPolicy(() => motionAllowed, observeChanges: false);
-            using var viewModel = new MainViewModel(registry.Projection, policy, new StubAckPublisher(), new FakeClipboard());
+            using var viewModel = new MainViewModel(registry.Projection, policy, new StubAckPublisher(), new FakeClipboard(), new RosterStore());
 
             // Set before the window is realized. Toggling it on a live window raises transient
             // binding errors from the group headers being torn down, which BindingErrorWatch
@@ -630,7 +631,7 @@ public sealed class MainWindowTests(StaHarness harness)
                 registry.Projection,
                 policy,
                 new AckPublisher(sink, new FakeClock(), Serilog.Core.Logger.None),
-                new FakeClipboard());
+                new FakeClipboard(), new RosterStore());
 
             var promptId = registry.Working("finished", FakeClock.DefaultStart);
             registry.Finished("finished", FakeClock.DefaultStart.AddMinutes(1), promptId);
@@ -741,7 +742,7 @@ public sealed class MainWindowTests(StaHarness harness)
             using var viewModel = new MainViewModel(
                 registry.Projection,
                 new MotionPolicy(() => false, observeChanges: false),
-                new StubAckPublisher(), new FakeClipboard());
+                new StubAckPublisher(), new FakeClipboard(), new RosterStore());
             var window = new MainWindow(viewModel);
 
             window.Close();
@@ -776,7 +777,7 @@ public sealed class MainWindowTests(StaHarness harness)
             using var viewModel = new MainViewModel(
                 registry.Projection,
                 new MotionPolicy(() => false, observeChanges: false),
-                new StubAckPublisher(), new FakeClipboard());
+                new StubAckPublisher(), new FakeClipboard(), new RosterStore());
             var window = new MainWindow(viewModel);
             window.Left = -32000;
             window.Top = -32000;
@@ -818,7 +819,7 @@ public sealed class MainWindowTests(StaHarness harness)
             using var viewModel = new MainViewModel(
                 registry.Projection,
                 new MotionPolicy(() => false, observeChanges: false),
-                new StubAckPublisher(), new FakeClipboard());
+                new StubAckPublisher(), new FakeClipboard(), new RosterStore());
             var window = new MainWindow(viewModel);
             window.Left = -32000;
             window.Top = -32000;

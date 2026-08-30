@@ -62,11 +62,25 @@ public static class AttentionEngine
     /// Bands are not labelled in this view: TS §IV.2 labels bands in the flat view only, and
     /// within a group the ordering speaks for itself.
     /// </remarks>
-    /// <exception cref="ArgumentNullException"><paramref name="groups"/> is null.</exception>
+    /// <param name="groups">The groups to order.</param>
+    /// <param name="stateOf">
+    /// What each group READS — <see cref="Group.WorstState"/> for most callers, and
+    /// <see cref="RosterSettle.StateOf"/> for one that has a clock.
+    /// <para>
+    /// <strong>Required rather than defaulted, because ordering by a different state than the
+    /// screen displays is a defect nobody would report.</strong> A roster group inside its settle
+    /// window rolls up to Unread and is displayed as Working; ranked by the former it would sort
+    /// above the working groups for a second and a half and then drop back — a row moving on its
+    /// own, which this design forbids outright. Making the caller say which state it means is what
+    /// stops the two drifting apart silently.
+    /// </para>
+    /// </param>
+    /// <exception cref="ArgumentNullException">Either argument is null.</exception>
     /// <exception cref="ArgumentException"><paramref name="groups"/> contains null.</exception>
-    public static IReadOnlyList<Group> OrderGroups(IEnumerable<Group> groups)
+    public static IReadOnlyList<Group> OrderGroups(IEnumerable<Group> groups, Func<Group, SessionState> stateOf)
     {
         ArgumentNullException.ThrowIfNull(groups);
+        ArgumentNullException.ThrowIfNull(stateOf);
 
         var materialized = groups.ToList();
         if (materialized.Exists(static group => group is null))
@@ -78,7 +92,7 @@ public static class AttentionEngine
         [
             .. materialized
                 .Select(static group => new Group(group.Key, Sorted(group.Members)))
-                .OrderByDescending(static group => AttentionOrder.Rank(group.WorstState))
+                .OrderByDescending(group => AttentionOrder.Rank(stateOf(group), group.Order))
                 .ThenByDescending(static group => group.LastActivity)
                 .ThenBy(static group => group.Key.Value, StringComparer.Ordinal),
         ];

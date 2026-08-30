@@ -23,6 +23,25 @@ public enum AttentionBand
 }
 
 /// <summary>
+/// Which severity order a roll-up uses — the only thing in the product that varies (issue #16).
+/// </summary>
+public enum SeverityOrder
+{
+    /// <summary>
+    /// One session, or a group of sessions that merely share a workspace. Finished-but-unseen
+    /// outranks working, because unseen work is what this tool exists to surface.
+    /// </summary>
+    Session = 0,
+
+    /// <summary>
+    /// An operator roster, whose members are one piece of work passing between them.
+    /// <strong>Working outranks Finished here</strong>, because one member finishing while another
+    /// works is a hand-off in progress and reading it as <em>finished</em> would be false.
+    /// </summary>
+    RosterGroup = 1,
+}
+
+/// <summary>
 /// The single ratified severity order over <see cref="SessionState"/> (TS §IV.2, §IV.3),
 /// and the band each state falls into.
 /// </summary>
@@ -81,6 +100,38 @@ public static class AttentionOrder
         _ => 0,
     };
 
+
+    /// <summary>
+    /// How urgently <paramref name="state"/> wants the operator, under <paramref name="order"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>A swap of two ranks, deliberately not a second table.</strong> Every state but two
+    /// defers to <see cref="Rank(SessionState)"/>, and the two that differ are written as each
+    /// other's rank rather than as numbers — so the ordering cannot drift from the single table
+    /// even if that table is renumbered, and there is nothing here to keep in step by hand. The
+    /// drift this avoids is not hypothetical: TS §IV.2 and §IV.3 once disagreed about where
+    /// <see cref="SessionState.Error"/> sat and the code inherited it.
+    /// </para>
+    /// <para>
+    /// <strong>Why a roster group differs at all.</strong> Its members are one piece of work being
+    /// handed between them, so a member finishing while another works is a hand-off in progress.
+    /// Ranking that as <em>finished</em> is not merely untidy — it is the false reading the whole
+    /// of issue #16 exists to remove. A workspace group is unchanged, because there a finished
+    /// session shouting over an unrelated working one is correct.
+    /// </para>
+    /// </remarks>
+    public static int Rank(SessionState state, SeverityOrder order) => order switch
+    {
+        SeverityOrder.RosterGroup => state switch
+        {
+            SessionState.Working => Rank(SessionState.Unread),
+            SessionState.Unread => Rank(SessionState.Working),
+            _ => Rank(state),
+        },
+
+        _ => Rank(state),
+    };
     /// <summary>The band <paramref name="state"/> is displayed in (TS §IV.2).</summary>
     /// <remarks>
     /// A coarsening of <see cref="Rank"/>, not a second ordering: the three Needs-You states
@@ -139,16 +190,32 @@ public static class AttentionOrder
     /// </remarks>
     /// <param name="states">The states to roll up.</param>
     /// <exception cref="ArgumentNullException"><paramref name="states"/> is null.</exception>
-    public static SessionState WorstOf(IEnumerable<SessionState> states)
+    public static SessionState WorstOf(IEnumerable<SessionState> states) =>
+        WorstOf(states, SeverityOrder.Session);
+
+    /// <summary>
+    /// The most severe state in <paramref name="states"/>, under <paramref name="order"/>.
+    /// </summary>
+    /// <remarks>
+    /// <strong>One implementation, two orderings.</strong> The reduction is written once and the
+    /// ordering is a parameter, so a roster group and a workspace group cannot come to disagree
+    /// about anything except the one rank that is meant to differ. Every argument on the overload
+    /// above — ties going to the first, the empty answer, why <c>&gt;</c> and not <c>&gt;=</c> —
+    /// applies here unchanged, because this is that method.
+    /// </remarks>
+    /// <param name="states">The states to roll up.</param>
+    /// <param name="order">Which severity order applies.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="states"/> is null.</exception>
+    public static SessionState WorstOf(IEnumerable<SessionState> states, SeverityOrder order)
     {
         ArgumentNullException.ThrowIfNull(states);
 
         var worst = SessionState.Ended;
-        var worstRank = Rank(worst);
+        var worstRank = Rank(worst, order);
 
         foreach (var state in states)
         {
-            var rank = Rank(state);
+            var rank = Rank(state, order);
 
             if (rank > worstRank)
             {

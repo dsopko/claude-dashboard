@@ -8,6 +8,13 @@ namespace ClaudeDashboard.Tests.Domain;
 /// </summary>
 public sealed class AttentionEngineTests
 {
+    /// <summary>The raw roll-up: what every group here reads, none of them being a roster.</summary>
+    private static readonly Func<Group, SessionState> Raw = static group => group.WorstState;
+
+    /// <summary>Orders groups by what they read, which for these is the plain roll-up.</summary>
+    private static IReadOnlyList<Group> OrderGroups(IEnumerable<Group> groups) =>
+        AttentionEngine.OrderGroups(groups, Raw);
+
     private static readonly DateTimeOffset Now = FakeClock.DefaultStart;
     private const string Dashboard = @"C:\projects\dashboard";
 
@@ -376,7 +383,7 @@ public sealed class AttentionEngineTests
     [Fact]
     public void Band_precedence_holds_within_a_groups_member_list()
     {
-        var ordered = AttentionEngine.OrderGroups(
+        var ordered = OrderGroups(
         [
             GroupOf(
                 Dashboard,
@@ -393,7 +400,7 @@ public sealed class AttentionEngineTests
     [Fact]
     public void Ordering_runs_within_each_group()
     {
-        var groups = AttentionEngine.OrderGroups(
+        var groups = OrderGroups(
         [
             GroupOf(
                 Dashboard,
@@ -411,7 +418,7 @@ public sealed class AttentionEngineTests
     [Fact]
     public void Groups_are_ordered_by_their_most_urgent_member()
     {
-        var groups = AttentionEngine.OrderGroups(
+        var groups = OrderGroups(
         [
             GroupOf(@"C:\a-quiet", Aged("q", SessionState.Acked, 1, @"C:\a-quiet")),
             GroupOf(@"C:\z-blocked", Aged("p", SessionState.NeedsPermission, 1, @"C:\z-blocked")),
@@ -427,7 +434,7 @@ public sealed class AttentionEngineTests
     [Fact]
     public void A_single_urgent_member_lifts_its_whole_group()
     {
-        var groups = AttentionEngine.OrderGroups(
+        var groups = OrderGroups(
         [
             GroupOf(@"C:\busy", Aged("w1", SessionState.Working, 1, @"C:\busy"), Aged("w2", SessionState.Working, 1, @"C:\busy")),
             GroupOf(
@@ -446,7 +453,7 @@ public sealed class AttentionEngineTests
     [Fact]
     public void Equally_urgent_groups_break_the_tie_on_latest_activity()
     {
-        var groups = AttentionEngine.OrderGroups(
+        var groups = OrderGroups(
         [
             GroupOf(@"C:\a-stale", Aged("s", SessionState.Working, 5, @"C:\a-stale", idleMinutes: 30)),
             GroupOf(@"C:\z-fresh", Aged("f", SessionState.Working, 5, @"C:\z-fresh", idleMinutes: 1)),
@@ -467,20 +474,21 @@ public sealed class AttentionEngineTests
             GroupOf(@"C:\c", Aged("c", SessionState.Working, 5, @"C:\c", idleMinutes: 5)),
         ];
 
-        Assert.Equal(AttentionEngine.OrderGroups(groups), AttentionEngine.OrderGroups(groups.Reverse()));
+        Assert.Equal(OrderGroups(groups), OrderGroups(groups.Reverse()));
     }
 
     [Fact]
     public void OrderGroups_rejects_null()
     {
-        Assert.Throws<ArgumentNullException>(() => AttentionEngine.OrderGroups(null!));
+        Assert.Throws<ArgumentNullException>(() => AttentionEngine.OrderGroups(null!, Raw));
+        Assert.Throws<ArgumentNullException>(() => AttentionEngine.OrderGroups([], null!));
         Assert.Throws<ArgumentException>(() =>
-            AttentionEngine.OrderGroups([GroupOf(Dashboard, Aged("a", SessionState.Working, 1)), null!]));
+            AttentionEngine.OrderGroups([GroupOf(Dashboard, Aged("a", SessionState.Working, 1)), null!], Raw));
     }
 
     [Fact]
     public void No_groups_produce_no_groups()
     {
-        Assert.Empty(AttentionEngine.OrderGroups([]));
+        Assert.Empty(OrderGroups([]));
     }
 }

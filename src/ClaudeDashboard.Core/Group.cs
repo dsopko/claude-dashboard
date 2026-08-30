@@ -51,17 +51,37 @@ public sealed record Group
     /// <summary>
     /// The group's roll-up state: the most severe state among its members, ranked
     /// Permission &gt; Error &gt; Question &gt; Unread &gt; Working &gt; Quiet &gt; Ended
-    /// (TS §IV.3, as ratified on 2026-08-24).
+    /// (TS §IV.3, as ratified on 2026-08-24) — <strong>except in a roster group, where Working
+    /// outranks Unread</strong> (issue #16).
     /// </summary>
     /// <remarks>
-    /// The roll-up is <see cref="AttentionOrder.WorstOf"/> — the same one the tray uses over
-    /// every session (Impl §5.2), over the same <see cref="AttentionOrder.Rank"/> the attention
-    /// engine bands by, deliberately not a second copy. Because that order is total, members can
-    /// only tie when they are in the <em>same</em> state, so member order cannot affect the
-    /// result. A group always has at least one member, so the empty answer never arises here.
+    /// <para>
+    /// The roll-up is <see cref="AttentionOrder.WorstOf(IEnumerable{SessionState}, SeverityOrder)"/>
+    /// — the same one the tray uses over every session (Impl §5.2), over the same
+    /// <see cref="AttentionOrder.Rank(SessionState, SeverityOrder)"/> the attention engine bands
+    /// by, deliberately not a second copy. Because that order is total, members can only tie when
+    /// they are in the <em>same</em> state, so member order cannot affect the result. A group
+    /// always has at least one member, so the empty answer never arises here.
+    /// </para>
+    /// <para>
+    /// <strong>This type is the one place that knows which ordering applies</strong>, and it knows
+    /// it from its own key rather than from a caller. A caller that had to pass the ordering in
+    /// would be a caller that could pass the wrong one, and the two answers differ in exactly the
+    /// case — a member finishing while another works — that nothing else would notice was wrong.
+    /// </para>
+    /// <para>
+    /// <strong>This is the raw roll-up, before the settle window.</strong> A roster group that has
+    /// only just gone quiet reads <see cref="SessionState.Unread"/> here and is still displayed as
+    /// working; <see cref="RosterSettle"/> owns that, because it needs a clock and this type holds
+    /// no history.
+    /// </para>
     /// </remarks>
     public SessionState WorstState =>
-        AttentionOrder.WorstOf(_members.Select(member => member.State));
+        AttentionOrder.WorstOf(_members.Select(member => member.State), Order);
+
+    /// <summary>Which severity order this group rolls up under — decided by its key, never passed in.</summary>
+    public SeverityOrder Order =>
+        GroupKeys.KindOf(Key) == GroupKeyKind.Roster ? SeverityOrder.RosterGroup : SeverityOrder.Session;
 
     /// <summary>The most recent activity across members (TS §IV.3, "group recency").</summary>
     public DateTimeOffset LastActivity
