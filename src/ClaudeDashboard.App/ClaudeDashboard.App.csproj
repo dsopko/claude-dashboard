@@ -12,6 +12,38 @@
     <AssemblyName>ClaudeDashboard.App</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
 
+    <!--
+      Issue #17 — the identity mark. Compiled into the apphost rather than shipped beside it,
+      so the publish output gains no file. MainWindow sets no Icon and does not need one: WPF
+      falls back to the executable's icon, so the title bar, the taskbar button and Alt-Tab all
+      follow from this one line. Deleting it costs nothing at build time and quietly returns the
+      stock .NET icon, which is why IconAssetTests reads this property back.
+
+      Not the tray glyph. Ui/TrayIcons.cs draws a status light that changes colour; this is a
+      fixed mark. They are separate on purpose and share nothing.
+
+      Regenerable from docs/Claude Dashboard Icon-selection.png, the operator's own sheet. It is
+      drawn at 2x throughout, so every step below is a reduction and none is an upscale:
+
+        magick "docs\Claude Dashboard Icon-selection.png" -crop 512x512+58+54 +repage app-512.png
+        magick app-512.png -alpha set -fuzz 5% -fill none
+          -draw "alpha 0,0 floodfill"   -draw "alpha 511,0 floodfill"
+          -draw "alpha 0,511 floodfill" -draw "alpha 511,511 floodfill" app-512-rounded.png
+        magick app-512-rounded.png -resize 256x256 app-256.png
+        magick app-256.png -define icon:auto-resize=256,48,32,16 Assets\app.ico
+
+      The crop is the 256 tile, verified on the sheet: the outline spans x 58..569 and y 54..565,
+      512 px each way.
+
+      The fuzz is 5% because the tile interior and the sheet background are the same colour,
+      #14130F, and only the gold outline separates them. The floodfill therefore follows the
+      drawn curve and no corner radius has to be guessed. At 10% it crosses the outline's
+      antialiasing and hollows the icon out, leaving a gold ring around nothing: 7,268
+      transparent pixels at 5%, 239,635 at 10%. Both numbers are measured. 5% is half the
+      distance to that edge and still clears the dark fringe outside the curve.
+    -->
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
+
   </PropertyGroup>
 
   <!--
