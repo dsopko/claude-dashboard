@@ -1201,6 +1201,163 @@ A fourth attempt — disabling the heading branch with `if (false)` — **did no
 unreachable code is an error here. That is T1.22's trap and the rule held: no result was read from a
 failed build, and the plant was re-shaped into one that compiles.
 
+## 5j · T1.28 — hooks that survive a closed dashboard, and what it does not prove
+
+T1.27 got no section here, and that was right: an icon proves nothing about behaviour. This is the
+opposite case. **T1.28 changes the path every event arrives on** (issue #29), and it carries an
+acceptance criterion nobody has observed.
+
+Eight HTTP handlers, added at every start and removed at every quit, become one command handler
+running `post-status.cmd` in the data folder. The script reads `listening.txt`; finding none, it
+exits having opened nothing. So the hook is correct whether a dashboard is running or not, and it is
+installed once and left alone.
+
+### The criterion nobody has observed, stated first
+
+**§6.10 — "with the dashboard closed, no hook error appears in a Claude Code session, and a prompt
+is not noticeably slower" — is NOT OBSERVED.** It is the whole point of the task and nothing here
+evidences it.
+
+It cannot be evidenced from this work. It needs the handler in the operator's own
+`~/.claude/settings.json`, on their machine, in their sessions — and nothing has been installed
+there. Their dashboard is untouched and their settings file has never held this handler.
+
+What *is* measured is the mechanism underneath it: with no `listening.txt` the script opens no
+socket, prints nothing on either stream, and exits 0 in 65 ms. That is a good reason to expect
+§6.10 to hold. It is not the same claim, and the difference is the whole of why this paragraph is
+first.
+
+### What the isolated instance could not stand in for
+
+The live verification ran a second dashboard with `CLAUDE_DASHBOARD_HOME` and `CLAUDE_CONFIG_DIR`
+pointed at scratch folders, against a settings file holding only our handler, driven by a single
+`claude -p` run. **It evidences the mechanism and nothing about the operator's world**:
+
+- not their real settings file, with their own hooks beside ours and whatever a year of edits left;
+- not eight events under load — one short session fired three;
+- not a long-lived session, where `Notification`, `PostToolBatch` and `StopFailure` live;
+- not a restart, a logoff or a real clean quit (see the withdrawal note below).
+
+### What was verified live, and against which version
+
+**Claude Code 2.1.251**, 2026-08-30. `SessionStart`, `UserPromptSubmit` and `Stop` arrived through
+`cmd.exe /c post-status.cmd` and reached the archive, all carrying one session id.
+
+**That check exists because `args` is documented and not observed.** A Claude Code that ignored it
+would run `command` alone, the hook would do nothing, and the symptom would be a dashboard receiving
+no events — indistinguishable from a quiet day. This repository has met documented fields that
+behave differently in practice; the Discrepancies section of the hook reference is what that costs.
+
+**`SessionEnd` did not arrive** in that run and was not investigated. Recorded so nobody reads three
+events as a complete list.
+
+### The measured numbers, with the conditions that make them true
+
+Per invocation of `post-status.cmd`, ten runs each, on this machine on 2026-08-30:
+
+| Condition | Cost |
+|---|---|
+| dashboard listening, payload delivered | **97 ms** |
+| no `listening.txt` — the dashboard is closed | **65 ms** |
+| `listening.txt` naming a port nothing answers | **~1.06 s** (reviewer 1062 ms; author 1.09 s) |
+
+**The dead-port case is a timeout and not a refusal, and that is measured here rather than claimed
+generally.** A loopback connect to a free port normally fails instantly; on this machine it spends
+the whole `--connect-timeout`, which dropping the timeout to 0.25 s confirms — the cost falls to
+0.34 s, proportionally. It is probably a firewall dropping the SYN. **On a machine that refuses fast
+the cost is near zero**, and nothing here establishes which kind of machine any other operator has.
+
+One second was kept rather than shortened. The cost falls only between a hard kill and the next
+start, the hook is `async` so no turn waits for it, and a shorter timeout would risk dropping a real
+event to buy something nobody can see.
+
+### The residual, and which exits reach it
+
+`listening.txt` is withdrawn at four exits: the process exception handlers, `SessionEnding`, the
+ordinary quit, and the `finally` in `Main`. **The fourth was a hole in the shipped code** — both
+`catch` blocks return without reaching the ordinary quit, so a throw after the bind and before the
+window ran left the old lifecycle's handlers registered on an exit that was otherwise orderly.
+
+**A kill reaches none of the four**, and that was observed: the isolated instance was killed and
+`listening.txt` survived with the last bound port. Until the next start the script posts there, and
+if something else has taken the port it receives the operator's prompts — Impl §9.3's hard-kill
+exposure, in a new place. The unconditional overwrite at every start is what bounds it.
+
+**The clean-shutdown deletion was not observed live.** Quitting the isolated instance needs its tray
+menu, and driving that means injecting input into the operator's desktop, which was declined. It is
+proved by unit tests at all four sites plus a source tripwire counting the call sites in
+`Program.cs` — the same shape as §5i's shutdown-save tripwire, and labelled as one.
+
+### Two defects found by running things rather than reading them
+
+Both were found while doing something else, and both are worse than the feature they interrupted.
+
+**A duplicate key in Claude Code's settings would have stopped the dashboard starting.** Two `"Stop"`
+keys in one object is legal JSON and is what a hand merge of two blocks produces. `JsonNode` builds
+its dictionary lazily, so the file parses and the throw is an `ArgumentException` from the first
+indexer that touches it, arbitrarily far away. Every caller catches `JsonException`; none catches
+`ArgumentException`. Before T1.28 that cost a failed switch. T1.28 puts a settings read on the
+startup path, **so one duplicate key would have stopped the dashboard starting** — and a tray
+application that will not start does not present as a configuration error. It presents as the
+product being gone.
+
+**A `"type"` that is not a string did the same thing**, through `GetValue<string>()` on a numeric
+node, at two sites on the same startup path. Found by review, and the hole is older than this task —
+the previous `IsOurs` had the same read. What was new was the claim, written in this repository's
+strongest register, that the class was closed.
+
+**`--remove-hooks` would have stripped the operator's comments from a file it had nothing in.** The
+settings writer decides "did anything change" by comparing read text with rendered text, and
+rendering preserves neither comments nor formatting — so a removal that removed nothing still
+counted as a change on any hand-formatted file.
+
+### The lesson the review left, which is not about hooks
+
+Both must-fixes were **a remark more confident than the code under it**. The file-name confinement
+and the "every failure is a `JsonException`" claim were each true as intent and false as fact.
+
+**A comment that overstates is worse than no comment, because it stops the next reader checking.**
+The same applies to a guard: `The_startup_path_checks_the_hooks_and_does_not_write_them` scanned the
+whole file while promising something about one method, and was renamed rather than narrowed —
+the wide scan is the better guard, and it was the name that was wrong.
+
+### Was the harness capable of producing the other outcome?
+
+Four plants, each verified present by md5 **and verified back**:
+
+| Planted defect | Result |
+|---|---|
+| the `nul` redirect removed from the `call` | **fails 1** — `With_no_curl_it_says_nothing_and_still_exits_zero` |
+| `listening.txt` deletion removed from `Withdraw` | **fails 1** — `Withdrawing_takes_the_announcement_away` |
+| the missing-file path changed to `exit /b 1` | **PASSES — no test fails** |
+| the identity rule reverted to URL matching | **fails 23** across three classes |
+
+**Plant 3 not biting is a finding, not a gap.** An inner `exit /b 1` cannot reach the process: `call
+:post` returns and the unconditional `exit /b 0` on the next line overrides it. **The guarantee
+lives in that one outer line and not in per-branch discipline** — so the plant was re-aimed at the
+outer `exit /b 0`, and **23 tests fail**. The harness sees an escaping exit code perfectly well.
+That finding is now in the script's own header, because the person it protects is the next one to
+edit the script.
+
+**Plant 1 deserves the same second look.** Only one test fails, and it is the missing-`curl` case,
+because `curl`'s own `-s -o nul` already silences every path that runs normally. **The redirect is
+load-bearing for exactly one measured branch: the one that only runs when something has already gone
+wrong.** Measured without it, `cmd` writes `The system cannot find the path specified.` to stderr and
+sets errorlevel 3. That is the trap the whole script is shaped around — on `UserPromptSubmit` and
+`SessionStart`, Claude Code feeds a hook's stdout to the model as prompt context, and nothing in the
+transcript would show it.
+
+Two further plants covered the fix cycle, both reverted byte-identical:
+
+| Planted defect | Result |
+|---|---|
+| the pre-fix `ForeignScriptPaths` filter | **fails 1** — the operator exec-form test, and only that |
+| the pre-fix `GetValue<string>()` type reads | **fails 6** — 4 of 5 theory cases, plus both installer theories |
+
+**Four of five is not a weak theory.** The fifth case is `"type": null`, where the JSON null makes
+the indexer return a null node, so `?.` short-circuits before the unsafe call and the plant cannot
+reach it. Recording that is the difference between a plant table and one anybody can trust.
+
 ## 6 · Was the harness capable of producing the other outcome?
 
 A green run proves nothing unless a red one was reachable. Five defects were planted, each taken
@@ -1307,5 +1464,11 @@ dated to the T1.19 artefact named in the header and are not re-run here.
   closed. One residual keeps the original defect's shape: an endpoint that hangs and then heals
   with no default change stays silent until the default changes or the app restarts. The five-row
   hardware card has not been run, in whole or in part.
+- **Every event now arrives through a script, and the criterion that matters is unobserved** (§5j,
+  T1.28, issue #29). The hook is installed once and left alone, so a closed dashboard no longer
+  makes Claude Code print an error — but **§6.10 has not been seen**: nothing is installed in the
+  operator's own `~/.claude/settings.json`, and only they can observe it there. The mechanism is
+  measured (65 ms, silent, no socket opened) and the mechanism is not the criterion. A hard kill
+  still leaves `listening.txt` naming the last bound port until the next start.
 - **Phase 1 is gated, not finished.** Every observation here holds; the phase's exit criteria in
   Part 2 do not, while §5 stands and while §5b's open row stands.
