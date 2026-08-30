@@ -1535,3 +1535,84 @@ meets the code, or a history of what the code used to claim.
 Nothing is being removed. The cost of removing them is losing the evidence that made this project's
 standard real. What is recorded is that **the question has never been put**, and it belongs in Phase
 2 planning rather than to any one task.
+
+## D92 — The latch could not live in the state machine
+The events that carry a session title are the ones the transition table usually **declines**: 799
+`PostToolBatch` returning `Ignored` for an already-working session, `idle_prompt` returning
+`Ignored`, `Moved` returning null. A latch conditional on the transition succeeding would drop
+titles on the floor **with every test green**, because a test that hands a title to a
+state-changing event never exercises that path.
+
+The brief warned about one version of this — a field wired to `SessionStart`, an event that has
+never fired. The coder found the same shape one layer down, in code neither of us had looked at
+for that reason. The latch became an unconditional step in `Apply`, and the control that made it
+safe was checking that nothing keys on `ApplyOutcome` for behaviour.
+
+**Where a warning names one instance, the shape is worth looking for again underneath it.**
+
+## D93 — A guard that would have restated what it guarded
+A `TitleSetAt` stamp was proposed to order title replacement, with the honest note that it bought
+no out-of-order protection. Following that one step further killed it: the Registry has one writer
+and the channel is FIFO, so `Apply` calls are **totally ordered** and stamps are monotonic
+*because* of that. A comparison could never disagree with arrival order. It was a restatement
+wearing the name of a guard, and this project has paid twice for a name promising more than the
+thing behind it.
+
+The reason no guard is possible is now in the code where a reader would look for one:
+
+> **A stale title arriving late and a genuine rename back to a previous name are the same
+> observation, byte for byte. Any rule that rejects the first rejects the second.**
+
+## D94 — A bound that bounded nothing
+Cutting a title at 40 **grapheme clusters** keeps every emoji, flag and accented character whole,
+where cutting at 40 characters splits a surrogate pair and yields a lone half — measured, four
+cases, ill-formed and non-round-tripping through UTF-8.
+
+But 40 clusters of one letter plus two hundred combining marks each is **8,040 characters**, and
+passes a 40-cluster cut untouched. So the cluster budget bounds what is *shown* and not what the
+row *lays out*. Two bounds, not one.
+
+Found by measuring the fix rather than the defect. The defect's measurement said clusters were
+correct; only asking what a cluster budget fails to bound produced the second number.
+
+## D95 — A test that stopped testing anything, and the rule that hid it
+Adding a second inline to the row's context line silently blinded
+`A_row_shows_its_prompt_in_the_mono_face`. The row's monospace face could be **removed entirely**
+and the full suite passed 1217/1217. The test matched on `TextBlock.Text`, which reads back empty
+for inline content, so it drifted onto the **hidden** expanded-row copy of the prompt — the
+subject moved from a visible element to an invisible one and nothing noticed.
+
+**The recorded rule was itself wrong, and its wrongness is why the blinded test survived the very
+commit that fixed the problem at three other call sites.** The record said `Text` returns empty for
+**two or more** inlines. The count carries no signal at all: a readable block reports a count of 1,
+identical to a blind single-`Run` block. So a sweep asking "which blocks have two or more inlines?"
+had nothing to work from, cleared the fourth site, and looked complete.
+
+The rule, now written by cause: **`Text` reads back only what was set through `Text`.**
+
+A case found while confirming it shows why a table would still have misled. A block assigned `Text`
+and *then* given a `Run` reads back a **stale partial value** — "was plain" while the block renders
+"was plain plus a run". Worse than empty: empty is obviously wrong, and a partial value looks like
+an answer.
+
+**A measurement written down slightly wrong is worse than one not written down, because it gets
+trusted.**
+
+## D96 — Take the hash on the way back, not only on the way in
+Two distinct traps, one week, both caught by the same discipline and neither by tooling.
+
+**Reverting to the wrong content.** Pulling a mutation with `git checkout -- <file>` restored the
+file to the last commit and silently discarded the task's own uncommitted work. The tree still
+built and still passed most tests, and no longer contained the feature.
+
+**Reverting to the right content in different bytes.** Restoring a XAML file returned it 625 bytes
+larger — identical content, different line endings, because `.xaml` is the only source type this
+repository does not pin. `git status` called both states clean. Filed as #24.
+
+Revert from a copy, never from git, while a file carries uncommitted work — and hash it coming back
+as well as going in.
+
+**Related:** the stale-assembly trap fired a third and fourth time this week. Once reporting a count
+of 22 where 23 was right, caught by arithmetic when per-file counts did not sum to the run's own
+total. Once leaving a mutation's binaries on disk overnight, where a `--no-build` run the next
+morning would have read a broken feature and reported it without complaint.
