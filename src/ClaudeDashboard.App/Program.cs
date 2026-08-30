@@ -294,25 +294,6 @@ public static class Program
             }
         }
     }
-
-    /// <summary>
-    /// Hands over to the dashboard that is already running, or explains why it could not
-    /// (Impl §5.3).
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// This process has no window and no console, so the log is the only channel it has. It gets
-    /// its own logger — the same rolling file, opened <c>shared</c> — because nothing else in
-    /// this process has built one yet.
-    /// </para>
-    /// <para>
-    /// <strong>A refused <c>/show</c> is an Error, not a shrug.</strong> The same gate name means
-    /// the same data folder means the same token, so it should have been authorised. If it was
-    /// not, something is wrong with the token or the settings, and the operator's symptom is a
-    /// shortcut that does nothing at all. Exiting is still right — two dashboards on one data
-    /// folder is what the gate exists to prevent — but exiting quietly is not.
-    /// </para>
-    /// </remarks>
     /// <summary>
     /// Runs <c>--install-hooks</c> or <c>--remove-hooks</c> and exits, without starting anything
     /// (issue #29).
@@ -469,6 +450,24 @@ public static class Program
         }
     }
 
+    /// <summary>
+    /// Hands over to the dashboard that is already running, or explains why it could not
+    /// (Impl §5.3).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This process has no window and no console, so the log is the only channel it has. It gets
+    /// its own logger — the same rolling file, opened <c>shared</c> — because nothing else in
+    /// this process has built one yet.
+    /// </para>
+    /// <para>
+    /// <strong>A refused <c>/show</c> is an Error, not a shrug.</strong> The same gate name means
+    /// the same data folder means the same token, so it should have been authorised. If it was
+    /// not, something is wrong with the token or the settings, and the operator's symptom is a
+    /// shortcut that does nothing at all. Exiting is still right — two dashboards on one data
+    /// folder is what the gate exists to prevent — but exiting quietly is not.
+    /// </para>
+    /// </remarks>
     private static int StandDown(
         DashboardPaths paths,
         DashboardSettings settings,

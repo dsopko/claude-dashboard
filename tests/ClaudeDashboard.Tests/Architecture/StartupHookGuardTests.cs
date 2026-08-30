@@ -66,7 +66,7 @@ public sealed class StartupHookGuardTests
     }
 
     /// <summary>
-    /// <strong>The running dashboard reads Claude Code's settings and never writes them.</strong>
+    /// <strong><c>Program.cs</c> checks the hooks and names no writing call anywhere in the file.</strong>
     /// </summary>
     /// <remarks>
     /// <para>
@@ -81,9 +81,19 @@ public sealed class StartupHookGuardTests
     /// file at every launch leaves running sessions disagreeing with it — and a dashboard that
     /// removes handlers at quit takes them from sessions that will never see them come back.
     /// </para>
+    /// <para>
+    /// <strong>WHOLE FILE, WHICH IS WIDER THAN THE STARTUP PATH, AND THE NAME NOW SAYS SO.</strong>
+    /// <c>RunHookSwitch</c> lives in this file and is allowed to write — it reaches the installer
+    /// through <c>HookSwitches</c>, so no writing call is spelled here and the two happen to
+    /// coincide today. Narrowing the <em>scan</em> to the startup method would be the wrong repair:
+    /// a whole-file scan survives somebody moving code between methods, which is precisely how the
+    /// breach would arrive. So the scan stays wide and the claim was narrowed to fit it. A guard
+    /// whose name promises more than it checks is the same defect as a remark that does, and this
+    /// file was carrying one of each.
+    /// </para>
     /// </remarks>
     [Fact]
-    public void The_startup_path_checks_the_hooks_and_does_not_write_them()
+    public void Program_checks_the_hooks_and_names_no_call_that_writes_them()
     {
         var program = Program();
 

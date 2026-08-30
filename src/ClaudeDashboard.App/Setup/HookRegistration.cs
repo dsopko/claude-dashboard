@@ -138,9 +138,10 @@ public static class HookRegistration
     /// file at all, and it is why the backup exists.
     /// </para>
     /// <para>
-    /// <strong>EVERY FAILURE IS A <see cref="JsonException"/>, INCLUDING THE ONE THAT ARRIVES
-    /// LATE.</strong> A duplicate key — <c>"Stop"</c> twice in one object, which is legal JSON and
-    /// happens when somebody merges two blocks by hand — does not fail here on its own.
+    /// <strong>A DUPLICATE KEY FAILS HERE, AS A <see cref="JsonException"/>, RATHER THAN LATE AND
+    /// AS SOMETHING ELSE.</strong> A duplicate key — <c>"Stop"</c> twice in one object, which is
+    /// legal JSON and happens when somebody merges two blocks by hand — does not fail here on its
+    /// own.
     /// <see cref="JsonNode"/> builds its dictionary lazily, so the throw is an
     /// <see cref="ArgumentException"/> from the first indexer that touches the offending object,
     /// arbitrarily far from any parse. Measured, not assumed.
@@ -158,6 +159,15 @@ public static class HookRegistration
     /// keeping the last of two duplicates would write the operator's file back with one of their
     /// keys silently dropped, which is the same objection that makes a malformed file throw rather
     /// than default.
+    /// </para>
+    /// <para>
+    /// <strong>What this does NOT do is close the whole class, and an earlier version of this
+    /// remark claimed that it did.</strong> It handles duplicate keys. A value of the wrong
+    /// <em>type</em> is a separate hazard and is handled separately: every read of a string out of
+    /// this tree goes through <see cref="Text"/>, because <c>GetValue&lt;string&gt;()</c> on a node
+    /// holding a number throws <see cref="InvalidOperationException"/> — which no caller catches,
+    /// and which the start check would turn into a dashboard that will not start. Two reads of
+    /// <c>"type"</c> did not go through <see cref="Text"/> when that claim was first written.
     /// </para>
     /// </remarks>
     /// <exception cref="JsonException">The text is not valid JSON, or cannot be made into settings.</exception>
@@ -253,6 +263,12 @@ public static class HookRegistration
 
         foreach (var eventName in HookEventNames.Accepted.OrderBy(name => name, StringComparer.Ordinal))
         {
+            // THE ONE PLACE "CARRIED THROUGH UNTOUCHED" DOES NOT HOLD, NAMED RATHER THAN LEFT TO BE
+            // FOUND. An event whose value is not an array — a string, an object, a number — is
+            // replaced outright rather than merged into. Claude Code's schema has no such shape, so
+            // nothing it would run is lost; what is lost is whatever a hand-edit left there, and
+            // the backup is the only place it survives. Merging into it is not possible: there is
+            // no defined position for a handler inside a value that is not a list of groups.
             if (hooks[eventName] is not JsonArray groups)
             {
                 groups = [];
@@ -330,7 +346,7 @@ public static class HookRegistration
 
         RemoveHandlers(
             settings,
-            handler => handler[TypeKey]?.GetValue<string>() == HttpType
+            handler => Text(handler[TypeKey]) == HttpType
                 && IsLoopbackHookUrl(Text(handler[UrlKey])),
             handler => urls.Add(Text(handler[UrlKey])!));
 
@@ -390,8 +406,22 @@ public static class HookRegistration
     /// missing entry that is in fact right there, spelled differently.
     /// </para>
     /// <para>
-    /// Matched on the file name, which is a weaker rule than the identity rule and is deliberately
-    /// confined to this method. <strong>Nothing is ever removed on the strength of it.</strong>
+    /// <strong>Matched on the file name — <see cref="ScriptFileName"/> — which is a weaker rule
+    /// than the identity rule and is deliberately confined to this method.</strong> Nothing is ever
+    /// removed on the strength of it.
+    /// </para>
+    /// <para>
+    /// <strong>The confinement is what keeps the warning honest, and the first version of this
+    /// method described it without doing it.</strong> It returned every command handler that was
+    /// not ours, so an operator's own exec-form hook running <c>node.exe … lint.js</c> came back as
+    /// a foreign dashboard script, and the start warning told them to check
+    /// <c>CLAUDE_DASHBOARD_HOME</c> over a file that has nothing to do with this application. It
+    /// also put a path out of their settings file into our log, which the check must not do.
+    /// </para>
+    /// <para>
+    /// The remark was written before the filter and was believed instead of the code. <strong>A
+    /// comment that claims more than the line under it is worse than no comment, because it stops
+    /// the next reader looking.</strong>
     /// </para>
     /// </remarks>
     /// <exception cref="ArgumentException"><paramref name="scriptPath"/> is null, empty, or whitespace.</exception>
@@ -407,11 +437,34 @@ public static class HookRegistration
             .. EventGroups(settings)
                 .SelectMany(handlers => handlers)
                 .Select(ScriptPathOf)
-                .Where(path => path is not null && !PathsMatch(path, ours))
+                .Where(path => path is not null && IsTheScript(path) && !PathsMatch(path, ours))
                 .Select(path => path!)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .Order(StringComparer.OrdinalIgnoreCase),
         ];
+    }
+
+    /// <summary>Whether a path ends in the name this dashboard gives its forwarder.</summary>
+    /// <remarks>
+    /// <see cref="Path.GetFileName(string)"/> rather than <c>EndsWith</c>, so that
+    /// <c>their-post-status.cmd</c> is not ours by accident. Never throws: the value came out of the
+    /// operator's file, and this is only ever asked in order to write a log line.
+    /// </remarks>
+    private static bool IsTheScript(string? path)
+    {
+        if (path is null)
+        {
+            return false;
+        }
+
+        try
+        {
+            return string.Equals(Path.GetFileName(path), ScriptFileName, StringComparison.OrdinalIgnoreCase);
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
     }
 
     /// <summary>Builds one handler, in the exec form.</summary>
@@ -441,7 +494,7 @@ public static class HookRegistration
     /// </remarks>
     private static string? ScriptPathOf(JsonNode? node) =>
         node is JsonObject handler
-        && handler[TypeKey]?.GetValue<string>() == CommandType
+        && Text(handler[TypeKey]) == CommandType
         && handler[ArgsKey] is JsonArray args
         && args.Count > 0
             ? Text(args[^1])

@@ -518,6 +518,102 @@ public sealed class HookRegistrationTests
         Assert.Empty(HookRegistration.ForeignScriptPaths(settings, OtherScript).Except([Script]));
     }
 
+    /// <summary>
+    /// <strong>AN OPERATOR'S OWN EXEC-FORM HOOK IS NOT A FOREIGN DASHBOARD SCRIPT.</strong>
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>The shape no fixture had, and it is the shape this commit argues every Windows user
+    /// should adopt.</strong> The two foreign tests above build their fixtures by registering two
+    /// of <em>our</em> paths, so every handler is already ours-shaped; the <c>OperatorsFile</c>
+    /// fixture's command hooks are the single-string form with no <c>args</c>, so
+    /// <c>ScriptPathOf</c> returns null and they never reach the rule at all. Between them they
+    /// left the one case that matters untested.
+    /// </para>
+    /// <para>
+    /// <strong>What it cost.</strong> The filter returned every command handler that was not ours,
+    /// so an operator running <c>node.exe … lint.js</c> in the exec form was reported as a
+    /// dashboard installed under another data folder — a warning at start, telling them to check
+    /// <c>CLAUDE_DASHBOARD_HOME</c> over a file that has nothing to do with this application, and
+    /// putting a path out of their settings into our log while doing it.
+    /// </para>
+    /// <para>
+    /// Both halves asserted, because they fail apart: theirs is not foreign, and ours under another
+    /// root still is. A filter that returned nothing at all would satisfy the first alone.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void An_operators_own_exec_form_hook_is_not_a_foreign_dashboard_script()
+    {
+        var settings = HookRegistration.Parse($$"""
+            {
+              "hooks": {
+                "PostToolUse": [
+                  { "matcher": "Edit", "hooks": [ { "type": "command", "command": "C:\\Program Files\\nodejs\\node.exe",
+                    "args": ["C:\\Users\\daves\\.claude\\hooks\\lint.js"] } ] }
+                ],
+                "Stop": [
+                  { "hooks": [ { "type": "command", "command": "cmd.exe",
+                    "args": ["/c", "{{OtherScript.Replace(@"\", @"\\", StringComparison.Ordinal)}}"] } ] }
+                ]
+              }
+            }
+            """);
+
+        // Theirs is invisible to the rule; only a post-status.cmd under another root is foreign.
+        Assert.Equal([OtherScript], HookRegistration.ForeignScriptPaths(settings, Script));
+
+        // And it is not ours either, so nothing removes it.
+        Assert.Empty(HookRegistration.Unregister(settings, Script));
+        Assert.Equal(0, HookRegistration.CountInstalled(settings, Script));
+    }
+
+    /// <summary>
+    /// <strong>A <c>"type"</c> that is not a string is ignored, not thrown over.</strong>
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>GetValue&lt;string&gt;()</c> on a node holding a number throws
+    /// <see cref="InvalidOperationException"/>, which no caller in this application catches. Two
+    /// reads of <c>"type"</c> used it, and the start check reads Claude Code's settings on every
+    /// launch — so <strong>one hand-edited <c>"type": 1</c> stopped the dashboard starting</strong>,
+    /// which is the same failure the duplicate-key fix was written about.
+    /// </para>
+    /// <para>
+    /// Every read of a string out of this tree goes through the same helper now. The theory covers
+    /// each JSON kind that is not a string, because the throw is about the kind and not about the
+    /// value.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [InlineData("1")]
+    [InlineData("true")]
+    [InlineData("null")]
+    [InlineData("[\"command\"]")]
+    [InlineData("{ \"kind\": \"command\" }")]
+    public void A_type_that_is_not_a_string_is_ignored_rather_than_thrown_over(string type)
+    {
+        var settings = HookRegistration.Parse($$"""
+            {
+              "allowedHttpHookUrls": ["http://127.0.0.1:52789/hook"],
+              "hooks": {
+                "Stop": [
+                  { "hooks": [ { "type": {{type}}, "command": "beep", "url": "http://127.0.0.1:52789/hook" } ] }
+                ]
+              }
+            }
+            """);
+
+        // Not ours by either rule, and no rule throws while deciding that.
+        Assert.Equal(0, HookRegistration.CountInstalled(settings, Script));
+        Assert.Empty(HookRegistration.Unregister(settings, Script));
+        Assert.Empty(HookRegistration.ForeignScriptPaths(settings, Script));
+        Assert.Empty(HookRegistration.RemoveLegacyHttp(settings).Urls);
+
+        // Registering over it still works, which is what the operator's repair depends on.
+        Assert.Equal(HookEventNames.Accepted.Count, Register(settings));
+    }
+
     /// <summary>An unusable path fails to match instead of throwing.</summary>
     /// <remarks>
     /// The value comes out of the operator's file and may be anything at all. A throw here would

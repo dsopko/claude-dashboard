@@ -87,6 +87,14 @@ public static class HookScript
         rem  Exit 2 BLOCKS THE TURN, and the dashboard blocking a Claude turn breaks
         rem  the pure-observer rule outright.
         rem
+        rem  THE "exit /b 0" AFTER THE CALL IS THE WHOLE OF THAT GUARANTEE. The
+        rem  "exit /b" lines inside :post cannot reach the process: the call returns
+        rem  and that line overrides whatever they set. Measured - changing one of
+        rem  them to "exit /b 1" fails no test, because it cannot be observed;
+        rem  changing the outer one fails twenty-three. So do not read the inner
+        rem  zeros as the safety, and do not delete the outer line on the grounds
+        rem  that every branch already exits 0.
+        rem
         rem  TIMEOUTS: --connect-timeout 1 --max-time 2. Measured on this machine on
         rem  2026-08-30: a post to a free loopback port cost 1.09 s per invocation,
         rem  and 0.34 s with --connect-timeout 0.25 - so the time is the connect

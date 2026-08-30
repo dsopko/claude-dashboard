@@ -432,6 +432,57 @@ public sealed class HookInstallerTests : IDisposable
         Assert.Empty(Installer().Check().Foreign);
     }
 
+    /// <summary>
+    /// <strong>The check survives a settings file the operator has hand-edited badly.</strong>
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This runs at every start, inside the block whose tail logs <c>Fatal</c> and returns 1. So
+    /// anything it throws is not a warning about hooks — <strong>it is a dashboard that will not
+    /// start</strong>, which to the operator is the product being gone rather than a setting being
+    /// wrong.
+    /// </para>
+    /// <para>
+    /// The three shapes are the ones a hand-edit actually produces: a duplicate key from merging
+    /// two blocks, a value of the wrong type, and a hook whose own hooks are not a list. None is
+    /// exotic and each reached a different throw.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [InlineData("""{ "hooks": { "Stop": [], "Stop": [] } }""")]
+    [InlineData("""{ "hooks": { "Stop": [ { "hooks": [ { "type": 1, "command": "beep" } ] } ] } }""")]
+    [InlineData("""{ "hooks": { "Stop": "not-an-array" } }""")]
+    [InlineData("""{ "hooks": { "Stop": [ { "hooks": "not-an-array" } ] } }""")]
+    [InlineData("""{ "hooks": [ "not-an-object" ] }""")]
+    public void The_check_never_throws_over_a_hand_edited_file(string settings)
+    {
+        File.WriteAllText(_claude.UserSettingsFile, settings);
+
+        var presence = Installer().Check();
+
+        Assert.False(presence.Complete);
+        Assert.Empty(presence.Foreign);
+    }
+
+    /// <summary>…and neither switch throws over one either.</summary>
+    /// <remarks>
+    /// Same shapes, and the claim is different: a switch may fail, and must say so through its
+    /// outcome rather than through an exception nobody catches. T10.2 will read the exit code.
+    /// </remarks>
+    [Theory]
+    [InlineData("""{ "hooks": { "Stop": [ { "hooks": [ { "type": 1, "command": "beep" } ] } ] } }""")]
+    [InlineData("""{ "hooks": { "Stop": "not-an-array" } }""")]
+    public void Neither_switch_throws_over_a_hand_edited_file(string settings)
+    {
+        File.WriteAllText(_claude.UserSettingsFile, settings);
+
+        var removed = Installer().Remove();
+        Assert.Equal(0, removed.Removed.Total);
+
+        Assert.Equal(SettingsWriteOutcome.Written, Installer().Install().Outcome);
+        Assert.Equal(HookEventNames.Accepted.Count, HookRegistration.CountInstalled(Settings(), _paths.HookScriptFile));
+    }
+
     [Fact]
     public void It_needs_all_of_its_collaborators()
     {
