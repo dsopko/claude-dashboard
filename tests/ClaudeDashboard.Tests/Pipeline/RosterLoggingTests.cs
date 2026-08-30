@@ -50,10 +50,14 @@ public sealed class RosterLoggingTests : IAsyncLifetime
     private readonly EventPipeline _pipeline = new(Logger.None);
     private readonly EventArchive _archive = new(Logger.None);
     private readonly RecordingSoundPlayer _player = new();
-    private readonly RosterStore _rosters = new();
+    // The REAL sink, so a roster edit in these tests wakes the loop exactly as it does in the
+    // running application. A recording fake here would test the wiring with the wiring removed.
+    private readonly RosterStore _rosters;
 
     private Logger _logger = null!;
     private EventConsumer _consumer = null!;
+
+    public RosterLoggingTests() => _rosters = new RosterStore(_pipeline.Sink);
 
     public Task InitializeAsync()
     {

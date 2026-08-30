@@ -38,7 +38,7 @@ public sealed class MainViewModelTests : IDisposable
     public MainViewModelTests()
     {
         _projection = new SessionProjection(_registry, _dispatcher);
-        _viewModel = new MainViewModel(_projection, new MotionPolicy(() => false, observeChanges: false), new StubAckPublisher(), new FakeClipboard(), new RosterStore());
+        _viewModel = new MainViewModel(_projection, new MotionPolicy(() => false, observeChanges: false), new StubAckPublisher(), new FakeClipboard(), new RosterStore(new RecordingEventSink()), new RecordingRosterPersistence());
         _viewModel.Rows.CollectionChanged += (_, e) => _rowChanges.Add(e);
     }
 
@@ -417,13 +417,15 @@ public sealed class MainViewModelTests : IDisposable
         var ack = new StubAckPublisher();
 
         var clipboard = new FakeClipboard();
-        var rosters = new RosterStore();
+        var rosters = new RosterStore(new RecordingEventSink());
+        var persist = new RecordingRosterPersistence();
 
-        Assert.Throws<ArgumentNullException>(() => new MainViewModel(null!, motion, ack, clipboard, rosters));
-        Assert.Throws<ArgumentNullException>(() => new MainViewModel(_projection, null!, ack, clipboard, rosters));
-        Assert.Throws<ArgumentNullException>(() => new MainViewModel(_projection, motion, null!, clipboard, rosters));
-        Assert.Throws<ArgumentNullException>(() => new MainViewModel(_projection, motion, ack, null!, rosters));
-        Assert.Throws<ArgumentNullException>(() => new MainViewModel(_projection, motion, ack, clipboard, null!));
+        Assert.Throws<ArgumentNullException>(() => new MainViewModel(null!, motion, ack, clipboard, rosters, persist));
+        Assert.Throws<ArgumentNullException>(() => new MainViewModel(_projection, null!, ack, clipboard, rosters, persist));
+        Assert.Throws<ArgumentNullException>(() => new MainViewModel(_projection, motion, null!, clipboard, rosters, persist));
+        Assert.Throws<ArgumentNullException>(() => new MainViewModel(_projection, motion, ack, null!, rosters, persist));
+        Assert.Throws<ArgumentNullException>(() => new MainViewModel(_projection, motion, ack, clipboard, null!, persist));
+        Assert.Throws<ArgumentNullException>(() => new MainViewModel(_projection, motion, ack, clipboard, rosters, null!));
     }
 }
 

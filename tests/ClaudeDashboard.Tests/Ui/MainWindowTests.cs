@@ -49,13 +49,14 @@ public sealed class MainWindowTests(StaHarness harness)
         Func<MainWindow, MainViewModel, T> assert,
         bool motionAllowed = true,
         bool showQuiet = false,
-        bool grouped = true)
+        bool grouped = true,
+        Action<MainViewModel>? prepare = null)
     {
         return _harness.Invoke(() =>
         {
             using var registry = new RegistryHarness();
             using var policy = new MotionPolicy(() => motionAllowed, observeChanges: false);
-            using var viewModel = new MainViewModel(registry.Projection, policy, new StubAckPublisher(), new FakeClipboard(), new RosterStore());
+            using var viewModel = new MainViewModel(registry.Projection, policy, new StubAckPublisher(), new FakeClipboard(), new RosterStore(new RecordingEventSink()), new RecordingRosterPersistence());
 
             // Set before the window is realized. Toggling it on a live window raises transient
             // binding errors from the group headers being torn down, which BindingErrorWatch
@@ -73,6 +74,14 @@ public sealed class MainWindowTests(StaHarness harness)
                     group.IsExpanded = true;
                 }
             }
+
+            // Anything that changes what a row IS — a prompt appearing above a group, a group's key
+            // changing — happens here, BEFORE the window exists. Doing it to a realized window
+            // replaces an item whose template differs from its neighbour's, and WPF evaluates the
+            // old template's bindings once against the new item on the way past: transient noise of
+            // the same class as issue #23, which BindingErrorWatch rightly reports and which says
+            // nothing about the markup under test.
+            prepare?.Invoke(viewModel);
 
             var window = new MainWindow(viewModel);
             using var bindings = new BindingErrorWatch();
@@ -544,6 +553,82 @@ public sealed class MainWindowTests(StaHarness harness)
         Assert.Contains("Director — run the tests", found.After);
     }
 
+
+    /// <summary>
+    /// <strong>Selection mode and the roster prompt both realize, and raise no binding error.</strong>
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The binding check is <c>WithWindow</c>'s and is the reason this test exists at all: a
+    /// misspelled path fails silently in WPF — the element simply shows nothing — so a tick that
+    /// never appeared and a tick that appeared correctly look identical to every other assertion
+    /// here.
+    /// </para>
+    /// <para>
+    /// The mode is entered on a realized window rather than before it, which is safe: it is the
+    /// <em>Grouped/Flat</em> toggle that raises binding errors on a live window (issue #23), and
+    /// nothing here touches it.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void Selection_mode_and_the_prompt_render_without_binding_errors()
+    {
+        var found = WithWindow(
+            registry =>
+            {
+                registry.Working("s-1", At, prompt: "run the tests", title: "Director");
+                registry.Working("s-2", At, prompt: "review it", title: "Coder");
+            },
+            (window, _) =>
+            {
+                var texts = StaHarness.FindAll<TextBlock>(window)
+                    .Where(block => block.IsVisible)
+                    .Select(TextOf)
+                    .ToList();
+
+                return (Texts: texts, Boxes: StaHarness.FindAll<TextBox>(window).Count);
+            },
+            prepare: viewModel =>
+            {
+                viewModel.IsSelecting = true;
+
+                foreach (var row in viewModel.Rows.OfType<SessionViewModel>())
+                {
+                    row.IsSelected = true;
+                }
+
+                viewModel.GroupSelectedCommand.Execute(null);
+                viewModel.IsSelecting = true;
+            });
+
+        Assert.Contains("Selecting · 0 chosen", found.Texts);
+        Assert.Contains(RosterPromptViewModel.Question, found.Texts);
+
+        // The roster's own name is the only text input the window ever shows.
+        Assert.Equal(1, found.Boxes);
+    }
+
+    /// <summary>
+    /// <strong>An untitled row shows why it cannot be ticked.</strong>
+    /// </summary>
+    /// <remarks>
+    /// Asserted on the realized row rather than on the view model, because the refusal exists to be
+    /// seen: a row that does nothing when clicked and says nothing is indistinguishable from a bug,
+    /// and a property nobody rendered would say nothing.
+    /// </remarks>
+    [Fact]
+    public void An_untitled_row_shows_why_it_cannot_be_ticked()
+    {
+        var texts = WithWindow(
+            registry => registry.Working("s-1", At, prompt: "run the tests"),
+            (window, _) =>
+            {
+                return VisibleTexts(window, "s-1");
+            },
+            prepare: viewModel => viewModel.IsSelecting = true);
+
+        Assert.Contains("no name to remember", texts);
+    }
     /// <summary>Every visible TextBlock in one session's row.</summary>
     private static List<string> VisibleTexts(MainWindow window, string sessionId) =>
         [.. StaHarness.FindAll<TextBlock>(RowFor(window, sessionId))
@@ -631,7 +716,7 @@ public sealed class MainWindowTests(StaHarness harness)
                 registry.Projection,
                 policy,
                 new AckPublisher(sink, new FakeClock(), Serilog.Core.Logger.None),
-                new FakeClipboard(), new RosterStore());
+                new FakeClipboard(), new RosterStore(new RecordingEventSink()), new RecordingRosterPersistence());
 
             var promptId = registry.Working("finished", FakeClock.DefaultStart);
             registry.Finished("finished", FakeClock.DefaultStart.AddMinutes(1), promptId);
@@ -742,7 +827,7 @@ public sealed class MainWindowTests(StaHarness harness)
             using var viewModel = new MainViewModel(
                 registry.Projection,
                 new MotionPolicy(() => false, observeChanges: false),
-                new StubAckPublisher(), new FakeClipboard(), new RosterStore());
+                new StubAckPublisher(), new FakeClipboard(), new RosterStore(new RecordingEventSink()), new RecordingRosterPersistence());
             var window = new MainWindow(viewModel);
 
             window.Close();
@@ -777,7 +862,7 @@ public sealed class MainWindowTests(StaHarness harness)
             using var viewModel = new MainViewModel(
                 registry.Projection,
                 new MotionPolicy(() => false, observeChanges: false),
-                new StubAckPublisher(), new FakeClipboard(), new RosterStore());
+                new StubAckPublisher(), new FakeClipboard(), new RosterStore(new RecordingEventSink()), new RecordingRosterPersistence());
             var window = new MainWindow(viewModel);
             window.Left = -32000;
             window.Top = -32000;
@@ -819,7 +904,7 @@ public sealed class MainWindowTests(StaHarness harness)
             using var viewModel = new MainViewModel(
                 registry.Projection,
                 new MotionPolicy(() => false, observeChanges: false),
-                new StubAckPublisher(), new FakeClipboard(), new RosterStore());
+                new StubAckPublisher(), new FakeClipboard(), new RosterStore(new RecordingEventSink()), new RecordingRosterPersistence());
             var window = new MainWindow(viewModel);
             window.Left = -32000;
             window.Top = -32000;

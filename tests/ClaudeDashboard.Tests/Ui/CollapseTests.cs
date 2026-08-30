@@ -33,7 +33,7 @@ public sealed class CollapseTests : IDisposable
             _harness.Projection,
             new MotionPolicy(() => false, observeChanges: false),
             new StubAckPublisher(),
-            new FakeClipboard(), new RosterStore());
+            new FakeClipboard(), new RosterStore(new RecordingEventSink()), new RecordingRosterPersistence());
     }
 
     public void Dispose()

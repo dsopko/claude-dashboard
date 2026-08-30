@@ -39,6 +39,7 @@
     <ui:ZeroToCollapsedConverter x:Key="ZeroToCollapsed" />
     <ui:EmptyToCollapsedConverter x:Key="EmptyToCollapsed" />
     <BooleanToVisibilityConverter x:Key="BoolToVisible" />
+    <ui:InverseBooleanToVisibilityConverter x:Key="BoolToCollapsed" />
 
     <!-- ==== The only two animations in the application ========================================= -->
     <Storyboard x:Key="BlinkStoryboard" RepeatBehavior="Forever" AutoReverse="True">
@@ -303,6 +304,62 @@
         </Setter>
     </Style>
 
+    <!-- The header's live buttons: the reserved look, but actually enabled. -->
+    <Style x:Key="HeaderButtonStyle" TargetType="Button" BasedOn="{StaticResource ReservedButtonStyle}">
+        <Setter Property="IsEnabled" Value="True" />
+        <Setter Property="Foreground" Value="{StaticResource Ink2Brush}" />
+    </Style>
+
+
+    <!-- ==== Roster prompt (Design Document §9) ================================================= -->
+    <!--
+        A row, not a dialog. It is the only thing in the product that asks the operator a question,
+        and as a row it is driven by the same harness that realizes a window and invokes a command —
+        so both of its paths are proved by the thing the operator actually uses, with no port whose
+        adapter is then untested.
+
+        NOT MODAL, AND SAFE BECAUSE OF WHAT DECLINING COSTS. The window can be used and dismissed
+        with this unanswered, and an unanswered prompt is a declined one: the group is already
+        formed and already unpersisted, so "no answer" and "no" leave the same state.
+
+        The TextBox is the ROSTER's own name — a label, compared against nothing. There is no text
+        field anywhere for a MEMBER name, because member names are only ever copied from rows:
+        matching is exact, and a typed name that looked right but matched nothing would fail in
+        silence.
+    -->
+    <DataTemplate DataType="{x:Type ui:RosterPromptViewModel}">
+        <Border Margin="0,6,0,2"
+                Padding="10,7"
+                CornerRadius="6"
+                Background="{StaticResource SurfaceBrush}"
+                BorderBrush="{StaticResource HairlineBrush}"
+                BorderThickness="1">
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <TextBlock Text="{Binding Question}"
+                           VerticalAlignment="Center"
+                           FontSize="12"
+                           Foreground="{StaticResource InkBrush}" />
+
+                <TextBox x:Name="RosterNameBox"
+                         Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}"
+                         Width="150"
+                         Margin="10,0,10,0"
+                         VerticalAlignment="Center"
+                         FontSize="12"
+                         AutomationProperties.Name="Roster name" />
+
+                <Button x:Name="RememberRosterButton"
+                        Content="Remember"
+                        Style="{StaticResource HeaderButtonStyle}"
+                        Command="{Binding RememberCommand}" />
+
+                <Button x:Name="ForgetRosterButton"
+                        Content="Just this once"
+                        Style="{StaticResource HeaderButtonStyle}"
+                        Command="{Binding ForgetCommand}" />
+            </StackPanel>
+        </Border>
+    </DataTemplate>
     <!-- ==== Session row ======================================================================== -->
     <DataTemplate DataType="{x:Type ui:SessionViewModel}">
         <ToggleButton Style="{StaticResource RowToggleStyle}"
@@ -365,6 +422,17 @@
                                    FontSize="11"
                                    VerticalAlignment="Center"
                                    Foreground="{StaticResource Ink3Brush}" />
+                        <!--
+                            Why a row cannot be ticked, shown only while selecting. A row that does
+                            nothing when clicked and says nothing is indistinguishable from a bug.
+                        -->
+                        <TextBlock Text="{Binding SelectionRefusal}"
+                                   Visibility="{Binding SelectionRefusal, Converter={StaticResource EmptyToCollapsed}}"
+                                   Margin="7,0,0,0"
+                                   FontSize="11"
+                                   VerticalAlignment="Center"
+                                   Foreground="{StaticResource Ink3Brush}" />
+
                         <TextBlock Text="{Binding AgeText}"
                                    Margin="7,0,0,0"
                                    FontSize="11"
@@ -484,7 +552,7 @@
                     expanded row's button uses — they are one act, and two commands would be two
                     things to keep enabled in step.
                 -->
-                <Button Grid.Column="3"
+                <Button Grid.Column="4"
                         Content="✓ Ack"
                         VerticalAlignment="Top"
                         Margin="8,2,0,0"

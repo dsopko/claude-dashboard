@@ -4,6 +4,7 @@ using System.ComponentModel;
 using ClaudeDashboard.App.Configuration;
 using ClaudeDashboard.Core;
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 
 namespace ClaudeDashboard.App.Ui;
 
@@ -53,6 +54,10 @@ public sealed partial class MainViewModel : ObservableObject, IUiTickTarget, IDi
     private readonly IClipboard _clipboard;
     private readonly RosterStore _rosters;
     private readonly Dictionary<SessionId, SessionViewModel> _sessionRows = [];
+    private readonly IRosterPersistence _persist;
+    private bool _isSelecting;
+    private RosterPromptViewModel? _prompt;
+    private string _promptFormedAs = string.Empty;
     private readonly Dictionary<GroupKey, GroupViewModel> _groupHeaders = [];
     private readonly Dictionary<AttentionBand, BandHeaderViewModel> _bandHeaders = [];
     private readonly Dictionary<string, QuietFooterViewModel> _footers = [];
@@ -101,6 +106,13 @@ public sealed partial class MainViewModel : ObservableObject, IUiTickTarget, IDi
     /// Where a row sends a manual acknowledgment (Design Document §4 tier 2). Passed to every row
     /// this builds.
     /// </param>
+    /// <param name="persist">
+    /// Where an accepted roster is written so it survives a restart. <strong>Required, not
+    /// defaulted.</strong> It is a registered service, and an optional parameter that resolves to
+    /// nothing would leave every accepted roster silently unremembered — a feature that works
+    /// perfectly until the operator restarts. That is the failure ServiceCompositionTests exists to
+    /// refuse.
+    /// </param>
     /// <param name="clipboard">
     /// Where a row sends the session id when it is clicked (issue #15). Required for the same
     /// reason as the others, and the composition guard is what enforced it: it is a registered
@@ -113,19 +125,22 @@ public sealed partial class MainViewModel : ObservableObject, IUiTickTarget, IDi
         MotionPolicy motion,
         IAckPublisher ack,
         IClipboard clipboard,
-        RosterStore rosters)
+        RosterStore rosters,
+        IRosterPersistence persist)
     {
         ArgumentNullException.ThrowIfNull(projection);
         ArgumentNullException.ThrowIfNull(motion);
         ArgumentNullException.ThrowIfNull(ack);
         ArgumentNullException.ThrowIfNull(clipboard);
         ArgumentNullException.ThrowIfNull(rosters);
+        ArgumentNullException.ThrowIfNull(persist);
 
         _projection = projection;
         _motion = motion;
         _ack = ack;
         _clipboard = clipboard;
         _rosters = rosters;
+        _persist = persist;
         _projection.Sessions.CollectionChanged += OnSessionsChanged;
         _motion.PropertyChanged += OnMotionChanged;
 
@@ -211,6 +226,194 @@ public sealed partial class MainViewModel : ObservableObject, IUiTickTarget, IDi
         Refresh();
     }
 
+
+    // ---- Forming and editing a roster (T1.26, issue #16) --------------------------------------
+
+    /// <summary>
+    /// The smallest group the operator can form.
+    /// </summary>
+    /// <remarks>
+    /// <strong>A group of one is not a group.</strong> It would gain the settle window and the done
+    /// suppression, so a single session's finished chime would be delayed for no benefit — and that
+    /// chime is the thing this product exists to deliver. Rules 4 and 6 can still <em>reduce</em> a
+    /// roster to one member, and such a group renders normally; this is only about forming one.
+    /// </remarks>
+    public const int SmallestGroup = 2;
+
+    /// <summary>Whether the window is in selection mode (Design Document §9).</summary>
+    /// <remarks>
+    /// The mode announces itself in the header, which is the whole answer to "a state can be
+    /// wrong": a mode that can be on unseen is a mode nobody knows is on. It ends on grouping, on
+    /// cancelling and when the window is hidden, and it is never persisted.
+    /// </remarks>
+    public bool IsSelecting
+    {
+        get => _isSelecting;
+        set
+        {
+            if (_isSelecting == value)
+            {
+                return;
+            }
+
+            _isSelecting = value;
+
+            foreach (var row in _sessionRows.Values)
+            {
+                row.IsSelecting = value;
+            }
+
+            OnPropertyChanged(nameof(IsSelecting));
+            RaiseSelection();
+        }
+    }
+
+    /// <summary>How many rows the operator has ticked.</summary>
+    public int SelectedCount => _sessionRows.Values.Count(row => row.IsSelected);
+
+    /// <summary>What the header says while selecting.</summary>
+    public string SelectionText => $"Selecting · {SelectedCount} chosen";
+
+    /// <summary>Enters selection mode.</summary>
+    [RelayCommand]
+    private void BeginSelection() => IsSelecting = true;
+
+    /// <summary>Leaves selection mode, dropping every tick.</summary>
+    [RelayCommand]
+    private void CancelSelection() => IsSelecting = false;
+
+    /// <summary>
+    /// Forms a group from the ticked rows, and asks whether to remember it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The group exists immediately (rule 1) because the store is updated now; remembering it is a
+    /// separate question (rule 2) because only the settings file makes it survive a restart.
+    /// </para>
+    /// <para>
+    /// <strong>Rules 4 and 6 are the store's and are not repeated here.</strong> A ticked name that
+    /// already belongs to another roster leaves it, and a roster emptied by that ceases to exist —
+    /// this method calls <see cref="RosterBook.With"/> and renders whatever comes back, so the other
+    /// group losing a member is visible on the very next refresh rather than being hidden.
+    /// </para>
+    /// </remarks>
+    [RelayCommand(CanExecute = nameof(CanGroupSelected))]
+    private void GroupSelected()
+    {
+        var members = _sessionRows.Values
+            .Where(row => row.IsSelected && row.CanSelect)
+            .Select(row => row.Session.Title!)
+            .ToList();
+
+        if (members.Count < SmallestGroup)
+        {
+            return;
+        }
+
+        var name = FreeRosterName();
+
+        _rosters.Replace(_rosters.Book.With(name, members));
+
+        IsSelecting = false;
+        _promptFormedAs = name;
+        _prompt = new RosterPromptViewModel(name, RememberRoster, DeclineRoster);
+
+        Refresh();
+    }
+
+    private bool CanGroupSelected() => SelectedCount >= SmallestGroup;
+
+    /// <summary>
+    /// Removes a session's name from its roster (issue #16 rule 5).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>Removal is by NAME, so one click can move two rows.</strong> Two live sessions can
+    /// share a rostered name and both join; removing the name removes both. That is #16's accepted
+    /// consequence and it is deliberately not special-cased away — the second row moving is correct,
+    /// and hiding it would be the UI lying about what the store did.
+    /// </para>
+    /// <para>
+    /// The session is not removed from the dashboard. It returns to its workspace group, which is
+    /// why the menu item says "Remove from group".
+    /// </para>
+    /// </remarks>
+    [RelayCommand(CanExecute = nameof(CanRemoveFromGroup))]
+    private void RemoveFromGroup(SessionViewModel? row)
+    {
+        if (row?.Session.Title is not { } title || _rosters.Book.RosterFor(title) is null)
+        {
+            return;
+        }
+
+        _rosters.Replace(_rosters.Book.Without(title));
+        Refresh();
+    }
+
+    private bool CanRemoveFromGroup(SessionViewModel? row) =>
+        row?.Session.Title is { } title && _rosters.Book.RosterFor(title) is not null;
+
+    /// <summary>Writes the roster to settings, so it re-forms on the next start.</summary>
+    private void RememberRoster(string name)
+    {
+        // Looked up by the name the group was FORMED under, not by the one being asked for: the
+        // operator may have renamed it in the prompt, and looking it up by the new name would find
+        // nothing and silently remember the group under its default label.
+        var formed = _rosters.Book.Rosters
+            .FirstOrDefault(roster => string.Equals(roster.Name, _promptFormedAs, StringComparison.Ordinal));
+
+        if (formed is not null && !string.Equals(formed.Name, name, StringComparison.Ordinal))
+        {
+            _rosters.Replace(_rosters.Book.With(name, formed.Members));
+        }
+
+        _persist.Remember(_rosters.Book);
+        _prompt = null;
+        Refresh();
+    }
+
+    /// <summary>
+    /// Leaves the group formed and unpersisted, which is also what happens if the prompt is ignored.
+    /// </summary>
+    private void DeclineRoster()
+    {
+        _prompt = null;
+        Refresh();
+    }
+
+    /// <summary>The first unused default label. The operator may rename it in the prompt.</summary>
+    /// <remarks>
+    /// Deliberately not derived from the members' titles. A title can be a model-written summary of
+    /// the operator's prompt (T1.24), and a group heading is one more place it would then appear.
+    /// </remarks>
+    private string FreeRosterName()
+    {
+        for (var n = 1; ; n++)
+        {
+            var candidate = n == 1 ? "Group" : $"Group {n}";
+
+            if (!_rosters.Book.Rosters.Any(roster => string.Equals(roster.Name, candidate, StringComparison.Ordinal)))
+            {
+                return candidate;
+            }
+        }
+    }
+
+    /// <summary>Keeps the header's count and the group action in step with the ticks.</summary>
+    private void OnRowChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(SessionViewModel.IsSelected))
+        {
+            RaiseSelection();
+        }
+    }
+
+    private void RaiseSelection()
+    {
+        OnPropertyChanged(nameof(SelectedCount));
+        OnPropertyChanged(nameof(SelectionText));
+        GroupSelectedCommand.NotifyCanExecuteChanged();
+    }
     /// <summary>Rebuilds the row sequence from the projection, reusing every row it can.</summary>
     public void Refresh()
     {
@@ -220,7 +423,17 @@ public sealed partial class MainViewModel : ObservableObject, IUiTickTarget, IDi
 
         var groups = IsGrouped ? GroupResolver.Resolve(sessions, _rosters.Book) : null;
 
-        Reconcile(groups is null ? FlatRows(sessions) : GroupedRows(groups));
+        var rows = groups is null ? FlatRows(sessions) : GroupedRows(groups);
+
+        if (_prompt is not null)
+        {
+            // Above everything, because it is about the group that was just made and the operator
+            // has to be able to find it. It is not modal: they may ignore it, and ignoring it is
+            // declining.
+            rows.Insert(0, _prompt);
+        }
+
+        Reconcile(rows);
         Forget(sessions, groups?.Select(group => group.Key).ToHashSet());
         RecountBands(sessions);
     }
@@ -251,6 +464,7 @@ public sealed partial class MainViewModel : ObservableObject, IUiTickTarget, IDi
             if (_sessionRows.TryGetValue(session.Id, out var row))
             {
                 row.Session = session;
+                row.IsSelecting = _isSelecting;
             }
         }
     }
@@ -386,6 +600,7 @@ public sealed partial class MainViewModel : ObservableObject, IUiTickTarget, IDi
         var liveSessions = sessions.Select(session => session.Id).ToHashSet();
         foreach (var gone in _sessionRows.Keys.Where(id => !liveSessions.Contains(id)).ToList())
         {
+            _sessionRows[gone].PropertyChanged -= OnRowChanged;
             _sessionRows.Remove(gone);
         }
 
@@ -431,8 +646,9 @@ public sealed partial class MainViewModel : ObservableObject, IUiTickTarget, IDi
             return existing;
         }
 
-        var created = new SessionViewModel(session, _motion, _ack, _clipboard);
+        var created = new SessionViewModel(session, _motion, _ack, _clipboard) { IsSelecting = _isSelecting };
         created.RefreshAge(_now > session.LastActivity ? _now : session.LastActivity);
+        created.PropertyChanged += OnRowChanged;
         _sessionRows[session.Id] = created;
         return created;
     }

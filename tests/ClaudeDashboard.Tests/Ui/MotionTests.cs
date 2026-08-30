@@ -136,7 +136,7 @@ public sealed class MotionTests
         var allowed = true;
         using var policy = new MotionPolicy(() => allowed, observeChanges: false);
         using var registry = new RegistryHarness();
-        using var viewModel = new MainViewModel(registry.Projection, policy, new StubAckPublisher(), new FakeClipboard(), new RosterStore());
+        using var viewModel = new MainViewModel(registry.Projection, policy, new StubAckPublisher(), new FakeClipboard(), new RosterStore(new RecordingEventSink()), new RecordingRosterPersistence());
 
         registry.Working("s-1", At);
         var row = viewModel.Rows.OfType<SessionViewModel>().Single();

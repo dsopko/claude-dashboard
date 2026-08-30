@@ -204,6 +204,15 @@ public sealed class GroupViewModel : DashboardRow
     {
         get
         {
+            if (Kind == GroupKeyKind.Roster)
+            {
+                // The roster's own name, which is what the operator called this group — never a
+                // member's directory, and never a member's title. The key carries the name because
+                // GroupKeys.ForRoster built it from the name, so this needs no lookup and cannot
+                // disagree with the store.
+                return GroupKeys.RosterNameOf(_group.Key) ?? _group.Key.Value;
+            }
+
             if (Workspace is not { } workspace)
             {
                 // Keyed on the session itself, so there is no directory — name it after the

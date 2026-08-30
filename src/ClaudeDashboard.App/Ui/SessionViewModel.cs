@@ -90,6 +90,8 @@ public sealed partial class SessionViewModel : DashboardRow
     private Session _session;
     private DateTimeOffset _now;
     private bool _isExpanded;
+    private bool _isSelecting;
+    private bool _isSelected;
     private bool _copyFailed;
 
     /// <summary>Wraps <paramref name="session"/>.</summary>
@@ -229,11 +231,42 @@ public sealed partial class SessionViewModel : DashboardRow
     /// refresh around it — the row instance outlives the record, which is the whole reason it is
     /// keyed by <see cref="SessionId"/>.
     /// </remarks>
+    /// <summary>
+    /// Whether the row is expanded — and, <strong>while the window is selecting, whether a click
+    /// picks it instead</strong> (T1.26, issue #16 rule 1).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>One gesture, one meaning at a time.</strong> A row is a <c>ToggleButton</c> whose
+    /// click expands it; putting a tick box inside it would leave the same click meaning two things
+    /// and would depend on the inner control marking the click handled. In selection mode the click
+    /// selects and the row does not expand — so the setter refuses the value it was given, raises
+    /// the change anyway, and the two-way binding puts the button back where it was.
+    /// </para>
+    /// <para>
+    /// A row that cannot be selected simply stays put, and <see cref="SelectionRefusal"/> is what
+    /// tells the operator why. A row that does nothing when clicked and says nothing is
+    /// indistinguishable from a bug.
+    /// </para>
+    /// </remarks>
     public bool IsExpanded
     {
         get => _isExpanded;
         set
         {
+            if (IsSelecting)
+            {
+                if (CanSelect)
+                {
+                    IsSelected = !IsSelected;
+                }
+
+                // Whether or not it selected, expansion did not change — and the button has already
+                // moved, so it has to be told.
+                OnPropertyChanged(nameof(IsExpanded));
+                return;
+            }
+
             if (_isExpanded == value)
             {
                 return;
@@ -243,6 +276,61 @@ public sealed partial class SessionViewModel : DashboardRow
             OnPropertyChanged(nameof(IsExpanded));
         }
     }
+
+    /// <summary>Whether the window is in selection mode. Set by the view model that owns the mode.</summary>
+    public bool IsSelecting
+    {
+        get => _isSelecting;
+        set
+        {
+            if (_isSelecting == value)
+            {
+                return;
+            }
+
+            _isSelecting = value;
+
+            // Leaving the mode drops the tick: a selection that outlived the mode would be invisible
+            // state, and the next entry into the mode would start with rows already chosen.
+            if (!value)
+            {
+                IsSelected = false;
+            }
+
+            OnPropertyChanged(nameof(IsSelecting));
+            OnPropertyChanged(nameof(SelectionRefusal));
+        }
+    }
+
+    /// <summary>Whether the operator has ticked this row.</summary>
+    public bool IsSelected
+    {
+        get => _isSelected;
+        set
+        {
+            if (_isSelected == value || (value && !CanSelect))
+            {
+                return;
+            }
+
+            _isSelected = value;
+            OnPropertyChanged(nameof(IsSelected));
+        }
+    }
+
+    /// <summary>
+    /// Whether this session can be put in a roster at all.
+    /// </summary>
+    /// <remarks>
+    /// A roster stores names. A session with no title has none to store, so it cannot be a member —
+    /// and matching "no title" against "no title" would gather every unnamed session into one group,
+    /// which is the one thing grouping must never invent (TS §IV.3).
+    /// </remarks>
+    public bool CanSelect => !string.IsNullOrWhiteSpace(_session.Title);
+
+    /// <summary>Why this row cannot be ticked, shown only while selecting. Empty when it can.</summary>
+    public string SelectionRefusal => IsSelecting && !CanSelect ? "no name to remember" : string.Empty;
+
 
     /// <summary>Where this session sits in the attention model.</summary>
     public SessionState State => _session.State;
@@ -634,6 +722,8 @@ public sealed partial class SessionViewModel : DashboardRow
         OnPropertyChanged(nameof(TitlePrefix));
         OnPropertyChanged(nameof(TitleTooltip));
         OnPropertyChanged(nameof(RowName));
+        OnPropertyChanged(nameof(CanSelect));
+        OnPropertyChanged(nameof(SelectionRefusal));
         OnPropertyChanged(nameof(Answer));
         OnPropertyChanged(nameof(HasAnswer));
         OnPropertyChanged(nameof(Cwd));

@@ -1,3 +1,4 @@
+using ClaudeDashboard.Tests.Fakes;
 using System.Diagnostics.CodeAnalysis;
 using ClaudeDashboard.Core;
 using ClaudeDashboard.Core.Events;

@@ -158,7 +158,8 @@ public sealed class UnprotectedTextInventory
         // Wire discriminators and vocabulary.
         "Ack.HookEventName", "CwdChanged.HookEventName", "Notification.HookEventName",
         "PostToolBatch.HookEventName", "SessionEnd.HookEventName", "SessionStart.HookEventName",
-        "SoundCommand.HookEventName", "Stop.HookEventName", "StopFailure.HookEventName",
+        "RostersChanged.HookEventName", "SoundCommand.HookEventName", "Stop.HookEventName",
+        "StopFailure.HookEventName",
         "UserPromptSubmit.HookEventName",
         "Notification.NotificationType", "SessionEnd.Reason", "SessionStart.Source",
         "StopFailure.ErrorKind",
@@ -212,6 +213,21 @@ public sealed class UnprotectedTextInventory
         // identifier does not make the slot one. The id above passes the test the title fails:
         // Claude Code mints it and nothing the operator typed reaches it.
 
+
+        // T1.26's operator-facing strings. IDENTIFIERS AND LABELS, and each for its own reason:
+        //
+        //   · RosterPromptViewModel.Name is a ROSTER's own name — typed by the operator to label a
+        //     group, compared against nothing, never derived from a prompt or an answer. The same
+        //     classification Roster.Name already carries.
+        //   · MainViewModel.SelectionText is built from a count.
+        //   · SessionViewModel.SelectionRefusal is one of two fixed strings.
+        //
+        // A roster's MEMBERS are the other half and are session titles, which stay out of this list
+        // only because the scan cannot see a collection of strings — filed separately, and closed
+        // meanwhile by the never-log tests rather than by the inventory.
+        "MainViewModel.SelectionText",
+        "RosterPromptViewModel.Name",
+        "SessionViewModel.SelectionRefusal",
         "TrayViewModel.MuteAllLabel", "TrayViewModel.PauseLabel", "TrayViewModel.Tooltip",
 
         // Configuration, paths and operational results.

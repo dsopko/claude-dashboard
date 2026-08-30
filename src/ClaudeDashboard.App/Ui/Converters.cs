@@ -53,3 +53,23 @@ public sealed class EmptyToCollapsedConverter : IValueConverter
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
         throw new NotSupportedException("Visibility does not convert back to text.");
 }
+
+/// <summary>
+/// <see langword="true"/> collapses; <see langword="false"/> shows. The mirror of WPF's own
+/// <c>BooleanToVisibilityConverter</c>.
+/// </summary>
+/// <remarks>
+/// Needed because two header controls swap places on one flag — the "Select" button and the
+/// selection strip — and only one of them can use the built-in converter. Composing
+/// <c>InverseBoolean</c> with the built-in is not possible in a single binding.
+/// </remarks>
+public sealed class InverseBooleanToVisibilityConverter : IValueConverter
+{
+    /// <inheritdoc/>
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        value is true ? Visibility.Collapsed : Visibility.Visible;
+
+    /// <inheritdoc/>
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        throw new NotSupportedException("Visibility does not convert back to a flag.");
+}

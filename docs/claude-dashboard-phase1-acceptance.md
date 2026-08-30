@@ -1025,6 +1025,157 @@ only done sound in the run was always the group's. The fixture now wires it exac
 does, and with that line in place the plant kills the test. **A test that cannot fail is worse than
 a missing one, because it is counted.**
 
+## 5i · T1.26 — forming and editing a roster, and what it does not prove
+
+T1.25 built the behaviour and none of it was reachable. T1.26 is the half the operator can see: tick
+rows to form a group, an inline row asking whether to remember it, right-click removal, and the
+roster's name on the group heading (issue #16, part 2 of 2). Design §9 gained three bullets in the
+same commit.
+
+Twenty-four tests cover it and three planted mutations confirmed they are load-bearing.
+
+### The finding, and it is the same question as last time
+
+**A roster edit happens on the dispatcher; the roster book is read on the consumer thread.** The
+consumer re-resolves groups only after a drain or a tick, and the tick is fifteen seconds. So an
+edit that did not wake it would leave a dissolved group still able to nudge and a new group unable
+to settle, for up to fifteen seconds, **with the screen already right** — the two halves of the
+product disagreeing, and no test able to see it because tests drive the clock.
+
+That is T1.25's spin in a different costume: there, a deadline nobody re-examined; here, a
+membership change nobody re-examines. It was found by asking the same thing — not "does it work"
+but "what happens after, and how long does the wrong answer last".
+
+The fix is a synthetic event of the kind `SoundCommand` already is: it names no session, carries
+nothing, never reaches the Registry, and its whole job is to have woken the loop so the settle pass
+that already runs after every drain re-reads membership. **It is published by `RosterStore.Replace`
+rather than by the caller** — the same principle that put issue #16's rules 4 and 6 in
+`RosterBook`. A caller that has to remember to announce its change is a caller that will forget,
+and T1.26 is not the last one.
+
+`RosterEditWakeTests` runs the consumer with a **fifteen-minute** tick and asserts `TickCount` is
+still zero when the edit has been observed, so nothing in it can be explained by a tick having
+happened.
+
+### The constraint the design rests on
+
+**A member name is never typed. It is only ever copied from a row.** T1.25 matches exactly —
+ordinal, case-sensitive — and that is sound only because a stored name is a copy of a title the
+session itself reported. A typed name would make "exact" something else, and the failure is silent:
+a name that looks right, matches nothing, and reports no error anywhere.
+
+So the operator ticks rows, and the only text input in the whole window is the **roster's** own
+label, which is compared against nothing. `RosterUiGuardTests` asserts the exact set of text
+bindings in the markup rather than merely omitting one, because a convenience added later would
+otherwise be a one-line change with no test to argue with.
+
+### Selection is a mode, and the motion rule decided that
+
+Three shapes were considered and one is disqualified rather than merely weaker. **Hover-reveal is
+ruled out by the motion rule**: either the row reflows when the tick appears, which is the row
+moving, or the width is reserved permanently and it is the always-visible checkbox in a disguise.
+"Nothing else moves" is not only about storyboards.
+
+A permanent tick costs width on every row for something done rarely, and competes with the one
+element §9 protects — the prompt snippet's budget. So: a mode, and the answer to "a state can be
+wrong" is that **the state is never invisible** — the header carries `Selecting · n chosen` and both
+ways out of it.
+
+It also resolves a conflict the others do not. A row is a `ToggleButton` whose click expands it; a
+tick inside it would depend on the inner control marking the click handled, and would leave one
+gesture with two meanings for ever. In the mode a click selects and does not expand.
+
+**Two, not one.** A group of one would gain the settle window and the done suppression, so a single
+session's finished chime would be delayed for no benefit — and that chime is what this product
+exists to deliver. Rules 4 and 6 can still *reduce* a roster to one member, and such a group renders
+normally; that is asserted separately.
+
+### The prompt is a row, not a dialog
+
+A modal would need a port whose adapter is then deliberately untested — the shape this project
+already carries once for the clipboard, and a second is a real cost. As a row it is driven by the
+same harness that realizes a window and invokes a command, so both paths are proved by the thing the
+operator actually uses.
+
+**An unanswered prompt is a declined one, and that is a correctness argument rather than a
+convenience.** The window can be used and dismissed with it showing. That is safe only because the
+group is already formed and already unpersisted, so no answer and "no" leave the same state — which
+is what makes an ignorable prompt an acceptable one. Asserted by comparing the two states rather
+than by describing them.
+
+### The four things the suite cannot reach
+
+1. **That the operator can find the mode.** Discoverability is not testable here and the affordance
+   is one button.
+2. **That the inline prompt is noticed.** It can be ignored in a way a modal cannot. The design
+   makes ignoring it safe; nothing here shows that anybody reads it.
+3. **That right-click actually opens the menu.** The command and its `CanExecute` are asserted, and
+   the menu is markup; an automation-driven right-click does not produce the input WPF's context
+   menu reacts to, so a headless "the menu opened" would be an artefact of the harness. Same limit
+   as T1.23's tooltip.
+4. **That a remembered roster survives a real restart.** The write is asserted through a recording
+   port, and the file's round trip was proved in T1.25. Nothing here starts the application twice.
+
+### Residual: the shutdown save is what makes declining work, and only a tripwire says so
+
+A declined group lives in `RosterStore` and nowhere else. Nothing writes it, so it is gone when
+those sessions end. **That holds because `Program.cs` saves the window position as
+`Load().Settings with { Window = … }` — it re-reads the file and overrides one section rather than
+serialising what is in memory.** A reasonable-looking refactor to "serialise the settings we already
+have" would silently persist every declined one-off, and the operator would find groups they said no
+to back again after a restart, with nothing in the log.
+
+`RosterUiGuardTests` pins it by reading the source, which is a weak assertion used because the exit
+path is not reachable from a test. It is a tripwire, not a proof, and it is labelled as one.
+
+### Two T1.25 residuals become operator-reachable, which is a different thing to accept
+
+Both were recorded in §5h as reachable only by a rename. Removal makes them reachable by a
+deliberate action, so they are re-stated here rather than pointed at:
+
+- **A member removed after it finished never sounds.** Its own Finished notice was suppressed while
+  it was in the roster, and the notice fires on state entry, which has passed. If the group had not
+  yet settled, no done sound is produced for that session at all.
+- **Its per-group mute does not follow it.** A session muted through its roster group becomes
+  audible in its workspace group, and the reverse.
+
+### Removal's blast radius, stated because it looks like a bug
+
+**Removal is by name, so one right-click can move two rows.** Two live sessions can share a rostered
+name and both join (#16 accepts this); removing the name removes both. It is deliberately not
+special-cased away — the second row moving is what the store did, and hiding it would be the UI
+lying. Asserted.
+
+**A removed session is not removed from the dashboard.** It returns to its workspace group, which is
+why §9 and the menu item both say "Remove from group".
+
+### One observation about the row list, not fixed here
+
+Changing what a row *is* at a given index — a prompt appearing above a group whose key also changed
+— makes WPF evaluate the old template's bindings once against the new item before swapping the
+template, which `BindingErrorWatch` reports. It is transient and invisible on screen, and it is the
+same class as issue #23.
+
+**An attempt to fix it by teaching `Reconcile` to insert rather than replace was written and then
+reverted**, because it did not fix this case: the group's key changes at the same moment, so the
+replacement is unavoidable there. Keeping a change whose stated reason had turned out to be false
+would have been the defect this project has paid for repeatedly. The two window tests instead
+realize a window whose state is already final, which is what they are about anyway.
+
+### Was the harness capable of producing the other outcome?
+
+Three plants, each verified present by md5 **and verified back**:
+
+| Planted defect | Result |
+|---|---|
+| Removal never reaches the store | **fails** — 4 tests, incl. `Removal_takes_the_name_out_of_the_roster` |
+| Accepting the prompt persists nothing | **fails** — `Remembering_writes_the_roster`, `The_roster_can_be_renamed_in_the_prompt` |
+| The heading falls back to a directory label | **fails** — 6 tests, incl. `Ticking_two_rows_forms_a_group_at_once` |
+
+A fourth attempt — disabling the heading branch with `if (false)` — **did not compile**, because
+unreachable code is an error here. That is T1.22's trap and the rule held: no result was read from a
+failed build, and the plant was re-shaped into one that compiles.
+
 ## 6 · Was the harness capable of producing the other outcome?
 
 A green run proves nothing unless a red one was reachable. Five defects were planted, each taken

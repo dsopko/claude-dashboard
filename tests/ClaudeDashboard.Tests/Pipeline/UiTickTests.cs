@@ -50,7 +50,7 @@ public sealed class UiTickTests : IAsyncLifetime
     public Task InitializeAsync()
     {
         _projection = new SessionProjection(_registry, _dispatcher);
-        _viewModel = new MainViewModel(_projection, new MotionPolicy(() => false, observeChanges: false), new StubAckPublisher(), new FakeClipboard(), new RosterStore());
+        _viewModel = new MainViewModel(_projection, new MotionPolicy(() => false, observeChanges: false), new StubAckPublisher(), new FakeClipboard(), new RosterStore(new RecordingEventSink()), new RecordingRosterPersistence());
         _tick = new UiTick(_dispatcher);
 
         _consumer = new EventConsumer(
@@ -61,7 +61,7 @@ public sealed class UiTickTests : IAsyncLifetime
             _guard,
             Logger.None,
             archive: _archive,
-            rosters: new RosterStore(),
+            rosters: new RosterStore(new RecordingEventSink()),
             tickInterval: TimeSpan.FromMilliseconds(25),
             uiTick: _tick);
 
@@ -430,7 +430,7 @@ public sealed class UiTickTests : IAsyncLifetime
             _guard,
             Logger.None,
             archive: _archive,
-            rosters: new RosterStore(),
+            rosters: new RosterStore(new RecordingEventSink()),
             tickInterval: TimeSpan.FromMilliseconds(25),
             uiTick: failing);
 

@@ -114,6 +114,9 @@ public sealed class EventConsumer : BackgroundService
         _uiTick = uiTick;
     }
 
+    /// <summary>How many roster edits have woken the loop. Diagnostic only.</summary>
+    public long RosterEditCount { get; private set; }
+
     /// <summary>How many roster groups have settled. Diagnostic only.</summary>
     public long SettledCount { get; private set; }
 
@@ -283,6 +286,16 @@ public sealed class EventConsumer : BackgroundService
         {
             using (_guard.Enter("applying an event"))
             {
+                if (inboundEvent is RostersChanged)
+                {
+                    // The operator edited a roster. It carries nothing and changes no session, so
+                    // neither the Registry nor the archive has any use for it — its entire job is to
+                    // have woken this loop, so that the settle pass which runs after every drain
+                    // re-reads membership now instead of on the next fifteen-second tick.
+                    RosterEditCount++;
+                    return;
+                }
+
                 if (inboundEvent is SoundCommand command)
                 {
                     // Global sound modes ride the same Channel as hooks so they land on this

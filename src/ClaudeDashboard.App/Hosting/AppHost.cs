@@ -75,9 +75,7 @@ public static class AppHost
         // rosters or a roster with no members, and RosterBook can represent neither. Each
         // correction is logged BY ROSTER NAME ONLY — a member name is a session title, and a title
         // can be a model-written summary of the operator's prompt (T1.24, issue #18).
-        var rosterStore = new RosterStore();
         var (book, corrections) = new RosterSettings { Rosters = loaded.Settings.Rosters }.ToBook();
-        rosterStore.Replace(book);
 
         foreach (var correction in corrections)
         {
@@ -157,7 +155,14 @@ public static class AppHost
         builder.Services.AddSingleton<SingleWriterGuard>();
         builder.Services.AddSingleton<EventPipeline>();
         builder.Services.AddSingleton<IEventSink>(sp => sp.GetRequiredService<EventPipeline>().Sink);
-        builder.Services.AddSingleton(rosterStore);
+        // Built through the container rather than beside the settings, because RosterStore now
+        // announces every change on the pipeline and so needs the sink — which only exists once
+        // EventPipeline is registered. The initial load is itself a change, and announcing it costs
+        // one wake-up the consumer would have taken on its first tick anyway.
+        builder.Services.AddSingleton(sp =>
+        {
+            return new RosterStore(sp.GetRequiredService<IEventSink>(), book);
+        });
         builder.Services.AddSingleton<SessionRegistry>();
         builder.Services.AddSingleton<SoundCatalog>();
         builder.Services.AddSingleton<ISoundPlayer, NAudioSoundPlayer>();
@@ -183,6 +188,7 @@ public static class AppHost
         builder.Services.AddSingleton<MotionPolicy>();
         builder.Services.AddSingleton<UiTick>();
         builder.Services.AddSingleton<IUiTick>(sp => sp.GetRequiredService<UiTick>());
+        builder.Services.AddSingleton<IRosterPersistence, SettingsRosterPersistence>();
         builder.Services.AddSingleton<MainViewModel>();
         builder.Services.AddSingleton<MainWindow>();
         builder.Services.AddSingleton<ISoundModeReader>(sp => sp.GetRequiredService<SoundPolicyEngine>());

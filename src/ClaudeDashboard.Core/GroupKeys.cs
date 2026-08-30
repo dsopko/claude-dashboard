@@ -172,6 +172,21 @@ public static class GroupKeys
             : session.WorkspaceGroup;
     }
 
+
+    /// <summary>
+    /// The roster name inside a roster key, or null when <paramref name="key"/> is not one.
+    /// </summary>
+    /// <remarks>
+    /// A key is not a display string in general — a workspace key is folded and a session key is an
+    /// id — but a roster key is built from the operator's own label and nothing is done to it, so
+    /// the label comes back out whole. Reading it here rather than looking the roster up in the
+    /// store is what stops a header disagreeing with the group it heads: the key <em>is</em> the
+    /// name.
+    /// </remarks>
+    public static string? RosterNameOf(GroupKey key) =>
+        key.Value.StartsWith(RosterPrefix, StringComparison.Ordinal)
+            ? key.Value[RosterPrefix.Length..]
+            : null;
     /// <summary>What <paramref name="key"/> was derived from.</summary>
     public static GroupKeyKind KindOf(GroupKey key) => key.Value switch
     {

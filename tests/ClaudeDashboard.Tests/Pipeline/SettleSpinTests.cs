@@ -56,9 +56,11 @@ public sealed class SettleSpinTests : IAsyncLifetime
     private readonly EventPipeline _pipeline = new(Logger.None);
     private readonly EventArchive _archive = new(Logger.None);
     private readonly RecordingUiTick _tick = new();
-    private readonly RosterStore _rosters = new();
+    private readonly RosterStore _rosters;
 
     private EventConsumer _consumer = null!;
+
+    public SettleSpinTests() => _rosters = new RosterStore(_pipeline.Sink);
 
     public Task InitializeAsync()
     {

@@ -296,3 +296,38 @@ public sealed record PostToolBatch : InboundEvent
     /// <inheritdoc/>
     public override string HookEventName => "PostToolBatch";
 }
+
+/// <summary>
+/// The operator changed a roster, so group membership may have moved (T1.26, issue #16).
+/// </summary>
+/// <remarks>
+/// <para>
+/// <strong>Not a Claude Code hook, and it exists only to WAKE the consumer.</strong> A roster is
+/// operator configuration read on the consumer thread, and the consumer re-resolves groups only
+/// after a drain or a tick — and the tick is fifteen seconds. Without this, an edit made on the
+/// dispatcher would be invisible to the sound side for up to fifteen seconds: a dissolved group
+/// would go on nudging for a group that no longer exists, and a newly formed one could not settle.
+/// The screen and the sound would disagree, with the screen right.
+/// </para>
+/// <para>
+/// It carries nothing. The new membership is read from the roster store when the consumer
+/// re-observes; putting it on the event would be a second copy of the truth, and the copy would be
+/// the one that went stale. <strong>It carries no member names in particular</strong>, which
+/// matters: a member name is a session title, and a title can be a model-written summary of the
+/// operator's prompt (T1.24).
+/// </para>
+/// <para>
+/// <strong>It names no session</strong>, like <see cref="SoundCommand"/>, so
+/// <see cref="InboundEvent.SessionId"/> is left default. The Registry never sees one — the consumer
+/// routes it — so no session state is implied by the gap.
+/// </para>
+/// <para>
+/// <strong>Ingress must never map a wire payload to this variant.</strong> Nothing off the wire may
+/// regroup the operator's sessions.
+/// </para>
+/// </remarks>
+public sealed record RostersChanged : InboundEvent
+{
+    /// <inheritdoc/>
+    public override string HookEventName => "RostersChanged";
+}

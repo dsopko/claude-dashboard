@@ -38,6 +38,7 @@
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
 
                     <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
@@ -79,10 +80,47 @@
                     </Border>
 
                     <!--
+                        SELECTION MODE, AND IT ANNOUNCES ITSELF (Design Document §9). That is the
+                        whole answer to "a mode is a state and a state can be wrong": a mode that can
+                        be on unseen is a mode nobody knows is on. Off, it costs one button; on, the
+                        header says so and carries the count and both ways out of it.
+                    -->
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                        <Button x:Name="BeginSelectionButton"
+                                Content="Select"
+                                Style="{StaticResource HeaderButtonStyle}"
+                                Margin="0,0,8,0"
+                                Command="{Binding BeginSelectionCommand}"
+                                Visibility="{Binding IsSelecting, Converter={StaticResource BoolToCollapsed}}"
+                                ToolTip="Pick sessions to group together." />
+
+                        <StackPanel Orientation="Horizontal"
+                                    VerticalAlignment="Center"
+                                    Visibility="{Binding IsSelecting, Converter={StaticResource BoolToVisible}}">
+                            <TextBlock x:Name="SelectionText"
+                                       Text="{Binding SelectionText}"
+                                       VerticalAlignment="Center"
+                                       Margin="0,0,8,0"
+                                       FontSize="12"
+                                       Foreground="{StaticResource Ink2Brush}" />
+                            <Button x:Name="GroupTheseButton"
+                                    Content="Group these"
+                                    Style="{StaticResource HeaderButtonStyle}"
+                                    Margin="0,0,6,0"
+                                    Command="{Binding GroupSelectedCommand}" />
+                            <Button x:Name="CancelSelectionButton"
+                                    Content="Cancel"
+                                    Style="{StaticResource HeaderButtonStyle}"
+                                    Margin="0,0,8,0"
+                                    Command="{Binding CancelSelectionCommand}" />
+                        </StackPanel>
+                    </StackPanel>
+
+                    <!--
                         Mute all belongs to the tray's menu (Impl §5.2) and per-session mute to the
                         sound engine (T1.5). The header keeps §9's slot for it, inert until then.
                     -->
-                    <Button Grid.Column="2" Content="Mute all"
+                    <Button Grid.Column="3" Content="Mute all"
                             Style="{StaticResource ReservedButtonStyle}"
                             Margin="0"
                             ToolTip="Muting arrives with the tray menu (T1.13)." />

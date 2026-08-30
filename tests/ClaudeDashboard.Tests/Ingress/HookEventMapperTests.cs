@@ -343,7 +343,7 @@ public sealed class HookEventMapperTests
             .Order(StringComparer.Ordinal)
             .ToList();
 
-        Assert.Equal(["Ack", "SoundCommand"], synthetic);
+        Assert.Equal(["Ack", "RostersChanged", "SoundCommand"], synthetic);
 
         foreach (var name in synthetic)
         {

@@ -80,7 +80,7 @@ public sealed class DeclineLoggingTests : IAsyncLifetime
             _logger,
             new RecordingUiTick(),
             _archive,
-            new RosterStore(),
+            new RosterStore(new RecordingEventSink()),
             tickInterval: TimeSpan.FromMinutes(5));
 
         return _consumer.StartAsync(CancellationToken.None);

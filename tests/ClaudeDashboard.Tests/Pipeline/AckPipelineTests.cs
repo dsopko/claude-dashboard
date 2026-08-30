@@ -54,7 +54,7 @@ public sealed class AckPipelineTests : IAsyncLifetime
             _projection,
             new MotionPolicy(() => false, observeChanges: false),
             new AckPublisher(_pipeline.Sink, _clock, Logger.None),
-            new FakeClipboard(), new RosterStore());
+            new FakeClipboard(), new RosterStore(new RecordingEventSink()), new RecordingRosterPersistence());
 
         _consumer = new EventConsumer(
             _pipeline,
@@ -65,7 +65,7 @@ public sealed class AckPipelineTests : IAsyncLifetime
             Logger.None,
             new RecordingUiTick(),
             _archive,
-            new RosterStore(),
+            new RosterStore(new RecordingEventSink()),
             tickInterval: TimeSpan.FromMilliseconds(25));
 
         return _consumer.StartAsync(CancellationToken.None);

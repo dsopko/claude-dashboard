@@ -39,7 +39,7 @@ public sealed class AckTests : IDisposable
             _harness.Projection,
             new MotionPolicy(() => false, observeChanges: false),
             new AckPublisher(_sink, _clock, Logger.None),
-            new FakeClipboard(), new RosterStore());
+            new FakeClipboard(), new RosterStore(new RecordingEventSink()), new RecordingRosterPersistence());
     }
 
     public void Dispose()

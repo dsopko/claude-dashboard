@@ -71,14 +71,16 @@ public sealed class InboundEventTests
 
     /// <summary>
     /// The hierarchy is closed over Impl §9.1's seven consumed events plus the two synthetic
-    /// variants — <c>Ack</c> and <c>SoundCommand</c> — which have no hook behind them
+    /// variants — <c>Ack</c>, <c>SoundCommand</c> and <c>RostersChanged</c> — which have no hook
+    /// behind them
     /// (TS §IV.1; Impl §4, §5.2).
     /// </summary>
     /// <remarks>
-    /// Both synthetic variants exist because something the operator does has to travel the same
+    /// Every synthetic variant exists because something the operator does has to travel the same
     /// Channel as a hook: an acknowledgment so it reaches the Registry on the consumer thread
-    /// (T1.12), a global sound mode so it reaches the engine there (T1.13). Neither may ever be
-    /// mapped from a wire payload — see <c>Ingress_never_maps_a_synthetic_variant</c>.
+    /// (T1.12), a global sound mode so it reaches the engine there (T1.13), and a roster edit so the
+    /// consumer re-reads membership now rather than on its next fifteen-second tick (T1.26). None
+    /// may ever be mapped from a wire payload — see <c>Ingress_never_maps_a_synthetic_variant</c>.
     /// </remarks>
     [Fact]
     public void The_hierarchy_is_closed_over_the_consumed_events()
@@ -91,8 +93,8 @@ public sealed class InboundEventTests
 
         Assert.Equal(
             [
-                "Ack", "CwdChanged", "Notification", "PostToolBatch", "SessionEnd", "SessionStart",
-                "SoundCommand", "Stop", "StopFailure", "UserPromptSubmit",
+                "Ack", "CwdChanged", "Notification", "PostToolBatch", "RostersChanged", "SessionEnd",
+                "SessionStart", "SoundCommand", "Stop", "StopFailure", "UserPromptSubmit",
             ],
             variants);
     }
