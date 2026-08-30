@@ -179,12 +179,18 @@
 
                             AND ALL FOUR DO NOT FIT, which is the one place 2c had to bend. The
                             design is drawn in an 820-pixel window; this one opens at 520, where
-                            the slot holds about 190 pixels and the four counts want about 250. So
+                            the slot holds about 150 pixels and the four counts want about 230. So
                             the strip is a FittingStrip, which drops whole counts from the right
-                            rather than clipping a word in half. Measured: everything shows from
-                            roughly 600 up, "11 sessions · 1 need you" at the 520 the window
-                            actually opens at — which is exactly what 2c draws — and the summary
-                            steps aside altogether below about 470.
+                            rather than clipping a word in half.
+
+                            MEASURED, at the counts a fifteen-session dashboard actually reaches
+                            — a two-digit total and single-digit bands. The caption's fixed
+                            furniture is 368: 48 for the icon, 120 for the title, 14 before the
+                            strip, 29 for the divider, 20 for the help slot and 138 for the three
+                            window buttons. On top of that the strip needs 424 for the total
+                            alone, 487 to add "need you", 539 to add "unread" and 601 to add
+                            "working". So the window shows nothing below 424, exactly what 2c
+                            draws at the 520 it opens at, and the whole strip from 601 up.
 
                             Tabular figures per the design's font-feature-settings:'tnum', so a
                             count ticking 9 -> 10 does not shove the words beside it.
