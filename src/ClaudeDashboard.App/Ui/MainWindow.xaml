@@ -198,14 +198,21 @@
                               tier 0   "11 sessions . 3 need you . 5 unread . 8 working"   614
                               tier 1   "11 . 3 need . 5 unread . 8 working"                545
 
-                            AND MEASURED AT 150% TOO, on a monitor actually set to it, because
-                            the guess that used to sit here was wrong in its direction: the strip
-                            is very slightly NARROWER at 150%, not wider — 242 against 244 for
-                            the long form — because the quantum is two thirds of a pixel there
-                            and some advances round down where at 100% they round up. The
-                            changeover lands within two pixels of the same window width, and A
-                            520 WINDOW SHOWS THREE COUNTS IN TIER 1 AT BOTH SCALES. The caption
-                            reads the same; only the numbers behind it move, and barely.
+                            WHAT 150% DOES, AND WHAT IS WORTH WRITING DOWN ABOUT IT. The strip
+                            measures WIDER there, not narrower: the reviewer and I both get
+                            247.333 for the long form against 244 here, on a monitor set to it.
+                            A third figure, 242, was written into this remark earlier in the same
+                            task and does NOT reproduce — not on their machine and not on mine an
+                            hour later, with the same script. I could not account for it, so it
+                            is withdrawn rather than explained away, and no 150% width is
+                            recorded here: a number nobody can reproduce is worse than none, and
+                            this remark has now carried two.
+
+                            WHAT DOES HOLD, re-measured after the above: A 520 WINDOW SHOWS THREE
+                            COUNTS AT BOTH SCALES. That is the fact the operator needs, it is
+                            about behaviour rather than pixels, and it is the one this window is
+                            actually judged on. FittingStripTests states every rule against
+                            widths it measures in the same run for exactly this reason.
 
                             So the 520 this window opens at shows three counts. ALL FOUR NEVER
                             FIT AT 520 while the help slot is kept, and keeping it was the

@@ -1,3 +1,4 @@
+using Xunit.Abstractions;
 using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
@@ -46,9 +47,12 @@ namespace ClaudeDashboard.Tests.Ui;
 /// <para>
 /// So the rules are stated against widths the strip is <em>asked</em> for, and hold at any scale
 /// on any machine. Only <see cref="The_recorded_ladder"/> quotes the numbers the caption's
-/// remarks and the execution plan carry, and it verifies them only where the scale they were
-/// recorded at still holds — checking the ladder's shape either way, so it asserts something
-/// true wherever it runs.
+/// remarks and the execution plan carry. It checks them three ways so that being unable to
+/// verify them exactly is never the same as not checking them: the ladder's <em>shape</em> and
+/// its <em>range</em> are asserted at every scale, the four exact widths only where the scale
+/// they were recorded at still holds, and which of those happened is written to the test's
+/// output rather than left to a comment. A recorded figure edited to something impossible fails
+/// on any machine; that was verified by planting one.
 /// </para>
 /// <para>
 /// Four measurements of this strip have now been wrong, each for a different missing input — the
@@ -58,7 +62,7 @@ namespace ClaudeDashboard.Tests.Ui;
 /// </para>
 /// </remarks>
 [Collection(WpfApplicationSuite.Name)]
-public sealed class FittingStripTests(StaHarness harness)
+public sealed class FittingStripTests(StaHarness harness, ITestOutputHelper output)
 {
     /// <summary>The counts the width budget was measured against: 11 sessions, 3, 5 and 8.</summary>
     private const int Sessions = 11;
@@ -351,15 +355,52 @@ public sealed class FittingStripTests(StaHarness harness)
         Assert.True(threeCounts > oneCount, $"three counts ({threeCounts}) should exceed one count ({oneCount}).");
         Assert.True(oneCount > 0, $"one count ({oneCount}) should have a width.");
 
+        // ALSO TRUE AT ANY SCALE, AND THIS IS THE ONE THAT CATCHES A TYPO. Changing the display
+        // scale moves these widths by a few per cent — the largest gap seen between 100% and
+        // 150% is the smallest rung, at eleven — because quantizing to a device pixel can only
+        // move a glyph run by less than one of them. It cannot move a number by half. So a
+        // recorded figure that is nowhere near what this machine measures is a transcription
+        // error rather than a different monitor, and it fails here whatever the scale.
+        WithinAQuarter(RecordedTierZero, tierZero, "tier 0");
+        WithinAQuarter(RecordedTierOne, tierOne, "tier 1");
+        WithinAQuarter(RecordedThreeCounts, threeCounts, "three counts");
+        WithinAQuarter(RecordedOneCount, oneCount, "one count");
+
         if (oneCount != RecordedOneCount)
         {
-            // Another display scale. The recorded numbers are not wrong, they are elsewhere.
+            // Another display scale. The recorded numbers are not wrong, they are elsewhere —
+            // SAID OUT LOUD, because a bound that lives only in a comment does not reach anyone
+            // reading a green result. This suite has no dynamic skip to report it as one.
+            output.WriteLine(
+                $"NOT CHECKED EXACTLY: the recorded ladder is 100% figures and this machine "
+                    + $"measures the smallest rung at {oneCount} rather than {RecordedOneCount}. "
+                    + $"Measured here: {tierZero} / {tierOne} / {threeCounts} / {oneCount}. "
+                    + "Shape and range were checked; the four exact widths were not.");
+
             return;
         }
+
+        output.WriteLine("Checked exactly: this machine is at the scale the ladder was recorded at.");
 
         Assert.Equal(RecordedTierZero, tierZero);
         Assert.Equal(RecordedTierOne, tierOne);
         Assert.Equal(RecordedThreeCounts, threeCounts);
+    }
+
+    /// <summary>
+    /// Fails when <paramref name="recorded"/> is nowhere near <paramref name="measured"/>.
+    /// </summary>
+    /// <remarks>
+    /// A quarter is far wider than any display scale moves these — it is not a tolerance on the
+    /// measurement, it is a guard on the constant. Its job is that a recorded figure edited to
+    /// something impossible fails on every machine, not only on one at 100%.
+    /// </remarks>
+    private static void WithinAQuarter(double recorded, double measured, string rung)
+    {
+        Assert.True(
+            Math.Abs(recorded - measured) <= measured * 0.25,
+            $"The recorded {rung} width is {recorded}, and this machine measures {measured}. "
+                + "Display scaling moves these by a few per cent; that is not scaling.");
     }
 
     // ---- Building the thing MainWindow.xaml declares --------------------------------------------

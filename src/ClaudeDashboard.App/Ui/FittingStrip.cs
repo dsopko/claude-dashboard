@@ -20,11 +20,10 @@ namespace ClaudeDashboard.App.Ui;
 /// <strong>EVERY PIXEL FIGURE IN THIS FILE IS AT 100% DISPLAY SCALING</strong>, because none of
 /// them is scale-free: the caption sets <c>TextFormattingMode.Display</c>, which quantizes glyph
 /// advances to whole <em>device</em> pixels, so the quantum is one DIP at 100% and two thirds of
-/// one at 150%. The same strip measures 244 at 100% and 242 at 150% — narrower, not wider, since
-/// some advances round down where the coarser quantum rounded them up. What the numbers are for
-/// is the argument, and the argument does not move: the slot is short of the strip at the width
-/// this window opens at, at either scale, and a 520-wide window shows three counts at both.
-/// <c>FittingStripTests</c> states the rules against widths it measures rather than widths
+/// one at 150%. The same strip measures 244 at 100% and 247.333 at 150%. What the numbers are
+/// for is the argument, and the argument does not move: the slot is short of the strip at the
+/// width this window opens at, at either scale, and a 520-wide window shows three counts at
+/// both. <c>FittingStripTests</c> states the rules against widths it measures rather than widths
 /// written down, for exactly this reason.
 /// </para>
 /// <para>
