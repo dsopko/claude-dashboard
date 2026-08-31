@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Documents;
 using System.Windows.Media;
 using ClaudeDashboard.App.Ui;
 
@@ -27,13 +28,25 @@ namespace ClaudeDashboard.Tests.Ui;
 /// really is this shape.
 /// </para>
 /// <para>
-/// <strong>DISPLAY FORMATTING, BECAUSE THE WINDOW SETS IT, AND IT MOVES THE ANSWER.</strong>
-/// <c>MainWindow.xaml</c> puts <c>TextOptions.TextFormattingMode="Display"</c> on the window and
-/// every one of these <see cref="TextBlock"/>s inherits it; it quantizes glyph advances to whole
-/// pixels. A strip measured without it is about three device-independent pixels wider — the long
-/// form measures 242 with it and 245.5 without — and the tier boundary moves with it. Measured
-/// the other way, a 245-wide slot looks too narrow for the long form; in the shipped caption it
-/// is not. These widths are the caption's widths.
+/// <strong>EVERY TEXT PROPERTY THE CAPTION SETS, THIS FIXTURE SETS. THAT COMPLETENESS IS
+/// LOAD-BEARING AND NOT INCIDENTAL</strong> — a fixture one property short does not fail, it
+/// quietly describes a different strip, reproduces its own figures on demand, and is wrong about
+/// the only thing it exists to state. Three properties decide these widths, and leaving out any
+/// one of them moves the tier boundary:
+/// </para>
+/// <para>
+/// <c>FontFamily</c>, the caption's own <c>UiFont</c> rather than the default. •
+/// <c>TextOptions.TextFormattingMode="Display"</c>, which <c>MainWindow.xaml</c> puts on the
+/// window and every one of these <see cref="TextBlock"/>s inherits; it quantizes glyph advances
+/// to whole pixels. • <c>Typography.NumeralAlignment="Tabular"</c>, which the markup puts on the
+/// four numbers and on none of the words, and which is wider in this face.
+/// </para>
+/// <para>
+/// Measured on this machine, one variable at a time: the default face in Ideal mode makes the
+/// long form 246.1; the caption's face in Display mode makes it 242; the caption's face in
+/// Display mode <em>with tabular figures</em> makes it <strong>244</strong>, and 244 is what the
+/// window has. Two earlier measurements of this landed on 245.5 and on 242, and both were a
+/// fixture short rather than wrong about the strip. These widths are the caption's widths.
 /// </para>
 /// </remarks>
 [Collection(WpfApplicationSuite.Name)]
@@ -100,14 +113,16 @@ public sealed class FittingStripTests(StaHarness harness)
     /// The strip takes the longest label set that fits, and shortens only when it must.
     /// </summary>
     /// <remarks>
-    /// 242 and 241 are the boundary either side: the long form measures 242, so a slot of 242
-    /// holds it exactly and a slot of 241 does not. Written as the two widths rather than as the
-    /// number, because the number is a font metric and the behaviour is the rule.
+    /// 244 and 243 are the boundary either side: the long form measures 244, so a slot of 244
+    /// holds it exactly and a slot of 243 does not. Written as the two widths rather than as the
+    /// number, because the number is a font metric and the behaviour is the rule — and because a
+    /// pair either side pins the width exactly, where an assertion on the number alone would
+    /// carry whatever tolerance it was given.
     /// </remarks>
     [Theory]
     [InlineData(530, 0)]
-    [InlineData(242, 0)]
-    [InlineData(241, 1)]
+    [InlineData(244, 0)]
+    [InlineData(243, 1)]
     [InlineData(200, 1)]
     [InlineData(150, 1)]
     [InlineData(30, 1)]
@@ -148,9 +163,9 @@ public sealed class FittingStripTests(StaHarness harness)
     /// stay.
     /// </summary>
     [Theory]
-    [InlineData(241)]
+    [InlineData(243)]
     [InlineData(200)]
-    [InlineData(173)]
+    [InlineData(175)]
     public void It_shortens_before_it_drops(double slot)
     {
         var tight = At(slot);
@@ -195,11 +210,11 @@ public sealed class FittingStripTests(StaHarness harness)
     /// </remarks>
     [Theory]
     [InlineData(530)]
-    [InlineData(242)]
-    [InlineData(241)]
+    [InlineData(244)]
+    [InlineData(243)]
     [InlineData(200)]
-    [InlineData(173)]
-    [InlineData(172)]
+    [InlineData(175)]
+    [InlineData(174)]
     [InlineData(150)]
     [InlineData(120)]
     [InlineData(60)]
@@ -222,11 +237,15 @@ public sealed class FittingStripTests(StaHarness harness)
     /// <summary>The counts go one at a time, from the right.</summary>
     [Theory]
     [InlineData(530, 4)]
-    [InlineData(173, 4)]
-    [InlineData(172, 3)]
+    [InlineData(175, 4)]
+    [InlineData(174, 3)]
     [InlineData(150, 3)]
+    [InlineData(113, 3)]
+    [InlineData(112, 2)]
     [InlineData(110, 2)]
     [InlineData(30, 1)]
+    [InlineData(12, 1)]
+    [InlineData(11, 0)]
     [InlineData(9, 0)]
     public void It_gives_up_one_count_at_a_time(double slot, int expected)
     {
@@ -245,8 +264,8 @@ public sealed class FittingStripTests(StaHarness harness)
     [InlineData(30)]
     [InlineData(110)]
     [InlineData(150)]
-    [InlineData(241)]
-    [InlineData(242)]
+    [InlineData(243)]
+    [InlineData(244)]
     [InlineData(530)]
     public void It_never_asks_for_more_room_than_the_slot(double slot)
     {
@@ -280,13 +299,13 @@ public sealed class FittingStripTests(StaHarness harness)
     /// as "the numbers moved" rather than as a broken strip.
     /// </remarks>
     [Theory]
-    [InlineData(530, 242)]
-    [InlineData(242, 242)]
-    [InlineData(241, 173)]
-    [InlineData(173, 173)]
-    [InlineData(172, 111)]
-    [InlineData(150, 111)]
-    [InlineData(30, 10)]
+    [InlineData(530, 244)]
+    [InlineData(244, 244)]
+    [InlineData(243, 175)]
+    [InlineData(175, 175)]
+    [InlineData(174, 113)]
+    [InlineData(150, 113)]
+    [InlineData(30, 12)]
     public void The_quoted_widths_are_what_it_measures(double slot, double expected)
     {
         Assert.Equal(expected, At(slot).Desired, 1.0);
@@ -310,7 +329,7 @@ public sealed class FittingStripTests(StaHarness harness)
         TextOptions.SetTextFormattingMode(strip, TextFormattingMode.Display);
 
         var total = new StackPanel { Orientation = Orientation.Horizontal };
-        total.Children.Add(Word(Sessions.ToString(CultureInfo.CurrentCulture)));
+        total.Children.Add(Number(Sessions, semiBold: false));
 
         var sessionsWord = Word(Sessions == 1 ? " session" : " sessions");
 
@@ -341,10 +360,7 @@ public sealed class FittingStripTests(StaHarness harness)
         };
 
         segment.Children.Add(Word(" · "));
-
-        var number = Word(value.ToString(CultureInfo.CurrentCulture));
-        number.FontWeight = FontWeights.SemiBold;
-        segment.Children.Add(number);
+        segment.Children.Add(Number(value, semiBold: true));
 
         var word = Word(label ?? string.Empty);
 
@@ -365,6 +381,29 @@ public sealed class FittingStripTests(StaHarness harness)
         FontFamily = new FontFamily("Segoe UI Variable Text, Segoe UI"),
         FontSize = 12,
     };
+
+    /// <summary>
+    /// A count's digits: tabular, which is what the caption sets and what the words are not.
+    /// </summary>
+    /// <remarks>
+    /// <c>MainWindow.xaml</c> puts <c>Typography.NumeralAlignment="Tabular"</c> on exactly four
+    /// blocks — the four numbers — and on none of the words or separators. Tabular digits are
+    /// wider in this face, by two device-independent pixels across the five digits of
+    /// 11/3/5/8, and that is two pixels of tier boundary.
+    /// </remarks>
+    private static TextBlock Number(int value, bool semiBold)
+    {
+        var block = Word(value.ToString(CultureInfo.CurrentCulture));
+
+        Typography.SetNumeralAlignment(block, FontNumeralAlignment.Tabular);
+
+        if (semiBold)
+        {
+            block.FontWeight = FontWeights.SemiBold;
+        }
+
+        return block;
+    }
 
     /// <summary>The needs-you label, which is the third block of the second segment.</summary>
     private static string NeedsYouWordOf(FittingStrip strip) =>
