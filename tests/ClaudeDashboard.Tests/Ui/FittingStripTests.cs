@@ -28,25 +28,33 @@ namespace ClaudeDashboard.Tests.Ui;
 /// really is this shape.
 /// </para>
 /// <para>
-/// <strong>EVERY TEXT PROPERTY THE CAPTION SETS, THIS FIXTURE SETS. THAT COMPLETENESS IS
-/// LOAD-BEARING AND NOT INCIDENTAL</strong> — a fixture one property short does not fail, it
-/// quietly describes a different strip, reproduces its own figures on demand, and is wrong about
-/// the only thing it exists to state. Three properties decide these widths, and leaving out any
-/// one of them moves the tier boundary:
+/// <strong>ALMOST NOTHING HERE QUOTES A PIXEL, AND THAT IS THE POINT.</strong> Four inputs decide
+/// what this strip measures: the <c>UiFont</c> family, <c>TextFormattingMode.Display</c>,
+/// <c>Typography.NumeralAlignment.Tabular</c> on the four numbers — and the display scale, which
+/// is not a property on anything and cannot be owned from inside a test. Display mode quantizes
+/// glyph advances to whole DEVICE pixels, so every absolute width is a function of the monitor:
+/// "11" is 12 at 100% and 13.333 at 150%. That is a quantum, not a rendering mode —
+/// <em>Ideal</em> measures 12.94, so neither figure is Ideal and the mode was never what moved.
 /// </para>
 /// <para>
-/// <c>FontFamily</c>, the caption's own <c>UiFont</c> rather than the default. •
-/// <c>TextOptions.TextFormattingMode="Display"</c>, which <c>MainWindow.xaml</c> puts on the
-/// window and every one of these <see cref="TextBlock"/>s inherits; it quantizes glyph advances
-/// to whole pixels. • <c>Typography.NumeralAlignment="Tabular"</c>, which the markup puts on the
-/// four numbers and on none of the words, and which is wider in this face.
+/// <see cref="VisualTreeHelper.SetRootDpi"/> looks like the answer and is not. Measured, not
+/// assumed: it moves what <c>GetDpi</c> reports but, once anything in the process has realized a
+/// window, stops moving what the text stack measures against — buying a fixture that reports
+/// 100%, measures at 150%, and passes its own DPI assertion while every width fails. It also
+/// latches, so the first scale set on the thread is the only one a run can have.
 /// </para>
 /// <para>
-/// Measured on this machine, one variable at a time: the default face in Ideal mode makes the
-/// long form 246.1; the caption's face in Display mode makes it 242; the caption's face in
-/// Display mode <em>with tabular figures</em> makes it <strong>244</strong>, and 244 is what the
-/// window has. Two earlier measurements of this landed on 245.5 and on 242, and both were a
-/// fixture short rather than wrong about the strip. These widths are the caption's widths.
+/// So the rules are stated against widths the strip is <em>asked</em> for, and hold at any scale
+/// on any machine. Only <see cref="The_recorded_ladder"/> quotes the numbers the caption's
+/// remarks and the execution plan carry, and it verifies them only where the scale they were
+/// recorded at still holds — checking the ladder's shape either way, so it asserts something
+/// true wherever it runs.
+/// </para>
+/// <para>
+/// Four measurements of this strip have now been wrong, each for a different missing input — the
+/// face, the numerals, the scale, and then the belief that the scale could be pinned. The lesson
+/// is none of the four: a fixture quoting absolute pixels either owns every input to them or
+/// does not quote them.
 /// </para>
 /// </remarks>
 [Collection(WpfApplicationSuite.Name)]
@@ -58,13 +66,20 @@ public sealed class FittingStripTests(StaHarness harness)
     private const int Unread = 5;
     private const int Working = 8;
 
-    /// <summary>What the slot offers at the 520 the window opens at.</summary>
-    /// <remarks>
-    /// 520 less the five fixed columns beside the strip — icon 48, title 121, divider 29, help
-    /// slot 20, window buttons 138 — and less the strip's own 14-pixel left margin, which WPF
-    /// takes off before <c>MeasureOverride</c> ever sees the width.
-    /// </remarks>
-    private const double SlotAtDefaultWindow = 150;
+    /// <summary>Wider than the strip can ever want, so its own answer comes back.</summary>
+    private const double Unbounded = double.PositiveInfinity;
+
+    /// <summary>The long form, at 100% display scaling.</summary>
+    private const double RecordedTierZero = 244;
+
+    /// <summary>The short form, at 100% display scaling.</summary>
+    private const double RecordedTierOne = 175;
+
+    /// <summary>Total, needs-you and unread, at 100% display scaling.</summary>
+    private const double RecordedThreeCounts = 113;
+
+    /// <summary>"11" alone, at 100% scaling — and the probe for whether that is still the scale.</summary>
+    private const double RecordedOneCount = 12;
 
     private readonly StaHarness _harness = harness;
 
@@ -95,8 +110,8 @@ public sealed class FittingStripTests(StaHarness harness)
             // THE LAYOUT SLOT, NOT RenderSize. The slot is the rect Arrange was handed — the
             // panel's decision itself rather than a consequence of it — and a dropped count gets
             // an empty one. RenderSize is the wrong question and answers it wrongly: WPF keeps a
-            // child's ink size when the arrange rect is smaller than its desired size, and hides
-            // it with a layout clip instead. So RenderSize is non-zero for every count at every
+            // child's ink size when the arrange rect is smaller than its desired size and hides
+            // it with a layout clip instead, so RenderSize is non-zero for every count at every
             // width, dropped or not. That the layout clip is what really hides them is also why
             // the caption's ClipToBounds is a second line of defence rather than the first.
             var shown = strip.Children
@@ -107,28 +122,41 @@ public sealed class FittingStripTests(StaHarness harness)
             return new Result(strip.Tier, strip.DesiredSize.Width, shown, NeedsYouWordOf(strip));
         });
 
-    // ---- The ladder ----------------------------------------------------------------------------
+    /// <summary>The four widths the strip steps down through, widest first.</summary>
+    /// <remarks>
+    /// Asked for rather than written down: each is what the strip says it wants once the one
+    /// above it will not fit. This is the ladder every rule below is stated against, and it is
+    /// what makes them true at any display scale.
+    /// </remarks>
+    private (double TierZero, double TierOne, double ThreeCounts, double OneCount) Ladder()
+    {
+        var tierZero = At(Unbounded).Desired;
+        var tierOne = At(tierZero - 1).Desired;
+        var threeCounts = At(tierOne - 1).Desired;
+        var twoCounts = At(threeCounts - 1).Desired;
+        var oneCount = At(twoCounts - 1).Desired;
+
+        return (tierZero, tierOne, threeCounts, oneCount);
+    }
+
+    // ---- The tier ladder -----------------------------------------------------------------------
 
     /// <summary>
     /// The strip takes the longest label set that fits, and shortens only when it must.
     /// </summary>
     /// <remarks>
-    /// 244 and 243 are the boundary either side: the long form measures 244, so a slot of 244
-    /// holds it exactly and a slot of 243 does not. Written as the two widths rather than as the
-    /// number, because the number is a font metric and the behaviour is the rule — and because a
-    /// pair either side pins the width exactly, where an assertion on the number alone would
-    /// carry whatever tolerance it was given.
+    /// Stated either side of the strip's own tier-0 width rather than at a number: a slot of
+    /// exactly that width holds the long form and one pixel less does not, which pins the
+    /// boundary exactly without quoting where it falls.
     /// </remarks>
-    [Theory]
-    [InlineData(530, 0)]
-    [InlineData(244, 0)]
-    [InlineData(243, 1)]
-    [InlineData(200, 1)]
-    [InlineData(150, 1)]
-    [InlineData(30, 1)]
-    public void The_strip_takes_the_longest_tier_that_fits(double slot, int expected)
+    [Fact]
+    public void The_strip_takes_the_longest_tier_that_fits()
     {
-        Assert.Equal(expected, At(slot).Tier);
+        var tierZero = At(Unbounded).Desired;
+
+        Assert.Equal(0, At(Unbounded).Tier);
+        Assert.Equal(0, At(tierZero).Tier);
+        Assert.Equal(1, At(tierZero - 1).Tier);
     }
 
     /// <summary>
@@ -142,7 +170,7 @@ public sealed class FittingStripTests(StaHarness harness)
     [Fact]
     public void Tier_zero_spells_the_words_out()
     {
-        var wide = At(530);
+        var wide = At(Unbounded);
 
         Assert.Equal(0, wide.Tier);
         Assert.Equal(" need you", wide.NeedsYouWord);
@@ -152,7 +180,9 @@ public sealed class FittingStripTests(StaHarness harness)
     [Fact]
     public void Tier_one_shortens_the_only_word_worth_shortening()
     {
-        Assert.Equal(" need", At(200).NeedsYouWord);
+        var tierZero = At(Unbounded).Desired;
+
+        Assert.Equal(" need", At(tierZero - 1).NeedsYouWord);
     }
 
     // ---- Words before numbers ------------------------------------------------------------------
@@ -162,39 +192,41 @@ public sealed class FittingStripTests(StaHarness harness)
     /// but wide enough for the short one keeps all four counts: the words go first, the counts
     /// stay.
     /// </summary>
-    [Theory]
-    [InlineData(243)]
-    [InlineData(200)]
-    [InlineData(175)]
-    public void It_shortens_before_it_drops(double slot)
+    [Fact]
+    public void It_shortens_before_it_drops()
     {
-        var tight = At(slot);
+        var (tierZero, tierOne, _, _) = Ladder();
 
-        Assert.Equal(1, tight.Tier);
-        Assert.Equal(4, tight.Counts);
+        foreach (var slot in new[] { tierZero - 1, tierOne, (tierZero + tierOne) / 2 })
+        {
+            var tight = At(slot);
+
+            Assert.Equal(1, tight.Tier);
+            Assert.Equal(4, tight.Counts);
+        }
     }
 
     /// <summary>
-    /// And the shortening buys a real count: at the width the window opens at, the long form
-    /// shows two and the short one shows three.
+    /// And the shortening buys a real count: at a width the long form cannot hold, the shortened
+    /// one still shows everything.
     /// </summary>
     /// <remarks>
     /// This is the whole return on the tier ladder, so it is asserted as the comparison rather
-    /// than as a number — three is only worth having because the alternative was two. The
-    /// long-form strip is the same tree with the ladder taken away, which is what the caption
-    /// was before the tiers.
+    /// than as a number. The long-form strip is the same tree with the ladder taken away, which
+    /// is what the caption was before the tiers.
     /// </remarks>
     [Fact]
-    public void The_window_it_opens_at_shows_one_more_count_for_the_shortening()
+    public void Shortening_buys_a_count_the_long_form_would_have_dropped()
     {
-        var shortened = At(SlotAtDefaultWindow);
-        var longForm = At(SlotAtDefaultWindow, longFormOnly: true);
+        var (tierZero, tierOne, _, _) = Ladder();
 
-        Assert.Equal(1, shortened.Tier);
-        Assert.Equal(3, shortened.Counts);
+        // Between the two tier widths: too narrow for the long form, wide enough for the short.
+        var slot = (tierZero + tierOne) / 2;
 
-        Assert.Equal(0, longForm.Tier);
-        Assert.Equal(2, longForm.Counts);
+        Assert.Equal(4, At(slot).Counts);
+        Assert.True(
+            At(slot, longFormOnly: true).Counts < 4,
+            $"Without the ladder the strip should already have dropped a count in a {slot}-wide slot.");
     }
 
     // ---- What is dropped, and in what order ----------------------------------------------------
@@ -205,51 +237,49 @@ public sealed class FittingStripTests(StaHarness harness)
     /// <remarks>
     /// The rule exists because every count but the first carries its own leading separator. A
     /// strip that filled the gap with a later, narrower count would render "<c>· 5 unread</c>",
-    /// a separator hanging off nothing. Asserted across the whole ladder rather than at one
-    /// width, because the failure is a width that happens to admit a later count.
+    /// a separator hanging off nothing. Swept across the whole range rather than sampled at a few
+    /// widths, because the failure is a width that happens to admit a later count.
     /// </remarks>
-    [Theory]
-    [InlineData(530)]
-    [InlineData(244)]
-    [InlineData(243)]
-    [InlineData(200)]
-    [InlineData(175)]
-    [InlineData(174)]
-    [InlineData(150)]
-    [InlineData(120)]
-    [InlineData(60)]
-    [InlineData(30)]
-    [InlineData(0)]
-    public void What_survives_is_a_prefix(double slot)
+    [Fact]
+    public void What_survives_is_a_prefix()
     {
-        var shown = At(slot).Shown;
-        var firstGap = shown.ToList().FindIndex(seen => !seen);
+        var tierZero = At(Unbounded).Desired;
 
-        if (firstGap < 0)
+        for (var slot = Math.Ceiling(tierZero) + 4; slot >= 0; slot--)
         {
-            // Everything is showing, which is a prefix of itself.
-            return;
-        }
+            var shown = At(slot).Shown;
+            var firstGap = shown.ToList().FindIndex(seen => !seen);
 
-        Assert.All(shown.Skip(firstGap), Assert.False);
+            if (firstGap < 0)
+            {
+                continue;
+            }
+
+            Assert.All(shown.Skip(firstGap), seen =>
+                Assert.False(seen, $"A count reappeared after a dropped one, in a {slot}-wide slot."));
+        }
     }
 
-    /// <summary>The counts go one at a time, from the right.</summary>
-    [Theory]
-    [InlineData(530, 4)]
-    [InlineData(175, 4)]
-    [InlineData(174, 3)]
-    [InlineData(150, 3)]
-    [InlineData(113, 3)]
-    [InlineData(112, 2)]
-    [InlineData(110, 2)]
-    [InlineData(30, 1)]
-    [InlineData(12, 1)]
-    [InlineData(11, 0)]
-    [InlineData(9, 0)]
-    public void It_gives_up_one_count_at_a_time(double slot, int expected)
+    /// <summary>
+    /// The counts go one at a time, from the right, and never come back on the way down.
+    /// </summary>
+    [Fact]
+    public void It_gives_up_one_count_at_a_time()
     {
-        Assert.Equal(expected, At(slot).Counts);
+        var tierZero = At(Unbounded).Desired;
+        var steps = new List<int>();
+
+        for (var slot = Math.Ceiling(tierZero) + 4; slot >= 0; slot--)
+        {
+            var counts = At(slot).Counts;
+
+            if (steps.Count == 0 || counts != steps[^1])
+            {
+                steps.Add(counts);
+            }
+        }
+
+        Assert.Equal([4, 3, 2, 1, 0], steps);
     }
 
     /// <summary>A slot with room for nothing shows nothing, rather than overflowing it.</summary>
@@ -280,35 +310,56 @@ public sealed class FittingStripTests(StaHarness harness)
     [Fact]
     public void A_zero_count_takes_its_separator_with_it()
     {
-        var withZero = At(242, unread: 0);
+        var withZero = At(Unbounded, unread: 0);
 
         Assert.Equal(0, withZero.Tier);
         Assert.False(withZero.Shown[2]);
         Assert.True(withZero.Shown[3]);
+
+        // And it really is cheaper without it, which is what "costs nothing" has to mean.
+        Assert.True(withZero.Desired < At(Unbounded).Desired);
     }
 
-    // ---- The measured widths -------------------------------------------------------------------
+    // ---- The numbers the documentation quotes --------------------------------------------------
 
     /// <summary>
-    /// The widths the caption's remarks and the execution plan quote, asserted so they cannot
-    /// drift from the code without something going red.
+    /// The widths the caption's remarks and the execution plan quote — verified where the scale
+    /// they were recorded at still holds, and checked for shape everywhere else.
     /// </summary>
     /// <remarks>
-    /// A tolerance rather than equality, because these are font metrics: a Windows build shipping
-    /// a different cut of Segoe UI Variable Text would move them slightly, and that should read
-    /// as "the numbers moved" rather than as a broken strip.
+    /// <para>
+    /// <strong>The only test here that knows a number, and the only one that is allowed to stop
+    /// knowing it.</strong> The recorded ladder is a fact about 100% display scaling: 244 for the
+    /// long form, 175 for the short one, 113 for three counts, 12 for one. On a machine at
+    /// another scale those are simply different, because Display mode quantizes to device pixels,
+    /// so asserting them there would be asserting the monitor.
+    /// </para>
+    /// <para>
+    /// It does not go quiet in that case. The ladder's shape — four rungs, strictly descending,
+    /// none degenerate — is true at every scale and is asserted either way, so this test always
+    /// states something and never states something false.
+    /// </para>
     /// </remarks>
-    [Theory]
-    [InlineData(530, 244)]
-    [InlineData(244, 244)]
-    [InlineData(243, 175)]
-    [InlineData(175, 175)]
-    [InlineData(174, 113)]
-    [InlineData(150, 113)]
-    [InlineData(30, 12)]
-    public void The_quoted_widths_are_what_it_measures(double slot, double expected)
+    [Fact]
+    public void The_recorded_ladder()
     {
-        Assert.Equal(expected, At(slot).Desired, 1.0);
+        var (tierZero, tierOne, threeCounts, oneCount) = Ladder();
+
+        // True at any scale: four distinct rungs, each narrower than the one above it.
+        Assert.True(tierZero > tierOne, $"tier 0 ({tierZero}) should exceed tier 1 ({tierOne}).");
+        Assert.True(tierOne > threeCounts, $"tier 1 ({tierOne}) should exceed three counts ({threeCounts}).");
+        Assert.True(threeCounts > oneCount, $"three counts ({threeCounts}) should exceed one count ({oneCount}).");
+        Assert.True(oneCount > 0, $"one count ({oneCount}) should have a width.");
+
+        if (oneCount != RecordedOneCount)
+        {
+            // Another display scale. The recorded numbers are not wrong, they are elsewhere.
+            return;
+        }
+
+        Assert.Equal(RecordedTierZero, tierZero);
+        Assert.Equal(RecordedTierOne, tierOne);
+        Assert.Equal(RecordedThreeCounts, threeCounts);
     }
 
     // ---- Building the thing MainWindow.xaml declares --------------------------------------------
@@ -388,8 +439,7 @@ public sealed class FittingStripTests(StaHarness harness)
     /// <remarks>
     /// <c>MainWindow.xaml</c> puts <c>Typography.NumeralAlignment="Tabular"</c> on exactly four
     /// blocks — the four numbers — and on none of the words or separators. Tabular digits are
-    /// wider in this face, by two device-independent pixels across the five digits of
-    /// 11/3/5/8, and that is two pixels of tier boundary.
+    /// wider in this face, and that width is two pixels of tier boundary at 100%.
     /// </remarks>
     private static TextBlock Number(int value, bool semiBold)
     {

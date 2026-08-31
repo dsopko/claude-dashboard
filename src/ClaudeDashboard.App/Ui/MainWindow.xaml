@@ -183,10 +183,19 @@
                             is a FittingStrip: it shortens its words while that is enough, and
                             drops whole counts from the right once it is not.
 
-                            MEASURED, at the counts a fifteen-session dashboard actually reaches
-                            — a two-digit total and single-digit bands. The caption's fixed
-                            furniture is 370: icon 48, title 121, 14 before the strip, divider 29,
-                            help slot 20, and 138 for the three window buttons. On top of that:
+                            MEASURED AT 100% DISPLAY SCALING, at the counts a fifteen-session
+                            dashboard actually reaches — a two-digit total and single-digit
+                            bands. The scale is part of the measurement and not a detail of it:
+                            Display formatting quantizes glyph advances to whole DEVICE pixels,
+                            so every number below moves with the monitor. At 150% the same strip
+                            is a little wider and the tiers change over sooner. What does not
+                            move is the order — words before counts, and counts from the right —
+                            and that is what FittingStripTests asserts. The figures here are the
+                            100% ones.
+
+                            The caption's fixed furniture is 370: icon 48, title 121, 14 before
+                            the strip, divider 29, help slot 20, and 138 for the three window
+                            buttons. On top of that:
 
                               tier 0   "11 sessions . 3 need you . 5 unread . 8 working"   612
                               tier 1   "11 . 3 need . 5 unread . 8 working"                543
