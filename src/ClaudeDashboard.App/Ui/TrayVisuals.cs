@@ -51,14 +51,17 @@ public enum TrayColour
 /// <see cref="RowVisuals.AccentOf"/> puts <see cref="SessionState.NeedsQuestion"/> on
 /// <see cref="Accent.Red"/>, which is right for a row — the LED says what that one session is,
 /// and red is what earns the blink — and wrong for a roll-up, because it is
-/// <strong>not monotone in rank</strong>: Permission 6 → Red, Error 5 → Amber, Question 4 → Red.
+/// <strong>not monotone in rank</strong>: descending by rank it gives Permission → Red,
+/// Error → Amber, Question → <em>Red again</em>. (Written as states rather than as their rank
+/// numbers, which is the mistake this file has already made once: the numbers were 6, 5 and 4
+/// when this paragraph was written and are 7, 6 and 5 now.)
 /// A roll-up built on a non-monotone palette contradicts itself, and the case it gets wrong is
 /// the one the operator ratified: a lone session asking a question would burn red in the tray
 /// while the ranking says it is the least urgent thing that needs them.
 /// </para>
 /// <para>
 /// Mapping rank thresholds instead makes this a genuine <em>coarsening</em> — five colours for
-/// seven states, order preserved — which is a different kind of object from a second opinion
+/// eight states, order preserved — which is a different kind of object from a second opinion
 /// about severity. The property that tells them apart is monotonicity, and it is asserted.
 /// </para>
 /// <para>

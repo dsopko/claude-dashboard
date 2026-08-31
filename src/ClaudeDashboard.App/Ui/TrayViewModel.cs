@@ -16,7 +16,7 @@ namespace ClaudeDashboard.App.Ui;
 /// <remarks>
 /// <para>
 /// <strong>What the glyph says and what it does not.</strong> The colour is a roll-up of every
-/// session, coarsened from <see cref="AttentionOrder.Rank"/> — five colours for seven states,
+/// session, coarsened from <see cref="AttentionOrder.Rank"/> — five colours for eight states,
 /// order preserved (see <see cref="TrayVisuals"/>). It carries no digits: 16px cannot render
 /// legible ones, so the counts live in the tooltip, where the Error-and-Question merge is also
 /// undone. It never animates; TS reserves motion for needs-you rows inside the window.

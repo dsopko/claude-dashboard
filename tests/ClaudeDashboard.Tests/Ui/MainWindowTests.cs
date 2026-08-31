@@ -633,6 +633,60 @@ public sealed class MainWindowTests(StaHarness harness)
         Assert.Contains("no name to remember", texts);
     }
     /// <summary>Every visible TextBlock in one session's row.</summary>
+
+    /// <summary>
+    /// <strong>A ROW BOUND TO AN INTERRUPTED SESSION ACTUALLY DRAWS (issue #28).</strong>
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>What this closes that no unit test can.</strong> <c>SilenceVisualsTests</c> asserts
+    /// that <see cref="RowVisuals.BadgeOf"/> returns <c>INTERRUPTED</c> and that
+    /// <see cref="RowVisuals.AccentOf"/> returns grey. Neither of those calls the markup. This is
+    /// the first time anything binds a row to the new state, so it is the first time the badge
+    /// template is asked for a state no <c>DataTrigger</c> names, the accent brush is resolved for
+    /// one, and every converter on that path is handed one.
+    /// </para>
+    /// <para>
+    /// <strong>"We changed no markup" is a different claim from "the new state draws."</strong> A
+    /// state-keyed trigger with no matching case leaves a badge blank; a brush lookup that misses
+    /// falls back to transparent; and both render perfectly happily, which is exactly the failure
+    /// WPF is best at hiding. <see cref="BindingErrorWatch"/> in the fixture catches the third
+    /// case — a misspelled path shows nothing and says nothing — and it is asserted for every
+    /// window this class realizes.
+    /// </para>
+    /// <para>
+    /// <strong>Quiet, so the group has to be opened.</strong> An interrupted session is in the
+    /// Quiet band, and a quiet session has no row of its own until its group is expanded (Design
+    /// §6 rule 2) — which is itself worth pinning: it is the band placement showing up on screen
+    /// rather than in a rank table.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void An_interrupted_row_renders_its_badge_and_its_accent()
+    {
+        const string Id = "gone-quiet";
+
+        var (texts, accent, badge) = WithWindow(
+            registry => registry.Silent(Id, At, title: "Coder"),
+            (window, _) =>
+            {
+                var row = RowFor(window, Id);
+                var session = (SessionViewModel)row.DataContext;
+
+                return (VisibleTexts(window, Id), session.Accent, session.BadgeText);
+            },
+            showQuiet: true);
+
+        // The word the operator asked for, on screen rather than merely returned by a method.
+        Assert.Contains("INTERRUPTED", texts);
+
+        // Grey, and reached through the row rather than through RowVisuals directly.
+        Assert.Equal(Accent.Grey, accent);
+        Assert.Equal("INTERRUPTED", badge);
+
+        // The age reads "ago", not a bare duration: this row is not claiming to be busy.
+        Assert.Contains(texts, text => text.EndsWith(" ago", StringComparison.Ordinal));
+    }
     private static List<string> VisibleTexts(MainWindow window, string sessionId) =>
         [.. StaHarness.FindAll<TextBlock>(RowFor(window, sessionId))
             .Where(block => block.IsVisible)

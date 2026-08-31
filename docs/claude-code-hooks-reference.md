@@ -41,7 +41,7 @@ Field names are quoted exactly as documented. Where our own observations disagre
 
 # Part 1 — Events the dashboard consumes
 
-Eight of thirty-one. This is the whole integration surface.
+Eight of thirty-three. This is the whole integration surface.
 
 ### ✅ `SessionStart`
 

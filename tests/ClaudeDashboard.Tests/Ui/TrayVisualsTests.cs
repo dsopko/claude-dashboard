@@ -110,9 +110,9 @@ public sealed class TrayVisualsTests
     /// <remarks>
     /// This is the assertion that separates the right implementation from the obvious wrong one.
     /// Composing the roll-up with <see cref="RowVisuals.AccentOf"/> passes every other case,
-    /// including the mixed Error-plus-Question case below, because there the roll-up picks Error
-    /// at rank 5 and <c>AccentOf</c> maps Error to amber. The two maps differ in exactly one
-    /// place: when the worst state <em>is</em> <see cref="SessionState.NeedsQuestion"/>.
+    /// including the mixed Error-plus-Question case below, because there the roll-up picks Error —
+    /// which outranks a question — and <c>AccentOf</c> maps Error to amber. The two maps differ in
+    /// exactly one place: when the worst state <em>is</em> <see cref="SessionState.NeedsQuestion"/>.
     /// </remarks>
     [Fact]
     public void A_lone_question_shows_amber()

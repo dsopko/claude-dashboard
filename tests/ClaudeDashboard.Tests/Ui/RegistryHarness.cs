@@ -121,6 +121,29 @@ internal sealed class RegistryHarness : IDisposable
         Source = AckSource.Manual,
     });
 
+    /// <summary>
+    /// The session worked and then said nothing for longer than the threshold (issue #28).
+    /// </summary>
+    /// <remarks>
+    /// <strong>No event reaches this state, which is the whole of the issue</strong> — so unlike
+    /// every other helper here it drives the sweep rather than publishing something. The sweep is
+    /// over the whole Registry, so anything else already working goes quiet with it; that is the
+    /// product's behaviour and a caller wanting one silent row among busy ones has to arrange the
+    /// others to have been heard from more recently.
+    /// </remarks>
+    public void Silent(string id, DateTimeOffset at, string cwd = Workspace, string? title = null)
+    {
+        Working(id, at, cwd, title: title);
+
+        // The sweep raises SessionChanged like any other change, so the projection hears it the
+        // same way; only the pump has to be done by hand, as Apply does it.
+        Registry.SweepSilent(
+            at + SilenceWatch.DefaultThreshold + TimeSpan.FromMinutes(1),
+            SilenceWatch.DefaultThreshold);
+
+        _dispatcher.Pump();
+    }
+
     /// <summary>The session terminated.</summary>
     public void Ended(string id, DateTimeOffset at, string cwd = Workspace) => Apply(new SessionEnd
     {

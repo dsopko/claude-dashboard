@@ -7,7 +7,7 @@ namespace ClaudeDashboard.Core;
 /// <remarks>
 /// <para>
 /// <strong>Why the Needs-You kinds are counted separately.</strong> The tray glyph is a
-/// coarsening — five colours for seven states — and it merges <see cref="SessionState.Error"/>
+/// coarsening — five colours for eight states — and it merges <see cref="SessionState.Error"/>
 /// with <see cref="SessionState.NeedsQuestion"/> onto amber. The tooltip is where that
 /// distinction survives, so it cannot reuse the header's "3 need you": Impl §5.2 requires
 /// <c>2 permissions · 1 error · 1 question · 2 unread · 3 working</c>. Counting is a fact about
