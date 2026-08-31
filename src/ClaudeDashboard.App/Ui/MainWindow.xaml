@@ -179,7 +179,7 @@
 
                             AND ALL FOUR DO NOT FIT, which is the one place 2c had to bend. The
                             design is drawn in an 820-pixel window; this one opens at 520, where
-                            the slot holds 150 pixels and the four counts want 242. So the strip
+                            the slot holds 150 pixels and the four counts want 244. So the strip
                             is a FittingStrip: it shortens its words while that is enough, and
                             drops whole counts from the right once it is not.
 
@@ -187,21 +187,27 @@
                             dashboard actually reaches — a two-digit total and single-digit
                             bands. The scale is part of the measurement and not a detail of it:
                             Display formatting quantizes glyph advances to whole DEVICE pixels,
-                            so every number below moves with the monitor. At 150% the same strip
-                            is a little wider and the tiers change over sooner. What does not
-                            move is the order — words before counts, and counts from the right —
-                            and that is what FittingStripTests asserts. The figures here are the
-                            100% ones.
+                            so every number below moves with the monitor. What does not move is
+                            the order — words before counts, and counts from the right — and that
+                            is what FittingStripTests asserts. The figures here are the 100% ones.
 
                             The caption's fixed furniture is 370: icon 48, title 121, 14 before
                             the strip, divider 29, help slot 20, and 138 for the three window
                             buttons. On top of that:
 
-                              tier 0   "11 sessions . 3 need you . 5 unread . 8 working"   612
-                              tier 1   "11 . 3 need . 5 unread . 8 working"                543
+                              tier 0   "11 sessions . 3 need you . 5 unread . 8 working"   614
+                              tier 1   "11 . 3 need . 5 unread . 8 working"                545
 
-                            and within a tier the counts arrive at 426, 494, 550 and 612. So the
-                            520 this window opens at shows three counts in tier 1. ALL FOUR NEVER
+                            AND MEASURED AT 150% TOO, on a monitor actually set to it, because
+                            the guess that used to sit here was wrong in its direction: the strip
+                            is very slightly NARROWER at 150%, not wider — 242 against 244 for
+                            the long form — because the quantum is two thirds of a pixel there
+                            and some advances round down where at 100% they round up. The
+                            changeover lands within two pixels of the same window width, and A
+                            520 WINDOW SHOWS THREE COUNTS IN TIER 1 AT BOTH SCALES. The caption
+                            reads the same; only the numbers behind it move, and barely.
+
+                            So the 520 this window opens at shows three counts. ALL FOUR NEVER
                             FIT AT 520 while the help slot is kept, and keeping it was the
                             operator's call: that slot and its divider are 49 of the 370, and
                             without them tier 1 would fit whole at 494.
