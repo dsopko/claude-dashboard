@@ -1772,3 +1772,65 @@ specification, or a history of what the specification used to say?**
 Nothing is being removed — the cost of removing them is losing the evidence that made this
 project's standard real. What is recorded is that the question is now three times asked and still
 open, and it belongs to you at Phase 2 planning rather than to any task.
+
+## D107 — Issue #28's central claim was unverified, so I verified it
+The issue says plainly that the absence of an interrupt hook "was not checked against Claude Code's
+published documentation as part of this report". Our own reference is a **2026-08-24 snapshot**, and
+T1.28 had just proved that snapshot was missing fields we depended on.
+
+Checked today against the live page. **The claim holds.** No hook fires on Escape, `Stop` carries no
+`stop_reason`, `StopFailure` is API errors only, and none of the twelve `Notification` matchers
+concerns interruption. The heuristic below is therefore necessary rather than merely convenient.
+
+Recorded because "we checked and there is nothing" is worth more than "we found nothing", and only
+one of them was true before today.
+
+## D108 — `MessageDisplay` would have made this precise, and T1.28 makes it unaffordable
+The live documentation lists **33 events where our reference carries 31**, and one of the new names
+is `MessageDisplay` — it fires while assistant text is streaming. That is a liveness heartbeat, and
+with it the timeout below could have been tight and confident instead of long and hedged.
+
+**Rejected.** T1.28 replaced the HTTP hooks with a command hook, so **every event now spawns
+`cmd.exe` and `curl.exe`** — two processes and about 58 ms each. `MessageDisplay` is hot by design;
+its documented timeout is 10 s where everything else is 600, which is the documentation admitting as
+much. Subscribing would spawn hundreds of processes per turn.
+
+**The point worth keeping is not the answer, it is the shape.** The interaction is invisible from
+inside either task: T1.28 never asked what a hot hook would cost, and #28 never knew the delivery
+mechanism had changed underneath it. It is written into the brief and the reference because it is
+precisely the improvement somebody proposes in six months, having read only one of the two.
+
+## D109 — A new state, not a reuse of `Acked`
+You asked in the issue for grey and `INTERRUPTED`. Reusing `Acked` gives the colour and loses the
+distinction: a session you acknowledged and a session that stopped by itself would read identically,
+and only one of them is waiting for you.
+
+The cost is a new `SessionState` member and every exhaustive switch failing to build until it is
+handled. That is the reason to prefer it — the compiler produces that list, and my memory would not.
+
+## D110 — Ten minutes, and it logs its own silence
+Detection can only be elapsed time; D107 closes off every alternative, and the transcript is
+excluded by spec §II.3.
+
+**Ten minutes, because the false positive is the expensive one.** The gap this cannot close is a
+single long-running tool call: `PostToolBatch` fires when a batch resolves, so one ten-minute `Bash`
+emits nothing while it runs. Greying out a session that is working perfectly is the same sin as
+showing a finished one as busy — quiet-direction failure, which is what this product exists to
+prevent.
+
+Ten is a guess. So **every transition logs at Information with the silence duration**, and you
+calibrate from your own machine rather than from my arithmetic — the pattern T1.25 already used for
+the settle window's mis-mark warning. Injectable, `IClock`-driven, nothing sleeps.
+
+## D111 — The badge says more than the dashboard knows, and it ships anyway
+We detect **silence**, not interruption. `INTERRUPTED` names a cause we have never observed, and a
+statement more confident than the evidence beneath it is the exact defect that dominated T1.28 and
+T1.29 — five instances in one task, two of them inside correction paragraphs.
+
+It ships because you asked for that word and it is right about the overwhelmingly common cause.
+**What does not ship is the overstatement in our own voice.** The state's summary, the spec
+amendment and the log line all say what is true — *no event for N minutes while Working* — and the
+remark says the badge is your chosen word for the usual cause.
+
+If that reads as too fine a distinction: it is the same one that cost three review cycles this week,
+and the only reason it is cheap here is that it was decided before the code existed.
