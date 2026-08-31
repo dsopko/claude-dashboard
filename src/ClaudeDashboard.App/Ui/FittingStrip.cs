@@ -13,8 +13,19 @@ namespace ClaudeDashboard.App.Ui;
 /// <strong>Why the caption needs one.</strong> Design option 2c draws its summary slot in an
 /// 820-pixel window and puts two counts in it, "11 sessions · 3 need you". This window opens at
 /// 520 (<see cref="WindowPlacement.FallbackWidth"/>) and carries four, because the counts strip
-/// moved into the caption rather than being redrawn for it — so the strip wants about 242 device
-/// -independent pixels where the slot offers 150.
+/// moved into the caption rather than being redrawn for it — so the strip wants 244
+/// device-independent pixels where the slot offers 150.
+/// </para>
+/// <para>
+/// <strong>EVERY PIXEL FIGURE IN THIS FILE IS AT 100% DISPLAY SCALING</strong>, because none of
+/// them is scale-free: the caption sets <c>TextFormattingMode.Display</c>, which quantizes glyph
+/// advances to whole <em>device</em> pixels, so the quantum is one DIP at 100% and two thirds of
+/// one at 150%. The same strip measures 244 at 100% and 242 at 150% — narrower, not wider, since
+/// some advances round down where the coarser quantum rounded them up. What the numbers are for
+/// is the argument, and the argument does not move: the slot is short of the strip at the width
+/// this window opens at, at either scale, and a 520-wide window shows three counts at both.
+/// <c>FittingStripTests</c> states the rules against widths it measures rather than widths
+/// written down, for exactly this reason.
 /// </para>
 /// <para>
 /// <strong>Two answers, in that order.</strong> First shorten: the strip walks a ladder of label
@@ -31,9 +42,9 @@ namespace ClaudeDashboard.App.Ui;
 /// <strong>A PREFIX, WHICH MEANS THE FIRST MISS ENDS IT.</strong> Carrying on to try later,
 /// narrower children would fill the gap with whichever ones happened to fit — and every count
 /// after the first carries its own leading separator, so the caption would read
-/// "<c>· 5 unread</c>", a separator dangling off nothing. Reachable, too: the four counts are
-/// within about twelve pixels of each other, so a width that refuses the total refuses it by a
-/// margin that the next one along would slip inside.
+/// "<c>· 5 unread</c>", a separator dangling off nothing. Reachable, too: the three counts after
+/// the total sit within about twelve pixels of each other at 100%, so a width that refuses one
+/// refuses it by a margin the next one along would slip inside.
 /// </para>
 /// <para>
 /// <strong>Choosing, not reacting.</strong> The tier is picked from the available width in one
@@ -269,8 +280,11 @@ public sealed class FittingStrip : Panel
     /// pass: the ancestor walk does not reliably mark the segment between the changed word and
     /// this panel, so <c>Measure</c> on the segment returns the width it had at the previous
     /// tier. The strip then reserves room for "<c> need you</c>" while drawing "<c> need</c>",
-    /// and the caption shows a gap where the missing word was. Measured rather than reasoned:
-    /// the shortening saved 46 pixels where the two words it drops are worth 66.
+    /// and the caption shows a gap where the missing word was. The disagreement is what found
+    /// it: the shortening was saving 46 pixels where the two words it drops are worth 66. Those
+    /// two are the readings taken at the time — at 100%, before the numerals were made tabular —
+    /// and are kept as they were because they record the symptom rather than state what the
+    /// strip measures now.
     /// </para>
     /// <para>
     /// Assigning a value equal to the one already there changes nothing and invalidates nothing,
