@@ -226,7 +226,7 @@ Platform-independent rules that govern behavior regardless of how Parts II and I
 
 ### IV.1 The session state machine
 
-States: `Working`, `NeedsYou.Question`, `NeedsYou.Permission`, `Error`, `Unread`, `Acked`, `Ended`.
+States: `Working`, `NeedsYou.Question`, `NeedsYou.Permission`, `Error`, `Unread`, `Acked`, `Interrupted`, `Ended`.
 
 Transitions are triggered by events (Part II) and by acknowledgment sources (Part I.3). All transitions are **idempotent** and **timestamp-guarded**: an incoming event older than the state's last-applied timestamp is ignored; re-applying the current state is a no-op.
 
@@ -242,6 +242,8 @@ Transitions are triggered by events (Part II) and by acknowledgment sources (Par
  NeedsYou.*     ──Ack*────────────▶ Acked          (rare; usually a new prompt supersedes)
  NeedsYou.* / Error ──UserPromptSubmit─▶ Working    (operator answered/retried)
  NeedsYou.* / Error ──PostToolBatch──▶ Working      (the turn resumed — see below)
+ Working  ──no event for N min──▶ Interrupted   (elapsed silence only — see below)
+ Interrupted ──any event───────▶ wherever that event says
  (any)   ──SessionEnd────────────▶ Ended ──(timer)──▶ removed
 
  Ack* = { new UserPromptSubmit in session | manual Ack | inferred focus (Phase 3) }
@@ -258,6 +260,16 @@ Transitions are triggered by events (Part II) and by acknowledgment sources (Par
 > finished, with no escape until the operator happened to type something new. Found
 > at T1.2 and reproduced independently; these transitions now originate from any
 > live (non-`Ended`) state.
+
+> **Added 2026-08-31 (T1.30, [issue #28](https://github.com/dsopko/claude-dashboard/issues/28)): `Interrupted`.**
+>
+> No event has arrived for the session for the silence threshold while it was `Working`. Entered only from `Working`, only by elapsed time, and never from a state that is asking for the operator: an absence of activity may quieten a session and must never promote one. Any subsequent event leaves it, so a session marked wrongly corrects itself the moment it speaks — `UserPromptSubmit` back to `Working`, `Stop` to `Unread`, and a `PostToolBatch` back to `Working` because a batch resolving is proof the turn is executing.
+>
+> **It is silence that is observed, not interruption.** Claude Code posts nothing when a turn is interrupted — re-confirmed against its published documentation on 2026-08-31, where `Stop` carries no `stop_reason`, `StopFailure` is API errors only, and none of the twelve `Notification` matchers concerns interruption. So elapsed quiet is the only signal available, and a single tool call longer than the threshold is indistinguishable from an interrupted turn. The badge reads `INTERRUPTED` because that is overwhelmingly the cause and the operator asked for the word; nothing else in the product repeats the claim.
+>
+> **The entry timestamp records a detection, not something the session did.** Every other state's `EnteredAt` marks an event arriving; this one marks the moment the dashboard noticed nothing had. So a row's age is read from last activity rather than from it — the operator wants "silent for 40 minutes", not "greyed out 8 seconds ago" — and nothing nudges off it, because entering this state raises no notice at all.
+>
+> **The threshold is ten minutes, and it is a guess.** Every transition is logged at Information with the silence that produced it, so it can be revised from the operator's own machine rather than from arithmetic. There is deliberately no setting: a knob would ask them to guess where a log lets them measure.
 
 > **Addition (2026-08-25, found by dogfooding — [issue #2](https://github.com/dsopko/claude-dashboard/issues/2)).** The correction above fixed a session stranded *after the turn ended*. It did not fix the same session stranded *while the turn is still running*, and that is a separate gap in this diagram: **`Working` was only ever entered from `UserPromptSubmit`.**
 >
@@ -280,7 +292,7 @@ Bands, top to bottom, with intra-band order:
 | Needs You | `NeedsYou.Permission`, `Error`, `NeedsYou.Question` | **by kind first — Permission > Error > Question — then oldest first within each kind** | cheapest-to-clear blocker first: a permission is usually seconds of operator time holding up an agent indefinitely |
 | Unread | `Unread` | **newest first** | freshest finish is the one being chased after a beep |
 | Working | `Working` | most recent activity first | — |
-| Quiet | `Acked` (see note — covers "idle" too) | recency | sinks; collapsible |
+| Quiet | `Acked` (see note — covers "idle" too), `Interrupted` | recency | sinks; collapsible |
 | Ended | `Ended` | recency | dim; auto-removed after a short window |
 
 > **Decision (2026-08-24, ratified by the operator).** This row previously read "`Acked`, idle", naming a distinct **idle** member that `SessionState` never had — so the model was knowingly incomplete against its own spec from T1.1 onward, and `AttentionOrder`'s remark had been recording the collision since T1.3. Raised again at T1.11, where the gap first became user-visible: a just-started session renders the badge "QUIET" though nothing has been seen because nothing has happened, and the "+ k quiet" footer counts "finished and seen" together with "started, nothing yet".
@@ -288,6 +300,8 @@ Bands, top to bottom, with intra-band order:
 > **Ruled: no separate state. One quiet state covers both.** The operator's reasoning — not worth a dedicated `Idle` state for that edge case. `Acked` therefore carries both meanings deliberately, and this is settled rather than deferred: do not re-raise it as a defect.
 >
 > What it would have cost, recorded so a future reader can weigh a reversal rather than rediscover it: a `SessionState` change touching the transition table, `AttentionOrder`'s rank and band arrays, the sound engine's notice mapping, and every test asserting `Acked` — plus a **new persisted enum value**, since Impl §8 forbids renumbering. Both members sort by recency, so no ordering would change.
+
+> **Added 2026-08-31 (T1.30, issue #28).** `Interrupted` joins the Quiet band: a session that stopped talking is not competing for attention, and it sorts by recency there like `Acked`. It ranks between `Working` above and `Acked` below — quieter than busy, because a stalled row must not outrank a live one, and more worth noticing than one the operator has already seen. Recency here reads *last activity*, not the moment the silence was detected; see §IV.1.
 The ordering asymmetry (reds by *ascending* age, greens by *descending* recency) is intentional and is the heart of the attention model. In the Needs-You band that asymmetry operates *within* each kind, since kind sorts first (see §IV.3). Pseudocode:
 
 ```

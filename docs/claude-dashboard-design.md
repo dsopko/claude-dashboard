@@ -55,6 +55,8 @@ Fifteen terminals across multiple virtual desktops, each running an agent on a d
 > **Only "Claude asked something and is blocked" is a Question.** Idleness is already the **Quiet** band's job (§5), and §4's own three-tier Acknowledgment is what moves a session there. The authority for the event mapping is **TS §II.2**; this table is a summary of it.
 >
 > Worth keeping as a principle, because it is the second time this has bitten: **an absence of activity must never escalate a session.** Motion and alarm are for sessions that need a human (§3), and nothing-happened is the opposite of that.
+>
+> **Extended 2026-08-31 (T1.30, [issue #28](https://github.com/dsopko/claude-dashboard/issues/28)): it may still *de-escalate* one.** A `Working` session that has said nothing for ten minutes stops claiming to be busy — grey, badged `INTERRUPTED`, out of the Working band and still. The asymmetry is the whole rule. A session that has gone quiet may have been interrupted, or may be in the middle of a long tool call, and the two are indistinguishable from outside; quietening it costs the operator a glance at a row that turns out to be fine, while promoting it would cost them a false alarm. Nothing sounds, nothing nudges, and nothing moves.
 
 **Acknowledgment** — the transition from Unread (or Needs You) to Acked. Three tiers:
 
