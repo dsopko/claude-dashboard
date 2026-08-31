@@ -194,7 +194,7 @@ Precedence (top wins), color carries state:
 >
 > **Ruled: the tray mirrors §IV.3.** `Error` + `NeedsQuestion` now shows **Amber**, as does `Error` alone. Achieved by moving `NeedsQuestion` down to share Amber with `Error`, rather than by inventing a sixth colour: that keeps the precedence linear, needs no palette the mockups lack, and preserves the original intent that Red means *"it is asking you for something only you can give"*.
 >
-> The tray is still a **coarsening** — five colours for seven states — so `Error` and `NeedsQuestion` are indistinguishable in the glyph. That is what the tooltip counts are for; the distinction stays available where there is room to render it.
+> The tray is still a **coarsening** — five colours for eight states — so `Error` and `NeedsQuestion` are indistinguishable in the glyph. That is what the tooltip counts are for; the distinction stays available where there is room to render it.
 
 > **The tray palette is deliberately *not* the row LED palette (noted 2026-08-24, drafting T1.13).** `RowVisuals.AccentOf` already maps a state to a colour, and it puts `NeedsQuestion` on **Red** — right for a row, where the LED says what *that one session* is, and where Red is also what earns the blink (`MotionPolicy`: "red blinks; an error is amber and does not blink"). That mapping is **not monotone in `AttentionOrder.Rank`** — Permission 6 → Red, Error 5 → Amber, Question 4 → Red — so it cannot also serve a roll-up; reusing it for the tray reintroduces the contradiction above in the one-session-asking-a-question case.
 >
