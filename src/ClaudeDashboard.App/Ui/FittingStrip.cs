@@ -136,8 +136,20 @@ public sealed class FittingStrip : Panel
 
     /// <summary>Every tagged element under this strip, found once and kept.</summary>
     /// <remarks>
-    /// Rebuilt when the children change. The subtree is a dozen elements and is walked once per
-    /// change rather than once per measure, because measure runs on every resize frame.
+    /// <para>
+    /// Walked once per change rather than once per measure, because measure runs on every frame
+    /// of a resize and the subtree is a dozen elements.
+    /// </para>
+    /// <para>
+    /// <strong>REBUILT WHEN THIS PANEL'S OWN CHILDREN CHANGE, WHICH IS NOT THE SAME AS WHEN THE
+    /// TAGGED ELEMENTS CHANGE.</strong> <see cref="OnVisualChildrenChanged"/> fires for the
+    /// panel's direct visual children only, and the tagged words are two levels down. That is
+    /// sound for the caption, whose every child is an inline <c>StackPanel</c> of literal
+    /// <c>TextBlock</c>s declared in the markup and never replaced. It would not be sound for a
+    /// child that builds its own content later — a templated control, or anything items-generated
+    /// — because the words would appear after the walk and the cache would stay stale with
+    /// nothing to say so. A strip fed that way needs an invalidation hook this does not have.
+    /// </para>
     /// </remarks>
     private List<(FrameworkElement Element, string[] Labels, int HideAt)>? _tagged;
 
