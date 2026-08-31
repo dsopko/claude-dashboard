@@ -201,12 +201,25 @@
                             WHAT 150% DOES, AND WHAT IS WORTH WRITING DOWN ABOUT IT. The strip
                             measures WIDER there, not narrower: the reviewer and I both get
                             247.333 for the long form against 244 here, on a monitor set to it.
+
                             A third figure, 242, was written into this remark earlier in the same
-                            task and does NOT reproduce — not on their machine and not on mine an
-                            hour later, with the same script. I could not account for it, so it
-                            is withdrawn rather than explained away, and no 150% width is
-                            recorded here: a number nobody can reproduce is worse than none, and
-                            this remark has now carried two.
+                            task as a 150% measurement, and it is not one. IT IS THE PRE-TABULAR
+                            WIDTH AT 100%, MISLABELLED — the tabular width is 244 there and
+                            247.333 at 150%. It came from the three-fixture experiment that
+                            produced 244 in the first place, where the only difference between
+                            242 and 244 is the numeral alignment, and it was relabelled as a
+                            scale difference somewhere between the measuring and the writing.
+                            That makes it the fourth pre-tabular survivor after 612, 543 and the
+                            242 in FittingStrip's own remark, and it arrived in the commit that
+                            removed the first two.
+
+                            It was withdrawn before it was accounted for, and the account is
+                            recorded here rather than the withdrawal quietly reversed, because
+                            the two are worth different things: withdrawing cost a hole and
+                            accounting for it closes the hole with something anyone can check by
+                            re-measuring the no-tabular fixture at 100%. No 150% width is
+                            recorded in this remark all the same — it has carried a wrong one
+                            twice, and the number the caption is judged on is not a width.
 
                             WHAT DOES HOLD, re-measured after the above: A 520 WINDOW SHOWS THREE
                             COUNTS AT BOTH SCALES. That is the fact the operator needs, it is

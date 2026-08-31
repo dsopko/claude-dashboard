@@ -55,10 +55,17 @@ namespace ClaudeDashboard.Tests.Ui;
 /// on any machine; that was verified by planting one.
 /// </para>
 /// <para>
-/// Four measurements of this strip have now been wrong, each for a different missing input — the
-/// face, the numerals, the scale, and then the belief that the scale could be pinned. The lesson
-/// is none of the four: a fixture quoting absolute pixels either owns every input to them or
-/// does not quote them.
+/// Five measurements of this strip have now been wrong. Four were a missing input — the face,
+/// the numerals, the scale, and then the belief that the scale could be pinned. The fifth
+/// missed nothing and measured correctly: 242 was the pre-tabular width at 100%, written down
+/// as a 150% one. A right number under a wrong label reads exactly like a measurement, survives
+/// every check that asks whether the arithmetic holds, and is caught only by someone
+/// re-measuring the thing it claims to be about.
+/// </para>
+/// <para>
+/// The lesson is none of the five: a fixture quoting absolute pixels either owns every input to
+/// them or does not quote them — and a remark quoting one says what it is of, because that is
+/// the half a number cannot carry by itself.
 /// </para>
 /// </remarks>
 [Collection(WpfApplicationSuite.Name)]
