@@ -118,9 +118,16 @@ public sealed class MotionPolicy : ObservableObject, IDisposable
     /// The motion <paramref name="state"/> asks for, before this policy is applied.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// The whole rule, in one place. <see cref="SessionState.Error"/> is deliberately still:
     /// it sits in the Needs-You band and reads amber, and Design Document §9 grants the blink to
     /// red alone.
+    /// </para>
+    /// <para>
+    /// <see cref="SessionState.Interrupted"/> is still for a different reason (issue #28): it is
+    /// grey and quiet, and Design §9 grants the breath to work in progress. A stalled row that
+    /// breathed would be claiming the very thing the state exists to stop claiming.
+    /// </para>
     /// </remarks>
     public static MotionKind Wanted(SessionState state) => state switch
     {

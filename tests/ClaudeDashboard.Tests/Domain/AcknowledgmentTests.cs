@@ -224,6 +224,14 @@ public sealed class AcknowledgmentTests
                 });
                 break;
 
+            // Work, then silence past the threshold. No event reaches it (issue #28).
+            case SessionState.Interrupted:
+                Prompt("p-1");
+                registry.SweepSilent(
+                    At + SilenceWatch.DefaultThreshold + TimeSpan.FromMinutes(1),
+                    SilenceWatch.DefaultThreshold);
+                break;
+
             case SessionState.Ended:
                 registry.Apply(new SessionStart
                 {

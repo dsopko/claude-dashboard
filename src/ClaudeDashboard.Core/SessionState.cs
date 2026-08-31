@@ -38,4 +38,33 @@ public enum SessionState
 
     /// <summary>The session terminated; scheduled for removal.</summary>
     Ended = 7,
+
+    /// <summary>
+    /// Nothing has been heard from this session for the silence threshold while it was
+    /// <see cref="Working"/>. The badge reads INTERRUPTED because pressing Escape is
+    /// overwhelmingly the cause and the operator asked for that word — but what the dashboard
+    /// observed is silence, and a long tool call looks the same.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>Elapsed silence is the only signal there is</strong> (issue #28). Claude Code posts
+    /// nothing when a turn is interrupted: confirmed against its published documentation on
+    /// 2026-08-31 — <c>Stop</c> carries no <c>stop_reason</c>, <c>StopFailure</c> is API errors
+    /// only, and none of the twelve <c>Notification</c> matchers concerns interruption. The
+    /// transcript records it and is rejected: TS §II.3 says it is written asynchronously and lags
+    /// the live turn, and the design deliberately does not depend on it.
+    /// </para>
+    /// <para>
+    /// <strong>Entered from <see cref="Working"/> and from nowhere else.</strong> Never from
+    /// <see cref="NeedsPermission"/>, <see cref="NeedsQuestion"/> or <see cref="Error"/> — those
+    /// are sessions asking for the operator, and timing one out would hide the request. Design §4:
+    /// an absence of activity may de-escalate a session and must never escalate one.
+    /// </para>
+    /// <para>
+    /// <strong>Not sticky and not terminal.</strong> The next event of any kind puts the session
+    /// where that event says it belongs, so a session marked wrongly corrects itself the moment it
+    /// speaks.
+    /// </para>
+    /// </remarks>
+    Interrupted = 8,
 }

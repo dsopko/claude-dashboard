@@ -72,6 +72,7 @@ public sealed class SoundPolicyEngineTests
             WorkspaceGroup = GroupKeys.ForSession(cwd, sessionId),
             EnteredAt = enteredAt,
             LastActivity = enteredAt,
+            LastHeardAt = enteredAt,
         };
     }
 
@@ -546,6 +547,7 @@ public sealed class SoundPolicyEngineTests
             Cwd = @"C:\elsewhere",
             WorkspaceGroup = moved,
             LastActivity = Start.AddMinutes(1),
+            LastHeardAt = Start.AddMinutes(1),
         });
 
         _engine.SetGroupMuted(moved, true);

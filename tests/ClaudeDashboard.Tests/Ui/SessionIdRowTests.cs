@@ -214,6 +214,7 @@ public sealed class SessionIdRowTests
                 WorkspaceGroup = GroupKeys.ForWorkspace(@"C:\w"),
                 EnteredAt = At,
                 LastActivity = At,
+                LastHeardAt = At,
             },
             new MotionPolicy(() => false, observeChanges: false),
             ack: null,

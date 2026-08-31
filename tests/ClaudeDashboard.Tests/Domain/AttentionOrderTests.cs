@@ -15,6 +15,7 @@ public sealed class AttentionOrderTests
         SessionState.NeedsQuestion,
         SessionState.Unread,
         SessionState.Working,
+        SessionState.Interrupted,
         SessionState.Acked,
         SessionState.Ended,
     ];

@@ -1202,6 +1202,12 @@ public sealed class SessionRegistryTests
             [SessionState.Unread] = false,
             [SessionState.Acked] = false,
             [SessionState.Ended] = false,
+
+            // A batch resolving proves the turn is executing, so a session the silence sweep
+            // greyed out is demonstrably not interrupted (issue #28). This is the arm that
+            // recovers the one false positive the threshold cannot prevent: a single tool call
+            // longer than the threshold, which emits nothing until it resolves.
+            [SessionState.Interrupted] = true,
         };
 
         Assert.Equal(Enum.GetValues<SessionState>().Length, resumes.Count);
@@ -1256,6 +1262,13 @@ public sealed class SessionRegistryTests
                 Apply(Finished());
                 _clock.AdvanceMinutes(1);
                 Apply(Acknowledged());
+                break;
+
+            // The only path there is: work, then say nothing for longer than the threshold.
+            // No event reaches this state, which is the whole of issue #28.
+            case SessionState.Interrupted:
+                _clock.Advance(SilenceWatch.DefaultThreshold + TimeSpan.FromMinutes(1));
+                _registry.SweepSilent(_clock.Now, SilenceWatch.DefaultThreshold);
                 break;
             case SessionState.Ended:
                 Apply(Ended());

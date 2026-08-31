@@ -91,6 +91,49 @@ public sealed record Session
     public required DateTimeOffset LastActivity { get; init; }
 
     /// <summary>
+    /// When an event for this session last <strong>arrived</strong>, whatever the Registry then
+    /// decided to do with it (issue #28).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>THIS IS NOT <see cref="LastActivity"/>, AND THE DIFFERENCE IS THE WHOLE REASON IT
+    /// EXISTS.</strong> <c>LastActivity</c> is written only by a transition that changes
+    /// something, so an event the Registry <em>ignores</em> leaves it untouched — and a
+    /// <c>PostToolBatch</c> on a session already <see cref="SessionState.Working"/> is ignored, at
+    /// 799 of the 1,210 payloads in the archive. Measured, not read: a prompt at 09:00 followed by
+    /// a tool batch and an ignored notification over the next hour left <c>LastActivity</c> at
+    /// 09:00.
+    /// </para>
+    /// <para>
+    /// <strong>So a silence timeout built on <c>LastActivity</c> would grey out every long
+    /// turn</strong>, not merely the long tool call the design anticipated. A session emitting a
+    /// batch every four seconds for eleven minutes would be marked
+    /// <see cref="SessionState.Interrupted"/> while visibly working — the expensive false
+    /// positive, arriving on ordinary work.
+    /// </para>
+    /// <para>
+    /// <strong>Widening <c>LastActivity</c> instead was rejected.</strong> It is the sort key for
+    /// the Working and Quiet bands, and its refusal to advance on a redelivery is deliberate and
+    /// pinned by test — widening it would trade a silent detection bug for a silent display bug.
+    /// </para>
+    /// <para>
+    /// <strong>Advanced on every non-stale event for an existing session, whatever the outcome</strong>
+    /// — applied, ignored or duplicate alike. Not advanced by a stale event, which the Registry
+    /// drops before touching anything, and <strong>not by a synthetic <c>Ack</c></strong>: that is
+    /// the dashboard talking to itself, and a field named for hearing from a session must not move
+    /// when the session said nothing. That exclusion cannot change any outcome today — an
+    /// acknowledged session is not <see cref="SessionState.Working"/> — and it is there so the
+    /// name stays true for whoever reads it next.
+    /// </para>
+    /// <para>
+    /// <strong>Read by nothing but the silence sweep.</strong> It is not an ordering key, it is
+    /// not rendered, and it must not become either: both of those jobs belong to
+    /// <c>LastActivity</c>, whose meaning is narrower on purpose.
+    /// </para>
+    /// </remarks>
+    public required DateTimeOffset LastHeardAt { get; init; }
+
+    /// <summary>
     /// The failure that put the session in <see cref="SessionState.Error"/>, as the raw
     /// matcher value from <c>StopFailure</c> (<c>rate_limit</c>, <c>overloaded</c>, …), or
     /// null in every other state.

@@ -60,6 +60,7 @@ public sealed class SingleWriterInvariantTests
             WorkspaceGroup = GroupKeys.ForWorkspace(@"C:\w"),
             EnteredAt = enteredAt,
             LastActivity = enteredAt,
+            LastHeardAt = enteredAt,
         };
     }
 
@@ -299,6 +300,7 @@ public sealed class SingleWriterInvariantTests
         var expected = new Dictionary<string, int>(StringComparer.Ordinal)
         {
             ["Apply"] = 1,
+            ["SweepSilent"] = 1,
             ["OnSessionChanged"] = 1,
             ["Evaluate"] = 2,
             ["SetSessionMuted"] = 1,
@@ -332,6 +334,7 @@ public sealed class SingleWriterInvariantTests
     private (string Name, Action Call)[] Mutators =>
     [
         ("SessionRegistry.Apply", () => _registry.Apply(Prompt("s-9", At))),
+        ("SessionRegistry.SweepSilent", () => _registry.SweepSilent(At, SilenceWatch.DefaultThreshold)),
         ("SoundPolicyEngine.OnSessionChanged", () => _sound.ChangedInWorkspaceGroup(Blocked("s-9", At))),
         ("SoundPolicyEngine.Evaluate", () => _sound.Evaluate(_clock.Now)),
         ("SoundPolicyEngine.SetSessionMuted", () => _sound.SetSessionMuted(new SessionId("s-9"), true)),

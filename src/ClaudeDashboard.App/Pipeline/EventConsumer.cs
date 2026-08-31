@@ -59,6 +59,7 @@ public sealed class EventConsumer : BackgroundService
     private readonly ILogger _logger;
     private readonly TimeSpan _tickInterval;
     private readonly IUiTick _uiTick;
+    private readonly TimeSpan _silenceThreshold;
     private readonly RosterStore _rosters;
     private readonly RosterGroupWatch _watch;
 
@@ -89,7 +90,8 @@ public sealed class EventConsumer : BackgroundService
         EventArchive archive,
         RosterStore rosters,
         TimeSpan? tickInterval = null,
-        RosterGroupWatch? watch = null)
+        RosterGroupWatch? watch = null,
+        TimeSpan? silenceThreshold = null)
     {
         ArgumentNullException.ThrowIfNull(pipeline);
         ArgumentNullException.ThrowIfNull(registry);
@@ -111,8 +113,12 @@ public sealed class EventConsumer : BackgroundService
         _guard = guard;
         _logger = logger;
         _tickInterval = tickInterval ?? DefaultTickInterval;
+        _silenceThreshold = silenceThreshold ?? SilenceWatch.DefaultThreshold;
         _uiTick = uiTick;
     }
+
+    /// <summary>How many sessions the silence sweep has moved. Diagnostic only.</summary>
+    public long SilencedCount { get; private set; }
 
     /// <summary>How many roster edits have woken the loop. Diagnostic only.</summary>
     public long RosterEditCount { get; private set; }
@@ -566,6 +572,43 @@ public sealed class EventConsumer : BackgroundService
     /// stop the clock on screen. The two are independent and are kept that way.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// Moves any working session that has fallen silent, and says so once each (issue #28).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>The log is why the threshold has no setting.</strong> Ten minutes is a guess.
+    /// Recording every transition with the silence that produced it lets the operator calibrate
+    /// from their own machine, and a run full of these at eleven minutes says the number is too
+    /// low far better than a knob they would have to guess at. Same instrument as T1.25's mis-mark
+    /// warning.
+    /// </para>
+    /// <para>
+    /// <strong>The session id and the duration, and nothing else.</strong> Never the title, never
+    /// the payload — T1.24's rule. A title can be a model-written summary of the operator's
+    /// prompt, and a line saying which session went quiet needs none of it.
+    /// </para>
+    /// <para>
+    /// <strong>It says "no event", not "interrupted".</strong> The badge carries the operator's
+    /// word because they asked for it; the log carries what was observed, which is silence.
+    /// </para>
+    /// </remarks>
+    private void SweepSilent(DateTimeOffset now)
+    {
+        foreach (var silent in _registry.SweepSilent(now, _silenceThreshold))
+        {
+            SilencedCount++;
+
+            _logger.Information(
+                "Session {SessionId} has sent no event for {SilentMinutes:F1} minutes while working, " +
+                "so it no longer reads as busy. The threshold is {ThresholdMinutes:F0} minutes. " +
+                "Pressing Escape is the usual cause; a single long tool call looks the same.",
+                silent.Session.Id.Value,
+                silent.Silence.TotalMinutes,
+                _silenceThreshold.TotalMinutes);
+        }
+    }
+
     private void Tick()
     {
         var now = _clock.Now;
@@ -575,6 +618,18 @@ public sealed class EventConsumer : BackgroundService
             using (_guard.Enter("evaluating the nudge schedule"))
             {
                 TickCount++;
+
+                // BEFORE the sound engine and the roster watch, so both observe a world the sweep
+                // has already updated (issue #28). A session that has just stopped reading as
+                // Working must not be evaluated as Working by anything else in the same tick, and
+                // a roster group must roll up over the states as they now stand.
+                //
+                // On this loop rather than a timer of its own, per the ruling: a second clock is a
+                // second thing that can drift, stall, or fire during a test. The guard is
+                // re-entrant on this thread, so SweepSilent taking it again nests exactly as
+                // Apply's does.
+                SweepSilent(now);
+
                 _sound.Evaluate(now);
                 ObserveRosterGroups(now);
             }

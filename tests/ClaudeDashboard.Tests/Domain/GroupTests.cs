@@ -19,6 +19,7 @@ public sealed class GroupTests
             WorkspaceGroup = Key,
             EnteredAt = At,
             LastActivity = lastActivity ?? At,
+            LastHeardAt = lastActivity ?? At,
         };
 
     [Fact]

@@ -248,6 +248,7 @@ public sealed class PayloadJsonTests
             WorkspaceGroup = new ClaudeDashboard.Core.GroupKey("work"),
             EnteredAt = DateTimeOffset.UnixEpoch,
             LastActivity = DateTimeOffset.UnixEpoch,
+            LastHeardAt = DateTimeOffset.UnixEpoch,
         };
 
         var row = new ClaudeDashboard.App.Ui.SessionViewModel(session);

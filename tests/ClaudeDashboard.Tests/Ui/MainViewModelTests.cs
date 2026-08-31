@@ -452,6 +452,7 @@ public sealed class SessionViewModelTextTests
             WorkspaceGroup = GroupKeys.ForWorkspace(@"C:\w"),
             EnteredAt = At,
             LastActivity = At,
+            LastHeardAt = At,
         });
     }
 

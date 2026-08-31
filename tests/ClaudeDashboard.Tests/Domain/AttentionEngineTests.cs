@@ -36,6 +36,7 @@ public sealed class AttentionEngineTests
             WorkspaceGroup = GroupKeys.ForSession(cwd, sessionId),
             EnteredAt = Now.AddMinutes(-ageMinutes),
             LastActivity = Now.AddMinutes(-(idleMinutes ?? ageMinutes)),
+            LastHeardAt = Now.AddMinutes(-(idleMinutes ?? ageMinutes)),
         };
     }
 

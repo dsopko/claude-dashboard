@@ -124,14 +124,28 @@ public sealed class SessionRegistry(SingleWriterGuard guard)
             return ApplyOutcome.Stale;
         }
 
+        // HEARD FROM, WHATEVER WE THEN DO ABOUT IT (issue #28). This runs before the transition
+        // and outside its result, because the transition's job is to decide what the event MEANS
+        // and this only records that the session spoke. The two were conflated before: the
+        // silence sweep needs the second fact and `LastActivity` carries only the first, so a
+        // session emitting nothing but ignored tool batches looked silent while working.
+        //
+        // Not on a stale event — the guard above has already returned. Not on a synthetic Ack;
+        // see Heard.
+        current = Heard(current, inboundEvent);
+
         var (next, outcome) = Transition(current, inboundEvent);
 
         // The title latch runs whatever the transition decided. See Latched for why that is not
         // an optimisation but the only thing that makes the feature work at all.
         var titled = Latched(next ?? current, inboundEvent);
 
+        // `Heard` may be the only thing that changed, and that is a real update rather than a
+        // decline: the sweep reads the field, so dropping it here would restore the very bug this
+        // fixes. It raises no SessionChanged, because nothing observable to the operator moved.
         if (next is null && titled is null)
         {
+            _sessions[current.Id] = current;
             return outcome;
         }
 
@@ -140,6 +154,117 @@ public sealed class SessionRegistry(SingleWriterGuard guard)
         _sessions[applied.Id] = applied;
         SessionChanged?.Invoke(this, new SessionChangedEventArgs(SessionChangeKind.Updated, applied));
         return ApplyOutcome.Applied;
+    }
+
+    // ---- Hearing from a session, and noticing when we stop -------------------------------------
+
+    /// <summary>
+    /// Records that <paramref name="session"/> was heard from at <paramref name="inboundEvent"/>'s
+    /// stamp (issue #28).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>The synthetic <c>Ack</c> is excluded, and it is the only exclusion here.</strong>
+    /// An acknowledgment is the dashboard talking to itself — a manual click, or inferred focus —
+    /// so treating it as hearing from the session would make a row the operator glanced at look
+    /// alive. It cannot change any outcome today, because an acknowledged session is not
+    /// <see cref="SessionState.Working"/> and the sweep reads nothing else. It is here so the
+    /// field keeps meaning what its name says.
+    /// </para>
+    /// <para>
+    /// Everything else counts, including events the transition table declines. That is the point:
+    /// a declined event is still the session speaking.
+    /// </para>
+    /// </remarks>
+    private static Session Heard(Session session, InboundEvent inboundEvent) =>
+        inboundEvent is Ack
+            ? session
+            : session with { LastHeardAt = inboundEvent.Timestamp };
+
+    /// <summary>
+    /// Moves every <see cref="SessionState.Working"/> session that has been silent for
+    /// <paramref name="threshold"/> into <see cref="SessionState.Interrupted"/> (issue #28).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>Elapsed silence is the only signal available.</strong> Claude Code posts nothing
+    /// when a turn is interrupted — confirmed against its published documentation on 2026-08-31 —
+    /// and the transcript, which does record it, is rejected by TS §II.3 for lagging the live
+    /// turn. So this infers, and everything about it is shaped by the inference being weak.
+    /// </para>
+    /// <para>
+    /// <strong>It only de-escalates.</strong> <see cref="SessionState.Working"/> and nothing else.
+    /// A <see cref="SessionState.NeedsPermission"/>, <see cref="SessionState.NeedsQuestion"/> or
+    /// <see cref="SessionState.Error"/> session that falls silent is a session still asking for
+    /// the operator, and timing it out would hide the request — design §4: an absence of activity
+    /// may quieten a session and must never promote one.
+    /// </para>
+    /// <para>
+    /// <strong><c>now</c> is a parameter because the Registry never reads a clock.</strong> Every
+    /// stamp it writes comes from the caller, exactly as event stamps do, which is what lets the
+    /// tests drive this without sleeping.
+    /// </para>
+    /// <para>
+    /// <strong>Idempotent by construction (Impl §2.2).</strong> It reads only
+    /// <see cref="SessionState.Working"/>, so a session it has already moved is no longer a
+    /// candidate and a second sweep in the same tick moves nothing.
+    /// </para>
+    /// <para>
+    /// <strong><see cref="Session.EnteredAt"/> advances and <see cref="Session.LastHeardAt"/> does
+    /// not.</strong> The session entered this state now, and we heard nothing — so the row's idle
+    /// age still counts from when it last actually spoke, which is the number the operator needs.
+    /// </para>
+    /// <para>
+    /// Returns what it moved, oldest silence first, so the caller can log each one. The Registry
+    /// has no logger by design.
+    /// </para>
+    /// </remarks>
+    /// <param name="now">The instant to judge silence against.</param>
+    /// <param name="threshold">How long a session must have been silent.</param>
+    /// <returns>The sessions moved, with how long each had been silent.</returns>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="threshold"/> is negative.</exception>
+    public IReadOnlyList<SilentSession> SweepSilent(DateTimeOffset now, TimeSpan threshold)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(threshold, TimeSpan.Zero);
+
+        using var writing = _guard.Enter("sweeping silent sessions in the Registry");
+
+        List<SilentSession>? moved = null;
+
+        foreach (var id in _sessions.Keys.ToList())
+        {
+            var session = _sessions[id];
+
+            if (session.State != SessionState.Working)
+            {
+                continue;
+            }
+
+            var silence = now - session.LastHeardAt;
+
+            // Strictly greater, so the boundary instant is still working. A session heard from
+            // exactly `threshold` ago has not yet been silent for longer than the threshold.
+            if (silence <= threshold)
+            {
+                continue;
+            }
+
+            var interrupted = session with
+            {
+                State = SessionState.Interrupted,
+                EnteredAt = now,
+                Transitions = session.Transitions.Append(
+                    new StateTransition(session.State, SessionState.Interrupted, now, SilenceWatch.Cause)),
+            };
+
+            _sessions[id] = interrupted;
+            (moved ??= []).Add(new SilentSession(interrupted, silence));
+            SessionChanged?.Invoke(this, new SessionChangedEventArgs(SessionChangeKind.Updated, interrupted));
+        }
+
+        moved?.Sort(static (left, right) => right.Silence.CompareTo(left.Silence));
+
+        return moved ?? [];
     }
 
     // ---- The title latch ---------------------------------------------------------------------
@@ -284,6 +409,7 @@ public sealed class SessionRegistry(SingleWriterGuard guard)
             WorkspaceGroup = DeriveGroup(inboundEvent.Cwd, inboundEvent.SessionId),
             EnteredAt = inboundEvent.Timestamp,
             LastActivity = inboundEvent.Timestamp,
+            LastHeardAt = inboundEvent.Timestamp,
             ErrorKind = (inboundEvent as StopFailure)?.ErrorKind,
 
             // The very first event a session is seen on may already carry the title, so the latch
@@ -377,6 +503,16 @@ public sealed class SessionRegistry(SingleWriterGuard guard)
     /// closed further, only shortened again if a signal that fires at the decision ever appears.
     /// </para>
     /// <para>
+    /// <strong><see cref="SessionState.Interrupted"/> resumes here too, and that is the repair for
+    /// this heuristic's worst false positive (issue #28).</strong> A batch resolving is proof the
+    /// turn is executing, so a session the silence sweep greyed out is demonstrably not
+    /// interrupted. The case that needs it is precisely the one the threshold cannot prevent: a
+    /// single tool call longer than the threshold emits nothing while it runs, the session goes
+    /// grey, and then the batch arrives. Without this arm the row would stay grey until
+    /// <c>Stop</c> — telling the operator a session had stopped while it was working the whole
+    /// time, and then finishing.
+    /// </para>
+    /// <para>
     /// Every other state declines as <see cref="ApplyOutcome.Ignored"/>, which is the common case
     /// by a wide margin: an already-<see cref="SessionState.Working"/> session produces one of
     /// these per tool batch and must go on being Working without a transition being recorded for
@@ -384,7 +520,10 @@ public sealed class SessionRegistry(SingleWriterGuard guard)
     /// </para>
     /// </remarks>
     private static Transitioned ApplyPostToolBatch(Session current, PostToolBatch batch) =>
-        current.State is SessionState.NeedsPermission or SessionState.NeedsQuestion or SessionState.Error
+        current.State is SessionState.NeedsPermission
+                      or SessionState.NeedsQuestion
+                      or SessionState.Error
+                      or SessionState.Interrupted
             ? Transitioned.FromMove(Moved(current, SessionState.Working, batch))
             : Transitioned.Declined(ApplyOutcome.Ignored);
 

@@ -159,6 +159,7 @@ public sealed class SessionTitleLoggingTests : IAsyncLifetime
             WorkspaceGroup = GroupKeys.ForWorkspace(@"C:\w"),
             EnteredAt = At,
             LastActivity = At,
+            LastHeardAt = At,
             Title = Marker,
         };
 

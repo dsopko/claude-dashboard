@@ -25,6 +25,7 @@ public sealed class GroupResolverTests
             WorkspaceGroup = GroupKeys.ForSession(cwd, sessionId),
             EnteredAt = At,
             LastActivity = lastActivity ?? At,
+            LastHeardAt = lastActivity ?? At,
         };
     }
 

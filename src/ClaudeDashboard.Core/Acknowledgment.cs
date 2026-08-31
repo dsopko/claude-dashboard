@@ -41,6 +41,12 @@ public static class Acknowledgment
     /// otherwise an Error row can only be cleared by submitting another prompt.
     /// <see cref="SessionState.Working"/> is excluded because nothing has finished, and
     /// <see cref="SessionState.Ended"/> because nothing is still competing for attention.
+    ///
+    /// <see cref="SessionState.Interrupted"/> is excluded on the first of those grounds (issue
+    /// #28): nothing finished there either — the dashboard merely stopped hearing from it — and
+    /// it is already grey and already out of the way, so an acknowledgment would move nothing the
+    /// operator can see. The row corrects itself the moment the session speaks again, which is a
+    /// better answer than letting them dismiss a reading that may simply be wrong.
     /// </remarks>
     public static bool Applies(SessionState state) =>
         state is SessionState.Unread

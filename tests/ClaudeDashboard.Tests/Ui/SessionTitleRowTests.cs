@@ -291,6 +291,7 @@ public sealed class SessionTitleRowTests
                 WorkspaceGroup = GroupKeys.ForWorkspace(@"C:\w"),
                 EnteredAt = At,
                 LastActivity = At,
+                LastHeardAt = At,
                 Title = title,
             },
             new MotionPolicy(() => false, observeChanges: false));

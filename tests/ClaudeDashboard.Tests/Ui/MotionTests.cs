@@ -40,6 +40,7 @@ public sealed class MotionTests
                 WorkspaceGroup = GroupKeys.ForWorkspace(@"C:\dev\PennCustQuote"),
                 EnteredAt = At,
                 LastActivity = At,
+                LastHeardAt = At,
             },
             policy ?? Allowed);
 

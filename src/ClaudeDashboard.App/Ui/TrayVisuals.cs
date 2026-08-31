@@ -71,18 +71,42 @@ public static class TrayVisuals
 {
     /// <summary>The glyph colour for a rolled-up state.</summary>
     /// <remarks>
+    /// <para>
     /// Expressed as thresholds on <see cref="AttentionOrder.Rank"/> so that the mapping cannot
-    /// disagree with the ranking about which of two states is worse. Every rank at or below
-    /// <see cref="SessionState.Acked"/>'s is grey, which is why an Ended session and an empty
+    /// disagree with the ranking about which of two states is worse. Every rank below
+    /// <see cref="SessionState.Working"/>'s is grey, which is why an Ended session and an empty
     /// dashboard look the same and why neither can be told from a quiet one.
+    /// </para>
+    /// <para>
+    /// <strong>THE THRESHOLDS ARE NAMED STATES, NOT LITERAL NUMBERS, AND THAT MATTERS (issue #28).</strong>
+    /// They were literals — <c>&gt;= 6</c>, <c>&gt;= 4</c> — with the states they covered written
+    /// beside them in comments. Adding <see cref="SessionState.Interrupted"/> renumbered the ranks
+    /// by one, and every literal then pointed at the state above the one it named: Error would have
+    /// read red, Unread amber, Working green, and an interrupted session <em>blue</em>. The comment
+    /// naming each boundary stayed true while the number under it stopped being.
+    /// </para>
+    /// <para>
+    /// Reading the boundary out of <see cref="AttentionOrder.Rank"/> keeps the coarsening exact
+    /// under any future renumbering, and costs nothing: the ranks are compile-time constants in
+    /// every sense that matters here.
+    /// </para>
     /// </remarks>
     /// <param name="worst">The most severe state across the sessions being summarised.</param>
-    public static TrayColour ColourOf(SessionState worst) => AttentionOrder.Rank(worst) switch
+    public static TrayColour ColourOf(SessionState worst)
     {
-        >= 6 => TrayColour.Red,      // NeedsPermission
-        >= 4 => TrayColour.Amber,    // Error, NeedsQuestion — merged, per Impl §5.2
-        >= 3 => TrayColour.Green,    // Unread
-        >= 2 => TrayColour.Blue,     // Working
-        _ => TrayColour.Grey,        // Acked, Ended, and anything unrecognised
-    };
+        var rank = AttentionOrder.Rank(worst);
+
+        return rank switch
+        {
+            _ when rank >= AttentionOrder.Rank(SessionState.NeedsPermission) => TrayColour.Red,
+
+            // Error and NeedsQuestion merged onto one colour, per Impl §5.2.
+            _ when rank >= AttentionOrder.Rank(SessionState.NeedsQuestion) => TrayColour.Amber,
+            _ when rank >= AttentionOrder.Rank(SessionState.Unread) => TrayColour.Green,
+            _ when rank >= AttentionOrder.Rank(SessionState.Working) => TrayColour.Blue,
+
+            // Interrupted, Acked, Ended, and anything unrecognised.
+            _ => TrayColour.Grey,
+        };
+    }
 }

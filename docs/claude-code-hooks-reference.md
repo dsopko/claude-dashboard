@@ -1,7 +1,7 @@
 # Claude Code hook events — reference
 
 **Source:** <https://code.claude.com/docs/en/hooks> (canonical; `docs.claude.com/en/docs/claude-code/hooks` 301s here)
-**Transcribed:** 2026-08-24 · **Events documented: 31** · **Consumed by the dashboard: 8** · **Command hook mechanics added 2026-08-30 (issue #29)**
+**Transcribed:** 2026-08-24 · **Events documented: 33** (was 31; `PreModelSwitch` and `PostModelSwitch` added 2026-08-31, issue #28) · **Consumed by the dashboard: 8** · **Command hook mechanics added 2026-08-30 (issue #29)**
 
 This document exists because "I don't know whether there is a hook for that" is not an acceptable answer in a project whose entire input surface *is* the hook contract. Everything below is transcribed from the source page on the date above, not recalled. **It is a snapshot: re-fetch and re-check before relying on it for a new integration.**
 
@@ -199,12 +199,62 @@ Complete, for the avoidance of another "I don't know". None are consumed and non
 | `FileChanged` | a watched file changes on disk | literal filenames, e.g. `.envrc\|.env` — see note | `file_path` | no |
 | `WorktreeCreate` | a worktree is being created | none | `worktree_path` | **yes** — any non-zero exit fails creation |
 | `WorktreeRemove` | a worktree is being removed | none | `worktree_path` | no |
+| `PreModelSwitch` | before a requested model switch is applied | canonical model names, e.g. `claude-opus-5` · `.*opus.*` | `to_model` · `from_model` | **yes** — blocks the switch |
+| `PostModelSwitch` | after the session's model changes, including changes Claude Code makes itself when resuming | canonical model names, as above | `to_model` · `from_model` | no |
 | `PreCompact` | before context compaction | `manual` · `auto` | `compaction_trigger` | **yes** — blocks compaction |
 | `PostCompact` | after compaction completes | `manual` · `auto` | `compaction_trigger` · `tokens_removed` | no |
 | `Elicitation` | an MCP server requests user input during a tool call | your MCP server names | `server_name` · `elicitation_prompt` · `elicitation_type` | **yes** — denies it |
 | `ElicitationResult` | after a user responds to an elicitation, before it returns to the server | your MCP server names | `server_name` · `user_response` · `elicitation_id` | **yes** — response becomes decline |
 
 **`FileChanged` matcher note:** matching is narrower than elsewhere — exact match on letters, digits, `_` and `|` only. Hyphens, spaces and commas keep it on the regex path, with `|` separating alternatives.
+
+---
+
+# There is no interrupt hook [verified]
+
+**Re-checked against <https://code.claude.com/docs/en/hooks> on 2026-08-31, for issue #28.** The
+question is whether anything at all fires when the operator presses Escape mid-turn. It does not,
+and this section exists so nobody has to establish that a third time.
+
+**Nothing fires on an interrupt.** There is no `Abort`, `Cancel`, `Interrupt`, `TurnEnd` or
+`PostTurn` event in the documented set of 33.
+
+**`Stop` does not say why it stopped.** Its only documented event-specific field is
+`last_assistant_message`. There is no `stop_reason`, no `interrupted`, no `cancelled`. And the
+archive shows `Stop` does not fire on an interrupt in any case.
+
+**None of the twelve `Notification` matchers concerns interruption**, and the full list is recorded
+here so the next reader can check rather than take it on trust:
+
+`permission_prompt` · `idle_prompt` · `auth_success` · `elicitation_dialog` ·
+`elicitation_url_dialog` · `elicitation_complete` · `elicitation_response` · `agent_needs_input` ·
+`agent_completed` · `quota_auto_resume_fired` · `quota_auto_resume_stale` ·
+`quota_auto_resume_disabled`
+
+**The idle notification does not arrive either** [verified, from the archive]. A turn that ends
+normally is followed about a minute later by a `Notification` carrying `idle_prompt`. Issue #28
+shows that notification absent from both interrupted turns, including one idle for twelve minutes.
+So the one event that might have served as a late signal is not available.
+
+**What the dashboard does instead** is measure silence: a `Working` session with no event for ten
+minutes stops reading as busy (`SessionState.Interrupted`, `SilenceWatch`). It detects *silence*,
+not interruption, and the code says so wherever it can be read.
+
+## `MessageDisplay` was considered for this and rejected [verified]
+
+It looks like the answer. It fires while assistant message text is displayed, so a streaming turn
+would emit a continuous heartbeat and the silence threshold could be seconds and confident instead
+of ten minutes and hedged.
+
+**Do not register it.** Since T1.28 the dashboard's hook is a *command* hook: every event runs
+`cmd.exe /c post-status.cmd`, which starts two processes and costs about 60 ms — measured at 97 ms
+with a dashboard listening and 65 ms without. `MessageDisplay` fires during streaming and carries a
+10-second default timeout precisely because it is expected to be hot, so subscribing would spawn
+**hundreds of processes per turn** on a machine the operator is working on.
+
+The two designs interact, and neither task can see it alone: T1.28 made every event expensive, and
+T1.29 and T1.30 are where somebody would reach for a cheap-looking heartbeat. **The cheap-looking
+fix is the expensive one**, and it will look attractive again the moment this paragraph is deleted.
 
 ---
 

@@ -24,9 +24,26 @@ namespace ClaudeDashboard.Core;
 /// </para>
 /// <para>
 /// <strong><see cref="Session.LastActivity"/> would be wrong here</strong>, and the difference is
-/// the reason this works. It advances on every event the Registry applies, including ones that
-/// change no state — a tool batch on a session already working, a title latching. Measuring
-/// quietness with it would restart the window on events that are not the session becoming quiet.
+/// the reason this works. It moves whenever a transition changes something — a new prompt while
+/// already working, an exchange enriched in place — so measuring quietness with it would restart
+/// the window on events that are not the session becoming quiet. <see cref="Session.EnteredAt"/>
+/// moves only on a real state change, which is the same thing as "the moment it stopped".
+/// </para>
+/// <para>
+/// <strong>THIS PARAGRAPH USED TO SAY SOMETHING FALSE, AND THE FALSEHOOD WAS THE DANGEROUS PART
+/// RATHER THAN THE CONCLUSION (issue #28).</strong> It read that <c>LastActivity</c> "advances on
+/// every event the Registry applies, including ones that change no state — a tool batch on a
+/// session already working, a title latching". <strong>Both examples are wrong.</strong> A tool
+/// batch on a session already working is declined outright, so nothing advances; and
+/// <c>SessionRegistry</c>'s own remark states in bold that a title latch never advances
+/// <c>LastActivity</c>. Measured: a prompt at 09:00, then a tool batch and an ignored notification
+/// over the next hour, left it at 09:00.
+/// </para>
+/// <para>
+/// The conclusion above survives, which is exactly what made the wrong reason dangerous: a reader
+/// checking whether <c>LastActivity</c> tracks liveness would have found this sentence saying yes,
+/// and built a silence timeout on a field that stands still through 799 of the 1,210 payloads in
+/// the archive. <see cref="Session.LastHeardAt"/> exists because it does not.
 /// </para>
 /// <para>
 /// <strong>Both numbers are guesses and are treated as guesses.</strong> 1.5 seconds is the
@@ -131,9 +148,20 @@ public static class RosterSettle
     /// <see cref="Session.EnteredAt"/> among its members.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// Every member, not only the finished ones. A member acknowledged after another finished is
     /// still the most recent thing that happened to this group, and starting the window from the
     /// earlier event would let the group settle while something was still moving.
+    /// </para>
+    /// <para>
+    /// <strong>Since issue #28 one of those "most recent things" is an inference rather than an
+    /// observation.</strong> A member timing out into <see cref="SessionState.Interrupted"/>
+    /// advances its <see cref="Session.EnteredAt"/>, so it restarts this window — although nothing
+    /// arrived and nobody did anything. The cost is a finished chime delayed by one settle window,
+    /// once, and it is accepted rather than special-cased: excluding it would require this method
+    /// to know <em>why</em> a state changed, which is a worse thing to teach it than a chime that
+    /// is 1.5 seconds late.
+    /// </para>
     /// </remarks>
     private static DateTimeOffset QuietSince(Group group)
     {

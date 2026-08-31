@@ -70,6 +70,10 @@ public static class RowVisuals
         SessionState.Unread => "FINISHED",
         SessionState.Working => "WORKING",
         SessionState.Acked => "QUIET",
+
+        // The operator asked for this word in issue #28. What the dashboard observed is silence;
+        // see SessionState.Interrupted, which says so where anybody first meets the state.
+        SessionState.Interrupted => "INTERRUPTED",
         SessionState.Ended => "ENDED",
         _ => "UNKNOWN",
     };
@@ -107,15 +111,25 @@ public static class RowVisuals
     /// The age phrased for <paramref name="state"/> (mockups: "waiting 4 min", "2 min ago", "6 min").
     /// </summary>
     /// <remarks>
+    /// <para>
     /// The phrasing is not decoration. "Waiting" says the agent is stopped and the clock is the
     /// operator's fault; "ago" says the work is done and the clock only measures how long it has
     /// gone unseen; a bare duration says the agent is busy and the clock is nobody's fault.
+    /// </para>
+    /// <para>
+    /// <strong><see cref="SessionState.Interrupted"/> reads "ago", and the default would have got
+    /// it wrong (issue #28).</strong> Falling through to a bare duration would have said the agent
+    /// is busy — the exact claim the state exists to withdraw. "Waiting" was considered and
+    /// rejected: it belongs to the Needs-You band, and this state deliberately does not escalate.
+    /// So the row reads how long ago the session was last heard from, which is the only thing the
+    /// dashboard actually knows about it.
+    /// </para>
     /// </remarks>
     public static string Age(SessionState state, TimeSpan age) => state switch
     {
         SessionState.NeedsPermission or SessionState.NeedsQuestion =>
             string.Create(CultureInfo.CurrentCulture, $"waiting {Duration(age)}"),
-        SessionState.Unread or SessionState.Acked or SessionState.Ended =>
+        SessionState.Unread or SessionState.Acked or SessionState.Ended or SessionState.Interrupted =>
             string.Create(CultureInfo.CurrentCulture, $"{Duration(age)} ago"),
         _ => Duration(age),
     };

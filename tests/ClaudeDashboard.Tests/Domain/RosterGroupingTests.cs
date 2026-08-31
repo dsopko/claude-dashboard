@@ -332,6 +332,7 @@ public sealed class RosterGroupingTests
             WorkspaceGroup = GroupKeys.ForWorkspace(cwd),
             EnteredAt = entered ?? At,
             LastActivity = entered ?? At,
+            LastHeardAt = entered ?? At,
             Title = title,
         };
 }

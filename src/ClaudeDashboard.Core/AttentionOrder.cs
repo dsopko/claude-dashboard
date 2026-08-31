@@ -88,11 +88,12 @@ public static class AttentionOrder
     /// </remarks>
     public static int Rank(SessionState state) => state switch
     {
-        SessionState.NeedsPermission => 6,
-        SessionState.Error => 5,
-        SessionState.NeedsQuestion => 4,
-        SessionState.Unread => 3,
-        SessionState.Working => 2,
+        SessionState.NeedsPermission => 7,
+        SessionState.Error => 6,
+        SessionState.NeedsQuestion => 5,
+        SessionState.Unread => 4,
+        SessionState.Working => 3,
+        SessionState.Interrupted => 2,
         SessionState.Acked => 1,
         SessionState.Ended => 0,
 
@@ -118,6 +119,22 @@ public static class AttentionOrder
     /// Ranking that as <em>finished</em> is not merely untidy — it is the false reading the whole
     /// of issue #16 exists to remove. A workspace group is unchanged, because there a finished
     /// session shouting over an unrelated working one is correct.
+    /// </para>
+    /// <para>
+    /// <strong><see cref="SessionState.Interrupted"/> SITS BELOW BOTH HALVES OF THE SWAP, AND THAT
+    /// PLACEMENT IS LOAD-BEARING (issue #28).</strong> Because the swap exchanges only
+    /// <c>Working</c> and <c>Unread</c>, a state ranked beneath both is unaffected by it — so
+    /// <c>Interrupted</c> ranks 2 under either order and can tie with neither.
+    /// </para>
+    /// <para>
+    /// <strong>Had it been placed between them it would have tied with <c>Unread</c> here</strong>,
+    /// since the swap gives <c>Unread</c> the rank <c>Working</c> vacated. <see cref="WorstOf"/>
+    /// reduces over these ranks, and <see cref="Rank(SessionState)"/>'s own remark requires such a
+    /// reduction to say what it does with a tie rather than assume none arises. The tie would have
+    /// decided whether <c>RosterSettle.PendingDeadlineOf</c> applies at all — it returns null
+    /// unless the roll-up is exactly <c>Unread</c> — so a roster group would have chimed, or not,
+    /// according to which of two equal ranks the reduction happened to keep. <strong>Visible only
+    /// as a group that does or does not make a sound.</strong>
     /// </para>
     /// </remarks>
     public static int Rank(SessionState state, SeverityOrder order) => order switch
@@ -150,6 +167,11 @@ public static class AttentionOrder
         // T1.2 files a just-started session under Acked, so Acked carries both meanings.
         // Both sort by recency here, so Phase 1 cannot tell them apart and does not need to.
         SessionState.Acked => AttentionBand.Quiet,
+
+        // Quiet, and named rather than left to the default below (issue #28). It sorts by
+        // recency there on LastActivity — when the session last actually said something —
+        // which is the number the operator wants beside a row that stopped talking.
+        SessionState.Interrupted => AttentionBand.Quiet,
         SessionState.Ended => AttentionBand.Ended,
         _ => AttentionBand.Quiet,
     };

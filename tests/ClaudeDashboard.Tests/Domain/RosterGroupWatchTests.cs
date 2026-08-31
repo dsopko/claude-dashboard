@@ -181,6 +181,7 @@ public sealed class RosterGroupWatchTests
         WorkspaceGroup = GroupKeys.ForWorkspace(@"C:\w"),
         EnteredAt = entered,
         LastActivity = entered,
+        LastHeardAt = entered,
         Title = "Director",
     };
 }

@@ -205,6 +205,7 @@ public sealed class RosterSoundTests
         WorkspaceGroup = GroupKeys.ForWorkspace(@"C:\w"),
         EnteredAt = At,
         LastActivity = At,
+        LastHeardAt = At,
         Title = id,
     };
 }

@@ -128,6 +128,37 @@ public sealed class StatusSummaryTests
                 Prompt();
                 break;
 
+            // Work, then silence past the threshold. No event reaches it (issue #28).
+            //
+            // THE SWEEP IS GLOBAL, AND THIS HELPER BUILDS ONE SESSION AT A TIME. Every other
+            // working session in the registry has been silent just as long, so sweeping to reach
+            // this state greys them out too — which made a Working/Interrupted pair roll up as
+            // Interrupted and fail this test. The collateral is put back through the real resume
+            // path rather than by writing state directly, so what this fixture leaves behind is
+            // reachable in production.
+            case SessionState.Interrupted:
+                Prompt();
+
+                var working = registry.Sessions.Values
+                    .Where(session => session.Id != sessionId && session.State == SessionState.Working)
+                    .Select(session => session.Id)
+                    .ToList();
+
+                var sweptAt = At + Core.SilenceWatch.DefaultThreshold + TimeSpan.FromMinutes(1);
+                registry.SweepSilent(sweptAt, Core.SilenceWatch.DefaultThreshold);
+
+                foreach (var other in working)
+                {
+                    registry.Apply(new Core.Events.PostToolBatch
+                    {
+                        SessionId = other,
+                        Timestamp = sweptAt,
+                        Cwd = Cwd,
+                    });
+                }
+
+                break;
+
             case SessionState.Unread:
                 Prompt();
                 registry.Apply(new Core.Events.Stop

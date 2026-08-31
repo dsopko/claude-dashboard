@@ -15,6 +15,7 @@ public sealed class SessionTests
         WorkspaceGroup = new GroupKey(@"C:\projects\dashboard"),
         EnteredAt = At,
         LastActivity = At,
+        LastHeardAt = At,
     };
 
     [Fact]
