@@ -266,7 +266,10 @@ public sealed class MainWindowTests(StaHarness harness)
                 .Select(TextOf)
                 .ToList());
 
-        Assert.Contains(" need you", texts);
+        // The needs-you word, whichever tier the caption's strip is in. It shortens to " need"
+        // once the slot runs short, and this window is realized at 400 — narrow enough to be in
+        // the short tier — so asserting the long form would assert the width, not the band.
+        Assert.Contains(texts, text => text.StartsWith(" need", StringComparison.Ordinal));
         Assert.DoesNotContain(" unread", texts);
     }
 

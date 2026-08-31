@@ -226,7 +226,7 @@ public sealed class UnprotectedTextInventory
         // only because the scan cannot see a collection of strings — filed separately, and closed
         // meanwhile by the never-log tests rather than by the inventory.
         "MainViewModel.SelectionText",
-        "MainViewModel.SessionsText",
+        "MainViewModel.SessionsWord",
         "RosterPromptViewModel.Name",
         "SessionViewModel.SelectionRefusal",
         "TrayViewModel.MuteAllLabel", "TrayViewModel.PauseLabel", "TrayViewModel.Tooltip",

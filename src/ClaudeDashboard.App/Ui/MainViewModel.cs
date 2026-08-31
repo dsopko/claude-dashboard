@@ -82,7 +82,7 @@ public sealed partial class MainViewModel : ObservableObject, IUiTickTarget, IDi
     /// so it cannot disagree with them.
     /// </remarks>
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(SessionsText))]
+    [NotifyPropertyChangedFor(nameof(SessionsWord))]
     private int _sessionCount;
 
     [ObservableProperty]
@@ -100,17 +100,21 @@ public sealed partial class MainViewModel : ObservableObject, IUiTickTarget, IDi
     [ObservableProperty]
     private int _endedCount;
 
-    /// <summary>The caption's total, worded: "11 sessions", "1 session", "0 sessions".</summary>
+    /// <summary>The word after the caption's total: " sessions", or " session" for one.</summary>
     /// <remarks>
+    /// <para>
     /// Singular and plural rather than "1 sessions". The counts beside it are not worded this way
     /// — "unread" and "working" are adjectives there and take no plural — so the rule is stated
     /// once here rather than guessed from a suffix, exactly as <see cref="TrayTooltip"/> states
     /// it for the tray.
+    /// </para>
+    /// <para>
+    /// The word alone, not "11 sessions", because the caption shows it in its own run: it is the
+    /// first thing <see cref="FittingStrip"/> takes away when the slot runs short, and the number
+    /// beside it stays. A single string could not be half-hidden.
+    /// </para>
     /// </remarks>
-    public string SessionsText =>
-        string.Create(
-            CultureInfo.CurrentCulture,
-            $"{SessionCount} {(SessionCount == 1 ? "session" : "sessions")}");
+    public string SessionsWord => SessionCount == 1 ? " session" : " sessions";
 
     /// <summary>Binds to <paramref name="projection"/>.</summary>
     /// <remarks>

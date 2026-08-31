@@ -179,18 +179,23 @@
 
                             AND ALL FOUR DO NOT FIT, which is the one place 2c had to bend. The
                             design is drawn in an 820-pixel window; this one opens at 520, where
-                            the slot holds about 150 pixels and the four counts want about 230. So
-                            the strip is a FittingStrip, which drops whole counts from the right
-                            rather than clipping a word in half.
+                            the slot holds 150 pixels and the four counts want 242. So the strip
+                            is a FittingStrip: it shortens its words while that is enough, and
+                            drops whole counts from the right once it is not.
 
                             MEASURED, at the counts a fifteen-session dashboard actually reaches
                             — a two-digit total and single-digit bands. The caption's fixed
-                            furniture is 368: 48 for the icon, 120 for the title, 14 before the
-                            strip, 29 for the divider, 20 for the help slot and 138 for the three
-                            window buttons. On top of that the strip needs 424 for the total
-                            alone, 487 to add "need you", 539 to add "unread" and 601 to add
-                            "working". So the window shows nothing below 424, exactly what 2c
-                            draws at the 520 it opens at, and the whole strip from 601 up.
+                            furniture is 370: icon 48, title 121, 14 before the strip, divider 29,
+                            help slot 20, and 138 for the three window buttons. On top of that:
+
+                              tier 0   "11 sessions . 3 need you . 5 unread . 8 working"   612
+                              tier 1   "11 . 3 need . 5 unread . 8 working"                543
+
+                            and within a tier the counts arrive at 426, 494, 550 and 612. So the
+                            520 this window opens at shows three counts in tier 1. ALL FOUR NEVER
+                            FIT AT 520 while the help slot is kept, and keeping it was the
+                            operator's call: that slot and its divider are 49 of the 370, and
+                            without them tier 1 would fit whole at 494.
 
                             Tabular figures per the design's font-feature-settings:'tnum', so a
                             count ticking 9 -> 10 does not shove the words beside it.
@@ -198,11 +203,24 @@
                         <ui:FittingStrip Grid.Column="2"
                                          VerticalAlignment="Center"
                                          HorizontalAlignment="Right"
+                                         ClipToBounds="True"
                                          Margin="14,0,0,0">
-                            <TextBlock Text="{Binding SessionsText}"
-                                       FontFamily="{StaticResource UiFont}" FontSize="12"
-                                       Foreground="{StaticResource Ink2Brush}"
-                                       Typography.NumeralAlignment="Tabular" />
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="{Binding SessionCount}"
+                                           FontFamily="{StaticResource UiFont}" FontSize="12"
+                                           Foreground="{StaticResource Ink2Brush}"
+                                           Typography.NumeralAlignment="Tabular" />
+                                <!--
+                                    HideAtTier rather than Labels, because this word is bound —
+                                    it is "session" or "sessions" — and writing Text locally
+                                    would kill the binding. Tier 1 takes the word and leaves the
+                                    number, which is the cheapest 44 pixels on the ladder.
+                                -->
+                                <TextBlock Text="{Binding SessionsWord}"
+                                           ui:FittingStrip.HideAtTier="1"
+                                           FontFamily="{StaticResource UiFont}" FontSize="12"
+                                           Foreground="{StaticResource Ink2Brush}" />
+                            </StackPanel>
 
                             <StackPanel Orientation="Horizontal"
                                         Visibility="{Binding NeedsYouCount, Converter={StaticResource ZeroToCollapsed}}">
@@ -212,7 +230,13 @@
                                            FontFamily="{StaticResource UiFont}" FontSize="12" FontWeight="SemiBold"
                                            Foreground="{StaticResource RedBrush}"
                                            Typography.NumeralAlignment="Tabular" />
-                                <TextBlock Text=" need you" FontFamily="{StaticResource UiFont}" FontSize="12"
+                                <!--
+                                    The only count whose word is worth shortening: "unread" and
+                                    "working" are one word already, and abbreviating either would
+                                    cost more meaning than the four pixels it saved.
+                                -->
+                                <TextBlock ui:FittingStrip.Labels=" need you| need"
+                                           FontFamily="{StaticResource UiFont}" FontSize="12"
                                            Foreground="{StaticResource Ink2Brush}" />
                             </StackPanel>
 
