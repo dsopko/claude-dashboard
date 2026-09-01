@@ -1,6 +1,8 @@
 # Claude Dashboard
 
-A Windows tray application for developers running many concurrent Claude Code sessions. It answers, at a glance, the three questions a wall of terminals can't: **what needs me right now**, **what finished that I haven't seen**, and **what's still working** — replacing terminal-hunting and "a beep happened somewhere" with one prioritized, always-visible panel.
+A Windows tray application for developers running many concurrent Claude Code sessions. It answers, at a glance, the three questions a wall of terminals can't: **what needs me right now**, **what finished that I haven't seen**, and **what's still working**.
+
+**It also makes them audible.** Claude Code signals that it is blocked or done, and the signal is silent — so you either watch a wall of terminals, or bolt on a beeper that tells you *something* happened without saying what, or where. This plays a **different sound for each kind** — permission, question, error, finished — and puts the session that made it at the top of a panel you can already see. The beep stops being a prompt to go hunting.
 
 ![The Claude Dashboard panel, grouped by working directory](docs/claude-dashboard-screenshot.png)
 
@@ -10,6 +12,8 @@ A Windows tray application for developers running many concurrent Claude Code se
 
 - A single resident tray app whose icon is an overall **status light** (red needs-you · amber error · green unread · blue working · grey quiet), rolled up from every session.
 - A panel that sorts sessions into **attention bands** — needs-you (oldest first), unread (newest first), working, quiet — grouped by working directory, with each row showing the prompt *and*, when finished, the answer, so most checks resolve without switching to the terminal.
+- **Sound that carries meaning.** Four distinct notices — permission, question, error, finished — so a beep tells you what happened before you look at anything. A nudge re-raises something still waiting, and any of it can be silenced: every session, the next thirty minutes, or one session on its own.
+- **Group orchestration, and one notice for the whole group.** Group related sessions — a director/coder/reviewer team, or a fan-out across repositories — and the members' individual done chimes are suppressed. You get a **single notice when the last one finishes**, however many there are and whatever order they land in, instead of a chime per member you then have to count.
 - Its world is **event-sourced from Claude Code hooks** — it never polls, and it never blocks a Claude turn (hooks are pure observers).
 - Later phases add click-to-navigate to the right terminal tab, focus-based acknowledgment, virtual-desktop grouping, searchable history, and a phone view.
 
