@@ -1,8 +1,8 @@
 # Claude Dashboard
 
-A Windows tray application for developers running many concurrent Claude Code sessions. It answers, at a glance, the three questions a wall of terminals can't: **what needs me right now**, **what finished that I haven't seen**, and **what's still working**.
+Stop babysitting your terminal. Claude Dashboard gives you sound and visual notifications when a long-running Claude Code agent finishes its turn, so you can context-switch freely without letting critical tasks stall.
 
-**It also makes them audible.** Claude Code signals that it is blocked or done, and the signal is silent — so you either watch a wall of terminals, or bolt on a beeper that tells you *something* happened without saying what, or where. This plays a **different sound for each kind** — permission, question, error, finished — and puts the session that made it at the top of a panel you can already see. The beep stops being a prompt to go hunting.
+A Windows tray application for developers running many concurrent Claude Code sessions. It answers, at a glance, the three questions a wall of terminals can't: **what needs me right now**, **what finished that I haven't seen**, and **what's still working**.
 
 ![The Claude Dashboard panel, grouped by working directory](docs/claude-dashboard-screenshot.png)
 
