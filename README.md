@@ -2,7 +2,9 @@
 
 A Windows tray application for developers running many concurrent Claude Code sessions. It answers, at a glance, the three questions a wall of terminals can't: **what needs me right now**, **what finished that I haven't seen**, and **what's still working** — replacing terminal-hunting and "a beep happened somewhere" with one prioritized, always-visible panel.
 
-**Status:** planning complete, implementation not yet started. The design, specifications, and a phased execution plan are done; code begins at execution-plan task **T1.0**.
+![The Claude Dashboard panel, grouped by working directory](docs/claude-dashboard-screenshot.png)
+
+**Status:** Phase 1 is building. The tray app runs, ingests Claude Code hooks, and shows the panel above; the design, specifications, and a phased execution plan are done. Windows integration — click-to-navigate, focus acknowledgment, virtual-desktop grouping — begins at Phase 2.
 
 ## What it does
 
@@ -56,18 +58,25 @@ Development runs as a small agent workflow: a **director** drives the execution 
 claude-dashboard/
 ├── README.md
 ├── CLAUDE.md                     # always-loaded project context + orchestration pointer
+├── ClaudeDashboard.slnx
 ├── .gitignore
 ├── .gitattributes
 ├── .claude/
 │   └── skills/
 │       └── dashboard-orchestration/
 │           └── SKILL.md          # loadable guide to the director/coder/reviewer workflow
+├── src/
+│   ├── ClaudeDashboard.Core/     # the domain: state machine, attention ordering, grouping
+│   └── ClaudeDashboard.App/      # the Windows host: WPF panel, tray, ingress, adapters
+├── tests/
+│   └── ClaudeDashboard.Tests/    # xUnit, including the architecture and dependency rules
 └── docs/
     ├── claude-dashboard-design.md
     ├── claude-dashboard-spec.md
     ├── claude-dashboard-impl-spec.md
     ├── claude-dashboard-execution-plan.md
-    └── claude-dashboard-mockups.html
+    ├── claude-dashboard-mockups.html
+    └── claude-dashboard-screenshot.md   # how the README screenshot is retaken
 ```
 
-The solution and source are added by execution-plan task **T1.0**; until then this repository holds planning artifacts only.
+`ClaudeDashboard.Core` holds no WPF, Win32 or ASP.NET reference, and nothing references `ClaudeDashboard.App` — a rule the test suite enforces rather than merely states.
