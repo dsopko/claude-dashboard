@@ -1834,3 +1834,20 @@ remark says the badge is your chosen word for the usual cause.
 
 If that reads as too fine a distinction: it is the same one that cost three review cycles this week,
 and the only reason it is cheap here is that it was decided before the code existed.
+
+## D112 — The packaging run is autonomous, and the gate moves to your machine
+You said: make the decisions, record only the ones I would have stopped for, and finish with a
+working install that installs its own hooks when it starts. So the standing rule changes for this
+workstream: **nothing resurfaces until there is an installed dashboard on your machine or a
+blocker I cannot get past.** Review still happens on every task and the two-cycle cap still holds;
+a third failure gets my ruling rather than yours, and is written here.
+
+PKG.4 was "human-executed". It is now mine to run as far as your machine allows: the Sandbox loop
+and the first iteration ruled earlier — install the Setup here, then delete `ClaudeDashboardApp\`.
+**The Hyper-V gate as a standard user is the one thing I cannot do**, because there is no VM and
+creating one is a machine change. It stays open in the packaging plan as yours, and the install
+you asked for does not wait on it.
+
+The hook install at first start is T1.32 as landed. The one addition before your install is T1.33,
+so a machine with no Claude Code gets nothing written — which is not your machine, but is the
+first thing a clean-machine test would have filed.
