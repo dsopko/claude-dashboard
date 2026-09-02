@@ -1,17 +1,22 @@
 <#
 .SYNOPSIS
-Publishes Claude Dashboard for packaging (PKG.2; Packaging Design D2, D4).
+Publishes and packs Claude Dashboard (PKG.2, PKG.3; Packaging Design D2-D6).
 
 .DESCRIPTION
-Part one of the package pipeline: dotnet publish, self-contained, win-x64, as a DIRECTORY of
-files — deliberately not single-file, because Velopack diffs releases at the file level and a
-single-file bundle collapses every update into one opaque blob (Design D2).
+Part one: dotnet publish, self-contained, win-x64, as a DIRECTORY of files — deliberately not
+single-file, because Velopack diffs releases at the file level and a single-file bundle
+collapses every update into one opaque blob (Design D2).
 
-The version is mandatory and is the one number the whole release carries (Design D4): it goes to
-dotnet publish here, and PKG.3 hands the same value to vpk pack. Velopack requires full semver,
-so 0.1 is refused here rather than failing later inside the pack step.
+Part two: dotnet vpk pack over that directory, producing the per-user Setup, the portable zip,
+the full update package and the release manifests in artifacts\releases (Design D1, D3).
 
-Part two (vpk pack) is PKG.3's, not this script's yet.
+The version is mandatory and is the one number the whole release carries (Design D4): the same
+value goes to dotnet publish and to vpk pack. Velopack requires full semver, so 0.1 is refused
+here rather than failing later inside the pack step.
+
+ONE-TIME SETUP: dotnet tool restore. vpk is pinned as a repo-local tool in
+.config\dotnet-tools.json, at the version the app's own Velopack package reference names — a
+test fails when the two drift (Design D5). Never install vpk globally for this repo.
 
 .PARAMETER Version
 Full semver: 0.1.0, optionally with -prerelease and +buildmetadata.
@@ -60,3 +65,37 @@ $files = Get-ChildItem -Recurse -File $publishDir
 $bytes = ($files | Measure-Object -Property Length -Sum).Sum
 
 Write-Host ("Published {0} files, {1:N1} MB, to {2}" -f $files.Count, ($bytes / 1MB), $publishDir)
+
+# ---- Part two: pack (PKG.3) --------------------------------------------------------------------
+
+$releasesDir = Join-Path $repoRoot 'artifacts\releases'
+$icon = Join-Path $repoRoot 'src\ClaudeDashboard.App\Assets\app.ico'
+
+# Cleared for the same reason part one clears publish: vpk writes into whatever is here, and a
+# stale artefact from a previous version would ride along into whatever uploads this folder.
+# Local deltas are deliberately not a goal — Step 3 builds deltas against the published release
+# feed, not against leftovers on one machine's disk.
+if (Test-Path $releasesDir) {
+    Remove-Item -Recurse -Force $releasesDir
+}
+
+# dotnet vpk, never a global vpk: the manifest pins the version to the app's own Velopack
+# package, and a global tool is whatever somebody installed last (Design D5).
+dotnet vpk pack `
+    --packId dsopko.ClaudeDashboard `
+    --packVersion $Version `
+    --packDir $publishDir `
+    --mainExe ClaudeDashboard.App.exe `
+    --packTitle "Claude Dashboard" `
+    --icon $icon `
+    --outputDir $releasesDir
+
+if ($LASTEXITCODE -ne 0) {
+    throw "dotnet vpk pack failed with exit code $LASTEXITCODE. The publish output in $publishDir is intact."
+}
+
+# Everything vpk produced stays: Setup, portable zip, the full .nupkg and the release manifests
+# are one release and Step 3 uploads them together. Nothing here filters or deletes.
+Get-ChildItem -File $releasesDir | ForEach-Object {
+    Write-Host ("Packed  {0,12:N0} KB  {1}" -f ($_.Length / 1KB), $_.Name)
+}

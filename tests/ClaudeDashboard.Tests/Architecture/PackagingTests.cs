@@ -129,6 +129,47 @@ public sealed class PackagingTests
                 manifest!)).Exists);
     }
 
+    /// <summary>
+    /// The <c>vpk</c> tool is pinned at the app's own Velopack version (PKG.3, Design D5).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The csproj's comment says "a bump here is a bump there", and a comment cannot enforce
+    /// anything — the PKG.1 review said so, and this is the enforcement. The packer and the
+    /// runtime library are two halves of one protocol: an install produced by one version of
+    /// <c>vpk</c> is handled at run time by the <c>VelopackApp</c> the package reference chose,
+    /// and letting them drift is how an update pipeline breaks in a way nothing on this machine
+    /// notices.
+    /// </para>
+    /// <para>
+    /// Read from both files rather than from a shared constant, because the two files are the
+    /// two things the tools actually read: <c>dotnet vpk</c> resolves from the manifest and the
+    /// build resolves from the csproj, and a constant beside this test would be a third copy for
+    /// both to drift from.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void The_vpk_tool_is_pinned_at_the_apps_own_Velopack_version()
+    {
+        var package = AppProject()
+            .Descendants("PackageReference")
+            .Single(reference => reference.Attribute("Include")?.Value == "Velopack")
+            .Attribute("Version")?.Value;
+
+        Assert.False(string.IsNullOrEmpty(package), "The App project no longer pins a Velopack version.");
+
+        using var manifest = System.Text.Json.JsonDocument.Parse(File.ReadAllText(
+            Path.Combine(RepoLayout.Root.FullName, ".config", "dotnet-tools.json")));
+
+        var tool = manifest.RootElement
+            .GetProperty("tools")
+            .GetProperty("vpk")
+            .GetProperty("version")
+            .GetString();
+
+        Assert.Equal(package, tool);
+    }
+
     /// <summary>Not MSIX, and the reason is not preference (Impl §10.2).</summary>
     /// <remarks>
     /// Its sandboxing fights writing the scheduled task and merging Claude Code's settings, and
