@@ -22,7 +22,7 @@ Everything the Technical Spec marks as later-phase is later-phase here too. Phas
 - **Runtime:** .NET 10 (current LTS). Pin to the current LTS and stay on it; this is a long-lived personal tool, not a place to chase STS releases.
 - **Language:** C# 14 (ships with .NET 10).
 - **UI:** WPF (`net10.0-windows`, `<UseWPF>true</UseWPF>`).
-- **Architecture / RID:** `win-x64` (dev box is x64). Self-contained, single-file publish so "starts with Windows" doesn't depend on a machine-wide runtime install.
+- **Architecture / RID:** `win-x64` (dev box is x64). Self-contained publish, as a **directory of files**, so "starts with Windows" doesn't depend on a machine-wide runtime install. *(This said single-file until PKG.2. The reason was that nothing should be able to copy "the exe" without its halves; Velopack ended the argument from the other side — it diffs releases at the file level, single-file is not a shape it packages, and the exe's neighbours now live inside Velopack's managed install directory, which no user browses. Packaging Design D2.)*
 - **DPI:** Per-Monitor v2 (Part 5).
 
 ### 1.2 Projects
@@ -440,7 +440,7 @@ Realizes the "logon tray app, not a service" decision (TS integration constraint
 
 ### 10.2 Packaging and first-run setup
 
-- **Publish:** `dotnet publish -c Release -r win-x64 --self-contained` as a single-file exe. **Not MSIX** — its sandboxing fights writing the scheduled task and merging Claude Code's settings, both of which this tool must do.
+- **Publish:** `build\package.ps1 -Version <semver>`, which runs `dotnet publish -c Release -r win-x64 --self-contained` to a **directory of files** under `artifacts\publish` (PKG.2). *(This said "a single-file exe" until PKG.2; Packaging Design D2 records why the shape changed — Velopack's delta updates diff at the file level, and a single-file bundle collapses every release into one opaque blob.)* **Not MSIX** — its sandboxing fights writing the scheduled task and merging Claude Code's settings, both of which this tool must do.
 - **First-run setup** (the step that realizes everything above):
   1. Register the logon scheduled task (via `schtasks`, or `Microsoft.Win32.TaskScheduler` for a typed API).
   2. Ensure `CLAUDE_DASHBOARD_TOKEN` exists (generate and set if absent). Set it at **User** scope, not process scope, or no Claude Code session will inherit it. A terminal already open when it is set never sees it: those sessions have no token and their hooks are rejected until they restart. **The generated token uses `[A-Za-z0-9_-]` only** — measured 2026-08-30: a token containing a double quote does not survive `cmd`'s argument quoting on its way into the `X-Dashboard-Token` header. An `&` does survive, so this is a fidelity limit rather than an injection, and it costs nothing to avoid.

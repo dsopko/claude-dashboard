@@ -379,6 +379,11 @@ public static class AppHost
         bool foldersReady,
         string? folderFailure)
     {
+        // The version first, before anything else says anything (PKG.2): it is what PKG.4's gate
+        // and every later support question reads, and first is the one position nobody has to
+        // search for.
+        StartupVersion.Log(logger);
+
         // The effective root, always, at Information. When the override goes wrong the operator's
         // symptom is "my settings are being ignored", and the first question anybody asks is
         // which folder was actually read. Answer it before it is asked.

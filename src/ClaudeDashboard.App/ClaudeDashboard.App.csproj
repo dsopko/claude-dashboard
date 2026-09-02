@@ -81,53 +81,55 @@
   </PropertyGroup>
 
   <!--
-    T1.19 — the shipping shape (Impl 10.2): win-x64, self-contained, one file.
-    Not MSIX: its sandboxing fights writing the scheduled task and merging
-    Claude Code's settings, and this tool must do both.
+    T1.19, reshaped by PKG.2 — the shipping shape (Impl 10.2, Packaging Design D2): win-x64,
+    self-contained, a DIRECTORY of files. Not MSIX: its sandboxing fights writing the scheduled
+    task and merging Claude Code's settings, and this tool must do both.
+
+    THIS SAID "ONE FILE", AND THE REASON IT CHANGED IS RECORDED RATHER THAN DELETED (D2).
+    Single-file was chosen so nothing could copy "the exe" without its halves. Velopack ended
+    that argument from the other side: it diffs releases at the file level, so a single-file
+    bundle collapses every delta update into one opaque blob, and the exe's neighbours now live
+    inside Velopack's managed install directory, which no user browses. PublishSingleFile and
+    IncludeNativeLibrariesForSelfExtract left with the bundle — the second existed only to pull
+    native DLLs into it — and so did the listed absence of EnableCompressionInSingleFile, which
+    has no meaning without one.
 
     Conditioned on a RuntimeIdentifier being supplied, which is what keeps an
     ordinary `dotnet build` and the whole test suite exactly as they were. A RID
     set unconditionally here would make every build runtime-specific and move
     the output directory under a RID folder — so the test project, which loads
     the Core assembly from beside its own binaries, would be looking in a path
-    that no longer exists. The publish command supplies -r; nothing else does.
+    that no longer exists. build\package.ps1 supplies -r; nothing else does.
 
-    Deliberately absent, each for a reason:
-      * EnableCompressionInSingleFile — costs startup time on every logon to
-        save disk that is not scarce, on an app whose whole job is to be there
-        already when the operator looks.
+    Still deliberately absent, each for a reason:
       * InvariantGlobalization — the tray tooltip and the row ages render
         through CurrentCulture (Impl 5.2), so dropping ICU would change what
         the operator reads.
       * PublishReadyToRun — a real startup win and a large size cost; worth
         measuring later against a stopwatch rather than adopting on faith.
+      * Any trimming property — not an option for WPF regardless (D2).
   -->
   <PropertyGroup Condition="'$(RuntimeIdentifier)' != ''">
     <SelfContained>true</SelfContained>
-    <PublishSingleFile>true</PublishSingleFile>
-
-    <!--
-      Without this the native dependencies sit beside the exe as loose DLLs, which is the
-      failure that only shows up when somebody copies "the exe" somewhere on its own.
-    -->
-    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
 
     <!--
-      App's symbols go inside the executable. Core's do not: it builds with its own defaults and
-      emits ClaudeDashboard.Core.pdb beside the exe, and that is left alone deliberately —
-      shipping it is what makes a crash in Core symbolicate.
+      App's symbols go inside its assembly. Kept through the shape change on its merits: embedded
+      symbols travel with the assembly as one unit through Velopack's file-level deltas, a crash
+      in App still symbolicates, and nothing needs the pdb as a separable file. Core's are NOT
+      embedded: it builds with its own defaults and emits ClaudeDashboard.Core.pdb into the
+      publish folder, and that is left alone deliberately — shipping it is what makes a crash in
+      Core symbolicate.
     -->
     <DebugType>embedded</DebugType>
   </PropertyGroup>
 
   <!--
-    So "single file" ships as three entries, and all three are intended: the executable, the
+    Two entries in the publish folder are there on purpose and must survive any tidying: the
     Core symbols above, and sounds\ — which Impl Part 8 requires beside the exe rather than
     embedded, because an operator replaces a shipped sound by dropping a like-named file into
     their config folder, and a resource compiled into the assembly could neither be compared
-    with nor shadowed by a file on disk. The property above is about native *dependencies*
-    being bundled, not about the folder holding exactly one item.
+    with nor shadowed by a file on disk.
   -->
 
   <!--

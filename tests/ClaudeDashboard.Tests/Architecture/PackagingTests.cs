@@ -4,7 +4,8 @@ using System.Xml.Linq;
 namespace ClaudeDashboard.Tests.Architecture;
 
 /// <summary>
-/// The shipping shape: win-x64, self-contained, one file (Impl §10.2; T1.19).
+/// The shipping shape: win-x64, self-contained, a directory of files (Impl §10.2; T1.19,
+/// reshaped by PKG.2 per Packaging Design D2).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -34,31 +35,36 @@ public sealed class PackagingTests
 
     private static string? Setting(string name) => PublishGroup().Element(name)?.Value;
 
-    /// <summary>Self-contained and one file, which is what "no machine-wide runtime" means.</summary>
-    /// <remarks>
-    /// Impl §10.2 asks for a single-file, self-contained publish so the operator installs an
-    /// executable rather than a runtime. Losing either turns the deliverable into something that
-    /// works on this machine because a runtime happens to be installed on it.
-    /// </remarks>
-    [Fact]
-    public void The_publish_is_self_contained_and_single_file()
-    {
-        Assert.Equal("true", Setting("SelfContained"));
-        Assert.Equal("true", Setting("PublishSingleFile"));
-    }
-
     /// <summary>
-    /// Native libraries go inside the file too, or "single file" is not true.
+    /// Self-contained, and deliberately <em>not</em> single-file or trimmed (PKG.2, Design D2).
     /// </summary>
     /// <remarks>
-    /// Without this the managed assemblies are bundled and the native dependencies — NAudio's
-    /// interop and H.NotifyIcon's shell calls among them — sit beside the executable as loose
-    /// DLLs. The app still runs from its publish folder, so the failure only appears when someone
-    /// copies "the exe" somewhere and it stops working.
+    /// <para>
+    /// <strong>The single-file half of this test asserted the superseded shape, and it was these
+    /// assertions that failed when PKG.2 removed it — which is the test doing its job on the
+    /// wrong side.</strong> It required <c>PublishSingleFile</c> and
+    /// <c>IncludeNativeLibrariesForSelfExtract</c>, whose reason — nobody should copy "the exe"
+    /// without its halves — Velopack answered from the other side: it diffs releases at the file
+    /// level, a single-file bundle collapses every delta into one opaque blob, and the exe's
+    /// neighbours now live inside Velopack's managed install directory, which no user browses.
+    /// </para>
+    /// <para>
+    /// So the assertion is inverted rather than deleted: reintroducing either property, or any
+    /// trimming, would quietly hand PKG.3's <c>vpk</c> a shape it does not package. Self-contained
+    /// stays — losing it turns the deliverable into something that works on this machine because
+    /// a runtime happens to be installed on it.
+    /// </para>
     /// </remarks>
     [Fact]
-    public void Native_libraries_are_bundled_rather_than_left_beside_the_executable() =>
-        Assert.Equal("true", Setting("IncludeNativeLibrariesForSelfExtract"));
+    public void The_publish_is_self_contained_and_a_directory_of_files()
+    {
+        Assert.Equal("true", Setting("SelfContained"));
+
+        Assert.Null(Setting("PublishSingleFile"));
+        Assert.Null(Setting("IncludeNativeLibrariesForSelfExtract"));
+        Assert.Null(Setting("PublishTrimmed"));
+        Assert.Null(Setting("TrimMode"));
+    }
 
     /// <summary>
     /// The publish settings apply only when a runtime identifier is given.
@@ -105,11 +111,11 @@ public sealed class PackagingTests
     /// The manifest is still declared, and it is the same file the elevation and DPI tests read.
     /// </summary>
     /// <remarks>
-    /// Packaging is where a manifest quietly stops being applied — a single-file publish generates
-    /// its own apphost, and whether the source manifest reaches it is a packaging behaviour rather
-    /// than a compilation one. That half is verified against the published executable itself and
-    /// reported with the task; this half is the declaration those two tests already depend on, so
-    /// that "packaging changed and the manifest was dropped from the project" cannot pass quietly.
+    /// Packaging is where a manifest quietly stops being applied. The sharpest form of that
+    /// concern was the single-file bundle's apphost, which PKG.2 removed along with the bundle;
+    /// what remains is the ordinary apphost, whose manifest embedding is routine. This half is
+    /// the declaration the elevation and DPI tests already depend on, so that "packaging changed
+    /// and the manifest was dropped from the project" cannot pass quietly.
     /// </remarks>
     [Fact]
     public void The_application_manifest_is_still_declared()

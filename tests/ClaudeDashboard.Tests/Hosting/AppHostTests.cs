@@ -208,6 +208,17 @@ public sealed class AppHostTests : IDisposable
         Assert.NotEmpty(Directory.EnumerateFiles(_paths.LogFolder, "*.log"));
         Assert.Contains("Claude Dashboard starting", logs, StringComparison.Ordinal);
         Assert.Contains(_root, logs, StringComparison.Ordinal);
+
+        // The version line, and FIRST (PKG.2): it is what PKG.4's gate and every support
+        // question reads, and first is the one position nobody has to search for. Asserted
+        // through the real file sink rather than only against a recording logger, because the
+        // wiring — ReportStartup calling it before its own first line — is what this test can
+        // see and StartupVersionTests cannot.
+        var version = logs.IndexOf($"Claude Dashboard {StartupVersion.Value}.", StringComparison.Ordinal);
+        var starting = logs.IndexOf("Claude Dashboard starting", StringComparison.Ordinal);
+
+        Assert.True(version >= 0, "The startup log carries no version line.");
+        Assert.True(version < starting, "The version line must be the first thing the logger says.");
     }
 
     [Fact]

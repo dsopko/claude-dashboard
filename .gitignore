@@ -9,6 +9,10 @@ x86/
 [Aa][Rr][Mm]/
 [Aa][Rr][Mm]64/
 build/
+# ...except the repo root's build\, which is source: the package script lives there (PKG.2).
+# The bare build/ above stays for nested build-output folders; the anchor makes this exception
+# reach only the root.
+!/build/
 artifacts/
 publish/
 [Pp]ublish[Oo]utput/
