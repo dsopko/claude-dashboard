@@ -209,16 +209,19 @@ public sealed class AppHostTests : IDisposable
         Assert.Contains("Claude Dashboard starting", logs, StringComparison.Ordinal);
         Assert.Contains(_root, logs, StringComparison.Ordinal);
 
-        // The version line, and FIRST (PKG.2): it is what PKG.4's gate and every support
-        // question reads, and first is the one position nobody has to search for. Asserted
-        // through the real file sink rather than only against a recording logger, because the
-        // wiring — ReportStartup calling it before its own first line — is what this test can
-        // see and StartupVersionTests cannot.
-        var version = logs.IndexOf($"Claude Dashboard {StartupVersion.Value}.", StringComparison.Ordinal);
-        var starting = logs.IndexOf("Claude Dashboard starting", StringComparison.Ordinal);
+        // The version line, and FIRST — the first line of the written file, not merely earlier
+        // than one named other line (PKG.2 fix cycle 1). The first version of this asserted the
+        // version's index below the "starting" line's index, and the reviewer planted a
+        // logger.Information("Hello first.") directly above the version call: 1530/1530 green,
+        // with the file opening on the plant. "Before one thing" is not "first"; only reading
+        // the file's own first line asserts the position PKG.4 will grep for. The file is fresh
+        // per test root, and nothing logs between CreateLogger and ReportStartup on this path.
+        var firstLine = logs.Split('\n')[0].TrimEnd('\r');
 
-        Assert.True(version >= 0, "The startup log carries no version line.");
-        Assert.True(version < starting, "The version line must be the first thing the logger says.");
+        Assert.EndsWith(
+            $"Claude Dashboard {StartupVersion.Value}.",
+            firstLine,
+            StringComparison.Ordinal);
     }
 
     [Fact]

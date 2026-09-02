@@ -1433,7 +1433,9 @@ byte, in all three rows including the one that is kept.
   the load outcome rather than literals, and that a switch's decision is recorded. That is a weaker
   kind of claim than a behavioural one and is the reason the decision was given a type of its own.
 - **The built exe was not started.** `dotnet publish -c Release -r win-x64 --self-contained`
-  succeeds and produces the single-file executable; nobody ran it.
+  succeeds and produces the single-file executable; nobody ran it. *(The shape changed in PKG.2,
+  per Packaging Design D2: the publish is a directory of files now, and single-file is gone. The
+  sentence above stands as what was observed when it was written.)*
 
 ### T1.19's guardrail is half satisfied, and the other half is not satisfiable here
 

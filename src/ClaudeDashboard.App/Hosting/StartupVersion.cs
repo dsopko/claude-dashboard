@@ -12,7 +12,8 @@ namespace ClaudeDashboard.App.Hosting;
 /// question reads it from the log.</strong> The build stamps the informational version —
 /// <c>0.1.0+sha</c> as <c>build\package.ps1</c>'s <c>-Version</c> and the SDK's source-revision
 /// stamping produce it — and one Information line carries it, first thing after the logger
-/// exists, so it is the first line of every day's log.
+/// exists, so it is the first line of every start. (Not of every file: a dashboard running
+/// across midnight rolls to a file whose first line is whatever happened first that day.)
 /// </para>
 /// <para>
 /// <strong>Read from the App assembly by type, not from

@@ -11,7 +11,8 @@ x86/
 build/
 # ...except the repo root's build\, which is source: the package script lives there (PKG.2).
 # The bare build/ above stays for nested build-output folders; the anchor makes this exception
-# reach only the root.
+# reach only the root. Note it un-ignores that WHOLE tree, not just the script — anything a
+# tool writes under the root build\ will show up as untracked, so output belongs in artifacts\.
 !/build/
 artifacts/
 publish/
