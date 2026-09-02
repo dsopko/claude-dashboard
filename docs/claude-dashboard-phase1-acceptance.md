@@ -1496,8 +1496,13 @@ refuses it — which is why the table calls it refused twice over.)
 
 **What stays open, stated so it is not mistaken for closed:** reflection, a source generator, or a
 second file can still reach the decision without the searched name, and an adversary editing
-`Program.cs` can equally delete the guard itself. The guard's threat model is honest drift and lazy
-shortcuts, and for that the argument equality is the load-bearing line. The same commented-out-call
+`Program.cs` can equally delete the guard itself. And the review measured one more member of the
+family, which belongs here beside the six-row table because this list is the boundary of what
+argument equality can promise: `settings = settings with { InstallHooksAtStart = true };` inserted
+one line above an otherwise untouched call passes the guard at 1526 of 1526 — it overrides the
+value while leaving the wiring intact, and no argument-text guard can see it without data-flow
+analysis. The guard's threat model is honest drift and lazy shortcuts, and for that the argument
+equality is the load-bearing line. The same commented-out-call
 hole existed in this file's other three positive searches — the withdrawal count, the
 switch-before-gate ordering, and the RecordSwitch presence — and all now search code only, while
 every `DoesNotContain` stays on the raw text, where a forbidden call even in a comment is worth a
