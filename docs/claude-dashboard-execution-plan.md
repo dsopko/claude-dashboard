@@ -318,6 +318,16 @@ Tasks landing after T1.20. Each one puts the acceptance document out of date in 
 - **Guardrails:** **never write a file you could not read** — a settings file rewritten from a partial parse costs the operator everything in it, and that is a worse failure than the one this task fixes. **Nothing is written on quit**; the part of issue #29 that mattered is that the handler outlives the process. **Top up on partial rather than only installing at zero**, or a build that adds an event never reaches an install that already exists. Never log the file's contents (T1.24).
 - **Note:** the cost is a real one and is accepted rather than solved. `SettingsFileWriter` renders from `JsonNode`, which carries neither comments nor formatting, so the install that repairs a missing handler also flattens a hand-formatted file. Guardrail three keeps the bill to the starts that actually repair something, which for most installs is one.
 
+**T1.33 — No Claude Code, no hook install**
+- **Goal:** the dashboard never creates `~/.claude` on a machine that has never had Claude Code.
+- **Depends:** T1.32
+- **Realizes:** the packaging gate's item 7 (Packaging Execution Plan, PKG.4). Follow-up to T1.32, [issue #39](https://github.com/dsopko/claude-dashboard/issues/39). Closes [issue #42](https://github.com/dsopko/claude-dashboard/issues/42)
+- **Deliverables:** `StartupHookInstall.Wanted` refuses when the directory holding Claude Code's settings file does not exist — the one reliable sign that Claude Code is not installed — and `Run` logs one line saying so. An absent **file** inside a present directory still installs: that is a fresh Claude Code user, and it is the case T1.32 exists for. `HookInstaller` gains no logic. The truth table gains the row; §5k gains the line.
+- **Acceptance:** no `~/.claude` directory → nothing written anywhere under it, one log line naming the reason; `~/.claude` present with no `settings.json` → installs as before; every other T1.32 row unchanged. The `--install-hooks` switch is **not** gated — an operator who runs it by hand is asking, and the directory is created for them as today. Both suite counts.
+- **Guardrails:** the check is the directory, not a search for a Claude Code executable — the app never goes looking for other software. Never log the path's contents (T1.24).
+
+**Ordering ruled 2026-09-02:** the packaging workstream — `PKG.1` → `PKG.2` → `PKG.3` → T1.33 → `PKG.4` in the [Packaging Execution Plan](claude-dashboard-packaging-execution-plan.md) — runs **ahead of T2.1**. Appendix A is unchanged; the packaging plan carries its own order.
+
 ---
 
 ## Part 4 — Phases 2–7 task outlines
