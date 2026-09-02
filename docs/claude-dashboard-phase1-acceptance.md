@@ -1466,22 +1466,42 @@ themselves. Only a guard that reads `Program.cs` as text can see it — and what
 whole of the opt-out: an operator who ran `--remove-hooks` gets their hooks back at the next start
 with a log line as the only evidence.
 
-**And the review proved the fourth plant's guard was itself disarmable (fix cycle 1).** The guard
-searched from the call to the end of the file, so `true, // was settings.InstallHooksAtStart` — the
-literal in the code, the token in a comment beside it — left the suite green at 1520 of 1520. The
-guard now reads the call's own argument list with line comments stripped, and both disarms were
-re-planted against it:
+**And the review disarmed the fourth plant's guard four times across two fix cycles, which is its
+own finding.** Cycle 1: the guard searched from the call to the end of the file, and `true,
+// was settings.InstallHooksAtStart` — the literal in the code, the token in a comment beside it —
+left the suite green. The repair bounded the window to the argument list and stripped `//`
+comments. Cycle 2 beat that twice more: the token in a `/* */` block inside one argument slot, and
+a commented-out correct call one line above the real one, which the raw `IndexOf` found first so
+the window never read the real call at all. **A guard that looks for tokens in a window is a
+statement more confident than the thing beneath it.** The guard now strips both comment styles and
+every string literal's contents from the whole file, requires the call to occur exactly once in
+what remains, splits its argument list on top-level commas, and asserts the second and third
+arguments **equal** the expressions — and no `using` directive may name the type. Every disarm was
+re-planted against it, full suite each:
 
 | Planted defect | Result |
 |---|---|
-| a literal `true` for the opt-out in `Program.cs` | **fails 1** — the rewritten opt-out tripwire |
-| the reviewer's `true, // was settings.InstallHooksAtStart` | **fails 1** — the same tripwire, which is the point |
+| a literal `true` for the opt-out in `Program.cs` | **fails 1** — the opt-out tripwire |
+| `true, // was settings.InstallHooksAtStart` | **fails 1** |
+| `true, /* was settings.InstallHooksAtStart */` | **fails 1** |
+| literal `true`, plus the correct call commented out one line above | **fails 1** |
+| literal `true`, a decoy correct call in a string literal, the real call between phantom `"/*"` and `"*/"` strings | **fails 1** — string contents are blanked, so the decoy counts for nothing |
+| literal `true` behind a `using` alias, a dead correct copy in `#if false` | **fails 1** — the using-directive assertion; **measured to pass with that assertion disabled**, which is what proves the closure earns its place |
 | the `Unreadable` refusal dropped from the decision | **fails 3** — both Unreadable truth-table rows, and the corrupt-own-settings scenario |
 
-The third row is the review's other must-fix asserted from the failing side: without the refusal, a
+The last row is the review's other must-fix asserted from the failing side: without the refusal, a
 corrupt dashboard settings file defaults the opt-out to install and a recorded `--remove-hooks` is
 silently overridden. (The complete-and-Unreadable table row survives that plant — `Complete` already
 refuses it — which is why the table calls it refused twice over.)
+
+**What stays open, stated so it is not mistaken for closed:** reflection, a source generator, or a
+second file can still reach the decision without the searched name, and an adversary editing
+`Program.cs` can equally delete the guard itself. The guard's threat model is honest drift and lazy
+shortcuts, and for that the argument equality is the load-bearing line. The same commented-out-call
+hole existed in this file's other three positive searches — the withdrawal count, the
+switch-before-gate ordering, and the RecordSwitch presence — and all now search code only, while
+every `DoesNotContain` stays on the raw text, where a forbidden call even in a comment is worth a
+failure that gets read.
 
 **The suite counts, both configurations, clean `--no-incremental` builds, 0 warnings: Debug and
 Release 1526 of 1526 after fix cycle 1** (1520 before it; the cycle added four truth-table rows, the
