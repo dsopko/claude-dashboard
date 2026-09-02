@@ -1851,3 +1851,14 @@ you asked for does not wait on it.
 The hook install at first start is T1.32 as landed. The one addition before your install is T1.33,
 so a machine with no Claude Code gets nothing written — which is not your machine, but is the
 first thing a clean-machine test would have filed.
+
+## D113 — No desktop shortcut, and the publisher is a person
+`vpk` defaults to a Start Menu entry **and a desktop shortcut**, and to `Publisher = dsopko.ClaudeDashboard`
+in the Apps list. Design D3 names the Start Menu and the Apps list and nothing else, and a tray
+application that will one day start at logon has no business on the desktop — the shortcut would be
+the one thing the user sees that the app itself never uses. PKG.3 passes `--shortcuts StartMenuRoot`.
+
+The publisher string is cosmetic and identity-facing, which is exactly the kind of thing I would have
+asked about. It is set to **David Sopko**, the name on every commit, because a dotted package id is
+not a publisher and the winget manifest in Step 6 will want the same string. Change it there if you
+would rather the company name; it is one switch.

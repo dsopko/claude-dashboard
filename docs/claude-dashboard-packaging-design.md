@@ -40,7 +40,7 @@ Rather than migrate the data root (a path change that would have to be coordinat
 | `%LocalAppData%\dsopko.ClaudeDashboard\` | Velopack | `current\` (binaries), `Update.exe`, packages |
 | `%LocalAppData%\ClaudeDashboard\` | the app | settings, SQLite, logs, port file — **unchanged** |
 
-No collision, no data migration, no coordination burden on the hook workstream. Uninstall removes the binaries and leaves the user's data in place (deliberate; a "remove my data too" affordance can join the Step 2 hook-removal toggle later). Display surfaces — Start Menu, the Apps list — show the `packTitle`, so no user ever sees the dotted id. And the scheduled task of the future gets a path that survives every update: `%LocalAppData%\dsopko.ClaudeDashboard\current\ClaudeDashboard.App.exe`.
+No collision, no data migration, no coordination burden on the hook workstream. Uninstall removes the binaries and leaves the user's data in place (deliberate; a "remove my data too" affordance can join the Step 2 hook-removal toggle later). Display surfaces — Start Menu, the Apps list — show the `packTitle`, so no user ever sees the dotted id. **No desktop shortcut** (D113): the pack passes `--shortcuts StartMenuRoot`, and `--packAuthors` names the person, since the Apps list shows it as Publisher. And the scheduled task of the future gets a path that survives every update: `%LocalAppData%\dsopko.ClaudeDashboard\current\ClaudeDashboard.App.exe`.
 
 ### D4. One version number, supplied at invocation
 
