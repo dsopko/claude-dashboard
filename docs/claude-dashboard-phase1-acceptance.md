@@ -1389,12 +1389,19 @@ unreadable dashboard settings file hands back defaults, the default says install
 and warns, while a *missing* file is a first run and installs. Unknown is not consent, and missing
 is not unreadable. **T1.33 added a fifth, and it outranks the rest: no Claude Code, no install and
 nothing created** ([issue #42](https://github.com/dsopko/claude-dashboard/issues/42)). When Claude
-Code's configuration directory does not exist, the machine has never had Claude Code, and a start
-that installed anyway would conjure `~/.claude` into being — the settings write creates the
-directory on its way to the file. The refusal logs one Information line, because a machine without
-Claude Code is an ordinary machine, not a broken one; an absent *file* inside a present directory
-still installs, being exactly the fresh user T1.32 exists for; and `--install-hooks` is not gated,
-because an operator typing it is asking. That is PKG.4's gate item 7, testable before any VM.
+Code's configuration directory does not exist, the machine has never had Claude Code. **What would
+conjure `~/.claude` into being is `Install()`'s own `CreateDirectory` line — which T1.33 itself
+added, so the ungated switch works on such a machine — and the refusal is what keeps that line off
+the start path.** The settings write creates no parents, and the review measured it: a missing
+parent comes back as `Unreadable`, so the pre-T1.33 start on a no-Claude machine attempted the
+install silently every start, created nothing, and logged nothing, since only `Written` logs.
+**Issue #42's premise — that a start would create the directory — held for the switch fix this task
+shipped, not for the pre-commit start**, whose real defect was a silent failed attempt on every
+start. The refusal logs one Information line, and Check's own finding drops to Information on that
+machine too, because a machine without Claude Code is an ordinary machine, not a broken one; an
+absent *file* inside a present directory still installs, being exactly the fresh user T1.32 exists
+for; and `--install-hooks` is not gated, because an operator typing it is asking. That is PKG.4's
+gate item 7, testable before any VM.
 
 **The opt-out is `installHooksAtStart`, in the dashboard's own `settings.json`, default `true`.** It
 is ours and not Claude Code's; no key of that name is ever written into `~/.claude/settings.json`.

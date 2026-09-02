@@ -344,6 +344,14 @@ public sealed class HookInstaller
     /// if they had opted out. The remedy belongs to <see cref="StartupHookInstall"/>, which is the
     /// only thing that knows which of the two happened.
     /// </para>
+    /// <para>
+    /// <strong>The absent-handler finding drops to Information on a machine with no Claude Code
+    /// (T1.33 review, unpinning the brief's "today's severity" for exactly this case).</strong>
+    /// There the missing hook is the expected state, and a Warning-filtered reader would see the
+    /// alarm while its explanation — the refusal line — sat one level below the filter. The two
+    /// lines now travel at one level, and the Warning is reserved for the machine where a missing
+    /// handler is genuinely wrong.
+    /// </para>
     /// </remarks>
     private void ReportPresence(HookPresence presence)
     {
@@ -384,7 +392,15 @@ public sealed class HookInstaller
             return;
         }
 
-        _logger.Warning(
+        // Information, not Warning, when the machine has no Claude Code at all (T1.33 review).
+        // The missing hook is the EXPECTED state there, and a reader filtering at Warning would
+        // see this alarm with its explanation — StartupHookInstall's refusal line — one level
+        // down where the filter hides it. On a machine that has Claude Code, a missing handler
+        // is genuinely wrong and stays a Warning.
+        _logger.Write(
+            presence.ClaudeCodeInstalled
+                ? Serilog.Events.LogEventLevel.Warning
+                : Serilog.Events.LogEventLevel.Information,
             "Claude Code's settings carry the dashboard's hook on {Events} of {Expected} events for " +
             "{Script}. Until it is installed this dashboard receives nothing, which looks exactly like " +
             "a quiet day.",

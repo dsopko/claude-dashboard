@@ -302,14 +302,18 @@ public sealed class StartupHookInstallTests : IDisposable
     /// </summary>
     /// <remarks>
     /// <para>
-    /// The assertion is the DIRECTORY'S absence after, not merely that no file exists: the
-    /// settings write creates the directory on its way to the file, so a start that installed
-    /// would conjure <c>~/.claude</c> into being on a machine that has never had Claude Code —
-    /// PKG.4's gate item 7, and the whole of the issue.
+    /// The assertion is the DIRECTORY'S absence after, not merely that no file exists: what
+    /// would conjure <c>~/.claude</c> on this machine is <c>Install()</c>'s own
+    /// <c>CreateDirectory</c> line — added for the ungated switch — and the refusal under test
+    /// is the only thing keeping a start away from it. (The settings write itself creates no
+    /// parents: it reports <c>Unreadable</c>, so the pre-T1.33 start attempted this install
+    /// silently every start and created nothing.) PKG.4's gate item 7, and the whole of the
+    /// issue.
     /// </para>
     /// <para>
-    /// The line is Information, asserted by level: a machine without Claude Code is an ordinary
-    /// machine, not a broken one, and the log must not say otherwise.
+    /// Both lines are Information, asserted by level: a machine without Claude Code is an
+    /// ordinary machine, not a broken one, and the log must not say otherwise — at any level a
+    /// reader might filter to.
     /// </para>
     /// </remarks>
     [Fact]
@@ -329,6 +333,43 @@ public sealed class StartupHookInstallTests : IDisposable
             _sink.Events.Where(entry =>
                 RecordingLogSink.Render(entry).Contains("Claude Code is not installed", StringComparison.Ordinal)),
             entry => Assert.Equal(Serilog.Events.LogEventLevel.Information, entry.Level));
+
+        // Check's own finding travels at the same level here, or a Warning-filtered reader sees
+        // the alarm with its explanation hidden below the filter (T1.33 review).
+        var finding = Assert.Single(
+            _sink.Events,
+            entry => RecordingLogSink.Render(entry).Contains("carry the dashboard's hook", StringComparison.Ordinal));
+
+        Assert.Equal(Serilog.Events.LogEventLevel.Information, finding.Level);
+    }
+
+    /// <summary>
+    /// <strong>The absent-handler finding is a Warning only where Claude Code exists.</strong>
+    /// </summary>
+    /// <remarks>
+    /// The pair, asserted against each other: same machine, same missing handler, and the one
+    /// difference is whether Claude Code's directory exists. Present, the missing handler is
+    /// genuinely wrong and warns; absent, it is the expected state of an ordinary machine and
+    /// informs — so a reader filtering at Warning never sees an alarm whose explanation sits one
+    /// level below the filter.
+    /// </remarks>
+    [Fact]
+    public void The_finding_is_a_warning_only_where_claude_code_exists()
+    {
+        Installer().Check();
+
+        Directory.Delete(_claudeRoot);
+        Installer().Check();
+
+        var levels = _sink.Events
+            .Where(entry =>
+                RecordingLogSink.Render(entry).Contains("carry the dashboard's hook", StringComparison.Ordinal))
+            .Select(entry => entry.Level)
+            .ToList();
+
+        Assert.Equal(
+            [Serilog.Events.LogEventLevel.Warning, Serilog.Events.LogEventLevel.Information],
+            levels);
     }
 
     /// <summary>

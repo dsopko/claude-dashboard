@@ -79,14 +79,19 @@ public static class StartupHookInstall
     /// <para>
     /// <strong>No Claude Code, no install — and nothing created (T1.33, issue #42).</strong>
     /// When Claude Code's configuration directory does not exist, this machine has never had
-    /// Claude Code, and a start that installed anyway would conjure <c>~/.claude</c> into being
-    /// on it — the settings write creates the directory on its way to the file. The fact rides
-    /// on <see cref="HookPresence"/> because it is a finding about Claude Code's side of the
-    /// world, found by the same <c>Check</c> against the same paths instance as everything else
-    /// there. An absent <em>file</em> inside a present directory is the opposite case — a fresh
-    /// Claude Code user — and still installs; that is who T1.32 exists for. <c>--install-hooks</c>
-    /// is deliberately not gated: an operator running it by hand is asking, and it creates the
-    /// directory for them as it always has.
+    /// Claude Code. <strong>The thing that would conjure <c>~/.claude</c> into being is
+    /// <see cref="HookInstaller.Install"/>'s own <c>CreateDirectory</c> line — added by this same
+    /// task so the ungated switch works — and this refusal is what keeps that line off the start
+    /// path.</strong> The settings <em>write</em> does not create parents, and the review
+    /// measured it: a missing parent raises an <c>IOException</c> that <c>SettingsFileWriter</c>
+    /// reports as <c>Unreadable</c>, so before T1.33 a start on such a machine attempted the
+    /// install silently every start, created nothing, and got <c>Unreadable</c> back with no log
+    /// line, since only <c>Written</c> logs. The fact rides on <see cref="HookPresence"/> because
+    /// it is a finding about Claude Code's side of the world, found by the same <c>Check</c>
+    /// against the same paths instance as everything else there. An absent <em>file</em> inside a
+    /// present directory is the opposite case — a fresh Claude Code user — and still installs;
+    /// that is who T1.32 exists for. <c>--install-hooks</c> is deliberately not gated: an
+    /// operator running it by hand is asking.
     /// </para>
     /// </remarks>
     /// <param name="presence">What <see cref="HookInstaller.Check"/> found.</param>
