@@ -117,15 +117,25 @@ public sealed class StartupHookGuardTests
     }
 
     /// <summary>
-    /// <strong>The start reads the operator's opt-out rather than assuming it.</strong>
+    /// <strong>The start passes the operator's opt-out and its load outcome to the decision —
+    /// asserted inside the call's own argument list, with comments removed.</strong>
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <c>StartupHookInstall.Run</c> takes the flag as an argument, so a caller that passed a
-    /// literal <c>true</c> would compile, pass every behavioural test in the suite — they call the
-    /// decision directly — and quietly reinstate the hooks of an operator who ran
-    /// <c>--remove-hooks</c>. That is the worst outcome this change can produce and the argument is
-    /// the only place it can be caught.
+    /// <c>StartupHookInstall.Run</c> takes the flag and the outcome as arguments, so a caller that
+    /// passed a literal <c>true</c> or a literal <c>SettingsLoadOutcome.Loaded</c> would compile,
+    /// pass every behavioural test in the suite — they call the decision directly and supply both
+    /// themselves — and quietly reinstate the hooks of an operator who ran <c>--remove-hooks</c>.
+    /// The argument list is the only place it can be caught.
+    /// </para>
+    /// <para>
+    /// <strong>THE FIRST VERSION OF THIS GUARD SCANNED THE WRONG WINDOW, AND THE REVIEW PROVED IT
+    /// (T1.32 fix cycle 1).</strong> It searched from the call to the end of the file, so it was
+    /// sound only while the token appeared nowhere else in <c>Program.cs</c>. The reviewer planted
+    /// <c>true, // was settings.InstallHooksAtStart</c> — the literal in the code, the token in a
+    /// comment beside it — and the suite stayed green. So the window is now the argument list
+    /// alone, from the call to its closing <c>");"</c>, and line comments are stripped from it
+    /// before the assertion: a token a comment carries is not an argument.
     /// </para>
     /// <para>
     /// <strong>What breaks without it.</strong> <c>--remove-hooks</c> becomes a no-op with extra
@@ -142,10 +152,14 @@ public sealed class StartupHookGuardTests
 
         Assert.True(at >= 0, "Program.cs no longer runs the start-time hook decision at all.");
 
-        Assert.Contains(
-            "settings.InstallHooksAtStart",
-            program[at..],
-            StringComparison.Ordinal);
+        var end = program.IndexOf(");", at, StringComparison.Ordinal);
+
+        Assert.True(end > at, "The StartupHookInstall.Run call is never closed, which cannot compile.");
+
+        var arguments = WithoutLineComments(program[at..end]);
+
+        Assert.Contains("settings.InstallHooksAtStart", arguments, StringComparison.Ordinal);
+        Assert.Contains("loaded.Outcome", arguments, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -196,6 +210,22 @@ public sealed class StartupHookGuardTests
             "Program.cs takes the single-instance gate before answering --install-hooks, so the switch " +
             "would stand down to a running dashboard and silently install nothing.");
     }
+
+    /// <summary>Drops <c>//</c> line comments, so a token inside one cannot satisfy a guard.</summary>
+    /// <remarks>
+    /// Line comments only, because that is the shape the proven disarm used and the only comment
+    /// style this file's guards need to see through. A <c>/* */</c> block spanning the argument
+    /// list would leave the tokens present and the arguments gone — and would also leave the call
+    /// uncompilable without them, which the build catches before any guard runs.
+    /// </remarks>
+    private static string WithoutLineComments(string text) =>
+        string.Join(
+            "\n",
+            text.Split('\n').Select(line =>
+            {
+                var slash = line.IndexOf("//", StringComparison.Ordinal);
+                return slash >= 0 ? line[..slash] : line;
+            }));
 
     private static int Occurrences(string text, string value)
     {

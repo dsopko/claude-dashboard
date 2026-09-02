@@ -1383,7 +1383,11 @@ Claude Code's settings and installs the handler when it is missing, the file rea
 operator has not opted out. A complete handler short-circuits before the merge, so the ordinary
 start still writes nothing at all — which matters because `SettingsFileWriter` renders from
 `JsonNode` and would strip every comment in a hand-formatted file even for a merge that changed no
-content.
+content. **The review added a fourth condition: the opt-out itself must have been readable.** An
+unreadable dashboard settings file hands back defaults, the default says install, and a recorded
+`--remove-hooks` lives in exactly the file that could not be read — so an `Unreadable` load refuses
+and warns, while a *missing* file is a first run and installs. Unknown is not consent, and missing
+is not unreadable.
 
 **The opt-out is `installHooksAtStart`, in the dashboard's own `settings.json`, default `true`.** It
 is ours and not Claude Code's; no key of that name is ever written into `~/.claude/settings.json`.
@@ -1425,9 +1429,9 @@ byte, in all three rows including the one that is kept.
 - **The start path is pinned by source-text guards, not by behaviour.** `Main` builds a WPF
   application, takes the single-instance gate and runs a dispatcher, and nothing in the suite can
   call it. Three tripwires read `Program.cs` as text: that the start goes through the one decision
-  type, that it passes the operator's setting rather than a literal `true`, and that a switch's
-  decision is recorded. That is a weaker kind of claim than a behavioural one and is the reason the
-  decision was given a type of its own.
+  type, that the call's own argument list — comments stripped — carries the operator's setting and
+  the load outcome rather than literals, and that a switch's decision is recorded. That is a weaker
+  kind of claim than a behavioural one and is the reason the decision was given a type of its own.
 - **The built exe was not started.** `dotnet publish -c Release -r win-x64 --self-contained`
   succeeds and produces the single-file executable; nobody ran it.
 
@@ -1462,8 +1466,26 @@ themselves. Only a guard that reads `Program.cs` as text can see it — and what
 whole of the opt-out: an operator who ran `--remove-hooks` gets their hooks back at the next start
 with a log line as the only evidence.
 
+**And the review proved the fourth plant's guard was itself disarmable (fix cycle 1).** The guard
+searched from the call to the end of the file, so `true, // was settings.InstallHooksAtStart` — the
+literal in the code, the token in a comment beside it — left the suite green at 1520 of 1520. The
+guard now reads the call's own argument list with line comments stripped, and both disarms were
+re-planted against it:
+
+| Planted defect | Result |
+|---|---|
+| a literal `true` for the opt-out in `Program.cs` | **fails 1** — the rewritten opt-out tripwire |
+| the reviewer's `true, // was settings.InstallHooksAtStart` | **fails 1** — the same tripwire, which is the point |
+| the `Unreadable` refusal dropped from the decision | **fails 3** — both Unreadable truth-table rows, and the corrupt-own-settings scenario |
+
+The third row is the review's other must-fix asserted from the failing side: without the refusal, a
+corrupt dashboard settings file defaults the opt-out to install and a recorded `--remove-hooks` is
+silently overridden. (The complete-and-Unreadable table row survives that plant — `Complete` already
+refuses it — which is why the table calls it refused twice over.)
+
 **The suite counts, both configurations, clean `--no-incremental` builds, 0 warnings: Debug and
-Release 1520 of 1520.** One Release run in seventeen failed
+Release 1526 of 1526 after fix cycle 1** (1520 before it; the cycle added four truth-table rows, the
+foreign-install pin, and the corrupt-own-settings scenario). One Release run in seventeen failed
 `Storage.HookToDatabaseTests.A_posted_hook_becomes_a_row_carrying_the_body_it_arrived_with` — the
 `events` table absent when the foreign reader looked. Measured on a scratchpad clone of the commit
 this work started from, that flake appears there too, once in thirty-one runs, and the class passes

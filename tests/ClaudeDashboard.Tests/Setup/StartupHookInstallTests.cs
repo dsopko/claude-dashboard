@@ -107,30 +107,66 @@ public sealed class StartupHookInstallTests : IDisposable
     /// <strong>The truth table, stated once, so no branch is reached only by accident.</strong>
     /// </summary>
     /// <remarks>
-    /// The one that would go unnoticed is the last: a file that would not parse is <em>also</em>
-    /// incomplete, so a rule written as "install when incomplete" installs over a broken file and
-    /// looks correct doing it.
+    /// <para>
+    /// The row that would go unnoticed among the problems is the "a count means nothing" one: a
+    /// file that would not parse is <em>also</em> incomplete, so a rule written as "install when
+    /// incomplete" installs over a broken file and looks correct doing it.
+    /// </para>
+    /// <para>
+    /// <strong>The outcome column was added by the review, and the row it protects is the
+    /// Unreadable one.</strong> An unreadable dashboard settings file hands back defaults, and the
+    /// default says install — but a recorded <c>--remove-hooks</c> lives in exactly the file that
+    /// could not be read, so the default is standing in for an answer that may be the opposite.
+    /// Unknown is not consent. <strong>Missing is not Unreadable</strong>: a first run has no file,
+    /// the default stands in for nothing, and it must install — that distinction is the difference
+    /// between fixing issue #39 and re-opening it for every new user.
+    /// </para>
     /// </remarks>
     [Theory]
 
-    // events, expected, problem, opted in → wanted
-    [InlineData(0, 8, null, true, true)]      // absent
-    [InlineData(5, 8, null, true, true)]      // partial
-    [InlineData(8, 8, null, true, false)]     // complete
-    [InlineData(0, 8, null, false, false)]    // absent, opted out
-    [InlineData(5, 8, null, false, false)]    // partial, opted out
-    [InlineData(0, 8, "broken", true, false)] // unreadable or malformed
-    [InlineData(8, 8, "broken", true, false)] // a count means nothing beside a problem
+    // events, expected, problem, opted in, own-settings outcome → wanted
+    [InlineData(0, 8, null, true, SettingsLoadOutcome.Loaded, true)]        // absent
+    [InlineData(5, 8, null, true, SettingsLoadOutcome.Loaded, true)]        // partial
+    [InlineData(8, 8, null, true, SettingsLoadOutcome.Loaded, false)]       // complete
+    [InlineData(0, 8, null, false, SettingsLoadOutcome.Loaded, false)]      // absent, opted out
+    [InlineData(5, 8, null, false, SettingsLoadOutcome.Loaded, false)]      // partial, opted out
+    [InlineData(0, 8, "broken", true, SettingsLoadOutcome.Loaded, false)]   // unreadable or malformed
+    [InlineData(8, 8, "broken", true, SettingsLoadOutcome.Loaded, false)]   // a count means nothing beside a problem
+    [InlineData(0, 8, null, true, SettingsLoadOutcome.Missing, true)]       // first run: no file, the default is real
+    [InlineData(0, 8, null, true, SettingsLoadOutcome.Unreadable, false)]   // the opt-out is unknown, not consented
+    [InlineData(5, 8, null, true, SettingsLoadOutcome.Unreadable, false)]   // partial changes nothing about unknown
+    [InlineData(8, 8, null, true, SettingsLoadOutcome.Unreadable, false)]   // refused twice over
     public void The_decision_installs_only_what_is_missing_from_a_file_that_read(
         int events,
         int expected,
         string? problem,
         bool installAtStart,
+        SettingsLoadOutcome settingsOutcome,
         bool wanted)
     {
         var presence = new HookPresence(events, expected, [], problem);
 
-        Assert.Equal(wanted, StartupHookInstall.Wanted(presence, installAtStart));
+        Assert.Equal(wanted, StartupHookInstall.Wanted(presence, installAtStart, settingsOutcome));
+    }
+
+    /// <summary>
+    /// <strong>A foreign install changes nothing about the decision, and one test pins it.</strong>
+    /// </summary>
+    /// <remarks>
+    /// <see cref="HookPresence.Foreign"/> names a handler installed under another data folder — a
+    /// real configuration, not a corruption, and <c>Check</c> warns about it with both paths. The
+    /// decision deliberately ignores it: our handler being missing is our handler being missing,
+    /// whoever else is installed. Right, but previously pinned by nothing — the truth table cannot
+    /// carry a list in an attribute, so the claim lives here.
+    /// </remarks>
+    [Fact]
+    public void A_foreign_install_does_not_change_the_decision()
+    {
+        var foreign = new HookPresence(0, 8, [@"C:\elsewhere\data\post-status.cmd"]);
+        var foreignAndComplete = new HookPresence(8, 8, [@"C:\elsewhere\data\post-status.cmd"]);
+
+        Assert.True(StartupHookInstall.Wanted(foreign, installAtStart: true, SettingsLoadOutcome.Loaded));
+        Assert.False(StartupHookInstall.Wanted(foreignAndComplete, installAtStart: true, SettingsLoadOutcome.Loaded));
     }
 
     // ---- Installing ---------------------------------------------------------------------------------
@@ -138,12 +174,15 @@ public sealed class StartupHookInstallTests : IDisposable
     /// <summary>An absent handler is installed at start, on every accepted event.</summary>
     /// <remarks>
     /// The whole of issue #39: a user who has never opened a terminal starts the exe and receives
-    /// events. Before T1.32 this file did not exist and they received nothing, for ever.
+    /// events. Before T1.32 this file did not exist and they received nothing, for ever. The load
+    /// outcome is <see cref="SettingsLoadOutcome.Missing"/> on purpose — that user has no dashboard
+    /// settings file either, so this is also the pin on "Missing is not Unreadable": treat the two
+    /// alike and the first run this issue is about installs nothing.
     /// </remarks>
     [Fact]
     public void An_absent_handler_is_installed_at_start()
     {
-        var result = StartupHookInstall.Run(Installer(), installAtStart: true, _logger);
+        var result = StartupHookInstall.Run(Installer(), installAtStart: true, SettingsLoadOutcome.Missing, _logger);
 
         Assert.Equal(SettingsWriteOutcome.Written, result?.Outcome);
         Assert.Equal(HookEventNames.Accepted.Count, Installed());
@@ -168,7 +207,7 @@ public sealed class StartupHookInstallTests : IDisposable
         ((JsonObject)settings["hooks"]!).Remove(HookEventNames.Stop);
         File.WriteAllText(_claude.UserSettingsFile, HookRegistration.Render(settings));
 
-        var result = StartupHookInstall.Run(Installer(), installAtStart: true, _logger);
+        var result = StartupHookInstall.Run(Installer(), installAtStart: true, SettingsLoadOutcome.Loaded, _logger);
 
         Assert.Equal(SettingsWriteOutcome.Written, result?.Outcome);
         Assert.Equal(HookEventNames.Accepted.Count, Installed());
@@ -197,7 +236,7 @@ public sealed class StartupHookInstallTests : IDisposable
         var theirs = WriteCompleteAndCommented();
         var before = File.GetLastWriteTimeUtc(_claude.UserSettingsFile);
 
-        var result = StartupHookInstall.Run(Installer(), installAtStart: true, _logger);
+        var result = StartupHookInstall.Run(Installer(), installAtStart: true, SettingsLoadOutcome.Loaded, _logger);
 
         Assert.Null(result);
         Assert.Equal(theirs, SettingsText());
@@ -225,7 +264,7 @@ public sealed class StartupHookInstallTests : IDisposable
             """;
         File.WriteAllText(_claude.UserSettingsFile, Theirs);
 
-        var result = StartupHookInstall.Run(Installer(), installAtStart: false, _logger);
+        var result = StartupHookInstall.Run(Installer(), installAtStart: false, SettingsLoadOutcome.Loaded, _logger);
 
         Assert.Null(result);
         Assert.Equal(Theirs, SettingsText());
@@ -248,7 +287,7 @@ public sealed class StartupHookInstallTests : IDisposable
 
         var before = SettingsText();
 
-        Assert.Null(StartupHookInstall.Run(Installer(), installAtStart: false, _logger));
+        Assert.Null(StartupHookInstall.Run(Installer(), installAtStart: false, SettingsLoadOutcome.Loaded, _logger));
         Assert.Equal(before, SettingsText());
         Assert.Equal(somethingIsThere, File.Exists(_claude.UserSettingsFile));
     }
@@ -278,7 +317,7 @@ public sealed class StartupHookInstallTests : IDisposable
     {
         File.WriteAllText(_claude.UserSettingsFile, theirs);
 
-        var result = StartupHookInstall.Run(Installer(), installAtStart: true, _logger);
+        var result = StartupHookInstall.Run(Installer(), installAtStart: true, SettingsLoadOutcome.Loaded, _logger);
 
         Assert.Null(result);
         Assert.Equal(theirs, SettingsText());
@@ -302,7 +341,7 @@ public sealed class StartupHookInstallTests : IDisposable
 
         using (new FileStream(_claude.UserSettingsFile, FileMode.Open, FileAccess.Read, FileShare.None))
         {
-            Assert.Null(StartupHookInstall.Run(Installer(), installAtStart: true, _logger));
+            Assert.Null(StartupHookInstall.Run(Installer(), installAtStart: true, SettingsLoadOutcome.Loaded, _logger));
         }
 
         Assert.Equal(Theirs, SettingsText());
@@ -340,7 +379,7 @@ public sealed class StartupHookInstallTests : IDisposable
     {
         File.WriteAllText(_claude.UserSettingsFile, theirs);
 
-        var result = StartupHookInstall.Run(Installer(), installAtStart: true, _logger);
+        var result = StartupHookInstall.Run(Installer(), installAtStart: true, SettingsLoadOutcome.Loaded, _logger);
 
         Assert.Equal(SettingsWriteOutcome.Written, result?.Outcome);
         Assert.Equal(HookEventNames.Accepted.Count, Installed());
@@ -367,7 +406,7 @@ public sealed class StartupHookInstallTests : IDisposable
 
         File.WriteAllText(_claude.UserSettingsFile, $$"""{ "model": "{{Marker}}" }""");
 
-        StartupHookInstall.Run(Installer(), installAtStart: true, _logger);
+        StartupHookInstall.Run(Installer(), installAtStart: true, SettingsLoadOutcome.Loaded, _logger);
 
         var lines = _sink.Matching(_paths.HookScriptFile);
 
@@ -388,7 +427,7 @@ public sealed class StartupHookInstallTests : IDisposable
     [Fact]
     public void An_opted_out_start_says_why_nothing_was_installed()
     {
-        StartupHookInstall.Run(Installer(), installAtStart: false, _logger);
+        StartupHookInstall.Run(Installer(), installAtStart: false, SettingsLoadOutcome.Loaded, _logger);
 
         Assert.NotEmpty(_sink.Matching("installHooksAtStart"));
         Assert.NotEmpty(_sink.Matching("--install-hooks"));
@@ -409,19 +448,76 @@ public sealed class StartupHookInstallTests : IDisposable
     {
         Installer().Install();
 
+        var told = new List<string>();
         var code = HookSwitches.Run(HookSwitches.Remove, Installer(), _ => { });
-        StartupHookInstall.RecordSwitch(HookSwitches.Remove, code, Store(), _logger);
+        StartupHookInstall.RecordSwitch(HookSwitches.Remove, code, Store(), _logger, told.Add);
 
         Assert.Equal(0, code);
         Assert.False(Store().Load().Settings.InstallHooksAtStart);
 
+        // The consequence reaches the report the operator is reading, not only the log: they are
+        // told starts will no longer install, and which switch reverses it.
+        var consequence = Assert.Single(told);
+        Assert.Contains("no longer install", consequence, StringComparison.Ordinal);
+        Assert.Contains(HookSwitches.Install, consequence, StringComparison.Ordinal);
+
+        var next = Store().Load();
         var result = StartupHookInstall.Run(
             Installer(),
-            Store().Load().Settings.InstallHooksAtStart,
+            next.Settings.InstallHooksAtStart,
+            next.Outcome,
             _logger);
 
         Assert.Null(result);
         Assert.Equal(0, Installed());
+    }
+
+    /// <summary>
+    /// <strong>A corrupt own settings file does not override a recorded removal (review of
+    /// T1.32).</strong>
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The gap the review found: <c>SettingsStore.Load</c> hands back defaults for a file that
+    /// would not read, the default says install, and the recorded <c>--remove-hooks</c> is in
+    /// exactly the file that could not be read. Without the outcome reaching the decision, this
+    /// test's end state is eight events reinstalled over the operator's stated removal — silently,
+    /// at some start after the corruption, with a log line as the only evidence.
+    /// </para>
+    /// <para>
+    /// The corruption is written over a settings file that genuinely recorded the opt-out first,
+    /// because that is the sequence the rule exists for. A test that never recorded the removal
+    /// would pass for the weaker reason that there was nothing to override.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void A_corrupt_own_settings_file_does_not_override_a_recorded_removal()
+    {
+        Installer().Install();
+        StartupHookInstall.RecordSwitch(
+            HookSwitches.Remove,
+            HookSwitches.Run(HookSwitches.Remove, Installer(), _ => { }),
+            Store(),
+            _logger);
+
+        File.WriteAllText(_paths.SettingsFile, """{ "installHooksAtStart": """);
+
+        var loaded = Store().Load();
+
+        Assert.Equal(SettingsLoadOutcome.Unreadable, loaded.Outcome);
+        Assert.True(
+            loaded.Settings.InstallHooksAtStart,
+            "The default must say install, or this test is not exercising the override.");
+
+        var result = StartupHookInstall.Run(
+            Installer(),
+            loaded.Settings.InstallHooksAtStart,
+            loaded.Outcome,
+            _logger);
+
+        Assert.Null(result);
+        Assert.Equal(0, Installed());
+        Assert.NotEmpty(_sink.Matching("could not be read, so the \"installHooksAtStart\" opt-out is unknown"));
     }
 
     /// <summary>
@@ -443,13 +539,15 @@ public sealed class StartupHookInstallTests : IDisposable
             Store(),
             _logger);
 
+        var told = new List<string>();
         var code = HookSwitches.Run(HookSwitches.Install, Installer(), _ => { });
-        var recorded = StartupHookInstall.RecordSwitch(HookSwitches.Install, code, Store(), _logger);
+        var recorded = StartupHookInstall.RecordSwitch(HookSwitches.Install, code, Store(), _logger, told.Add);
 
         Assert.Equal(0, code);
         Assert.True(recorded);
         Assert.True(Store().Load().Settings.InstallHooksAtStart);
         Assert.Equal(HookEventNames.Accepted.Count, Installed());
+        Assert.Contains(told, line => line.Contains("install the hook again", StringComparison.Ordinal));
     }
 
     /// <summary>

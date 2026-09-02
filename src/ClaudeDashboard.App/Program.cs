@@ -117,7 +117,12 @@ public static class Program
                 // Impl §5.3's two interlocks. The gate is the authority on "another copy of us is
                 // running"; the port only corroborates, because after a hard kill anything at all
                 // may be holding it. See StartupDecision.
-                var settings = new SettingsStore(paths).Load().Settings;
+                //
+                // The whole load result is kept, not just the settings: the hook install below has
+                // to know whether InstallHooksAtStart was read or defaulted from a file that would
+                // not read, because a recorded --remove-hooks lives in exactly that file.
+                var loaded = new SettingsStore(paths).Load();
+                var settings = loaded.Settings;
 
                 // WHERE THE FIRST INSTANCE ACTUALLY IS, WHICH IS NO LONGER A CONSTANT. While the
                 // port was fixed, both launches read it from the settings file. With a per-user
@@ -196,6 +201,7 @@ public static class Program
                 StartupHookInstall.Run(
                     host.Services.GetRequiredService<HookInstaller>(),
                     settings.InstallHooksAtStart,
+                    loaded.Outcome,
                     host.Services.GetRequiredService<Serilog.ILogger>());
 
                 var policy = host.Services.GetRequiredService<UnhandledExceptionPolicy>();
@@ -339,7 +345,7 @@ public static class Program
 
         var installer = new HookInstaller(new ClaudeCodePaths(), paths, new Adapters.SystemClock(), logger);
 
-        var code = HookSwitches.Run(requested, installer, line =>
+        void Report(string line)
         {
             logger.Information("{Switch}: {Line}", requested, line);
 
@@ -347,13 +353,16 @@ public static class Program
             {
                 Console.Out.WriteLine(line);
             }
-        });
+        }
+
+        var code = HookSwitches.Run(requested, installer, Report);
 
         // The switch's decision outlives the switch (issue #39). Without this, --remove-hooks would
         // be undone by the next start and would therefore mean nothing. Re-read inside rather than
         // reusing `settings` above: HookSwitches.Run has been and gone, and the file may have moved
-        // under us. It never throws and never writes a file it could not read.
-        StartupHookInstall.RecordSwitch(requested, code, store, logger);
+        // under us. It never throws and never writes a file it could not read. It reports to the
+        // same console as the switch, so the operator is told what the flag now means.
+        StartupHookInstall.RecordSwitch(requested, code, store, logger, Report);
 
         if (!attached)
         {

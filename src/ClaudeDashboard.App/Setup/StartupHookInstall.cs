@@ -67,11 +67,27 @@ public static class StartupHookInstall
     /// hand-formatted file still counts as a change and still strips every comment in it. The same
     /// reason <see cref="HookInstaller.Remove"/> reads before it writes.
     /// </para>
+    /// <para>
+    /// <strong>An unreadable opt-out is unknown, not consent (review of T1.32).</strong> When the
+    /// dashboard's own settings file cannot be read, <c>SettingsStore</c> hands back defaults, and
+    /// the default says install. But a recorded <c>--remove-hooks</c> lives in exactly the file
+    /// that could not be read — so installing on the default would override the operator's stated
+    /// decision on the strength of a file failure, and would do it silently. Only
+    /// <see cref="SettingsLoadOutcome.Unreadable"/> refuses: a missing file is a first run, where
+    /// the default is not standing in for anything and must install.
+    /// </para>
     /// </remarks>
     /// <param name="presence">What <see cref="HookInstaller.Check"/> found.</param>
     /// <param name="installAtStart">The operator's setting.</param>
-    public static bool Wanted(HookPresence presence, bool installAtStart) =>
-        installAtStart && presence.Problem is null && !presence.Complete;
+    /// <param name="settingsOutcome">
+    /// How <paramref name="installAtStart"/> was arrived at — read, defaulted from a missing file,
+    /// or defaulted from one that would not read.
+    /// </param>
+    public static bool Wanted(HookPresence presence, bool installAtStart, SettingsLoadOutcome settingsOutcome) =>
+        settingsOutcome != SettingsLoadOutcome.Unreadable
+        && installAtStart
+        && presence.Problem is null
+        && !presence.Complete;
 
     /// <summary>
     /// Reads Claude Code's settings and installs the hook if it is missing and wanted.
@@ -90,26 +106,46 @@ public static class StartupHookInstall
     /// </remarks>
     /// <param name="installer">The installer to ask and, when wanted, to drive.</param>
     /// <param name="installAtStart"><see cref="DashboardSettings.InstallHooksAtStart"/>.</param>
+    /// <param name="settingsOutcome">How the dashboard's own settings load went.</param>
     /// <param name="logger">Where the one line goes.</param>
     /// <returns>The write outcome, or <see langword="null"/> when nothing was attempted.</returns>
     /// <exception cref="ArgumentNullException">Any argument is null.</exception>
-    public static SettingsWriteResult? Run(HookInstaller installer, bool installAtStart, ILogger logger)
+    public static SettingsWriteResult? Run(
+        HookInstaller installer,
+        bool installAtStart,
+        SettingsLoadOutcome settingsOutcome,
+        ILogger logger)
     {
         ArgumentNullException.ThrowIfNull(installer);
         ArgumentNullException.ThrowIfNull(logger);
 
         var presence = installer.Check();
 
-        if (!Wanted(presence, installAtStart))
+        if (!Wanted(presence, installAtStart, settingsOutcome))
         {
-            if (presence.Problem is null && !presence.Complete && !installAtStart)
+            // Both refusals say so only when they bit — when the handler is missing and this is
+            // the reason nothing goes back. A complete handler needs neither line.
+            if (presence.Problem is null && !presence.Complete)
             {
-                logger.Information(
-                    "The dashboard's hook is on {Events} of {Expected} events and " +
-                    "\"installHooksAtStart\" is false, so nothing was installed. Run --install-hooks " +
-                    "to put it back.",
-                    presence.Events,
-                    presence.Expected);
+                if (settingsOutcome == SettingsLoadOutcome.Unreadable)
+                {
+                    logger.Warning(
+                        "The dashboard's hook is on {Events} of {Expected} events, but the " +
+                        "dashboard's own settings file could not be read, so the " +
+                        "\"installHooksAtStart\" opt-out is unknown and nothing was installed. Fix " +
+                        "or delete that settings file, or run --install-hooks.",
+                        presence.Events,
+                        presence.Expected);
+                }
+                else if (!installAtStart)
+                {
+                    logger.Information(
+                        "The dashboard's hook is on {Events} of {Expected} events and " +
+                        "\"installHooksAtStart\" is false, so nothing was installed. Run --install-hooks " +
+                        "to put it back.",
+                        presence.Events,
+                        presence.Expected);
+                }
             }
 
             return null;
@@ -167,9 +203,19 @@ public static class StartupHookInstall
     /// <param name="exitCode">What the switch returned; anything but zero records nothing.</param>
     /// <param name="store">The dashboard's own settings.</param>
     /// <param name="logger">Where a failure to save is reported.</param>
+    /// <param name="report">
+    /// Where the operator is told what the flag now means — the same console the switch reports to.
+    /// A removal that only said so in the log would leave the operator to discover at some later
+    /// start that starts no longer install; the consequence belongs in the report they are reading.
+    /// </param>
     /// <returns>Whether the flag was written.</returns>
-    /// <exception cref="ArgumentNullException">Any argument is null.</exception>
-    public static bool RecordSwitch(string requested, int exitCode, SettingsStore store, ILogger logger)
+    /// <exception cref="ArgumentNullException"><paramref name="requested"/>, <paramref name="store"/> or <paramref name="logger"/> is null.</exception>
+    public static bool RecordSwitch(
+        string requested,
+        int exitCode,
+        SettingsStore store,
+        ILogger logger,
+        Action<string>? report = null)
     {
         ArgumentNullException.ThrowIfNull(requested);
         ArgumentNullException.ThrowIfNull(store);
@@ -213,6 +259,10 @@ public static class StartupHookInstall
                 "{Switch}: \"installHooksAtStart\" is now {Value} in the dashboard's own settings.",
                 requested,
                 wanted);
+
+            report?.Invoke(wanted
+                ? "Starts will install the hook again if it goes missing (\"installHooksAtStart\" is back on)."
+                : "Starts will no longer install the hook (\"installHooksAtStart\" is now false). --install-hooks turns it back on.");
 
             return true;
         }
