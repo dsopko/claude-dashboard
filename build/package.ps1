@@ -81,14 +81,32 @@ if (Test-Path $releasesDir) {
 
 # dotnet vpk, never a global vpk: the manifest pins the version to the app's own Velopack
 # package, and a global tool is whatever somebody installed last (Design D5).
-dotnet vpk pack `
-    --packId dsopko.ClaudeDashboard `
-    --packVersion $Version `
-    --packDir $publishDir `
-    --mainExe ClaudeDashboard.App.exe `
-    --packTitle "Claude Dashboard" `
-    --icon $icon `
-    --outputDir $releasesDir
+#
+# FROM THE REPO ROOT, AND THAT IS WHAT MAKES "ANY CWD" TRUE (PKG.3 fix cycle 1). dotnet finds a
+# local tool manifest by walking up from the CURRENT DIRECTORY, not from the script or the
+# project - measured: from a directory outside the repo, part one published and this call died
+# with "command or file was not found". Push/Pop rather than passing a path, because there is
+# nothing to pass: the manifest lookup has no override switch.
+#
+# --shortcuts StartMenuRoot and --packAuthors are D113's two rulings: vpk's default also puts a
+# shortcut on the desktop, where a tray app has no business, and its default publisher string in
+# the Apps list is the dotted package id rather than a person.
+Push-Location $repoRoot
+try {
+    dotnet vpk pack `
+        --packId dsopko.ClaudeDashboard `
+        --packVersion $Version `
+        --packDir $publishDir `
+        --mainExe ClaudeDashboard.App.exe `
+        --packTitle "Claude Dashboard" `
+        --packAuthors "David Sopko" `
+        --shortcuts StartMenuRoot `
+        --icon $icon `
+        --outputDir $releasesDir
+}
+finally {
+    Pop-Location
+}
 
 if ($LASTEXITCODE -ne 0) {
     throw "dotnet vpk pack failed with exit code $LASTEXITCODE. The publish output in $publishDir is intact."
