@@ -1862,3 +1862,23 @@ The publisher string is cosmetic and identity-facing, which is exactly the kind 
 asked about. It is set to **David Sopko**, the name on every commit, because a dotted package id is
 not a publisher and the winget manifest in Step 6 will want the same string. Change it there if you
 would rather the company name; it is one switch.
+
+## D114 — Installed on your machine from `10cc1e3`, and what that does and does not prove
+You asked for a working install that installs its own hooks. It is running: `0.1.0+10cc1e3`, from
+`%LocalAppData%\dsopko.ClaudeDashboard\current\`, Start Menu entry, Apps entry, no desktop shortcut,
+port 52888, and hook events from this machine's live sessions arriving within the minute. The legacy
+`ClaudeDashboardApp\` and `.staging` folders are gone, as ruled.
+
+**What it proved about the hooks is the no-write path, not the install path.** Your handler was
+already complete, so T1.32 read Claude Code's settings and left the file byte for byte alone — the
+first time that has been observed on a real file rather than a fixture. The install path itself was
+proved only redirected, by both peers, on a scratch Claude root. A fresh machine is still the gate's.
+
+**One thing I would have asked you before doing:** the Setup was run `--silent`, and a silent install
+does not launch the app. I started it from the shortcut's target, which is what the Start Menu entry
+does. Whether the ordinary double-click Setup launches it at the end is unobserved.
+
+**One thing you should know:** your dashboard had not been running since 2026-08-31 10:17. The last
+log before today's is that day's, and the process I started that morning was gone when I looked
+tonight. Nothing in the log says why. It is not the install's doing — it predates the install by a
+day — but it is the kind of silent exit issue #12 was about, and it is worth your eye.
