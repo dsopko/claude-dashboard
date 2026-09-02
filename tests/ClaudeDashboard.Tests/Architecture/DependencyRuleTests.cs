@@ -33,6 +33,10 @@ public sealed class DependencyRuleTests
         (@"^H\.NotifyIcon", "tray icon belongs in App"),
         (@"^CommunityToolkit\.Mvvm$", "MVVM/UI libraries belong in App"),
         (@"Interop", "COM interop belongs in App"),
+
+        // Added by PKG.1's review, which proved the gap by planting the package into Core and
+        // watching the suite stay green: no pattern above matched "Velopack".
+        (@"^Velopack", "the installer runtime belongs in App (Packaging Design D1)"),
     ];
 
     [Fact]

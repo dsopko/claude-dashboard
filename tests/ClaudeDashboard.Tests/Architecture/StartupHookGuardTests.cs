@@ -280,6 +280,16 @@ public sealed class StartupHookGuardTests
     /// because whatever runs first can run instead. The two index comparisons are kept as well,
     /// so a failure names the thing that got ahead when it is one of the two known killers.
     /// </para>
+    /// <para>
+    /// <strong>What this guard cannot see, named so its coverage is not overread (PKG.1 fix
+    /// cycle 1).</strong> "First statement of <c>Main</c>" is not "first thing the process runs":
+    /// a static field initialised with <c>SingleInstanceGate.Acquire(...)</c> takes the gate in
+    /// the type initialiser, before <c>Main</c>'s first statement, and this guard and the
+    /// behavioural tests all stay green — the reviewer measured it. An expression-bodied
+    /// <c>Main</c> forwarding to a helper likewise moves the body out of the window this guard
+    /// reads. Both are outside its stated model, the way the value override is outside the
+    /// opt-out guard's; the model is honest drift within <c>Main</c>'s body as written.
+    /// </para>
     /// </remarks>
     [Fact]
     public void Velopack_runs_before_everything_else_in_Main()
@@ -288,10 +298,18 @@ public sealed class StartupHookGuardTests
 
         const string Call = "VelopackApp.Build().Run();";
 
+        var occurrences = Occurrences(code, Call);
+
         Assert.True(
-            Occurrences(code, Call) == 1,
-            "Program.cs must call VelopackApp.Build().Run() exactly once, so that the call this " +
-            "guard reads is the call that runs.");
+            occurrences > 0,
+            "Program.cs no longer contains the exact text 'VelopackApp.Build().Run();'. If the " +
+            "builder chain grew — .OnFirstRun, .SetArgs — the call has moved, not gone: update " +
+            "this guard's Call constant to the new text and keep the first-statement assertion.");
+
+        Assert.True(
+            occurrences == 1,
+            $"Program.cs calls VelopackApp.Build().Run() {occurrences} times in code; it must be " +
+            "exactly one, so that the call this guard reads is the call that runs.");
 
         var signature = code.IndexOf("public static int Main(string[] args)", StringComparison.Ordinal);
 

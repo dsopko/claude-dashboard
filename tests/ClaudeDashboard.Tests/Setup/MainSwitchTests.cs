@@ -15,10 +15,19 @@ namespace ClaudeDashboard.Tests.Setup;
 /// <strong>This is the one place the suite runs <c>Main</c>, and PKG.1 is why it exists.</strong>
 /// Every other switch test calls <c>HookSwitches.Run</c> directly, which proves the switch and
 /// says nothing about the path to it. PKG.1 put <c>VelopackApp.Build().Run()</c> ahead of the
-/// switches, and a lifecycle library that mis-read <c>--install-hooks</c> — or failed to load at
-/// all on .NET 10 — would break every switch invocation while every direct test stayed green.
-/// A switch run through <c>Main</c> executes the Velopack handler for real, on this runtime,
-/// which is also the live half of PKG.1's ".NET 10, verified not assumed" requirement.
+/// switches, and a library that failed to load on .NET 10 would break every switch invocation
+/// while every direct test stayed green.
+/// </para>
+/// <para>
+/// <strong>What running <c>Run()</c> in-process does and does not prove (PKG.1 fix cycle 1).</strong>
+/// It proves the Velopack assembly loads and <c>Run()</c> returns on this runtime, and that the
+/// first-statement position executes on the switch path — a throw planted at that position fails
+/// this test. It does <em>not</em> exercise Velopack's reading of <c>Main</c>'s arguments:
+/// Velopack 1.2.0 reads <c>Environment.GetCommandLineArgs()</c> unless <c>SetArgs</c> is used,
+/// so in this process <c>Run()</c> sees the test host's command line, not the array handed to
+/// <c>Main</c> here. Argument reading against a real command line is checked by running the
+/// built exe with each switch, which PKG.1's acceptance did as a measured step outside the
+/// suite. The product is deliberately not changed to <c>SetArgs</c> for this test's benefit.
 /// </para>
 /// <para>
 /// <strong>Safe to run because both roots are redirected, and serialized because the redirection
