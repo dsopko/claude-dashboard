@@ -34,17 +34,18 @@ public sealed class StartupHookInstallTests : IDisposable
 
     private readonly DashboardPaths _paths;
     private readonly ClaudeCodePaths _claude;
+    private readonly string _claudeRoot;
     private readonly RecordingLogSink _sink = new();
     private readonly Serilog.Core.Logger _logger;
 
     public StartupHookInstallTests()
     {
-        var claudeRoot = Path.Combine(_root, "dot-claude");
-        Directory.CreateDirectory(claudeRoot);
+        _claudeRoot = Path.Combine(_root, "dot-claude");
+        Directory.CreateDirectory(_claudeRoot);
 
         _paths = new DashboardPaths(Path.Combine(_root, "data"));
         Directory.CreateDirectory(_paths.Root);
-        _claude = new ClaudeCodePaths(claudeRoot);
+        _claude = new ClaudeCodePaths(_claudeRoot);
 
         _logger = new LoggerConfiguration()
             .MinimumLevel.Verbose()
@@ -124,27 +125,30 @@ public sealed class StartupHookInstallTests : IDisposable
     /// </remarks>
     [Theory]
 
-    // events, expected, problem, opted in, own-settings outcome → wanted
-    [InlineData(0, 8, null, true, SettingsLoadOutcome.Loaded, true)]        // absent
-    [InlineData(5, 8, null, true, SettingsLoadOutcome.Loaded, true)]        // partial
-    [InlineData(8, 8, null, true, SettingsLoadOutcome.Loaded, false)]       // complete
-    [InlineData(0, 8, null, false, SettingsLoadOutcome.Loaded, false)]      // absent, opted out
-    [InlineData(5, 8, null, false, SettingsLoadOutcome.Loaded, false)]      // partial, opted out
-    [InlineData(0, 8, "broken", true, SettingsLoadOutcome.Loaded, false)]   // unreadable or malformed
-    [InlineData(8, 8, "broken", true, SettingsLoadOutcome.Loaded, false)]   // a count means nothing beside a problem
-    [InlineData(0, 8, null, true, SettingsLoadOutcome.Missing, true)]       // first run: no file, the default is real
-    [InlineData(0, 8, null, true, SettingsLoadOutcome.Unreadable, false)]   // the opt-out is unknown, not consented
-    [InlineData(5, 8, null, true, SettingsLoadOutcome.Unreadable, false)]   // partial changes nothing about unknown
-    [InlineData(8, 8, null, true, SettingsLoadOutcome.Unreadable, false)]   // refused twice over
+    // events, expected, problem, opted in, own-settings outcome, Claude Code installed → wanted
+    [InlineData(0, 8, null, true, SettingsLoadOutcome.Loaded, true, true)]        // absent
+    [InlineData(5, 8, null, true, SettingsLoadOutcome.Loaded, true, true)]        // partial
+    [InlineData(8, 8, null, true, SettingsLoadOutcome.Loaded, true, false)]       // complete
+    [InlineData(0, 8, null, false, SettingsLoadOutcome.Loaded, true, false)]      // absent, opted out
+    [InlineData(5, 8, null, false, SettingsLoadOutcome.Loaded, true, false)]      // partial, opted out
+    [InlineData(0, 8, "broken", true, SettingsLoadOutcome.Loaded, true, false)]   // unreadable or malformed
+    [InlineData(8, 8, "broken", true, SettingsLoadOutcome.Loaded, true, false)]   // a count means nothing beside a problem
+    [InlineData(0, 8, null, true, SettingsLoadOutcome.Missing, true, true)]       // first run: no file, the default is real
+    [InlineData(0, 8, null, true, SettingsLoadOutcome.Unreadable, true, false)]   // the opt-out is unknown, not consented
+    [InlineData(5, 8, null, true, SettingsLoadOutcome.Unreadable, true, false)]   // partial changes nothing about unknown
+    [InlineData(8, 8, null, true, SettingsLoadOutcome.Unreadable, true, false)]   // refused twice over
+    [InlineData(0, 8, null, true, SettingsLoadOutcome.Missing, false, false)]     // no Claude Code: the PKG.4 machine
+    [InlineData(0, 8, null, true, SettingsLoadOutcome.Loaded, false, false)]      // no Claude Code outranks everything
     public void The_decision_installs_only_what_is_missing_from_a_file_that_read(
         int events,
         int expected,
         string? problem,
         bool installAtStart,
         SettingsLoadOutcome settingsOutcome,
+        bool claudeCodeInstalled,
         bool wanted)
     {
-        var presence = new HookPresence(events, expected, [], problem);
+        var presence = new HookPresence(events, expected, [], problem, claudeCodeInstalled);
 
         Assert.Equal(wanted, StartupHookInstall.Wanted(presence, installAtStart, settingsOutcome));
     }
@@ -290,6 +294,63 @@ public sealed class StartupHookInstallTests : IDisposable
         Assert.Null(StartupHookInstall.Run(Installer(), installAtStart: false, SettingsLoadOutcome.Loaded, _logger));
         Assert.Equal(before, SettingsText());
         Assert.Equal(somethingIsThere, File.Exists(_claude.UserSettingsFile));
+    }
+
+    /// <summary>
+    /// <strong>A machine without Claude Code gets nothing — no install and no directory
+    /// (T1.33, issue #42).</strong>
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The assertion is the DIRECTORY'S absence after, not merely that no file exists: the
+    /// settings write creates the directory on its way to the file, so a start that installed
+    /// would conjure <c>~/.claude</c> into being on a machine that has never had Claude Code —
+    /// PKG.4's gate item 7, and the whole of the issue.
+    /// </para>
+    /// <para>
+    /// The line is Information, asserted by level: a machine without Claude Code is an ordinary
+    /// machine, not a broken one, and the log must not say otherwise.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void A_machine_without_Claude_Code_gets_nothing_created()
+    {
+        Directory.Delete(_claudeRoot);
+
+        var result = StartupHookInstall.Run(Installer(), installAtStart: true, SettingsLoadOutcome.Missing, _logger);
+
+        Assert.Null(result);
+        Assert.False(Directory.Exists(_claudeRoot), "The start must not create Claude Code's directory.");
+
+        var line = Assert.Single(_sink.Matching("Claude Code is not installed"));
+
+        Assert.Contains(_claudeRoot, line, StringComparison.Ordinal);
+        Assert.All(
+            _sink.Events.Where(entry =>
+                RecordingLogSink.Render(entry).Contains("Claude Code is not installed", StringComparison.Ordinal)),
+            entry => Assert.Equal(Serilog.Events.LogEventLevel.Information, entry.Level));
+    }
+
+    /// <summary>
+    /// <strong><c>--install-hooks</c> is not gated: run by hand, it still creates the directory
+    /// and installs (T1.33).</strong>
+    /// </summary>
+    /// <remarks>
+    /// An operator typing the switch is asking, and the ask outranks the heuristic — the absent
+    /// directory means "Claude Code is not installed" only until the person who knows better
+    /// says otherwise. Driven through <see cref="HookSwitches.Run"/>, the path the real switch
+    /// takes.
+    /// </remarks>
+    [Fact]
+    public void An_install_switch_still_creates_the_directory()
+    {
+        Directory.Delete(_claudeRoot);
+
+        var code = HookSwitches.Run(HookSwitches.Install, Installer(), _ => { });
+
+        Assert.Equal(0, code);
+        Assert.True(Directory.Exists(_claudeRoot));
+        Assert.Equal(HookEventNames.Accepted.Count, Installed());
     }
 
     // ---- Never a file that would not read -----------------------------------------------------------

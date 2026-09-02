@@ -76,6 +76,18 @@ public static class StartupHookInstall
     /// <see cref="SettingsLoadOutcome.Unreadable"/> refuses: a missing file is a first run, where
     /// the default is not standing in for anything and must install.
     /// </para>
+    /// <para>
+    /// <strong>No Claude Code, no install — and nothing created (T1.33, issue #42).</strong>
+    /// When Claude Code's configuration directory does not exist, this machine has never had
+    /// Claude Code, and a start that installed anyway would conjure <c>~/.claude</c> into being
+    /// on it — the settings write creates the directory on its way to the file. The fact rides
+    /// on <see cref="HookPresence"/> because it is a finding about Claude Code's side of the
+    /// world, found by the same <c>Check</c> against the same paths instance as everything else
+    /// there. An absent <em>file</em> inside a present directory is the opposite case — a fresh
+    /// Claude Code user — and still installs; that is who T1.32 exists for. <c>--install-hooks</c>
+    /// is deliberately not gated: an operator running it by hand is asking, and it creates the
+    /// directory for them as it always has.
+    /// </para>
     /// </remarks>
     /// <param name="presence">What <see cref="HookInstaller.Check"/> found.</param>
     /// <param name="installAtStart">The operator's setting.</param>
@@ -84,7 +96,8 @@ public static class StartupHookInstall
     /// or defaulted from one that would not read.
     /// </param>
     public static bool Wanted(HookPresence presence, bool installAtStart, SettingsLoadOutcome settingsOutcome) =>
-        settingsOutcome != SettingsLoadOutcome.Unreadable
+        presence.ClaudeCodeInstalled
+        && settingsOutcome != SettingsLoadOutcome.Unreadable
         && installAtStart
         && presence.Problem is null
         && !presence.Complete;
@@ -123,8 +136,23 @@ public static class StartupHookInstall
 
         if (!Wanted(presence, installAtStart, settingsOutcome))
         {
-            // Both refusals say so only when they bit — when the handler is missing and this is
-            // the reason nothing goes back. A complete handler needs neither line.
+            // Not an error and not a warning: a machine without Claude Code is an ordinary
+            // machine, and this dashboard on it is just early (T1.33). One line, the reason and
+            // the path checked, so a CLAUDE_CONFIG_DIR pointing somewhere odd is diagnosable
+            // from the same sentence.
+            if (!presence.ClaudeCodeInstalled)
+            {
+                logger.Information(
+                    "Claude Code is not installed — {Directory} does not exist — so the " +
+                    "dashboard's hook was not installed and nothing was created. Install Claude " +
+                    "Code first, or run --install-hooks to create it deliberately.",
+                    installer.ClaudeConfigDirectory);
+
+                return null;
+            }
+
+            // Both remaining refusals say so only when they bit — when the handler is missing
+            // and this is the reason nothing goes back. A complete handler needs neither line.
             if (presence.Problem is null && !presence.Complete)
             {
                 if (settingsOutcome == SettingsLoadOutcome.Unreadable)

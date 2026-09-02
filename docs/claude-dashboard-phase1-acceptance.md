@@ -1387,7 +1387,14 @@ content. **The review added a fourth condition: the opt-out itself must have bee
 unreadable dashboard settings file hands back defaults, the default says install, and a recorded
 `--remove-hooks` lives in exactly the file that could not be read — so an `Unreadable` load refuses
 and warns, while a *missing* file is a first run and installs. Unknown is not consent, and missing
-is not unreadable.
+is not unreadable. **T1.33 added a fifth, and it outranks the rest: no Claude Code, no install and
+nothing created** ([issue #42](https://github.com/dsopko/claude-dashboard/issues/42)). When Claude
+Code's configuration directory does not exist, the machine has never had Claude Code, and a start
+that installed anyway would conjure `~/.claude` into being — the settings write creates the
+directory on its way to the file. The refusal logs one Information line, because a machine without
+Claude Code is an ordinary machine, not a broken one; an absent *file* inside a present directory
+still installs, being exactly the fresh user T1.32 exists for; and `--install-hooks` is not gated,
+because an operator typing it is asking. That is PKG.4's gate item 7, testable before any VM.
 
 **The opt-out is `installHooksAtStart`, in the dashboard's own `settings.json`, default `true`.** It
 is ours and not Claude Code's; no key of that name is ever written into `~/.claude/settings.json`.

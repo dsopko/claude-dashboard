@@ -11,11 +11,19 @@ namespace ClaudeDashboard.App.Setup;
 /// <param name="Expected">How many should.</param>
 /// <param name="Foreign">Script paths that look like ours but name another data folder.</param>
 /// <param name="Problem">Why the file could not be read, when it could not be.</param>
+/// <param name="ClaudeCodeInstalled">
+/// Whether Claude Code's configuration directory exists at all (T1.33, issue #42). The check is
+/// the directory and only the directory — the app never goes looking for other software — and
+/// its absence is the one reliable sign this machine has never had Claude Code, which is what
+/// stops a start creating <c>~/.claude</c> on it. Defaults to <see langword="true"/> so that a
+/// presence built by hand describes the ordinary machine unless it says otherwise.
+/// </param>
 public readonly record struct HookPresence(
     int Events,
     int Expected,
     IReadOnlyList<string> Foreign,
-    string? Problem = null)
+    string? Problem = null,
+    bool ClaudeCodeInstalled = true)
 {
     /// <summary>Whether every accepted event carries our handler.</summary>
     public bool Complete => Problem is null && Events == Expected;
@@ -96,6 +104,13 @@ public sealed class HookInstaller
     public string ScriptPath => _paths.HookScriptFile;
 
     /// <summary>
+    /// Where Claude Code's configuration lives — the directory whose absence means Claude Code is
+    /// not installed (T1.33). A pass-through like <see cref="ScriptPath"/>, so the one line that
+    /// reports the refusal can name the path it checked without a second path computation.
+    /// </summary>
+    public string ClaudeConfigDirectory => _claude.ConfigDirectory;
+
+    /// <summary>
     /// Writes the script and merges the command handler into Claude Code's settings.
     /// </summary>
     /// <remarks>
@@ -108,6 +123,14 @@ public sealed class HookInstaller
     {
         _paths.TryEnsureCreated(out _);
         HookScript.EnsureWritten(_paths, _logger);
+
+        // Claude Code's directory too (T1.33). An operator running --install-hooks on a machine
+        // without Claude Code is asking, and the ask must not die on a missing parent folder —
+        // measured before this line existed: the settings write failed and the switch exited 1,
+        // so "the directory is created for them as today" had never been true. The START path
+        // cannot reach here on such a machine — StartupHookInstall.Wanted refuses first — so
+        // this creates ~/.claude only on an explicit ask. Idempotent when it already exists.
+        Directory.CreateDirectory(_claude.ConfigDirectory);
 
         var writer = NewWriter();
         writer.SweepAbandonedTemporaries();
@@ -207,13 +230,20 @@ public sealed class HookInstaller
         var expected = HookEventNames.Accepted.Count;
         var script = ScriptPath;
 
+        // The one existence check that says whether this machine has Claude Code at all (T1.33).
+        // The same _claude every other read here goes through — a second path computation would
+        // be a second answer to the same question. Measured once and threaded through every arm,
+        // though only the absent-file arm can carry false: a file cannot be found, read, or fail
+        // to parse inside a directory that is not there.
+        var claudeCodeInstalled = Directory.Exists(_claude.ConfigDirectory);
+
         string text;
 
         try
         {
             if (!File.Exists(_claude.UserSettingsFile))
             {
-                var absent = new HookPresence(0, expected, []);
+                var absent = new HookPresence(0, expected, [], ClaudeCodeInstalled: claudeCodeInstalled);
                 ReportPresence(absent);
 
                 return absent;
@@ -223,7 +253,7 @@ public sealed class HookInstaller
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            var unreadable = new HookPresence(0, expected, [], ex.Message);
+            var unreadable = new HookPresence(0, expected, [], ex.Message, claudeCodeInstalled);
             ReportPresence(unreadable);
 
             return unreadable;
@@ -238,11 +268,12 @@ public sealed class HookInstaller
             presence = new HookPresence(
                 HookRegistration.CountInstalled(settings, script),
                 expected,
-                HookRegistration.ForeignScriptPaths(settings, script));
+                HookRegistration.ForeignScriptPaths(settings, script),
+                ClaudeCodeInstalled: claudeCodeInstalled);
         }
         catch (System.Text.Json.JsonException ex)
         {
-            presence = new HookPresence(0, expected, [], ex.Message);
+            presence = new HookPresence(0, expected, [], ex.Message, claudeCodeInstalled);
         }
 
         ReportPresence(presence);
