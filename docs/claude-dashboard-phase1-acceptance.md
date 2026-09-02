@@ -1214,7 +1214,9 @@ acceptance criterion nobody has observed.
 Eight HTTP handlers, added at every start and removed at every quit, become one command handler
 running `post-status.cmd` in the data folder. The script reads `listening.txt`; finding none, it
 exits having opened nothing. So the hook is correct whether a dashboard is running or not, and it is
-installed once and left alone.
+installed once and left alone. **Qualified by §5k** — the sentence is an observation about the
+handler's nature and is still true of it, and T1.32 added the other half: a start puts one back when
+it has gone missing.
 
 **Two things in §5d are superseded here**, and both are pointed at from there as well as from here.
 Its evidence row cites `HookLifecycleTests`, which this task deleted — `IngressAnnouncementTests`
@@ -1370,6 +1372,104 @@ Two further plants covered the fix cycle, both reverted byte-identical:
 the indexer return a null node, so `?.` short-circuits before the unsafe call and the plant cannot
 reach it. Recording that is the difference between a plant table and one anybody can trust.
 
+## 5k · T1.32 — the hook installs itself, and what it does not prove
+
+T1.28 made registration an install step and left nothing running the install step.
+`HookInstaller.Install()` was reachable from `--install-hooks` and from nowhere else, and nothing
+called that — so a user who had never opened a terminal started the exe and received no events, for
+ever, with one warning line in a log they will not open. Impl §10.2 had required a first run to call
+that path once since before the switches existed. **A start now calls it** (issue #39): it reads
+Claude Code's settings and installs the handler when it is missing, the file read cleanly, and the
+operator has not opted out. A complete handler short-circuits before the merge, so the ordinary
+start still writes nothing at all — which matters because `SettingsFileWriter` renders from
+`JsonNode` and would strip every comment in a hand-formatted file even for a merge that changed no
+content.
+
+**The opt-out is `installHooksAtStart`, in the dashboard's own `settings.json`, default `true`.** It
+is ours and not Claude Code's; no key of that name is ever written into `~/.claude/settings.json`.
+`--remove-hooks` clears it and `--install-hooks` sets it, which is the only thing stopping a removal
+being undone by the next start — without it a supported switch would be a no-op with extra steps.
+**This is the one operator-facing document that names the key.**
+
+**Two statements are qualified here rather than rewritten**, and both are pointed at from here as
+well as from there: §5j's "installed once and left alone", and the §7 row that repeats it. Each is
+an observation of what was true when it was written, and each is still true of the handler's nature
+— it names a script rather than a port, so it never needs renewing. What T1.32 adds is the other
+half: one that has gone missing comes back.
+
+### The accepted residual: a parseable hand edit is now replaced at a start
+
+`Problem is null` is the gate, and it lets through valid JSON that Claude Code's schema has no room
+for. `HookRegistration.Register` replaces two such shapes outright, and says so in its own remark.
+Measured, not reasoned:
+
+| Hand edit | At a start |
+|---|---|
+| `{ "hooks": { "Stop": "not-an-array" } }` | **replaced** — the string is gone from the file |
+| `{ "hooks": [ "not-an-object" ] }` | **replaced** — the array is gone from the file |
+| `{ "hooks": { "Stop": [ { "hooks": "not-an-array" } ] } }` | **kept** — a bad group inside a proper array is merged into |
+
+**Before T1.32 the first two took the operator typing `--install-hooks`; now a start does it.** That
+is a wider blast radius for the same replacement, and it is **accepted rather than solved: the gate
+is deliberately not narrowed.** What stands between the operator and the loss is the backup
+`SettingsFileWriter` takes before any write — asserted here to carry the original text byte for
+byte, in all three rows including the one that is kept.
+
+### What this does not prove
+
+- **§6.10 is still not observed**, and this task does not move it. It needs the handler in the
+  operator's own `~/.claude/settings.json`, on their machine, in their sessions. **Nothing ran
+  against that file here either** — every test uses two separate temporary roots, one standing in
+  for Claude Code's settings and one for the dashboard's, so that confusing them presents as a
+  failure rather than as a coincidence.
+- **The start path is pinned by source-text guards, not by behaviour.** `Main` builds a WPF
+  application, takes the single-instance gate and runs a dispatcher, and nothing in the suite can
+  call it. Three tripwires read `Program.cs` as text: that the start goes through the one decision
+  type, that it passes the operator's setting rather than a literal `true`, and that a switch's
+  decision is recorded. That is a weaker kind of claim than a behavioural one and is the reason the
+  decision was given a type of its own.
+- **The built exe was not started.** `dotnet publish -c Release -r win-x64 --self-contained`
+  succeeds and produces the single-file executable; nobody ran it.
+
+### T1.19's guardrail is half satisfied, and the other half is not satisfiable here
+
+The republish was done. **The repoint was not, because there is nothing to repoint**:
+`Get-ScheduledTask -TaskName "*Claude*"` finds no Claude Dashboard logon task on this machine, and
+no published exe existed anywhere in the tree before this one was made. T1.19's premise — two
+artefacts that can disagree — is **not met on this checkout**, so the guardrail's second half has
+nothing to act on. Recorded rather than ticked, because a guardrail reported as satisfied when its
+premise is absent is worse than one reported as skipped.
+
+### Was the harness capable of producing the other outcome?
+
+Five plants, each verified present by md5 **and verified back**:
+
+| Planted defect | Result |
+|---|---|
+| `!presence.Complete` dropped from the decision | **fails 2** — the byte-for-byte test, and one truth-table row |
+| `presence.Problem is null` dropped from the decision | **fails 6** — three malformed shapes, the unreadable file, two truth-table rows |
+| the switch's flag never recorded | **fails 4** — removal survives a restart, install restores both, the rest of the settings, the unreadable own-settings case |
+| a literal `true` passed for the opt-out in `Program.cs` | **fails 1** — the opt-out tripwire, and nothing else |
+| `backUpFirst: false` on the install merge | **fails 4** — all three hand-edit rows, plus T1.28's own backup test |
+
+**The fifth plant is what makes the residual above an accepted cost rather than a stated hope.** The
+backup is the whole mitigation, so it is asserted rather than assumed: remove it and every row of
+the hand-edit table fails, including the one where the old value survives in place anyway.
+
+**The fourth is the one worth reading twice.** A caller passing `true` compiles and passes every
+behavioural test in this suite, because those tests call the decision directly and supply the flag
+themselves. Only a guard that reads `Program.cs` as text can see it — and what it would cost is the
+whole of the opt-out: an operator who ran `--remove-hooks` gets their hooks back at the next start
+with a log line as the only evidence.
+
+**The suite counts, both configurations, clean `--no-incremental` builds, 0 warnings: Debug and
+Release 1520 of 1520.** One Release run in seventeen failed
+`Storage.HookToDatabaseTests.A_posted_hook_becomes_a_row_carrying_the_body_it_arrived_with` — the
+`events` table absent when the foreign reader looked. Measured on a scratchpad clone of the commit
+this work started from, that flake appears there too, once in thirty-one runs, and the class passes
+in isolation. **It is a whole-suite concurrency effect that predates this task**, and it is filed
+separately rather than re-run away.
+
 ## 6 · Was the harness capable of producing the other outcome?
 
 A green run proves nothing unless a red one was reachable. Five defects were planted, each taken
@@ -1482,5 +1582,13 @@ dated to the T1.19 artefact named in the header and are not re-run here.
   operator's own `~/.claude/settings.json`, and only they can observe it there. The mechanism is
   measured (65 ms, silent, no socket opened) and the mechanism is not the criterion. A hard kill
   still leaves `listening.txt` naming the last bound port until the next start.
+- **The hook now installs itself, and §6.10 is still unobserved** (§5k, T1.32, issue #39). The row
+  above is qualified rather than replaced: "installed once and left alone" remains true of the
+  handler, and a start now puts one back when it is missing, while the operator has not set
+  `installHooksAtStart` to false. **That does not move §6.10 an inch** — nothing has been installed
+  in the operator's own `~/.claude/settings.json` by this work either. One residual is accepted: a
+  settings file hand-edited into a shape the merge replaces is now replaced at a start rather than
+  at a switch, and the backup taken before the write is what stands between the operator and the
+  loss.
 - **Phase 1 is gated, not finished.** Every observation here holds; the phase's exit criteria in
   Part 2 do not, while §5 stands and while §5b's open row stands.

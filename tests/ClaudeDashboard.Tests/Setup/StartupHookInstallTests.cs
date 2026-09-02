@@ -309,6 +309,47 @@ public sealed class StartupHookInstallTests : IDisposable
         Assert.NotEmpty(_sink.Matching("Could not read Claude Code's settings"));
     }
 
+    /// <summary>
+    /// <strong>A hand edit that parses is installed over, and the backup is the only place the old
+    /// value survives — which is the residual §5k accepts.</strong>
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>Problem is null</c> is the gate, and these three shapes carry no problem: they are valid
+    /// JSON that Claude Code's own schema has no room for. Two of them
+    /// <see cref="HookRegistration.Register"/> replaces outright — an event whose value is not an
+    /// array, and a <c>hooks</c> that is not an object — and it says so in its own remark. The
+    /// third is a bad group <em>inside</em> a proper array, which is merged into rather than
+    /// replaced.
+    /// </para>
+    /// <para>
+    /// <strong>The residual is that these are now replaced at a start rather than at a switch.</strong>
+    /// Before T1.32 it took the operator typing <c>--install-hooks</c>. The gate is deliberately not
+    /// narrowed to close it, so the boundary is measured here instead of reasoned about: which
+    /// shapes go, which stay, and that a backup exists carrying exactly what was there.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [InlineData("""{ "hooks": { "Stop": "not-an-array" } }""", "not-an-array", false)]
+    [InlineData("""{ "hooks": [ "not-an-object" ] }""", "not-an-object", false)]
+    [InlineData("""{ "hooks": { "Stop": [ { "hooks": "not-an-array" } ] } }""", "not-an-array", true)]
+    public void A_parseable_hand_edit_is_installed_over_and_the_backup_carries_it(
+        string theirs,
+        string marker,
+        bool survivesInPlace)
+    {
+        File.WriteAllText(_claude.UserSettingsFile, theirs);
+
+        var result = StartupHookInstall.Run(Installer(), installAtStart: true, _logger);
+
+        Assert.Equal(SettingsWriteOutcome.Written, result?.Outcome);
+        Assert.Equal(HookEventNames.Accepted.Count, Installed());
+        Assert.Equal(survivesInPlace, SettingsText().Contains(marker, StringComparison.Ordinal));
+
+        Assert.NotNull(result?.BackupPath);
+        Assert.Equal(theirs, File.ReadAllText(result!.Value.BackupPath!));
+    }
+
     // ---- What it says -------------------------------------------------------------------------------
 
     /// <summary>
