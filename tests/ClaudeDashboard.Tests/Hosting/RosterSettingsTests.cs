@@ -76,7 +76,7 @@ public sealed class RosterSettingsTests
             .OrderBy(name => name, StringComparer.Ordinal)
             .ToList();
 
-        Assert.Equal(["Logging", "Port", "Rosters", "Sound", "Window"], found);
+        Assert.Equal(["InstallHooksAtStart", "Logging", "Port", "Rosters", "Sound", "Window"], found);
     }
 
     /// <summary>An absent section is no rosters, and says nothing about it.</summary>

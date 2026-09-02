@@ -173,9 +173,11 @@ public static class Program
                         "abandoned. This one has taken it over.");
                 }
 
-                // Issue #29: the hook is installed once and left alone, so nothing here writes
-                // Claude Code's settings. What the dashboard does at start is say where it is
-                // listening, and read the settings to check its handler is still there.
+                // Issue #29 made the hook an install step rather than a lifecycle: it names a
+                // script, so one entry is right whether a dashboard is running or not, and nothing
+                // is written on the way out. Issue #39 added the one thing a start still does write
+                // — it puts the handler back when it has gone missing, because until T1.32 nothing
+                // called the install step at all and a new user received no events for ever.
                 //
                 // AFTER Start, never before — between announcing and binding there would be a
                 // window in which the script posts to a port nothing answers.
@@ -186,10 +188,15 @@ public static class Program
                 // install that already exists. See HookScript.
                 HookScript.EnsureWritten(paths, host.Services.GetRequiredService<Serilog.ILogger>());
 
-                // Read-only, and it warns when our handler is gone. Without it a hook removed by
-                // anything at all is undetectable: the dashboard receives nothing, which looks
-                // exactly like a quiet day.
-                host.Services.GetRequiredService<HookInstaller>().Check();
+                // Reads the settings, and repairs the handler when it is missing and the operator
+                // has not opted out (issue #39). Read-only in every other case, and it never
+                // writes a file it could not read. Without the check a hook removed by anything at
+                // all is undetectable: the dashboard receives nothing, which looks exactly like a
+                // quiet day.
+                StartupHookInstall.Run(
+                    host.Services.GetRequiredService<HookInstaller>(),
+                    settings.InstallHooksAtStart,
+                    host.Services.GetRequiredService<Serilog.ILogger>());
 
                 var policy = host.Services.GetRequiredService<UnhandledExceptionPolicy>();
 
@@ -326,7 +333,8 @@ public static class Program
         var attached = ConsoleReport.TryAttach();
 
         var foldersReady = paths.TryEnsureCreated(out _);
-        var settings = new SettingsStore(paths).Load().Settings;
+        var store = new SettingsStore(paths);
+        var settings = store.Load().Settings;
         using var logger = AppHost.CreateLogger(paths, settings.Logging, foldersReady);
 
         var installer = new HookInstaller(new ClaudeCodePaths(), paths, new Adapters.SystemClock(), logger);
@@ -340,6 +348,12 @@ public static class Program
                 Console.Out.WriteLine(line);
             }
         });
+
+        // The switch's decision outlives the switch (issue #39). Without this, --remove-hooks would
+        // be undone by the next start and would therefore mean nothing. Re-read inside rather than
+        // reusing `settings` above: HookSwitches.Run has been and gone, and the file may have moved
+        // under us. It never throws and never writes a file it could not read.
+        StartupHookInstall.RecordSwitch(requested, code, store, logger);
 
         if (!attached)
         {

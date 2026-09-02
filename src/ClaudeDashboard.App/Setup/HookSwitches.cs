@@ -14,11 +14,22 @@ namespace ClaudeDashboard.App.Setup;
 /// hooks at all. These are the operator's tool today and T10.2's call site tomorrow.
 /// </para>
 /// <para>
-/// <strong>They are the only thing that writes the operator's hooks, and they never run by
-/// themselves.</strong> That is the whole replacement for Impl §9.3's lifecycle: the running
-/// dashboard reads Claude Code's settings to check its handler is there and writes nothing. A
-/// build that removed an <c>http</c> handler on its own would be indistinguishable from the design
-/// this task is removing.
+/// <strong>They are no longer the only thing that writes the operator's hooks, and the sentence
+/// that said so is kept because it explains the half that still holds (issue #39).</strong> It read:
+/// "They are the only thing that writes the operator's hooks, and they never run by themselves …
+/// the running dashboard reads Claude Code's settings to check its handler is there and writes
+/// nothing." T1.32 makes a start put a <em>missing</em> handler back, because until then nothing
+/// called the install step at all. <strong>Removal is untouched by that</strong>: nothing but
+/// <see cref="Remove"/> takes a handler out, nothing runs it but this switch, and nothing is
+/// written on the way down — a build that removed an <c>http</c> handler on its own would still be
+/// indistinguishable from the design issue #29 removed.
+/// </para>
+/// <para>
+/// <strong>Which is why <c>--remove-hooks</c> also clears
+/// <see cref="ClaudeDashboard.App.Configuration.DashboardSettings.InstallHooksAtStart"/>.</strong>
+/// An operator who removes their hooks and finds them back after a restart has been overruled by
+/// the application, and the switch would mean nothing. <see cref="StartupHookInstall.RecordSwitch"/>
+/// is where that is written down, and <c>--install-hooks</c> sets it back.
 /// </para>
 /// <para>
 /// <strong>They exit without starting the UI, and before the single-instance gate.</strong> Before

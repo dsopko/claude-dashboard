@@ -90,6 +90,32 @@ public sealed record DashboardSettings
         init => _port = value is > 0 and <= 65535 ? value : null;
     }
 
+    /// <summary>
+    /// Whether a start puts Claude Code's hook back when it is missing (issue #39).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>Ours, and not Claude Code's.</strong> It lives in the dashboard's own
+    /// <c>settings.json</c> and governs only what this application does at start. Nothing writes it
+    /// into <c>~/.claude/settings.json</c>, which has no key of this name and is not ours to extend.
+    /// </para>
+    /// <para>
+    /// <strong>Default <see langword="true"/>, because the operator this exists for has never
+    /// opened a terminal.</strong> T1.28 made registration an install step and left nothing running
+    /// that step, so a new user started the exe and received no events for ever, with one warning
+    /// line in a log they will not open. Defaulting to off would keep that outcome for everybody who
+    /// has not heard of the switch — which is everybody it is a problem for.
+    /// </para>
+    /// <para>
+    /// <strong>Set <see langword="false"/> by <c>--remove-hooks</c>, and that is what makes the
+    /// switch mean anything.</strong> Without it an operator removes their hooks, restarts, and
+    /// finds them back — so a supported switch would be a no-op and the application would be
+    /// overriding a decision the operator had stated. <c>--install-hooks</c> sets it back.
+    /// </para>
+    /// </remarks>
+    [JsonPropertyName("installHooksAtStart")]
+    public bool InstallHooksAtStart { get; init; } = true;
+
     /// <summary>How the rolling log files are kept (Impl Part 8).</summary>
     [JsonPropertyName("logging")]
     public LoggingSettings Logging { get; init; } = new();
@@ -127,13 +153,17 @@ public sealed record DashboardSettings
     /// caught the moment this section was added.
     /// </para>
     /// <para>
-    /// <c>SettingsPropertiesAreAllCompared</c> in the test suite asserts the exact set of properties
-    /// this method has to cover, so a sixth member cannot be added and silently left out of it.
+    /// <c>Every_settings_property_is_covered_by_equality</c> in the test suite asserts the exact set
+    /// of properties this method has to cover, so a further member cannot be added and silently left
+    /// out of it. (It was named here as <c>SettingsPropertiesAreAllCompared</c>, which is not the
+    /// name of any test — corrected when <see cref="InstallHooksAtStart"/> made that test fail and
+    /// the pointer had to be followed.)
     /// </para>
     /// </remarks>
     public bool Equals(DashboardSettings? other) =>
         other is not null &&
         Port == other.Port &&
+        InstallHooksAtStart == other.InstallHooksAtStart &&
         Logging == other.Logging &&
         Sound == other.Sound &&
         Window == other.Window &&
@@ -144,6 +174,7 @@ public sealed record DashboardSettings
     {
         var hash = default(HashCode);
         hash.Add(Port);
+        hash.Add(InstallHooksAtStart);
         hash.Add(Logging);
         hash.Add(Sound);
         hash.Add(Window);

@@ -3,7 +3,7 @@ using System.IO;
 namespace ClaudeDashboard.Tests.Architecture;
 
 /// <summary>
-/// Three tripwires over <c>Program.cs</c> that no behavioural test can carry (issue #29).
+/// Tripwires over <c>Program.cs</c> that no behavioural test can carry (issue #29, issue #39).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -11,7 +11,7 @@ namespace ClaudeDashboard.Tests.Architecture;
 /// protected is not reachable from one.</strong> <c>Main</c> builds a WPF application, takes the
 /// single-instance gate and runs a dispatcher; nothing in the suite can call it. What it does with
 /// the hook types is therefore invisible to every other test in this project — and each of the
-/// three claims below fails silently in production.
+/// claims below fails silently in production.
 /// </para>
 /// <para>
 /// Each says what it pins and what breaks without it, so a reader who has to change one knows what
@@ -66,42 +66,103 @@ public sealed class StartupHookGuardTests
     }
 
     /// <summary>
-    /// <strong><c>Program.cs</c> checks the hooks and names no writing call anywhere in the file.</strong>
+    /// <strong><c>Program.cs</c> reaches the hooks through the one decision, and spells no
+    /// installing, removing or merging call of its own.</strong>
     /// </summary>
     /// <remarks>
     /// <para>
-    /// This is what replaced Impl §9.3's lifecycle, and it is the whole of issue #29's second
-    /// half: the hook is installed once, by an explicit switch, and left alone. A start that wrote
-    /// the operator's settings — even to repair a handler it found missing — would be the design
-    /// being removed, reintroduced as a helpful gesture.
+    /// <strong>THIS TEST PREVIOUSLY ASSERTED THE OPPOSITE, AND THE CLAIM IT MADE WAS THE DEFECT
+    /// (issue #39).</strong> It required <c>Program.cs</c> to contain
+    /// <c>HookInstaller&gt;().Check()</c> and no <c>.Install()</c> anywhere, on the reasoning that
+    /// "a start that wrote the operator's settings — even to repair a handler it found missing —
+    /// would be the design being removed, reintroduced as a helpful gesture". That reasoning
+    /// belonged to the HTTP lifecycle, which rewrote the file at <em>every</em> start and removed
+    /// the handlers at quit. A command handler is not that: T1.28 left registration an install step
+    /// with nothing running the install step, so a user who had never opened a terminal received no
+    /// events for ever, and this guard is what would have failed anybody who fixed it.
     /// </para>
     /// <para>
-    /// <strong>What breaks without it.</strong> Exactly what broke before: a Claude Code session
-    /// already open keeps whatever the file said when it started, so a dashboard that rewrites the
-    /// file at every launch leaves running sessions disagreeing with it — and a dashboard that
-    /// removes handlers at quit takes them from sessions that will never see them come back.
+    /// <strong>What is pinned now.</strong> The start path goes through
+    /// <c>StartupHookInstall</c> — the type that holds every bound on the repair, and the only one a
+    /// test can call — rather than through a call spelled out in <c>Main</c>, which nothing can
+    /// reach. And <c>Program.cs</c> still names no removal and no direct merge: the handler must
+    /// outlive the process, so nothing here may take one out, and nothing here may reach past the
+    /// install path into the settings tree.
     /// </para>
     /// <para>
-    /// <strong>WHOLE FILE, WHICH IS WIDER THAN THE STARTUP PATH, AND THE NAME NOW SAYS SO.</strong>
-    /// <c>RunHookSwitch</c> lives in this file and is allowed to write — it reaches the installer
-    /// through <c>HookSwitches</c>, so no writing call is spelled here and the two happen to
-    /// coincide today. Narrowing the <em>scan</em> to the startup method would be the wrong repair:
-    /// a whole-file scan survives somebody moving code between methods, which is precisely how the
-    /// breach would arrive. So the scan stays wide and the claim was narrowed to fit it. A guard
-    /// whose name promises more than it checks is the same defect as a remark that does, and this
-    /// file was carrying one of each.
+    /// <strong>What breaks without it.</strong> Move the decision inline and every rule it carries —
+    /// install on absent, top up on partial, write nothing on complete, write nothing on a file that
+    /// would not read, obey the opt-out — becomes unreachable from any test and fails silently in
+    /// production. The worst of them is the one the operator sees: a complete handler rewritten
+    /// anyway, stripping every comment in a hand-formatted settings file at every start.
+    /// </para>
+    /// <para>
+    /// <strong>WHOLE FILE, WHICH IS WIDER THAN THE STARTUP PATH.</strong> <c>RunHookSwitch</c> lives
+    /// in this file and reaches the installer through <c>HookSwitches</c>, so it spells no writing
+    /// call either. Narrowing the <em>scan</em> to the startup method would be the wrong repair: a
+    /// whole-file scan survives somebody moving code between methods, which is precisely how the
+    /// breach would arrive.
     /// </para>
     /// </remarks>
     [Fact]
-    public void Program_checks_the_hooks_and_names_no_call_that_writes_them()
+    public void Program_reaches_the_hooks_through_the_start_decision_and_spells_no_write_of_its_own()
     {
         var program = Program();
 
-        Assert.Contains("HookInstaller>().Check()", program, StringComparison.Ordinal);
+        Assert.Contains("StartupHookInstall.Run(", program, StringComparison.Ordinal);
 
         Assert.DoesNotContain(".Install()", program, StringComparison.Ordinal);
         Assert.DoesNotContain(".Remove()", program, StringComparison.Ordinal);
         Assert.DoesNotContain("HookRegistration.", program, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// <strong>The start reads the operator's opt-out rather than assuming it.</strong>
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>StartupHookInstall.Run</c> takes the flag as an argument, so a caller that passed a
+    /// literal <c>true</c> would compile, pass every behavioural test in the suite — they call the
+    /// decision directly — and quietly reinstate the hooks of an operator who ran
+    /// <c>--remove-hooks</c>. That is the worst outcome this change can produce and the argument is
+    /// the only place it can be caught.
+    /// </para>
+    /// <para>
+    /// <strong>What breaks without it.</strong> <c>--remove-hooks</c> becomes a no-op with extra
+    /// steps: the handler goes, the next start puts it back, and the operator has been overruled by
+    /// the application with a log line as the only evidence.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void The_start_passes_the_operators_opt_out_to_the_decision()
+    {
+        var program = Program();
+
+        var at = program.IndexOf("StartupHookInstall.Run(", StringComparison.Ordinal);
+
+        Assert.True(at >= 0, "Program.cs no longer runs the start-time hook decision at all.");
+
+        Assert.Contains(
+            "settings.InstallHooksAtStart",
+            program[at..],
+            StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// <strong>A switch's decision is recorded, or <c>--remove-hooks</c> does not survive a restart.</strong>
+    /// </summary>
+    /// <remarks>
+    /// The flag is written by <c>RunHookSwitch</c>, which <c>Main</c> reaches and no test can. Drop
+    /// the call and every test of <c>RecordSwitch</c> still passes, because they call it themselves;
+    /// what is lost is the only thing that runs it in the product.
+    /// </remarks>
+    [Fact]
+    public void A_switch_records_what_it_decided()
+    {
+        Assert.Contains(
+            "StartupHookInstall.RecordSwitch(",
+            Program(),
+            StringComparison.Ordinal);
     }
 
     /// <summary>

@@ -34,16 +34,21 @@ public readonly record struct HookPresence(
 /// naming a dead port. Neither is closable from inside that design.
 /// </para>
 /// <para>
-/// <strong>Nothing here runs by itself.</strong> <see cref="Install"/> and <see cref="Remove"/> are
-/// reached only from the two command-line switches; the running dashboard calls
-/// <see cref="Check"/> and nothing else. That is the whole of Impl §9.3's replacement rule — the
-/// dashboard reads the operator's settings file and never writes it.
+/// <strong>A start now calls <see cref="Install"/>, and until T1.32 nothing did (issue #39).</strong>
+/// This paragraph said "nothing here runs by itself" and that the running dashboard called
+/// <see cref="Check"/> and nothing else. It was true and it was the defect: registration had become
+/// an install step with nothing left running the install step, so a user who had never opened a
+/// terminal received no events for ever. <see cref="StartupHookInstall"/> is what decides — it
+/// installs only what is missing, only when the file read cleanly, and only while the operator has
+/// not opted out. <see cref="Remove"/> is still reached from its switch alone, and nothing is
+/// written on the way out.
 /// </para>
 /// <para>
 /// <strong>Why the installer survives at all.</strong> First-run setup is T10.2 and does not exist.
 /// Without <c>--install-hooks</c> the merge would be code nobody could run and a new user would
 /// have no way to get hooks at all — so the switch is the operator's tool today and T10.2's call
-/// site tomorrow.
+/// site tomorrow. T1.32 gave the merge a second caller in the meantime, which is what closed the
+/// "no way to get hooks at all" half of that sentence.
 /// </para>
 /// </remarks>
 public sealed class HookInstaller
@@ -294,10 +299,20 @@ public sealed class HookInstaller
 
     /// <summary>Says what the check found, at the severity the finding deserves.</summary>
     /// <remarks>
+    /// <para>
     /// Three cases and three sentences. "Cannot read the file" is a different diagnosis from "the
     /// handler is not there", and both are different from a handler installed under another data
     /// folder — which is a configuration the operator can see the whole of once both paths are in
     /// front of them.
+    /// </para>
+    /// <para>
+    /// <strong>It states the finding and no longer prescribes the remedy (issue #39).</strong> Both
+    /// incomplete cases ended "Run --install-hooks", which was right while nothing else could
+    /// install. A start now may install by itself, so the same line would tell the operator to do
+    /// what the next line says has already been done — and would still be wrong the other way round
+    /// if they had opted out. The remedy belongs to <see cref="StartupHookInstall"/>, which is the
+    /// only thing that knows which of the two happened.
+    /// </para>
     /// </remarks>
     private void ReportPresence(HookPresence presence)
     {
@@ -328,7 +343,7 @@ public sealed class HookInstaller
             _logger.Warning(
                 "Claude Code's settings carry the dashboard's hook on {Events} of {Expected} events for " +
                 "{Script}, but they do run {Foreign}. That is a different data folder, so check " +
-                "{HomeVariable}. Run --install-hooks to add the one this dashboard reads.",
+                "{HomeVariable}.",
                 presence.Events,
                 presence.Expected,
                 ScriptPath,
@@ -341,7 +356,7 @@ public sealed class HookInstaller
         _logger.Warning(
             "Claude Code's settings carry the dashboard's hook on {Events} of {Expected} events for " +
             "{Script}. Until it is installed this dashboard receives nothing, which looks exactly like " +
-            "a quiet day. Run --install-hooks.",
+            "a quiet day.",
             presence.Events,
             presence.Expected,
             ScriptPath);
