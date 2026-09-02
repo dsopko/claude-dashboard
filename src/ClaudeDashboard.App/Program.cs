@@ -9,6 +9,7 @@ using ClaudeDashboard.App.Ui;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Serilog;
+using Velopack;
 
 namespace ClaudeDashboard.App;
 
@@ -40,6 +41,15 @@ namespace ClaudeDashboard.App;
 /// thread that owns the dispatcher. Blocking here costs nothing, because the dispatcher this
 /// would otherwise stall does not exist until <c>Run</c> is called.
 /// </para>
+/// <para>
+/// <strong><c>VelopackApp.Build().Run()</c> is the first statement of <c>Main</c>, ahead of the
+/// hook switches and the single-instance gate (PKG.1).</strong> Velopack launches this exe with
+/// lifecycle arguments during install, update and uninstall and expects <c>Run()</c> to handle
+/// them and exit the process. Behind the switches, a lifecycle launch would be read as an
+/// ordinary start; behind the gate, it would be handed over to the running instance, which
+/// would raise a window and leave the install half-done. A source-text guard pins the order,
+/// so an edit that moves the gate above it fails a test rather than an install.
+/// </para>
 /// </remarks>
 public static class Program
 {
@@ -56,6 +66,15 @@ public static class Program
     [STAThread]
     public static int Main(string[] args)
     {
+        // FIRST, BEFORE EVERYTHING, AND A GUARD TEST PINS IT THERE (PKG.1). During install,
+        // update and uninstall, Velopack launches this exe with lifecycle arguments and expects
+        // Run() to handle them and exit the process. Anything ahead of it can shoot those
+        // invocations down: the hook switches would treat a lifecycle launch as an ordinary
+        // start, and the single-instance gate would hand it over to the running instance —
+        // which would raise a window and leave the install half-done. On an ordinary launch,
+        // with no lifecycle argument, Run() returns and nothing here changes.
+        VelopackApp.Build().Run();
+
         IHost? host = null;
 
         // The /show action is handed this rather than the container: a post arrives on a Kestrel

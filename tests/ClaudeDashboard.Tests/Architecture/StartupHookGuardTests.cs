@@ -261,6 +261,70 @@ public sealed class StartupHookGuardTests
     }
 
     /// <summary>
+    /// <strong>Velopack's lifecycle handler is the first statement of <c>Main</c> — ahead of the
+    /// hook switches, ahead of the gate, ahead of everything (PKG.1).</strong>
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// During install, update and uninstall, Velopack launches the exe with lifecycle arguments
+    /// and expects <c>Run()</c> to handle them and exit the process. Anything ahead of it can
+    /// shoot those invocations down: the switches would read a lifecycle launch as an ordinary
+    /// start, and the single-instance gate would hand it over to the running instance — which
+    /// would raise a window and leave the install half-done. Nothing behavioural can pin this:
+    /// the failure needs a real installer mid-flight, and the suite has no such thing.
+    /// </para>
+    /// <para>
+    /// <strong>First statement, asserted as "nothing but whitespace precedes it", not as an
+    /// ordering between tokens.</strong> An ordering assertion would stay green while somebody
+    /// slid a new "harmless" call above it — exactly the drift this guard exists to stop,
+    /// because whatever runs first can run instead. The two index comparisons are kept as well,
+    /// so a failure names the thing that got ahead when it is one of the two known killers.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void Velopack_runs_before_everything_else_in_Main()
+    {
+        var code = CodeOnly(Program());
+
+        const string Call = "VelopackApp.Build().Run();";
+
+        Assert.True(
+            Occurrences(code, Call) == 1,
+            "Program.cs must call VelopackApp.Build().Run() exactly once, so that the call this " +
+            "guard reads is the call that runs.");
+
+        var signature = code.IndexOf("public static int Main(string[] args)", StringComparison.Ordinal);
+
+        Assert.True(signature >= 0, "Program.cs no longer declares the Main this guard reads.");
+
+        var body = code.IndexOf('{', signature);
+        var velopack = code.IndexOf(Call, StringComparison.Ordinal);
+
+        Assert.True(
+            velopack > body,
+            "VelopackApp.Build().Run() sits outside Main's body, which is not where the lifecycle " +
+            "arguments arrive.");
+
+        Assert.True(
+            string.IsNullOrWhiteSpace(code[(body + 1)..velopack]),
+            "Something in Main runs before VelopackApp.Build().Run(). Whatever runs first can run " +
+            "instead: a Velopack lifecycle launch expects Run() to handle it and exit, and any " +
+            "earlier statement can shoot that invocation down.");
+
+        var switches = code.IndexOf("HookSwitches.Requested(args)", StringComparison.Ordinal);
+        var gate = code.IndexOf("SingleInstanceGate.Acquire", StringComparison.Ordinal);
+
+        Assert.True(
+            switches > velopack,
+            "The hook switches are answered before Velopack's lifecycle handler, so an install-time " +
+            "launch would be read as an ordinary start.");
+        Assert.True(
+            gate > velopack,
+            "The single-instance gate is taken before Velopack's lifecycle handler, so an update " +
+            "launched while the dashboard runs would be handed over and shot down.");
+    }
+
+    /// <summary>
     /// Drops both comment styles and the <em>contents</em> of string and char literals, so that
     /// only code that runs can satisfy a positive search.
     /// </summary>

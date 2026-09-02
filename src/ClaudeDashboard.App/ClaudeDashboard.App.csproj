@@ -219,6 +219,15 @@
     <PackageReference Include="Serilog" Version="4.4.0" />
     <PackageReference Include="Serilog.Extensions.Hosting" Version="10.0.0" />
     <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
+
+    <!--
+      The installer's runtime half (Packaging Design D1, PKG.1). Program.Main's first statement
+      is VelopackApp.Build().Run(), which handles the lifecycle arguments Velopack passes during
+      install, update and uninstall. The package ships a native net10.0 target — verified in
+      lib/ and the nuspec at 1.2.0, not assumed. PKG.3 pins the vpk tool to this same version,
+      so a bump here is a bump there.
+    -->
+    <PackageReference Include="Velopack" Version="1.2.0" />
   </ItemGroup>
 
 </Project>
