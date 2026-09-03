@@ -17,6 +17,24 @@ A Windows tray application for developers running many concurrent Claude Code se
 - Its world is **event-sourced from Claude Code hooks** — it never polls, and it never blocks a Claude turn (hooks are pure observers).
 - Later phases add click-to-navigate to the right terminal tab, focus-based acknowledgment, virtual-desktop grouping, searchable history, and a phone view.
 
+## Install
+
+**Pre-release.** Version 0.0.9 is an early build: it works on the developer's machine and has not yet been tried on a clean one. Expect rough edges, and please [open an issue](https://github.com/dsopko/claude-dashboard/issues) when you hit one.
+
+**You need:** Windows 10 or 11, 64-bit, and [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed for the user who will run the dashboard. Nothing else — the .NET runtime is included.
+
+1. Download `dsopko.ClaudeDashboard-win-Setup.exe` from the [latest release](https://github.com/dsopko/claude-dashboard/releases/latest).
+2. Run it. **Windows will show "Windows protected your PC"** because the build is not yet code-signed — click **More info**, then **Run anyway**. It installs for your user only, under `%LocalAppData%`, and never asks for administrator rights.
+3. Start **Claude Dashboard** from the Start Menu. It runs in the tray; the panel opens from the tray icon.
+
+That is all. On its first start the dashboard adds one hook to your Claude Code settings so it can hear your sessions, and from then on every new Claude Code session reports to it.
+
+**What it touches.** One entry in `~/.claude/settings.json`, a command hook that runs `post-status.cmd` from `%LocalAppData%\ClaudeDashboard`. The hook is a pure observer: it can never block or change a Claude turn, and it does nothing at all when the dashboard is not running. Everything the dashboard records — session state, prompts, answers — stays in a SQLite file in that same folder. It listens on the loopback interface only and sends nothing anywhere.
+
+**Uninstall.** *Settings → Apps → Claude Dashboard → Uninstall* removes the program and leaves your data folder in place. To take the hook out of your Claude Code settings first, run `ClaudeDashboard.App.exe --remove-hooks` from the install folder; without that, the hook stays and is harmless — it finds no dashboard and exits.
+
+**Portable.** The release also carries `dsopko.ClaudeDashboard-win-Portable.zip`: extract it anywhere and run `current\ClaudeDashboard.App.exe`. No Start Menu entry, no Apps entry.
+
 ## Documents
 
 Everything lives in [`docs/`](docs/). Read in this order:
@@ -84,3 +102,7 @@ claude-dashboard/
 ```
 
 `ClaudeDashboard.Core` holds no WPF, Win32 or ASP.NET reference, and nothing references `ClaudeDashboard.App` — a rule the test suite enforces rather than merely states.
+
+## License
+
+[MIT](LICENSE).
