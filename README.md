@@ -23,7 +23,7 @@ A Windows tray application for developers running many concurrent Claude Code se
 
 **You need:** Windows 10 or 11, 64-bit, and [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed for the user who will run the dashboard. Nothing else — the .NET runtime is included.
 
-1. Download `dsopko.ClaudeDashboard-win-Setup.exe` from the [latest release](https://github.com/dsopko/claude-dashboard/releases/latest).
+1. Download `dsopko.ClaudeDashboard-win-Setup.exe` from the [releases page](https://github.com/dsopko/claude-dashboard/releases).
 2. Run it. **Windows will show "Windows protected your PC"** because the build is not yet code-signed — click **More info**, then **Run anyway**. It installs for your user only, under `%LocalAppData%`, and never asks for administrator rights.
 3. Start **Claude Dashboard** from the Start Menu. It runs in the tray; the panel opens from the tray icon.
 
