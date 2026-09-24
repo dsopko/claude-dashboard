@@ -599,10 +599,21 @@ public sealed partial class MainViewModel : ObservableObject, IUiTickTarget, IDi
 
             rows.Add(header);
 
+            // Placement is where a row learns it sits in a roster (T1.36) — the one pass that
+            // knows where every row is going on every rebuild, so a session moving into or out
+            // of a roster is retold in the same breath.
+            var isRoster = GroupKeys.KindOf(group.Key) == GroupKeyKind.Roster;
+
             if (header.IsExpanded)
             {
                 // Everything, quiet included: the operator asked.
-                rows.AddRange(group.Members.Select(RowFor));
+                foreach (var member in group.Members)
+                {
+                    var row = RowFor(member);
+                    row.IsRosterMember = isRoster;
+                    rows.Add(row);
+                }
+
                 continue;
             }
 
@@ -623,7 +634,9 @@ public sealed partial class MainViewModel : ObservableObject, IUiTickTarget, IDi
                 }
                 else
                 {
-                    rows.Add(RowFor(member));
+                    var row = RowFor(member);
+                    row.IsRosterMember = isRoster;
+                    rows.Add(row);
                 }
             }
 
@@ -653,7 +666,14 @@ public sealed partial class MainViewModel : ObservableObject, IUiTickTarget, IDi
                 continue;
             }
 
-            rows.AddRange(band.Sessions.Select(RowFor));
+            // Flat view has no rosters, so every row keeps its own Ack (T1.36) — retold here for
+            // the session that was a roster member the last time Grouped assembled it.
+            foreach (var session in band.Sessions)
+            {
+                var row = RowFor(session);
+                row.IsRosterMember = false;
+                rows.Add(row);
+            }
         }
 
         return rows;
@@ -768,7 +788,7 @@ public sealed partial class MainViewModel : ObservableObject, IUiTickTarget, IDi
             return existing;
         }
 
-        var created = new GroupViewModel(group);
+        var created = new GroupViewModel(group, _ack);
         created.PropertyChanged += OnHeaderChanged;
         _groupHeaders[group.Key] = created;
         return created;

@@ -800,7 +800,7 @@
                                     Style="{StaticResource AckButtonStyle}"
                                     Margin="0,0,8,0"
                                     Command="{Binding AcknowledgeCommand}"
-                                    Visibility="{Binding CanAcknowledge, Converter={StaticResource BoolToVisible}}"
+                                    Visibility="{Binding ShowsOwnAck, Converter={StaticResource BoolToVisible}}"
                                     ToolTip="Mark this result seen." />
                             <Button Style="{StaticResource ReservedButtonStyle}"
                                     ToolTip="Opening the terminal arrives with Phase 2 navigation.">
@@ -855,7 +855,10 @@
                 <!--
                     The acknowledge affordance §9 puts on the row itself, and the same command the
                     expanded row's button uses — they are one act, and two commands would be two
-                    things to keep enabled in step.
+                    things to keep enabled in step. ShowsOwnAck, not CanAcknowledge, because a
+                    roster member carries no Ack of its own (issue #47): the orchestration is
+                    acknowledged once, at its header. The badge and LED stay, so the operator can
+                    still see which member wants them.
                 -->
                 <Button Grid.Column="4"
                         Content="✓ Ack"
@@ -863,7 +866,7 @@
                         Margin="8,2,0,0"
                         Style="{StaticResource AckButtonStyle}"
                         Command="{Binding AcknowledgeCommand}"
-                        Visibility="{Binding CanAcknowledge, Converter={StaticResource BoolToVisible}}"
+                        Visibility="{Binding ShowsOwnAck, Converter={StaticResource BoolToVisible}}"
                         ToolTip="Mark this result seen." />
             </Grid>
             </Border>
@@ -915,6 +918,7 @@
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
 
@@ -984,6 +988,21 @@
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
+
+                <!--
+                    The orchestration's one Ack (issue #47): a roster group is acknowledged once,
+                    here, and its member rows carry none. AckButtonStyle — the row's — so it
+                    reads as the same act. CanAcknowledge is roster-and-member-waiting, so a
+                    working-directory heading never shows this, whatever its members' states.
+                -->
+                <Button Grid.Column="4"
+                        Content="✓ Ack"
+                        VerticalAlignment="Center"
+                        Margin="8,0,0,0"
+                        Style="{StaticResource AckButtonStyle}"
+                        Command="{Binding AcknowledgeCommand}"
+                        Visibility="{Binding CanAcknowledge, Converter={StaticResource BoolToVisible}}"
+                        ToolTip="Acknowledge every member that is waiting on you." />
             </Grid>
         </ToggleButton>
     </DataTemplate>

@@ -51,13 +51,14 @@ public sealed class MainWindowTests(StaHarness harness)
         bool motionAllowed = true,
         bool showQuiet = false,
         bool grouped = true,
-        Action<MainViewModel>? prepare = null)
+        Action<MainViewModel>? prepare = null,
+        RosterStore? rosters = null)
     {
         return _harness.Invoke(() =>
         {
             using var registry = new RegistryHarness();
             using var policy = new MotionPolicy(() => motionAllowed, observeChanges: false);
-            using var viewModel = new MainViewModel(registry.Projection, policy, new StubAckPublisher(), new FakeClipboard(), new RosterStore(new RecordingEventSink()), new RecordingRosterPersistence());
+            using var viewModel = new MainViewModel(registry.Projection, policy, new StubAckPublisher(), new FakeClipboard(), rosters ?? new RosterStore(new RecordingEventSink()), new RecordingRosterPersistence());
 
             // Set before the window is realized. Toggling it on a live window raises transient
             // binding errors from the group headers being torn down, which BindingErrorWatch
@@ -1075,6 +1076,91 @@ public sealed class MainWindowTests(StaHarness harness)
             button.Content as string == "✓ Ack" && button.Visibility == Visibility.Visible);
 
     /// <summary>Drives a session to <paramref name="state"/> through the real pipeline.</summary>
+    // ---- The orchestration's one Ack, as it actually renders (issue #47) -----------------------
+
+    private static readonly string[] AlphaOnly = ["alpha"];
+
+    /// <summary>
+    /// <strong>A roster member row renders no Ack — collapsed and expanded — while its header
+    /// renders the one; a cwd row in the same window keeps its own.</strong>
+    /// </summary>
+    [Fact]
+    public void A_roster_member_renders_no_ack_and_the_header_renders_one()
+    {
+        var rosters = new RosterStore(
+            new RecordingEventSink(),
+            RosterBook.From([("orchestration", AlphaOnly)]));
+
+        WithWindow(
+            registry =>
+            {
+                registry.Finished("member", At.AddMinutes(1), registry.Working("member", At, title: "alpha"), title: "alpha");
+                registry.Finished("loose", At.AddMinutes(1), registry.Working("loose", At, title: "beta"), title: "beta");
+            },
+            (window, viewModel) =>
+            {
+                var member = RowFor(window, "member");
+                var loose = RowFor(window, "loose");
+
+                Assert.Equal(
+                    Visibility.Collapsed,
+                    StaHarness.Find<Button>(member, b => Equals(b.Content, "✓ Ack"))!.Visibility);
+                Assert.Equal(
+                    Visibility.Collapsed,
+                    StaHarness.Find<Button>(member, b => Equals(b.Content, "✓ Acknowledge"))!.Visibility);
+
+                // The cwd twin: same window, same state, its own Ack.
+                Assert.Equal(
+                    Visibility.Visible,
+                    StaHarness.Find<Button>(loose, b => Equals(b.Content, "✓ Ack"))!.Visibility);
+
+                // The header carries the orchestration's one Ack; the cwd header carries none.
+                var rosterHeader = RowsOf(window).Single(row =>
+                    row.DataContext is GroupViewModel { Kind: GroupKeyKind.Roster });
+                var cwdHeader = RowsOf(window).Single(row =>
+                    row.DataContext is GroupViewModel group && group.Kind != GroupKeyKind.Roster);
+
+                Assert.Equal(
+                    Visibility.Visible,
+                    StaHarness.Find<Button>(rosterHeader, b => Equals(b.Content, "✓ Ack"))!.Visibility);
+                Assert.Equal(
+                    Visibility.Collapsed,
+                    StaHarness.Find<Button>(cwdHeader, b => Equals(b.Content, "✓ Ack"))!.Visibility);
+
+                return true;
+            },
+            prepare: viewModel =>
+            {
+                foreach (var row in viewModel.Rows.OfType<SessionViewModel>())
+                {
+                    row.IsExpanded = true;
+                }
+            },
+            rosters: rosters);
+    }
+
+    /// <summary>The same session in Flat view renders its own Ack — the roster does not follow it.</summary>
+    [Fact]
+    public void The_same_session_in_flat_renders_its_own_ack()
+    {
+        var rosters = new RosterStore(
+            new RecordingEventSink(),
+            RosterBook.From([("orchestration", AlphaOnly)]));
+
+        WithWindow(
+            registry => registry.Finished("member", At.AddMinutes(1), registry.Working("member", At, title: "alpha"), title: "alpha"),
+            (window, _) =>
+            {
+                Assert.Equal(
+                    Visibility.Visible,
+                    StaHarness.Find<Button>(RowFor(window, "member"), b => Equals(b.Content, "✓ Ack"))!.Visibility);
+
+                return true;
+            },
+            grouped: false,
+            rosters: rosters);
+    }
+
     // ---- Selection, as it actually renders (issue #44) -----------------------------------------
 
     private static ToggleButton ToggleOf(MainWindow window, string sessionId) =>

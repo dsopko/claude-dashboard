@@ -61,7 +61,7 @@ Fifteen terminals across multiple virtual desktops, each running an agent on a d
 **Acknowledgment** — the transition from Unread (or Needs You) to Acked. Three tiers:
 
 1. *Automatic:* the operator submits a new prompt in that session — proof the answer was seen. Zero extra plumbing; covers most cases.
-2. *Manual:* an Ack action on the row.
+2. *Manual:* an Ack action on the row — except inside a roster group, which is acknowledged **once, at its header**: the orchestration is the unit, one click clears every waiting member, and member rows carry no Ack of their own (they keep the badge and LED, so what wants attention is still visible). The accepted cost: a blocked member — permission, question, error — is cleared by hand only at the group, which is chosen, since the permission has to be answered in the terminal either way. Members of a working-directory group keep their own Acks: that group is a filing convenience, not an orchestration.
 3. *Inferred (later phase):* the session's terminal window/tab held focus for a few seconds.
 
 Phase 1 ships tiers 1 and 2.

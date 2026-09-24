@@ -1,5 +1,6 @@
 using System.Globalization;
 using ClaudeDashboard.Core;
+using CommunityToolkit.Mvvm.Input;
 
 namespace ClaudeDashboard.App.Ui;
 
@@ -149,20 +150,28 @@ public sealed class QuietFooterViewModel(DashboardRow owner, string key, bool is
 /// The mockups show both halves: the folder name, and the full path beside it.
 /// </para>
 /// </remarks>
-public sealed class GroupViewModel : DashboardRow
+public sealed partial class GroupViewModel : DashboardRow
 {
     private Group _group;
+    private readonly IAckPublisher? _ack;
     private bool _isExpanded;
     private bool _isStale;
     private TimeSpan _idleAge;
     private SessionState? _displayState;
 
     /// <summary>Heads <paramref name="group"/>.</summary>
+    /// <remarks>
+    /// The publisher is optional for the same reason <see cref="SessionViewModel"/>'s is:
+    /// headers really are built standalone in tests, and nothing resolves one from a container.
+    /// <c>MainViewModel</c> supplies the real one, and a header with none shows the Ack disabled
+    /// rather than hiding it — hiding would misreport the group.
+    /// </remarks>
     /// <exception cref="ArgumentNullException"><paramref name="group"/> is null.</exception>
-    public GroupViewModel(Group group)
+    public GroupViewModel(Group group, IAckPublisher? ack = null)
     {
         ArgumentNullException.ThrowIfNull(group);
         _group = group;
+        _ack = ack;
     }
 
     /// <summary>The group's identity. Not for display — see the remarks on this type.</summary>
@@ -343,6 +352,66 @@ public sealed class GroupViewModel : DashboardRow
     /// <summary>The most recent activity across its members.</summary>
     public DateTimeOffset LastActivity => _group.LastActivity;
 
+    /// <summary>
+    /// Whether this header offers the group's one Ack: a roster, with a member that is waiting
+    /// (T1.36, issue #47).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>Roster groups only.</strong> An orchestration is acknowledged once, at the
+    /// orchestration; a working-directory group is a filing convenience whose members keep their
+    /// own Acks, or one of them finishing would hide behind another still working.
+    /// </para>
+    /// <para>
+    /// <strong>Read from the members, never from <see cref="WorstState"/>.</strong> WorstState is
+    /// the settled DISPLAY state: while the roster settle window is open it reads Working even
+    /// though a member is already Unread — deliberately, for the sound and the badge. The Ack is
+    /// not a notice: the member is eligible the moment it is eligible, and an operator fast
+    /// enough to click inside 1.5 seconds must not find the button missing. Nor from rendered
+    /// rows, which are the view — a collapsed roster hides its quiet members, and the flag must
+    /// not lean on quiet staying disjoint from eligible (T1.34's finding).
+    /// </para>
+    /// </remarks>
+    public bool CanAcknowledge =>
+        Kind == GroupKeyKind.Roster && _group.Members.Any(member => Acknowledgment.Applies(member.State));
+
+    /// <summary>The domain question, and somewhere to send the answer.</summary>
+    public bool CanRaiseAck => CanAcknowledge && _ack is not null;
+
+    /// <summary>
+    /// Acknowledges every member that is waiting — the orchestration's one Ack (issue #47).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// One <see cref="IAckPublisher.Acknowledge"/> per member eligible at the click, through the
+    /// publisher every row uses; the Registry stays the one writer. The body re-checks each
+    /// member rather than trusting <c>CanExecute</c>, for the row command's reason: the channel
+    /// holds 1,024 and drops its oldest when full, so an ack the Registry will decline is how a
+    /// real event gets evicted.
+    /// </para>
+    /// <para>
+    /// <strong>The accepted trade-off (issue #47):</strong> a blocked member — permission,
+    /// question, error — can be cleared by hand only here, at the group. The orchestration is
+    /// the unit, and the permission has to be answered in the terminal either way.
+    /// </para>
+    /// </remarks>
+    [RelayCommand(CanExecute = nameof(CanRaiseAck))]
+    private void Acknowledge()
+    {
+        if (_ack is not { } publisher || Kind != GroupKeyKind.Roster)
+        {
+            return;
+        }
+
+        foreach (var member in _group.Members)
+        {
+            if (Acknowledgment.Applies(member.State))
+            {
+                publisher.Acknowledge(member);
+            }
+        }
+    }
+
     private void RaiseAll()
     {
         OnPropertyChanged(nameof(Group));
@@ -355,5 +424,8 @@ public sealed class GroupViewModel : DashboardRow
         OnPropertyChanged(nameof(LastActivity));
         OnPropertyChanged(nameof(Accent));
         OnPropertyChanged(nameof(MemberAccents));
+        OnPropertyChanged(nameof(CanAcknowledge));
+        OnPropertyChanged(nameof(CanRaiseAck));
+        AcknowledgeCommand.NotifyCanExecuteChanged();
     }
 }

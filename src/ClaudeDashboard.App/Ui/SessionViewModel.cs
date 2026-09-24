@@ -588,6 +588,53 @@ public sealed partial class SessionViewModel : DashboardRow
     /// </remarks>
     public bool CanAcknowledge => Acknowledgment.Applies(_session.State);
 
+    private bool _isRosterMember;
+
+    /// <summary>
+    /// Whether this row currently sits inside a roster group (T1.36, issue #47).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>Set by <see cref="MainViewModel"/> when it places the row, not read from a
+    /// group.</strong> The row does not know its group — it never has, and giving it a group
+    /// reference would couple two lifetimes that <c>Refresh</c> deliberately manages apart. The
+    /// placement pass is the one place that knows where every row is going on every rebuild, the
+    /// same way <see cref="IsSelecting"/> reaches rows — so a Refresh that moves this session
+    /// into or out of a roster sets it in the same breath.
+    /// </para>
+    /// <para>
+    /// Membership is a display fact here, and only display: the acknowledge command itself is
+    /// untouched, because what a roster member loses is the affordance, not the ability — the
+    /// group's Ack and Ack all both still travel the same publisher.
+    /// </para>
+    /// </remarks>
+    public bool IsRosterMember
+    {
+        get => _isRosterMember;
+        internal set
+        {
+            if (_isRosterMember == value)
+            {
+                return;
+            }
+
+            _isRosterMember = value;
+            OnPropertyChanged(nameof(IsRosterMember));
+            OnPropertyChanged(nameof(ShowsOwnAck));
+        }
+    }
+
+    /// <summary>
+    /// Whether the row shows its own Ack: something to acknowledge, and not a roster member
+    /// (T1.36, issue #47).
+    /// </summary>
+    /// <remarks>
+    /// An orchestration is acknowledged once, at its header; the member keeps its badge and LED
+    /// so the operator can still see which member wants them, and acknowledges at the group. The
+    /// same session in Flat view or in a working-directory group shows its own.
+    /// </remarks>
+    public bool ShowsOwnAck => CanAcknowledge && !IsRosterMember;
+
     /// <summary>Puts the <em>whole</em> session id on the clipboard (issue #15).</summary>
     /// <remarks>
     /// <para>
@@ -730,6 +777,7 @@ public sealed partial class SessionViewModel : DashboardRow
         OnPropertyChanged(nameof(ErrorKind));
         OnPropertyChanged(nameof(CanAcknowledge));
         OnPropertyChanged(nameof(CanRaiseAck));
+        OnPropertyChanged(nameof(ShowsOwnAck));
         AcknowledgeCommand.NotifyCanExecuteChanged();
         OnPropertyChanged(nameof(Age));
     }
