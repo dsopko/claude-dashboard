@@ -100,6 +100,28 @@ public sealed partial class MainViewModel : ObservableObject, IUiTickTarget, IDi
     [ObservableProperty]
     private int _endedCount;
 
+    /// <summary>
+    /// Whether anything on the board is waiting on the operator — the Ack-all button's light
+    /// and its gate, which are deliberately one fact (issue #43).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>Computed from the projection's sessions, never from <see cref="Rows"/>.</strong>
+    /// Rows is the view: it holds headers and footers, and what the collapse rules hide is a
+    /// property of the renderer. Today no collapse can hide an eligible session — the Unread
+    /// exemption and the never-summarised bands (Design Document §6 rule 3) see to that — but
+    /// this flag answers "is anything waiting", which is a fact about the sessions, and reading
+    /// it off the view would make it silently depend on those rules staying exactly as they are.
+    /// </para>
+    /// <para>
+    /// Recomputed in <see cref="RecountBands"/>, on the same pass and the same dispatcher path
+    /// as every band count — so it can never disagree with the numbers beside it.
+    /// </para>
+    /// </remarks>
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(AckAllCommand))]
+    private bool _anythingToAcknowledge;
+
     /// <summary>The word after the caption's total: " sessions", or " session" for one.</summary>
     /// <remarks>
     /// <para>
@@ -312,6 +334,46 @@ public sealed partial class MainViewModel : ObservableObject, IUiTickTarget, IDi
 
     /// <summary>What the header says while selecting.</summary>
     public string SelectionText => $"Selecting · {SelectedCount} chosen";
+
+    /// <summary>
+    /// Acknowledges every session that is waiting on the operator (issue #43).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>N clicks of Ack is N acks; so is one click of this.</strong> One
+    /// <see cref="IAckPublisher.Acknowledge"/> per eligible session, through the same publisher
+    /// every row uses — no new event type, and the Registry stays the one writer, applying each
+    /// ack as the idempotent, timestamp-guarded transition it already is.
+    /// </para>
+    /// <para>
+    /// <strong>The body re-checks each session at the moment of the click</strong> rather than
+    /// trusting <c>CanExecute</c>, for the reason <see cref="SessionViewModel"/>'s own command
+    /// gives: a binding will not invoke a disabled command, but anything holding the command
+    /// object can. And the re-check is per session, not per click — the flag says <em>some</em>
+    /// session is eligible, and publishing for the rest would be publishing acks the Registry
+    /// will decline. That is not free: the channel is bounded at
+    /// <see cref="Pipeline.EventPipeline.DefaultCapacity"/> — 1,024 — and drops its
+    /// <em>oldest</em> entry when full (Impl §4), so a declined ack is how a real event gets
+    /// evicted. Eligible-only publishing keeps one click at exactly one ack per waiting
+    /// session; only more than 1,024 sessions waiting at once could make the click itself
+    /// overflow the channel, and at that count the oldest of its own acks would be what
+    /// dropped — a scale three orders past the dashboard's world, accepted rather than defended
+    /// against.
+    /// </para>
+    /// </remarks>
+    [RelayCommand(CanExecute = nameof(CanAckAll))]
+    private void AckAll()
+    {
+        foreach (var session in _projection.Sessions.ToList())
+        {
+            if (Acknowledgment.Applies(session.State))
+            {
+                _ack.Acknowledge(session);
+            }
+        }
+    }
+
+    private bool CanAckAll() => AnythingToAcknowledge;
 
     /// <summary>Enters selection mode.</summary>
     [RelayCommand]
@@ -676,6 +738,11 @@ public sealed partial class MainViewModel : ObservableObject, IUiTickTarget, IDi
         WorkingCount = byBand.GetValueOrDefault(AttentionBand.Working);
         QuietCount = byBand.GetValueOrDefault(AttentionBand.Quiet);
         EndedCount = byBand.GetValueOrDefault(AttentionBand.Ended);
+
+        // Asked of the domain, not derived from the band counts above: which states an ack
+        // applies to is Acknowledgment.Applies's knowledge, and a copy phrased in bands would be
+        // the drift SessionViewModel.CanAcknowledge's remark warns about.
+        AnythingToAcknowledge = sessions.Any(session => Acknowledgment.Applies(session.State));
     }
 
     private SessionViewModel RowFor(Session session)

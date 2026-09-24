@@ -136,6 +136,161 @@ public sealed class AckTests : IDisposable
         Assert.True(changed > 0, "the command must announce that it became available");
     }
 
+    // ---- Ack all (issue #43) --------------------------------------------------------------------
+
+    /// <summary>
+    /// The flag follows the sessions: false on an empty board, false among the ineligible, true
+    /// the moment one session waits, false again when it stops waiting.
+    /// </summary>
+    [Fact]
+    public void The_flag_follows_what_is_waiting()
+    {
+        Assert.False(_viewModel.AnythingToAcknowledge);
+
+        _harness.Working("busy", At);
+        _harness.Quiet("done", At);
+
+        Assert.False(_viewModel.AnythingToAcknowledge);
+
+        _harness.Finished("s-1", At.AddMinutes(1), _harness.Working("s-1", At));
+
+        Assert.True(_viewModel.AnythingToAcknowledge);
+
+        _harness.Acked("s-1", At.AddMinutes(2));
+
+        Assert.False(_viewModel.AnythingToAcknowledge);
+    }
+
+    /// <summary>The view is not the truth: the flag holds in Flat exactly as in Grouped.</summary>
+    [Fact]
+    public void The_flag_is_the_same_fact_in_both_views()
+    {
+        _harness.Finished("s-1", At.AddMinutes(1), _harness.Working("s-1", At));
+
+        Assert.True(_viewModel.AnythingToAcknowledge);
+
+        _viewModel.IsGrouped = false;
+
+        Assert.True(_viewModel.AnythingToAcknowledge);
+        Assert.True(_viewModel.AckAllCommand.CanExecute(null));
+    }
+
+    /// <summary>
+    /// The flag holds for a member of a collapsed group, because it is computed from the
+    /// sessions and never from <see cref="MainViewModel.Rows"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Stated honestly: today this scenario cannot tell the two computations apart, and that is
+    /// a measured fact rather than an oversight. No collapse rule can hide an eligible row —
+    /// <c>An_unread_row_is_never_collapsed</c>, <c>A_blocked_row_is_never_collapsed</c> and
+    /// <c>The_bands_that_hold_work_are_never_summarised_in_flat_view</c> pin exactly that, so an
+    /// eligible session always has a row and a Rows-based flag would pass this test too.
+    /// </para>
+    /// <para>
+    /// What the test does pin is the contract: collapsing a group must not move the flag, and if
+    /// a future collapse rule ever does hide a waiting row — the renderer is one rule change
+    /// away — this is the test that fails against the sessions-based flag's promise rather than
+    /// nothing failing at all.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void The_flag_survives_a_collapsed_group()
+    {
+        _harness.Finished("s-1", At.AddMinutes(1), _harness.Working("s-1", At));
+
+        foreach (var group in _viewModel.Rows.OfType<GroupViewModel>().ToList())
+        {
+            group.IsExpanded = false;
+        }
+
+        Assert.True(_viewModel.AnythingToAcknowledge);
+    }
+
+    /// <summary>
+    /// <strong>One click, exactly the eligible set, once each.</strong>
+    /// </summary>
+    /// <remarks>
+    /// The set is asserted, not a count: a count of four passes when the click acks the wrong
+    /// four. The count is asserted beside it only to close the duplicate hole a set cannot see.
+    /// </remarks>
+    [Fact]
+    public void The_click_publishes_exactly_the_eligible_set()
+    {
+        _harness.Finished("unread", At.AddMinutes(1), _harness.Working("unread", At));
+        _harness.Working("perm", At);
+        _harness.Blocked("perm", At.AddMinutes(1), "permission_prompt");
+        _harness.Working("quest", At);
+        _harness.Blocked("quest", At.AddMinutes(1), "agent_needs_input");
+        _harness.Failed("err", At.AddMinutes(1), _harness.Working("err", At));
+        _harness.Working("busy", At);
+        _harness.Quiet("done", At);
+        _harness.Started("ended", At);
+        _harness.Ended("ended", At.AddMinutes(1));
+
+        _viewModel.AckAllCommand.Execute(null);
+
+        Assert.Equal(
+            new HashSet<SessionId>
+            {
+                new("unread"), new("perm"), new("quest"), new("err"),
+            },
+            Acks.Select(ack => ack.SessionId).ToHashSet());
+        Assert.Equal(4, Acks.Count);
+        Assert.All(Acks, ack => Assert.Equal(AckSource.Manual, ack.Source));
+        Assert.Equal(4, _sink.Published.Count);
+    }
+
+    /// <summary>
+    /// Nothing at all on a quiet board — through <c>Execute</c>, which does not gate on
+    /// <c>CanExecute</c>, because the body's own re-check is the claim under test.
+    /// </summary>
+    [Fact]
+    public void The_click_publishes_nothing_when_nothing_is_waiting()
+    {
+        _harness.Working("busy", At);
+        _harness.Quiet("done", At);
+
+        Assert.False(_viewModel.AckAllCommand.CanExecute(null));
+
+        _viewModel.AckAllCommand.Execute(null);
+
+        Assert.Empty(_sink.Published);
+    }
+
+    /// <summary>
+    /// The flag goes false when the Registry has applied the acks — no second click, and the
+    /// command says so out loud for the button to re-query.
+    /// </summary>
+    [Fact]
+    public void The_flag_clears_once_the_registry_has_applied_the_acks()
+    {
+        _harness.Finished("s-1", At.AddMinutes(1), _harness.Working("s-1", At));
+        _harness.Failed("s-2", At.AddMinutes(1), _harness.Working("s-2", At));
+
+        // The click happens after the sessions reached their states, and the publisher stamps
+        // the clock's now. Left at the start, the acks would carry a timestamp BEFORE the
+        // transitions and the Registry's timestamp guard would decline every one — correctly.
+        _clock.Advance(TimeSpan.FromMinutes(5));
+
+        _viewModel.AckAllCommand.Execute(null);
+
+        // Published is not applied: the projection has heard nothing yet.
+        Assert.True(_viewModel.AnythingToAcknowledge);
+
+        var announced = 0;
+        _viewModel.AckAllCommand.CanExecuteChanged += (_, _) => announced++;
+
+        foreach (var ack in Acks.ToList())
+        {
+            _harness.Apply(ack);
+        }
+
+        Assert.False(_viewModel.AnythingToAcknowledge);
+        Assert.False(_viewModel.AckAllCommand.CanExecute(null));
+        Assert.True(announced > 0, "the command must announce that it became unavailable");
+    }
+
     // ---- What must NOT happen ------------------------------------------------------------------
 
     /// <summary>

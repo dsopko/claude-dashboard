@@ -316,13 +316,14 @@
                 </Grid>
             </Border>
 
-            <!-- ==== Toolbar: Grouped/Flat · Select · Mute all (option 2c's idle row) ========== -->
+            <!-- ==== Toolbar: Grouped/Flat · Select · Mute all · Ack all (2c + issue #43) ======= -->
             <Border Grid.Row="1" Padding="12,10"
                     BorderBrush="{StaticResource HairlineBrush}" BorderThickness="0,0,0,1">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
@@ -388,6 +389,18 @@
                     <Button Grid.Column="3" Content="Mute all"
                             Style="{StaticResource HeaderReservedButtonStyle}"
                             ToolTip="Muting arrives with the tray menu (T1.13)." />
+
+                    <!--
+                        Rightmost on purpose (issue #43, ruled 2026-09-24), and OUTSIDE the
+                        selection-mode swap: entering selection mode must not hide the one action
+                        that clears the board. Lit exactly when enabled — the style's remark says
+                        why unlit is plain rather than dimmed.
+                    -->
+                    <Button x:Name="AckAllButton" Grid.Column="4" Content="Ack all"
+                            Margin="6,0,0,0"
+                            Style="{StaticResource AckAllButtonStyle}"
+                            Command="{Binding AckAllCommand}"
+                            ToolTip="Acknowledge every session that is waiting on you." />
                 </Grid>
             </Border>
 

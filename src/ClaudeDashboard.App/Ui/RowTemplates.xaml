@@ -522,6 +522,48 @@
         <Setter Property="ToolTipService.ShowOnDisabled" Value="True" />
     </Style>
 
+    <!--
+        Ack all (issue #43). One trigger, on the view model's flag: lit is the checked Grouped
+        segment's look — RaisedBrush under InkBrush — and unlit is the plain header chip. Lit and
+        enabled are the same predicate, so the unlit button IS disabled; what it must not be is
+        DIMMED, because a quiet board is the ordinary state of the dashboard, not a broken
+        control.
+
+        THE TEMPLATE IS RESTATED, AND ONLY TO OMIT ONE TRIGGER. HeaderButtonStyle's template dims
+        its Chip to 0.75 on IsEnabled=False, and a template trigger cannot be removed from
+        outside the template: a style trigger cannot reach the named Chip, and re-templating is
+        the only door WPF leaves. Everything except that one trigger is HeaderButtonStyle's
+        template verbatim — change one, change both.
+    -->
+    <Style x:Key="AckAllButtonStyle" TargetType="Button" BasedOn="{StaticResource HeaderButtonStyle}">
+        <Setter Property="ToolTipService.ShowOnDisabled" Value="True" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="Chip"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="{StaticResource HairlineBrush}"
+                            BorderThickness="1"
+                            CornerRadius="6">
+                        <ContentPresenter Margin="{TemplateBinding Padding}" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Chip" Property="Background" Value="{StaticResource RaisedBrush}" />
+                            <Setter Property="Foreground" Value="{StaticResource Ink2Brush}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding AnythingToAcknowledge}" Value="True">
+                <Setter Property="Background" Value="{StaticResource RaisedBrush}" />
+                <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            </DataTrigger>
+        </Style.Triggers>
+    </Style>
+
 
     <!-- ==== Roster prompt (Design Document §9) ================================================= -->
     <!--

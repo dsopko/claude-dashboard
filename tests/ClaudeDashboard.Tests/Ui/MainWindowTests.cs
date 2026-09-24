@@ -1074,6 +1074,86 @@ public sealed class MainWindowTests(StaHarness harness)
             button.Content as string == "✓ Ack" && button.Visibility == Visibility.Visible);
 
     /// <summary>Drives a session to <paramref name="state"/> through the real pipeline.</summary>
+    // ---- Ack all, as it actually renders (issue #43) -------------------------------------------
+
+    /// <summary>
+    /// <strong>Lit is the checked Grouped segment's look, and lit is enabled.</strong> Asserted
+    /// against the brushes the styles themselves resolve from the resource dictionary — a
+    /// literal here would be a second copy of the palette, free to stay green while the theme
+    /// moved.
+    /// </summary>
+    [Fact]
+    public void The_ack_all_button_lights_when_something_waits()
+    {
+        WithWindow(
+            registry => Reach(registry, "s-1", SessionState.Unread),
+            (window, viewModel) =>
+            {
+                var button = StaHarness.Find<Button>(window, b => b.Name == "AckAllButton");
+
+                Assert.NotNull(button);
+                Assert.True(viewModel.AnythingToAcknowledge);
+                Assert.True(button.IsEnabled);
+
+                var chip = StaHarness.Find<Border>(button, b => b.Name == "Chip");
+
+                Assert.NotNull(chip);
+                Assert.Same(window.FindResource("RaisedBrush"), chip.Background);
+                Assert.Same(window.FindResource("InkBrush"), button.Foreground);
+
+                Assert.Equal(4, Grid.GetColumn(button));
+                Assert.Equal(4, ((Grid)button.Parent).ColumnDefinitions.Count - 1);
+                Assert.Equal("Acknowledge every session that is waiting on you.", button.ToolTip);
+
+                // Selection mode must not hide the one action that clears the board.
+                viewModel.IsSelecting = true;
+                Assert.True(button.IsVisible);
+
+                return true;
+            });
+    }
+
+    /// <summary>
+    /// <strong>Unlit is the plain header chip — Select's look — and NOT the dimmed disabled
+    /// look.</strong> The quiet board is the dashboard's ordinary state, and the base style's
+    /// 0.75 opacity would draw the ordinary state as a broken control.
+    /// </summary>
+    [Fact]
+    public void The_ack_all_button_rests_at_the_plain_header_look()
+    {
+        WithWindow(
+            registry => Reach(registry, "s-1", SessionState.Working),
+            (window, viewModel) =>
+            {
+                var button = StaHarness.Find<Button>(window, b => b.Name == "AckAllButton");
+
+                Assert.NotNull(button);
+                Assert.False(viewModel.AnythingToAcknowledge);
+                Assert.False(button.IsEnabled);
+
+                var header = (Style)window.FindResource("HeaderButtonStyle");
+                var chip = StaHarness.Find<Border>(button, b => b.Name == "Chip");
+
+                Assert.NotNull(chip);
+                Assert.Equal(StyleValue(header, Control.BackgroundProperty), chip.Background);
+                Assert.Same(StyleValue(header, Control.ForegroundProperty), button.Foreground);
+
+                // The whole reason the style restates its template: disabled must not dim.
+                Assert.Equal(1.0, chip.Opacity);
+
+                return true;
+            });
+    }
+
+    /// <summary>What <paramref name="style"/> itself sets <paramref name="property"/> to.</summary>
+    /// <remarks>
+    /// Read from the style's own setters so the expected value moves with the style — the same
+    /// discipline as resolving a brush from the dictionary, applied to a style whose look is the
+    /// contract.
+    /// </remarks>
+    private static object? StyleValue(Style style, DependencyProperty property) =>
+        style.Setters.OfType<Setter>().Single(setter => setter.Property == property).Value;
+
     private static void Reach(RegistryHarness registry, string id, SessionState state)
     {
         switch (state)
