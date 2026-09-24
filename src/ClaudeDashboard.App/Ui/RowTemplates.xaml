@@ -34,6 +34,19 @@
     <SolidColorBrush x:Key="BlueWashBrush" Color="#1F5AA9FF" />
     <SolidColorBrush x:Key="AmberWashBrush" Color="#1FFFB454" />
 
+    <!--
+        Selection (issue #44). Two brushes, not one, because three states must be tellable apart
+        on one row: keyboard focus paints RaisedBrush (grey), a selected row paints the first of
+        these (a blue wash, stronger than BlueWashBrush so it does not read as grey over the
+        page), and a row that is both paints the second — the focus grey with the same wash laid
+        over it, precomputed and opaque so the look is one brush rather than an accident of
+        stacking. Their own instances rather than BlueWashBrush reused: the looks are asserted by
+        instance, and welding selection to the Working badge's wash would couple two unrelated
+        meanings through one object.
+    -->
+    <SolidColorBrush x:Key="SelectedRowBrush" Color="#2E5AA9FF" />
+    <SolidColorBrush x:Key="SelectedFocusedRowBrush" Color="#FF314358" />
+
     <FontFamily x:Key="UiFont">Segoe UI Variable Text, Segoe UI</FontFamily>
     <FontFamily x:Key="MonoFont">Cascadia Code, Cascadia Mono, Consolas</FontFamily>
 
@@ -523,19 +536,27 @@
     </Style>
 
     <!--
-        Ack all (issue #43). One trigger, on the view model's flag: lit is the checked Grouped
-        segment's look — RaisedBrush under InkBrush — and unlit is the plain header chip. Lit and
-        enabled are the same predicate, so the unlit button IS disabled; what it must not be is
-        DIMMED, because a quiet board is the ordinary state of the dashboard, not a broken
-        control.
+        The lit action chip (issues #43 and #45; the rule is Design Document §9's). An action
+        chip wearing this style is lit — RaisedBrush under InkBrush, the checked Grouped
+        segment's look — exactly when it is enabled, and rests at the plain header chip when it
+        is not. Lit and enabled are one predicate, so the trigger is IsEnabled itself: the
+        command's CanExecute is the flag, and a second binding restating it per consumer would be
+        a copy free to drift. What the style does NOT decide is which buttons deserve it — §9's
+        rule is "enabled AND the primary action of the current state", and the second half is
+        encoded by which buttons wear this style: Ack all and Group these do; Select, Cancel and
+        Mute all never do.
+
+        The unlit chip is DISABLED but must not be DIMMED: a quiet board and an incomplete
+        selection are the ordinary states of the dashboard, not broken controls.
 
         THE TEMPLATE IS RESTATED, AND ONLY TO OMIT ONE TRIGGER. HeaderButtonStyle's template dims
         its Chip to 0.75 on IsEnabled=False, and a template trigger cannot be removed from
         outside the template: a style trigger cannot reach the named Chip, and re-templating is
         the only door WPF leaves. Everything except that one trigger is HeaderButtonStyle's
-        template verbatim — change one, change both.
+        template verbatim — change one, change both. One restatement, two consumers, per
+        issue #45's "do not restate the template a third time".
     -->
-    <Style x:Key="AckAllButtonStyle" TargetType="Button" BasedOn="{StaticResource HeaderButtonStyle}">
+    <Style x:Key="LitActionButtonStyle" TargetType="Button" BasedOn="{StaticResource HeaderButtonStyle}">
         <Setter Property="ToolTipService.ShowOnDisabled" Value="True" />
         <Setter Property="Template">
             <Setter.Value>
@@ -557,10 +578,10 @@
             </Setter.Value>
         </Setter>
         <Style.Triggers>
-            <DataTrigger Binding="{Binding AnythingToAcknowledge}" Value="True">
+            <Trigger Property="IsEnabled" Value="True">
                 <Setter Property="Background" Value="{StaticResource RaisedBrush}" />
                 <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
-            </DataTrigger>
+            </Trigger>
         </Style.Triggers>
     </Style>
 
@@ -616,9 +637,20 @@
     </DataTemplate>
     <!-- ==== Session row ======================================================================== -->
     <DataTemplate DataType="{x:Type ui:SessionViewModel}">
-        <ToggleButton Style="{StaticResource RowToggleStyle}"
+        <!--
+            SELECTION IS DRAWN HERE, NOT IN RowToggleStyle, AND THE PLACEMENT IS LOAD-BEARING
+            (issue #44). RowToggleStyle is shared with group headings and quiet footers, whose
+            view models have no IsSelected — a trigger binding it there would raise a binding
+            error on every header of every window. So the mark rides this template: a surface
+            inside the toggle that only session rows have, bound to IsSelected and to nothing
+            else. The focus and hover shades stay RowToggleStyle's; three states are three
+            brushes, and the triggers live at the bottom of this template.
+        -->
+        <ToggleButton x:Name="RowToggle"
+                      Style="{StaticResource RowToggleStyle}"
                       IsChecked="{Binding IsExpanded, Mode=TwoWay}"
                       AutomationProperties.Name="{Binding RowName}">
+            <Border x:Name="SelectionSurface" Background="Transparent">
             <Grid Margin="0,7,10,8">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
@@ -628,7 +660,26 @@
                 </Grid.ColumnDefinitions>
 
                 <Rectangle Grid.Column="0" Grid.RowSpan="2" Style="{StaticResource RailStyle}" />
-                <Ellipse Grid.Column="1" Style="{StaticResource LedStyle}" />
+
+                <!--
+                    The status LED gives way to a check while the row is selected (issue #44,
+                    ruled by the operator): selection borrows the one slot the eye already
+                    watches, and the LED comes back the moment the tick goes. Blue, because blue
+                    is the affirmative accent and the state accents must keep their meanings.
+                -->
+                <Grid Grid.Column="1">
+                    <Ellipse Style="{StaticResource LedStyle}"
+                             Visibility="{Binding IsSelected, Converter={StaticResource BoolToCollapsed}}" />
+                    <TextBlock x:Name="SelectedCheck"
+                               Text="&#x2713;"
+                               FontFamily="{StaticResource UiFont}"
+                               FontSize="12"
+                               FontWeight="SemiBold"
+                               Margin="5,0,5,0"
+                               VerticalAlignment="Top"
+                               Foreground="{StaticResource BlueBrush}"
+                               Visibility="{Binding IsSelected, Converter={StaticResource BoolToVisible}}" />
+                </Grid>
 
                 <StackPanel Grid.Column="2">
                     <!--
@@ -815,7 +866,43 @@
                         Visibility="{Binding CanAcknowledge, Converter={StaticResource BoolToVisible}}"
                         ToolTip="Mark this result seen." />
             </Grid>
+            </Border>
         </ToggleButton>
+
+        <DataTemplate.Triggers>
+            <!--
+                The selected mark's background, bound to IsSelected and to nothing else — the
+                whole of issue #44's bug was a shade that was really keyboard focus. The second
+                trigger is the third of the three states: selected AND focused takes its own
+                precomputed brush, so focus arriving on a selected row changes the shade rather
+                than erasing it, and the three looks are three brush instances.
+            -->
+            <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                <Setter TargetName="SelectionSurface" Property="Background" Value="{StaticResource SelectedRowBrush}" />
+            </DataTrigger>
+            <MultiDataTrigger>
+                <MultiDataTrigger.Conditions>
+                    <Condition Binding="{Binding IsSelected}" Value="True" />
+                    <Condition Binding="{Binding IsKeyboardFocused, ElementName=RowToggle}" Value="True" />
+                </MultiDataTrigger.Conditions>
+                <Setter TargetName="SelectionSurface" Property="Background" Value="{StaticResource SelectedFocusedRowBrush}" />
+            </MultiDataTrigger>
+
+            <!--
+                A row that cannot be picked says so with its whole body, not only the refusal
+                text beside the badge (issue #44's second finding): dimmed while the mode is on,
+                with the remedy in the tooltip. Outside the mode it looks exactly as it did.
+            -->
+            <MultiDataTrigger>
+                <MultiDataTrigger.Conditions>
+                    <Condition Binding="{Binding IsSelecting}" Value="True" />
+                    <Condition Binding="{Binding CanSelect}" Value="False" />
+                </MultiDataTrigger.Conditions>
+                <Setter TargetName="SelectionSurface" Property="Opacity" Value="0.55" />
+                <Setter TargetName="RowToggle" Property="ToolTip"
+                        Value="This session has no title, so it cannot be picked. Name it with --name or /rename." />
+            </MultiDataTrigger>
+        </DataTemplate.Triggers>
     </DataTemplate>
 
     <!-- ==== Group heading ====================================================================== -->

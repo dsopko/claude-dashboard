@@ -372,7 +372,7 @@
                                        Foreground="{StaticResource Ink2Brush}" />
                             <Button x:Name="GroupTheseButton"
                                     Content="Group these"
-                                    Style="{StaticResource HeaderButtonStyle}"
+                                    Style="{StaticResource LitActionButtonStyle}"
                                     Margin="0,0,6,0"
                                     Command="{Binding GroupSelectedCommand}" />
                             <Button x:Name="CancelSelectionButton"
@@ -398,7 +398,7 @@
                     -->
                     <Button x:Name="AckAllButton" Grid.Column="4" Content="Ack all"
                             Margin="6,0,0,0"
-                            Style="{StaticResource AckAllButtonStyle}"
+                            Style="{StaticResource LitActionButtonStyle}"
                             Command="{Binding AckAllCommand}"
                             ToolTip="Acknowledge every session that is waiting on you." />
                 </Grid>

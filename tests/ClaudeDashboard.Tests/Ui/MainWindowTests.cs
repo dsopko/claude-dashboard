@@ -8,6 +8,7 @@ using System.Windows.Automation.Peers;
 using System.Windows.Automation.Provider;
 using System.Windows.Controls.Primitives;
 using System.Windows.Documents;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
 using Ellipse = System.Windows.Shapes.Ellipse;
@@ -1074,6 +1075,279 @@ public sealed class MainWindowTests(StaHarness harness)
             button.Content as string == "✓ Ack" && button.Visibility == Visibility.Visible);
 
     /// <summary>Drives a session to <paramref name="state"/> through the real pipeline.</summary>
+    // ---- Selection, as it actually renders (issue #44) -----------------------------------------
+
+    private static ToggleButton ToggleOf(MainWindow window, string sessionId) =>
+        StaHarness.Find<ToggleButton>(RowFor(window, sessionId), toggle => toggle.Name == "RowToggle")!;
+
+    private static Border SurfaceOf(MainWindow window, string sessionId) =>
+        StaHarness.Find<Border>(RowFor(window, sessionId), border => border.Name == "SelectionSurface")!;
+
+    private static SessionViewModel VmOf(MainWindow window, string sessionId) =>
+        (SessionViewModel)RowFor(window, sessionId).DataContext;
+
+    /// <summary>
+    /// <strong>Issue #44's bug, from the failing side: two chosen rows look chosen at once,
+    /// whichever has focus.</strong>
+    /// </summary>
+    /// <remarks>
+    /// The old shade was <c>RowToggleStyle</c>'s <c>IsKeyboardFocused</c> trigger impersonating
+    /// selection, so clicking a second row stripped the first row's only visual while its state
+    /// stayed true. Focus is moved to a THIRD row here — the arrangement where the old display
+    /// showed zero selections while the header counted two.
+    /// </remarks>
+    [Fact]
+    public void Two_selected_rows_keep_their_marks_when_focus_moves()
+    {
+        WithWindow(
+            registry =>
+            {
+                registry.Working("s-1", At, title: "one");
+                registry.Working("s-2", At, title: "two");
+                registry.Working("s-3", At, title: "three");
+            },
+            (window, viewModel) =>
+            {
+                VmOf(window, "s-1").IsSelected = true;
+                VmOf(window, "s-2").IsSelected = true;
+
+                var third = ToggleOf(window, "s-3");
+                third.Focus();
+
+                Assert.True(third.IsKeyboardFocused, "The harness could not move keyboard focus at all.");
+
+                Assert.Same(window.FindResource("SelectedRowBrush"), SurfaceOf(window, "s-1").Background);
+                Assert.Same(window.FindResource("SelectedRowBrush"), SurfaceOf(window, "s-2").Background);
+
+                return true;
+            },
+            prepare: viewModel => viewModel.IsSelecting = true);
+    }
+
+    /// <summary>
+    /// <strong>Focused, selected, and both are three distinct brush instances on one row.</strong>
+    /// </summary>
+    /// <remarks>
+    /// Distinguishability is the requirement, and instances are how it is asserted without
+    /// restating colours: the focus shade is <c>RowToggleStyle</c>'s <c>RaisedBrush</c> on its
+    /// template's Surround, the selection shade is <c>SelectedRowBrush</c> on the row's own
+    /// surface, and both together swap in <c>SelectedFocusedRowBrush</c> — so focus arriving on
+    /// a selected row changes the shade rather than erasing it.
+    /// </remarks>
+    [Fact]
+    public void The_three_selection_looks_are_three_distinct_brushes()
+    {
+        WithWindow(
+            registry => registry.Working("s-1", At, title: "one"),
+            (window, viewModel) =>
+            {
+                var toggle = ToggleOf(window, "s-1");
+                var surface = SurfaceOf(window, "s-1");
+                var surround = StaHarness.Find<Border>(toggle, border => border.Name == "Surround")!;
+
+                toggle.Focus();
+                Assert.True(toggle.IsKeyboardFocused, "The harness could not move keyboard focus at all.");
+
+                var focused = surround.Background;
+                Assert.Same(window.FindResource("RaisedBrush"), focused);
+
+                VmOf(window, "s-1").IsSelected = true;
+                var both = surface.Background;
+                Assert.Same(window.FindResource("SelectedFocusedRowBrush"), both);
+
+                Keyboard.ClearFocus();
+                var selected = surface.Background;
+                Assert.Same(window.FindResource("SelectedRowBrush"), selected);
+
+                Assert.NotSame(focused, selected);
+                Assert.NotSame(focused, both);
+                Assert.NotSame(selected, both);
+
+                return true;
+            },
+            prepare: viewModel => viewModel.IsSelecting = true);
+    }
+
+    /// <summary>The check takes the LED's slot while selected, and gives it back.</summary>
+    [Fact]
+    public void The_check_takes_the_led_slot_while_selected()
+    {
+        WithWindow(
+            registry => registry.Working("s-1", At, title: "one"),
+            (window, viewModel) =>
+            {
+                var row = RowFor(window, "s-1");
+                var led = StaHarness.Find<Ellipse>(row)!;
+                var check = StaHarness.Find<TextBlock>(row, text => text.Name == "SelectedCheck")!;
+
+                Assert.Equal(Visibility.Visible, led.Visibility);
+                Assert.Equal(Visibility.Collapsed, check.Visibility);
+
+                VmOf(window, "s-1").IsSelected = true;
+
+                Assert.Equal(Visibility.Collapsed, led.Visibility);
+                Assert.Equal(Visibility.Visible, check.Visibility);
+                Assert.Same(window.FindResource("BlueBrush"), check.Foreground);
+
+                return true;
+            },
+            prepare: viewModel => viewModel.IsSelecting = true);
+    }
+
+    /// <summary>
+    /// The mark rides the view model, so it survives what a row survives — being expanded, a
+    /// state change arriving, an explicit rebuild.
+    /// </summary>
+    /// <remarks>
+    /// The row is expanded BEFORE the mode is entered, and that is not a convenience: in
+    /// selection mode the expansion gesture IS selection (T1.26 rule 1 — one gesture, one
+    /// meaning), so <c>IsExpanded</c> cannot move while selecting, and the first draft of this
+    /// test proved it by toggling its own selection off. What "survives expansion" can honestly
+    /// mean is that an expanded row carries the mark like any other.
+    /// </remarks>
+    [Fact]
+    public void The_mark_survives_an_expanded_row_a_state_change_and_a_refresh()
+    {
+        RegistryHarness? live = null;
+
+        WithWindow(
+            registry =>
+            {
+                live = registry;
+                registry.Working("s-1", At, title: "one");
+            },
+            (window, viewModel) =>
+            {
+                VmOf(window, "s-1").IsSelected = true;
+
+                Assert.True(VmOf(window, "s-1").IsExpanded);
+                Assert.Same(window.FindResource("SelectedRowBrush"), SurfaceOf(window, "s-1").Background);
+
+                // A state change arrives through the pipeline; the row is reused and keeps the mark.
+                live!.Batch("s-1", At.AddSeconds(5), title: "one");
+                Assert.True(VmOf(window, "s-1").IsSelected);
+                Assert.Same(window.FindResource("SelectedRowBrush"), SurfaceOf(window, "s-1").Background);
+
+                // An explicit rebuild reuses the row where it can (MainViewModel.Refresh), so the
+                // mark rides the view model rather than a visual that gets torn down.
+                viewModel.Refresh();
+                Assert.Same(window.FindResource("SelectedRowBrush"), SurfaceOf(window, "s-1").Background);
+
+                return true;
+            },
+            prepare: viewModel =>
+            {
+                // Expanded first, then the mode: the order is the design's, not the test's.
+                foreach (var row in viewModel.Rows.OfType<SessionViewModel>())
+                {
+                    row.IsExpanded = true;
+                }
+
+                viewModel.IsSelecting = true;
+            });
+    }
+
+    /// <summary>
+    /// An untitled row in selection mode is dimmed and says why; a titled one is not; outside
+    /// the mode neither is.
+    /// </summary>
+    [Fact]
+    public void An_untitled_row_dims_and_says_why_in_selection_mode()
+    {
+        WithWindow(
+            registry =>
+            {
+                registry.Working("named", At, title: "one");
+                registry.Working("nameless", At);
+            },
+            (window, viewModel) =>
+            {
+                var nameless = SurfaceOf(window, "nameless");
+                var named = SurfaceOf(window, "named");
+
+                Assert.Equal(0.55, nameless.Opacity);
+                Assert.Equal(
+                    "This session has no title, so it cannot be picked. Name it with --name or /rename.",
+                    ToggleOf(window, "nameless").ToolTip);
+
+                Assert.Equal(1.0, named.Opacity);
+                Assert.Null(ToggleOf(window, "named").ToolTip);
+
+                viewModel.IsSelecting = false;
+
+                Assert.Equal(1.0, nameless.Opacity);
+                Assert.Null(ToggleOf(window, "nameless").ToolTip);
+
+                return true;
+            },
+            prepare: viewModel => viewModel.IsSelecting = true);
+    }
+
+    /// <summary>
+    /// The mark leaves with the mode: <c>IsSelecting=false</c> clears the selection and the row
+    /// goes back to transparent.
+    /// </summary>
+    [Fact]
+    public void The_mark_leaves_with_the_mode()
+    {
+        WithWindow(
+            registry => registry.Working("s-1", At, title: "one"),
+            (window, viewModel) =>
+            {
+                VmOf(window, "s-1").IsSelected = true;
+                Assert.Same(window.FindResource("SelectedRowBrush"), SurfaceOf(window, "s-1").Background);
+
+                viewModel.IsSelecting = false;
+
+                Assert.False(VmOf(window, "s-1").IsSelected);
+                Assert.Equal(System.Windows.Media.Brushes.Transparent, SurfaceOf(window, "s-1").Background);
+
+                return true;
+            },
+            prepare: viewModel => viewModel.IsSelecting = true);
+    }
+
+    /// <summary>
+    /// <strong>Group these lights at two, exactly as Ack all lights when something waits
+    /// (issue #45)</strong> — the same shared style, asserted against the same brushes.
+    /// </summary>
+    [Fact]
+    public void Group_these_lights_at_two_and_rests_below()
+    {
+        WithWindow(
+            registry =>
+            {
+                registry.Working("s-1", At, title: "one");
+                registry.Working("s-2", At, title: "two");
+            },
+            (window, viewModel) =>
+            {
+                var button = StaHarness.Find<Button>(window, b => b.Name == "GroupTheseButton")!;
+                var chip = StaHarness.Find<Border>(button, border => border.Name == "Chip")!;
+                var header = (Style)window.FindResource("HeaderButtonStyle");
+
+                Assert.False(button.IsEnabled);
+                Assert.Equal(StyleValue(header, Control.BackgroundProperty), chip.Background);
+                Assert.Equal(1.0, chip.Opacity);
+
+                VmOf(window, "s-1").IsSelected = true;
+                Assert.False(button.IsEnabled);
+
+                VmOf(window, "s-2").IsSelected = true;
+                Assert.True(button.IsEnabled);
+                Assert.Same(window.FindResource("RaisedBrush"), chip.Background);
+                Assert.Same(window.FindResource("InkBrush"), button.Foreground);
+
+                VmOf(window, "s-2").IsSelected = false;
+                Assert.False(button.IsEnabled);
+                Assert.Equal(StyleValue(header, Control.BackgroundProperty), chip.Background);
+                Assert.Equal(1.0, chip.Opacity);
+
+                return true;
+            },
+            prepare: viewModel => viewModel.IsSelecting = true);
+    }
+
     // ---- Ack all, as it actually renders (issue #43) -------------------------------------------
 
     /// <summary>
