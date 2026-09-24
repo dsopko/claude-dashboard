@@ -52,11 +52,11 @@ public sealed class StartupHookGuardTests
         // Code only (fix cycle 2): this is a count, and a comment carrying the call's exact text
         // would let a deleted site go unmissed — three real withdrawals plus one remembered in
         // prose would still count four.
-        var program = CodeOnly(Program());
+        var program = GuardScan.CodeOnly(Program());
 
         var withdrawals =
-            Occurrences(program, "announcement.Withdraw()")
-            + Occurrences(program, "announcement?.Withdraw()");
+            GuardScan.Occurrences(program, "announcement.Withdraw()")
+            + GuardScan.Occurrences(program, "announcement?.Withdraw()");
 
         Assert.True(
             withdrawals == 4,
@@ -115,7 +115,7 @@ public sealed class StartupHookGuardTests
         // The positive search runs against code only, so a commented-out call cannot satisfy it
         // (fix cycle 2). The negative ones deliberately stay on the raw text: a forbidden call
         // appearing even in a comment is worth a failure that gets read.
-        Assert.Contains("StartupHookInstall.Run(", CodeOnly(program), StringComparison.Ordinal);
+        Assert.Contains("StartupHookInstall.Run(", GuardScan.CodeOnly(program), StringComparison.Ordinal);
 
         Assert.DoesNotContain(".Install()", program, StringComparison.Ordinal);
         Assert.DoesNotContain(".Remove()", program, StringComparison.Ordinal);
@@ -171,7 +171,7 @@ public sealed class StartupHookGuardTests
     [Fact]
     public void The_start_passes_the_operators_opt_out_to_the_decision()
     {
-        var code = CodeOnly(Program());
+        var code = GuardScan.CodeOnly(Program());
 
         const string Call = "StartupHookInstall.Run(";
 
@@ -185,7 +185,7 @@ public sealed class StartupHookGuardTests
             }
         }
 
-        var occurrences = Occurrences(code, Call);
+        var occurrences = GuardScan.Occurrences(code, Call);
 
         Assert.True(
             occurrences == 1,
@@ -222,7 +222,7 @@ public sealed class StartupHookGuardTests
         // closed in the opt-out guard, closed here before anyone proves it.
         Assert.Contains(
             "StartupHookInstall.RecordSwitch(",
-            CodeOnly(Program()),
+            GuardScan.CodeOnly(Program()),
             StringComparison.Ordinal);
     }
 
@@ -247,7 +247,7 @@ public sealed class StartupHookGuardTests
     {
         // Code only (fix cycle 2): against raw text, a comment mentioning the switches above the
         // gate would satisfy the ordering while the real call had moved below it.
-        var program = CodeOnly(Program());
+        var program = GuardScan.CodeOnly(Program());
 
         var switches = program.IndexOf("HookSwitches.Requested(args)", StringComparison.Ordinal);
         var gate = program.IndexOf("SingleInstanceGate.Acquire", StringComparison.Ordinal);
@@ -294,11 +294,11 @@ public sealed class StartupHookGuardTests
     [Fact]
     public void Velopack_runs_before_everything_else_in_Main()
     {
-        var code = CodeOnly(Program());
+        var code = GuardScan.CodeOnly(Program());
 
         const string Call = "VelopackApp.Build().Run();";
 
-        var occurrences = Occurrences(code, Call);
+        var occurrences = GuardScan.Occurrences(code, Call);
 
         Assert.True(
             occurrences > 0,
@@ -340,93 +340,6 @@ public sealed class StartupHookGuardTests
             gate > velopack,
             "The single-instance gate is taken before Velopack's lifecycle handler, so an update " +
             "launched while the dashboard runs would be handed over and shot down.");
-    }
-
-    /// <summary>
-    /// Drops both comment styles and the <em>contents</em> of string and char literals, so that
-    /// only code that runs can satisfy a positive search.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// <strong>Each omission here was a proven disarm before it was closed (T1.32 fix cycle
-    /// 2).</strong> Stripping only <c>//</c> lines let a <c>/* */</c> block inside one argument
-    /// slot carry the token — the first version's remark claimed a block comment could not
-    /// compile, which is true of one spanning the list and false of one inside a slot. And
-    /// stripping comments alone still leaves string literals, which cut both ways: a decoy call
-    /// spelled inside a string would satisfy a search, and a <c>"/*"</c> in one string with a
-    /// <c>"*/"</c> in another would open a phantom block that swallows the real call. Blanking
-    /// string contents while keeping the quotes closes both directions at once.
-    /// </para>
-    /// <para>
-    /// <strong>A pragmatic scanner, not a C# lexer, and its failures are closed.</strong> It
-    /// tracks line comments, block comments, ordinary string and char literals with backslash
-    /// escapes — the shapes <c>Program.cs</c> contains. A verbatim or raw string introduced later
-    /// would be mis-scanned, and what that produces is mangled text in which a positive search
-    /// finds nothing — a guard that fails and gets read, not one that quietly passes.
-    /// </para>
-    /// </remarks>
-    private static string CodeOnly(string text)
-    {
-        var kept = new System.Text.StringBuilder(text.Length);
-
-        for (var i = 0; i < text.Length; i++)
-        {
-            var c = text[i];
-            var next = i + 1 < text.Length ? text[i + 1] : '\0';
-
-            if (c == '/' && next == '/')
-            {
-                while (i < text.Length && text[i] != '\n')
-                {
-                    i++;
-                }
-
-                if (i < text.Length)
-                {
-                    kept.Append('\n');
-                }
-
-                continue;
-            }
-
-            if (c == '/' && next == '*')
-            {
-                i += 2;
-
-                while (i + 1 < text.Length && !(text[i] == '*' && text[i + 1] == '/'))
-                {
-                    i++;
-                }
-
-                i++;
-                kept.Append(' ');
-                continue;
-            }
-
-            if (c is '"' or '\'')
-            {
-                var quote = c;
-                kept.Append(quote);
-                i++;
-
-                while (i < text.Length && text[i] != quote)
-                {
-                    if (text[i] == '\\')
-                    {
-                        i++;
-                    }
-
-                    i++;
-                }
-
-                kept.Append(quote);
-                continue;
-            }
-
-            kept.Append(c);
-        }
-
-        return kept.ToString();
     }
 
     /// <summary>The call's arguments, split on the commas at its own depth and trimmed.</summary>
@@ -473,18 +386,5 @@ public sealed class StartupHookGuardTests
         arguments.Add(current.ToString().Trim());
 
         return arguments;
-    }
-
-    private static int Occurrences(string text, string value)
-    {
-        var count = 0;
-
-        for (var at = text.IndexOf(value, StringComparison.Ordinal); at >= 0;
-             at = text.IndexOf(value, at + value.Length, StringComparison.Ordinal))
-        {
-            count++;
-        }
-
-        return count;
     }
 }

@@ -356,9 +356,9 @@ public sealed partial class MainViewModel : ObservableObject, IUiTickTarget, IDi
     /// <em>oldest</em> entry when full (Impl §4), so a declined ack is how a real event gets
     /// evicted. Eligible-only publishing keeps one click at exactly one ack per waiting
     /// session; only more than 1,024 sessions waiting at once could make the click itself
-    /// overflow the channel, and at that count the oldest of its own acks would be what
-    /// dropped — a scale three orders past the dashboard's world, accepted rather than defended
-    /// against.
+    /// overflow the channel, and what drops then is the oldest entry queued — its own acks when
+    /// the channel was empty, a real hook event when the consumer is behind — a scale three
+    /// orders past the dashboard's world, accepted rather than defended against.
     /// </para>
     /// </remarks>
     [RelayCommand(CanExecute = nameof(CanAckAll))]
