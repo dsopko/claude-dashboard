@@ -94,6 +94,12 @@ public sealed class GroupAckTests : IDisposable
         Assert.NotEqual(GroupKeyKind.Roster, cwd.Kind);
         Assert.False(cwd.CanAcknowledge);
         Assert.False(cwd.AcknowledgeCommand.CanExecute(null));
+
+        // And the body's own guard, not only the flag's: Execute does not gate on CanExecute,
+        // so without the Kind check in the body this click would ack w-1 — the reviewer dropped
+        // that check and the suite stayed green, because this line did not exist.
+        cwd.AcknowledgeCommand.Execute(null);
+        Assert.Empty(_sink.Published);
     }
 
     /// <summary>With every member quiet, the roster header offers nothing.</summary>

@@ -1109,10 +1109,14 @@ public sealed class MainWindowTests(StaHarness harness)
                     Visibility.Collapsed,
                     StaHarness.Find<Button>(member, b => Equals(b.Content, "✓ Acknowledge"))!.Visibility);
 
-                // The cwd twin: same window, same state, its own Ack.
+                // The cwd twin: same window, same state, its own Ack — on the row and in the
+                // expanded exchange both.
                 Assert.Equal(
                     Visibility.Visible,
                     StaHarness.Find<Button>(loose, b => Equals(b.Content, "✓ Ack"))!.Visibility);
+                Assert.Equal(
+                    Visibility.Visible,
+                    StaHarness.Find<Button>(loose, b => Equals(b.Content, "✓ Acknowledge"))!.Visibility);
 
                 // The header carries the orchestration's one Ack; the cwd header carries none.
                 var rosterHeader = RowsOf(window).Single(row =>
