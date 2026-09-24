@@ -326,6 +326,14 @@ Tasks landing after T1.20. Each one puts the acceptance document out of date in 
 - **Acceptance:** no `~/.claude` directory → nothing written anywhere under it, one log line naming the reason; `~/.claude` present with no `settings.json` → installs as before; every other T1.32 row unchanged. The `--install-hooks` switch is **not** gated — an operator who runs it by hand is asking, and the directory is created for them as today. Both suite counts.
 - **Guardrails:** the check is the directory, not a search for a Claude Code executable — the app never goes looking for other software. Never log the path's contents (T1.24).
 
+**T1.34 — Ack all**
+- **Goal:** one click clears everything that is waiting on the operator.
+- **Depends:** T1.11, T1.29
+- **Realizes:** Design Document §9's toolbar row, extended. Closes [issue #43](https://github.com/dsopko/claude-dashboard/issues/43), which is the authority for look and placement.
+- **Deliverables:** an *Ack all* button, rightmost of the toolbar's right cluster — **[Select] [Mute all] [Ack all]** — visible in selection mode too. `MainViewModel` gains a flag that is true when any session satisfies `Acknowledgment.Applies`, in either view, and a command that publishes one `IAckPublisher.Acknowledge` per eligible session through the publisher every row already uses. **No new event type, no Registry change.** A style based on `HeaderButtonStyle` whose one trigger, on that flag, gives the checked-segment look (`RaisedBrush`, `InkBrush`); unlit is the plain header look, not the dimmed disabled look.
+- **Acceptance:** the flag follows session state in both views, a collapsed group included; the click publishes exactly the eligible set once each and nothing when the flag is false; the flag is false again once the Registry has applied the acks; the lit and unlit looks are asserted against the styles' own brushes, not literals; tooltip *Acknowledge every session that is waiting on you.*; both suite counts.
+- **Guardrails:** publish only for sessions eligible at the click — the channel is bounded and drops its oldest when full (Impl §4), so a declined ack is how a real event is lost; state the capacity in the remark and what happens when the eligible count exceeds it. Lit and enabled are the same predicate.
+
 **Ordering ruled 2026-09-02:** the packaging workstream — `PKG.1` → `PKG.2` → `PKG.3` → T1.33 → `PKG.4` in the [Packaging Execution Plan](claude-dashboard-packaging-execution-plan.md) — runs **ahead of T2.1**. Appendix A is unchanged; the packaging plan carries its own order.
 
 ---
