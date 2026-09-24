@@ -20,8 +20,16 @@ namespace ClaudeDashboard.Tests.Architecture;
 /// hides.
 /// </para>
 /// <para>
-/// Anchored to the assignment statement rather than a window, per the opt-out guard's ladder:
-/// the statement must exist exactly once in code, read the sessions, and not read the view.
+/// <strong>And the first version of this guard was itself the token-in-window shape, and the
+/// reviewer beat it the way that shape is always beaten.</strong> It asserted the statement
+/// Contains "sessions" and lacks "Rows" — and a Rows-derived local declared on the line above,
+/// <c>var sessionsInView = Rows...</c>, satisfied both: "sessionsInView" carries "sessions" as a
+/// substring and the "Rows" lives outside the statement window. 1545 of 1545 green. The same
+/// ladder the opt-out guard climbed in T1.32, re-climbed here because its author held a new
+/// guard to a lower standard than the one whose remark he had just cited. So the statement is
+/// asserted by <em>equality</em> after trimming: exactly once in code, exactly this text. A
+/// rename or re-wrap fails it with a message saying to update the text; an indirection cannot
+/// pass it at all.
 /// </para>
 /// </remarks>
 public sealed class AckAllGuardTests
@@ -44,9 +52,18 @@ public sealed class AckAllGuardTests
 
         Assert.True(end > at, "The assignment is never terminated, which cannot compile.");
 
-        var statement = code[at..end];
+        var statement = code[at..end].Trim();
 
-        Assert.Contains("sessions", statement, StringComparison.Ordinal);
-        Assert.DoesNotContain("Rows", statement, StringComparison.Ordinal);
+        const string Expected =
+            "AnythingToAcknowledge = sessions.Any(session => Acknowledgment.Applies(session.State))";
+
+        Assert.True(
+            statement == Expected,
+            $"The flag's assignment reads \"{statement}\". If it still reads the projection's " +
+            "sessions and only the TEXT changed — a rename, a lambda parameter, a re-wrap — " +
+            "update this guard's Expected constant and keep the equality. If the SOURCE moved to " +
+            "Rows, or to anything derived from Rows however it is named, that is the defect this " +
+            "guard exists to stop: the view never hides an eligible session today, and a flag " +
+            "read off the view would go quietly wrong the day a collapse rule changes.");
     }
 }
