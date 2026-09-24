@@ -1128,11 +1128,20 @@ public sealed class MainWindowTests(StaHarness harness)
     /// <strong>Focused, selected, and both are three distinct brush instances on one row.</strong>
     /// </summary>
     /// <remarks>
+    /// <para>
     /// Distinguishability is the requirement, and instances are how it is asserted without
     /// restating colours: the focus shade is <c>RowToggleStyle</c>'s <c>RaisedBrush</c> on its
     /// template's Surround, the selection shade is <c>SelectedRowBrush</c> on the row's own
     /// surface, and both together swap in <c>SelectedFocusedRowBrush</c> — so focus arriving on
     /// a selected row changes the shade rather than erasing it.
+    /// </para>
+    /// <para>
+    /// "On one row" means one row paints TWO surfaces: focus lives in the shared
+    /// <c>RowToggleStyle</c> and colours its Surround, selection lives in the session template
+    /// and colours its SelectionSurface — the placement issue #44's fix forced, since the shared
+    /// style serves headers with no <c>IsSelected</c> to bind. The three brushes are therefore
+    /// read off two elements, and the NotSame assertions compare across them on purpose.
+    /// </para>
     /// </remarks>
     [Fact]
     public void The_three_selection_looks_are_three_distinct_brushes()
@@ -1319,6 +1328,7 @@ public sealed class MainWindowTests(StaHarness harness)
             {
                 registry.Working("s-1", At, title: "one");
                 registry.Working("s-2", At, title: "two");
+                registry.Working("s-3", At, title: "three");
             },
             (window, viewModel) =>
             {
@@ -1338,10 +1348,27 @@ public sealed class MainWindowTests(StaHarness harness)
                 Assert.Same(window.FindResource("RaisedBrush"), chip.Background);
                 Assert.Same(window.FindResource("InkBrush"), button.Foreground);
 
+                // "Two or more", not "exactly two": a third keeps it lit.
+                VmOf(window, "s-3").IsSelected = true;
+                Assert.True(button.IsEnabled);
+                Assert.Same(window.FindResource("RaisedBrush"), chip.Background);
+
+                VmOf(window, "s-3").IsSelected = false;
                 VmOf(window, "s-2").IsSelected = false;
                 Assert.False(button.IsEnabled);
                 Assert.Equal(StyleValue(header, Control.BackgroundProperty), chip.Background);
                 Assert.Equal(1.0, chip.Opacity);
+
+                // Leaving the mode resets everything: the exit clears the selection, the count
+                // goes to zero, and the button rests — pinned rather than read off the plumbing.
+                VmOf(window, "s-1").IsSelected = true;
+                VmOf(window, "s-2").IsSelected = true;
+                Assert.True(button.IsEnabled);
+
+                viewModel.IsSelecting = false;
+
+                Assert.False(button.IsEnabled);
+                Assert.Equal(StyleValue(header, Control.BackgroundProperty), chip.Background);
 
                 return true;
             },
