@@ -46,6 +46,7 @@ public sealed partial class TrayViewModel : ObservableObject, IUiTickTarget, IDi
     private readonly IClock _clock;
     private readonly IngressStatus _ingress;
     private readonly ILogger _logger;
+    private readonly Pipeline.IDecisionLog? _decisions;
 
     private DateTimeOffset _now;
     private bool _disposed;
@@ -88,7 +89,8 @@ public sealed partial class TrayViewModel : ObservableObject, IUiTickTarget, IDi
         IEventSink sink,
         IClock clock,
         IngressStatus ingress,
-        ILogger logger)
+        ILogger logger,
+        Pipeline.IDecisionLog? decisions = null)
     {
         ArgumentNullException.ThrowIfNull(projection);
         ArgumentNullException.ThrowIfNull(modes);
@@ -103,6 +105,7 @@ public sealed partial class TrayViewModel : ObservableObject, IUiTickTarget, IDi
         _clock = clock;
         _ingress = ingress;
         _logger = logger;
+        _decisions = decisions;
         _now = clock.Now;
 
         _projection.Sessions.CollectionChanged += OnSessionsChanged;
@@ -208,7 +211,24 @@ public sealed partial class TrayViewModel : ObservableObject, IUiTickTarget, IDi
         // because nothing raised an event when it expired.
         var muted = mutedUntil is { } until && (until == DateTimeOffset.MaxValue || _now < until);
 
-        Colour = TrayVisuals.ColourOf(summary.Worst);
+        var next = TrayVisuals.ColourOf(summary.Worst);
+
+        // The decisions record (T1.37, issue #48): the tray light changing is a decision, and it
+        // is made here, on the dispatcher — so it rides the recorder's cross-thread queue and
+        // lands with event_id NULL. The driving session is the first at the worst state, an id
+        // and never a title.
+        if (next != Colour)
+        {
+            _decisions?.External(new Storage.Decision(
+                _now,
+                _projection.Sessions.FirstOrDefault(session => session.State == summary.Worst)?.Id.Value,
+                Storage.DecisionKind.TrayLightChanged,
+                FromState: Colour.ToString(),
+                ToState: next.ToString(),
+                Reason: summary.Worst.ToString()));
+        }
+
+        Colour = next;
         IsPaused = paused;
         IsMuted = muted;
         Icon = TrayIcons.For(Colour, paused);

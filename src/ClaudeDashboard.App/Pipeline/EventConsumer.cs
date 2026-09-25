@@ -66,6 +66,7 @@ public sealed class EventConsumer : BackgroundService
     /// <summary>When a roster group is next due to settle on its own, or null.</summary>
     private DateTimeOffset? _settleDue;
     private readonly EventArchive _archive;
+    private readonly DecisionRecorder _recorder;
 
     /// <summary>Creates the consumer.</summary>
     /// <param name="uiTick">
@@ -89,6 +90,7 @@ public sealed class EventConsumer : BackgroundService
         IUiTick uiTick,
         EventArchive archive,
         RosterStore rosters,
+        DecisionRecorder recorder,
         TimeSpan? tickInterval = null,
         RosterGroupWatch? watch = null,
         TimeSpan? silenceThreshold = null)
@@ -102,7 +104,9 @@ public sealed class EventConsumer : BackgroundService
         ArgumentNullException.ThrowIfNull(uiTick);
         ArgumentNullException.ThrowIfNull(archive);
         ArgumentNullException.ThrowIfNull(rosters);
+        ArgumentNullException.ThrowIfNull(recorder);
 
+        _recorder = recorder;
         _archive = archive;
         _rosters = rosters;
         _watch = watch ?? new RosterGroupWatch();
@@ -292,34 +296,71 @@ public sealed class EventConsumer : BackgroundService
         {
             using (_guard.Enter("applying an event"))
             {
-                if (inboundEvent is RostersChanged)
+                // The decisions scope (T1.37): everything decided while this event is handled —
+                // by the Registry, by the sound engine, by this switch — accumulates here and
+                // travels to the archive WITH the event as one record, in Complete, in the
+                // finally. The hand-off therefore moved from before Apply to after the sound
+                // engine has decided; what the old placement bought is kept by the shape:
+                //   - a DECLINED event still archives, now as a decline row rather than silence;
+                //   - an Apply that THROWS still archives, the finally sees to it, with an
+                //     ApplyFailed row carrying the exception's type.
+                // Still one non-blocking TryWrite per event; the consumer never waits on a disk.
+                _recorder.BeginEvent(inboundEvent);
+
+                try
                 {
-                    // The operator edited a roster. It carries nothing and changes no session, so
-                    // neither the Registry nor the archive has any use for it — its entire job is to
-                    // have woken this loop, so that the settle pass which runs after every drain
-                    // re-reads membership now instead of on the next fifteen-second tick.
-                    RosterEditCount++;
-                    return;
-                }
+                    if (inboundEvent is RostersChanged)
+                    {
+                        // The operator edited a roster. It carries nothing and changes no session, so
+                        // the Registry has no use for it — its entire job is to have woken this loop,
+                        // so that the settle pass which runs after every drain re-reads membership now
+                        // instead of on the next fifteen-second tick. Recorded as a decision row; it
+                        // gets no events row.
+                        RosterEditCount++;
+                        _recorder.RosterEdited();
+                        return;
+                    }
 
-                if (inboundEvent is SoundCommand command)
+                    if (inboundEvent is SoundCommand command)
+                    {
+                        // Global sound modes ride the same Channel as hooks so they land on this
+                        // thread, in order with the events they silence — but they are not session
+                        // state, so the Registry never sees one. See SoundCommand's remarks.
+                        ApplySoundCommand(command);
+                        _recorder.SoundCommandApplied(command);
+                        return;
+                    }
+
+                    // Before and after, read on the one thread that owns the Registry: what the
+                    // decision rows derive from, at the moment of the decision.
+                    var before = _registry.Sessions.TryGetValue(inboundEvent.SessionId, out var tracked)
+                        ? tracked
+                        : null;
+
+                    ApplyOutcome outcome;
+
+                    try
+                    {
+                        outcome = _registry.Apply(inboundEvent);
+                    }
+                    catch (Exception ex)
+                    {
+                        _recorder.ApplyFailed(inboundEvent, ex);
+                        throw;
+                    }
+
+                    var after = _registry.Sessions.TryGetValue(inboundEvent.SessionId, out var changed)
+                        ? changed
+                        : null;
+
+                    _recorder.RecordOutcome(inboundEvent, before, outcome, after);
+
+                    Report(inboundEvent, outcome);
+                }
+                finally
                 {
-                    // Global sound modes ride the same Channel as hooks so they land on this
-                    // thread, in order with the events they silence — but they are not session
-                    // state, so the Registry never sees one. See SoundCommand's remarks.
-                    ApplySoundCommand(command);
-                    return;
+                    _recorder.Complete();
                 }
-
-                // Handed to the archive before the Registry sees it, and never awaited (T1.17).
-                // This is a TryWrite onto a bounded channel: it cannot block, so a slow or dead
-                // disk can never stall the one thread that owns the Registry and the sound engine.
-                // Before, rather than after, so that an event the Registry declines as stale is
-                // still recorded — the archive is a record of what arrived, not of what changed
-                // something.
-                _archive.TryArchive(inboundEvent);
-
-                Report(inboundEvent, _registry.Apply(inboundEvent));
             }
         }
         catch (SingleWriterViolationException ex)
@@ -451,7 +492,19 @@ public sealed class EventConsumer : BackgroundService
         {
             using (_guard.Enter("observing roster groups"))
             {
-                ObserveRosterGroups(now);
+                // A settle pass can play or suppress the group notice (T1.37): its decision
+                // rows ride a tick-scoped record, event_id NULL, because time — not one event —
+                // is what a settle window answers to.
+                _recorder.BeginTick(now);
+
+                try
+                {
+                    ObserveRosterGroups(now);
+                }
+                finally
+                {
+                    _recorder.Complete();
+                }
             }
         }
         catch (SingleWriterViolationException ex)
@@ -598,6 +651,7 @@ public sealed class EventConsumer : BackgroundService
         foreach (var silent in _registry.SweepSilent(now, _silenceThreshold))
         {
             SilencedCount++;
+            _recorder.Swept(silent);
 
             _logger.Information(
                 "Session {SessionId} has sent no event for {SilentMinutes:F1} minutes while working, " +
@@ -628,10 +682,19 @@ public sealed class EventConsumer : BackgroundService
                 // second thing that can drift, stall, or fire during a test. The guard is
                 // re-entrant on this thread, so SweepSilent taking it again nests exactly as
                 // Apply's does.
-                SweepSilent(now);
+                _recorder.BeginTick(now);
 
-                _sound.Evaluate(now);
-                ObserveRosterGroups(now);
+                try
+                {
+                    SweepSilent(now);
+
+                    _sound.Evaluate(now);
+                    ObserveRosterGroups(now);
+                }
+                finally
+                {
+                    _recorder.Complete();
+                }
             }
         }
         catch (SingleWriterViolationException ex)

@@ -66,6 +66,7 @@ public sealed class RosterEditWakeTests : IAsyncLifetime
             new RecordingUiTick(),
             _archive,
             _rosters,
+            recorder: TestDecisions.For(_registry, _archive),
 
             // Long enough that nothing here can be explained by a tick having happened.
             tickInterval: TimeSpan.FromMinutes(15),

@@ -355,6 +355,13 @@ public sealed class AppHostTests : IDisposable
     /// this one makes adding a service deliberate, that one makes it safe.
     /// </para>
     /// <para>
+    /// <strong>Since T1.37 the order asserted here is load-bearing.</strong> Hosted services stop
+    /// in reverse registration order, and the archive record is born on the consumer thread: the
+    /// writer must be registered first so it stops last, after the consumer's stop-drain has
+    /// handed over the final records. Registered the other way round, the last events of a run
+    /// were archived into a stopped writer and silently lost.
+    /// </para>
+    /// <para>
     /// Filtered to our own assemblies, since the framework registers its own service to run
     /// Kestrel.
     /// </para>
@@ -366,7 +373,7 @@ public sealed class AppHostTests : IDisposable
 
         var ours = OurHostedServices(host).Select(service => service.GetType()).ToList();
 
-        Assert.Equal<Type[]>([typeof(EventConsumer), typeof(EventArchiveWriter)], [.. ours]);
+        Assert.Equal<Type[]>([typeof(EventArchiveWriter), typeof(EventConsumer)], [.. ours]);
     }
 
     /// <summary>
@@ -955,9 +962,20 @@ public sealed class AppHostTests : IDisposable
     /// The placeholder is gone from the assembly, not merely unregistered.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// Registering over a placeholder leaves it one line away from returning, and the line that
     /// would bring it back looks like a fix. Asserted by name so the check survives the type
     /// being renamed into something equally silent.
+    /// </para>
+    /// <para>
+    /// <strong>One silent player is sanctioned, and its confinement is the sanction (T1.37).</strong>
+    /// <c>--replay</c> re-runs history through the real sound engine to rebuild the decisions
+    /// record, and a replay that beeped months of notices at the operator would be absurd — the
+    /// rows say <em>would have played</em>; nothing does. Its player is a private class nested
+    /// inside <c>ReplaySwitch</c>, reachable from no registration, which is what keeps the
+    /// original claim true where it matters: nothing silent can be wired into the running
+    /// dashboard.
+    /// </para>
     /// </remarks>
     [Fact]
     public void No_silent_sound_player_remains_in_the_assembly()
@@ -966,9 +984,19 @@ public sealed class AppHostTests : IDisposable
             .GetTypes()
             .Where(type => typeof(ISoundPlayer).IsAssignableFrom(type) && !type.IsInterface)
             .Select(type => type.Name)
+            .OrderBy(name => name, StringComparer.Ordinal)
             .ToList();
 
-        Assert.Equal([nameof(NAudioSoundPlayer)], silent);
+        Assert.Equal([nameof(NAudioSoundPlayer), "SilentPlayer"], silent);
+
+        // The confinement, asserted: the replay's player is private and nested, so no
+        // registration can reach it.
+        var replayPlayer = typeof(AppHost).Assembly
+            .GetTypes()
+            .Single(type => type.Name == "SilentPlayer");
+
+        Assert.True(replayPlayer.IsNestedPrivate, "The replay's silent player must stay private to ReplaySwitch.");
+        Assert.Equal("ReplaySwitch", replayPlayer.DeclaringType?.Name);
     }
 
     /// <summary>

@@ -45,6 +45,7 @@ public sealed class EventConsumerTests : IAsyncLifetime
             _tick,
             _archive,
             new RosterStore(new RecordingEventSink()),
+            recorder: TestDecisions.For(_registry, _archive),
             tickInterval: TimeSpan.FromMilliseconds(25));
 
         return _consumer.StartAsync(CancellationToken.None);
@@ -280,23 +281,25 @@ public sealed class EventConsumerTests : IAsyncLifetime
     public void The_consumer_needs_all_of_its_collaborators()
     {
         Assert.Throws<ArgumentNullException>(() =>
-            new EventConsumer(null!, _registry, _sound, _clock, _guard, Logger.None, _tick, _archive, new RosterStore(new RecordingEventSink())));
+            new EventConsumer(null!, _registry, _sound, _clock, _guard, Logger.None, _tick, _archive, new RosterStore(new RecordingEventSink()), TestDecisions.For(_registry, _archive)));
         Assert.Throws<ArgumentNullException>(() =>
-            new EventConsumer(_pipeline, null!, _sound, _clock, _guard, Logger.None, _tick, _archive, new RosterStore(new RecordingEventSink())));
+            new EventConsumer(_pipeline, null!, _sound, _clock, _guard, Logger.None, _tick, _archive, new RosterStore(new RecordingEventSink()), TestDecisions.For(_registry, _archive)));
         Assert.Throws<ArgumentNullException>(() =>
-            new EventConsumer(_pipeline, _registry, null!, _clock, _guard, Logger.None, _tick, _archive, new RosterStore(new RecordingEventSink())));
+            new EventConsumer(_pipeline, _registry, null!, _clock, _guard, Logger.None, _tick, _archive, new RosterStore(new RecordingEventSink()), TestDecisions.For(_registry, _archive)));
         Assert.Throws<ArgumentNullException>(() =>
-            new EventConsumer(_pipeline, _registry, _sound, null!, _guard, Logger.None, _tick, _archive, new RosterStore(new RecordingEventSink())));
+            new EventConsumer(_pipeline, _registry, _sound, null!, _guard, Logger.None, _tick, _archive, new RosterStore(new RecordingEventSink()), TestDecisions.For(_registry, _archive)));
         Assert.Throws<ArgumentNullException>(() =>
-            new EventConsumer(_pipeline, _registry, _sound, _clock, null!, Logger.None, _tick, _archive, new RosterStore(new RecordingEventSink())));
+            new EventConsumer(_pipeline, _registry, _sound, _clock, null!, Logger.None, _tick, _archive, new RosterStore(new RecordingEventSink()), TestDecisions.For(_registry, _archive)));
         Assert.Throws<ArgumentNullException>(() =>
-            new EventConsumer(_pipeline, _registry, _sound, _clock, _guard, null!, _tick, _archive, new RosterStore(new RecordingEventSink())));
+            new EventConsumer(_pipeline, _registry, _sound, _clock, _guard, null!, _tick, _archive, new RosterStore(new RecordingEventSink()), TestDecisions.For(_registry, _archive)));
         Assert.Throws<ArgumentNullException>(() =>
-            new EventConsumer(_pipeline, _registry, _sound, _clock, _guard, Logger.None, _tick, null!, new RosterStore(new RecordingEventSink())));
+            new EventConsumer(_pipeline, _registry, _sound, _clock, _guard, Logger.None, _tick, null!, new RosterStore(new RecordingEventSink()), TestDecisions.For(_registry, _archive)));
         Assert.Throws<ArgumentNullException>(() =>
-            new EventConsumer(_pipeline, _registry, _sound, _clock, _guard, Logger.None, null!, _archive, new RosterStore(new RecordingEventSink())));
+            new EventConsumer(_pipeline, _registry, _sound, _clock, _guard, Logger.None, null!, _archive, new RosterStore(new RecordingEventSink()), TestDecisions.For(_registry, _archive)));
         Assert.Throws<ArgumentNullException>(() =>
-            new EventConsumer(_pipeline, _registry, _sound, _clock, _guard, Logger.None, _tick, _archive, null!));
+            new EventConsumer(_pipeline, _registry, _sound, _clock, _guard, Logger.None, _tick, _archive, null!, TestDecisions.For(_registry, _archive)));
+        Assert.Throws<ArgumentNullException>(() =>
+            new EventConsumer(_pipeline, _registry, _sound, _clock, _guard, Logger.None, _tick, _archive, new RosterStore(new RecordingEventSink()), null!));
     }
 
     [Fact]

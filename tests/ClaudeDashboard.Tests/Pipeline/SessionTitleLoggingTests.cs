@@ -74,6 +74,7 @@ public sealed class SessionTitleLoggingTests : IAsyncLifetime
             new RecordingUiTick(),
             _archive,
             new RosterStore(new RecordingEventSink()),
+            recorder: TestDecisions.For(_registry, _archive),
             tickInterval: TimeSpan.FromMinutes(5));
 
         return _consumer.StartAsync(CancellationToken.None);

@@ -92,11 +92,32 @@ public sealed class SqliteEventStore : IEventStore, IDisposable
             payload_json TEXT    NOT NULL,
             cwd          TEXT    NOT NULL
         );
+
+        -- One row per decision the dashboard made, or deliberately did not make (T1.37,
+        -- issue #48). event_id is the causing row in events, or NULL for a tick. reason and
+        -- detail carry enums and identifiers only, never operator text (T1.24). Created by the
+        -- same schema step as events, so an existing database gains it on the next start.
+        CREATE TABLE IF NOT EXISTS decisions (
+            id          INTEGER PRIMARY KEY,
+            event_id    INTEGER,
+            ts          TEXT NOT NULL,
+            session_id  TEXT,
+            kind        TEXT NOT NULL,
+            from_state  TEXT,
+            to_state    TEXT,
+            reason      TEXT,
+            detail      TEXT
+        );
         """;
 
     private const string Insert = """
         INSERT INTO events (session_id, ts, event_type, payload_json, cwd)
         VALUES ($session_id, $ts, $event_type, $payload_json, $cwd);
+        """;
+
+    private const string InsertDecision = """
+        INSERT INTO decisions (event_id, ts, session_id, kind, from_state, to_state, reason, detail)
+        VALUES ($event_id, $ts, $session_id, $kind, $from_state, $to_state, $reason, $detail);
         """;
 
     private readonly string _path;
@@ -141,7 +162,15 @@ public sealed class SqliteEventStore : IEventStore, IDisposable
     {
         ArgumentNullException.ThrowIfNull(inboundEvent);
 
-        if (_unavailable || _disposed)
+        return Append(new ArchiveRecord(inboundEvent, []));
+    }
+
+    /// <inheritdoc/>
+    public bool Append(ArchiveRecord record)
+    {
+        ArgumentNullException.ThrowIfNull(record);
+
+        if (_unavailable || _disposed || record.IsEmpty)
         {
             return false;
         }
@@ -150,24 +179,45 @@ public sealed class SqliteEventStore : IEventStore, IDisposable
         {
             var connection = Connect();
 
-            using var command = connection.CreateCommand();
-            command.CommandText = Insert;
-            command.Parameters.AddWithValue("$session_id", inboundEvent.SessionId.Value);
-            command.Parameters.AddWithValue(
-                "$ts",
-                inboundEvent.Timestamp.ToString("o", CultureInfo.InvariantCulture));
-            command.Parameters.AddWithValue("$event_type", inboundEvent.HookEventName);
+            // ONE TRANSACTION FOR THE EVENT AND ITS DECISIONS (T1.37). The decision rows take
+            // the event's id from this insert, on this thread — no other thread ever waits for
+            // an id — and a throw between the two inserts leaves neither row, so the record can
+            // never say an event happened while losing why, or the reverse.
+            using var transaction = connection.BeginTransaction();
 
-            // THE ONE PLACE THE OPERATOR'S WORDS ARE READ. A bound parameter, never string
-            // concatenation and never a message template — see PayloadJson. A SqliteException's
-            // message names the error and the schema, never a parameter value; that was probed at
-            // T1.17 with the body as the failing parameter, and is why a failure here can be
-            // logged at all.
-            command.Parameters.AddWithValue("$payload_json", inboundEvent.Payload.Reveal());
+            long? eventId = null;
 
-            command.Parameters.AddWithValue("$cwd", inboundEvent.Cwd);
+            if (record.Event is { } inboundEvent)
+            {
+                using var command = connection.CreateCommand();
+                command.Transaction = transaction;
+                command.CommandText = Insert;
+                command.Parameters.AddWithValue("$session_id", inboundEvent.SessionId.Value);
+                command.Parameters.AddWithValue(
+                    "$ts",
+                    inboundEvent.Timestamp.ToString("o", CultureInfo.InvariantCulture));
+                command.Parameters.AddWithValue("$event_type", inboundEvent.HookEventName);
 
-            command.ExecuteNonQuery();
+                // THE ONE PLACE THE OPERATOR'S WORDS ARE READ. A bound parameter, never string
+                // concatenation and never a message template — see PayloadJson. A SqliteException's
+                // message names the error and the schema, never a parameter value; that was probed at
+                // T1.17 with the body as the failing parameter, and is why a failure here can be
+                // logged at all.
+                command.Parameters.AddWithValue("$payload_json", inboundEvent.Payload.Reveal());
+
+                command.Parameters.AddWithValue("$cwd", inboundEvent.Cwd);
+
+                command.ExecuteNonQuery();
+
+                using var lastId = connection.CreateCommand();
+                lastId.Transaction = transaction;
+                lastId.CommandText = "SELECT last_insert_rowid();";
+                eventId = (long)lastId.ExecuteScalar()!;
+            }
+
+            WriteDecisions(connection, transaction, eventId, record.Decisions);
+
+            transaction.Commit();
 
             WrittenCount++;
 
@@ -181,6 +231,113 @@ public sealed class SqliteEventStore : IEventStore, IDisposable
 
             return false;
         }
+    }
+
+    /// <summary>
+    /// Appends decision rows against an event id that already exists — the replay's write
+    /// (T1.37). Never touches <c>events</c>.
+    /// </summary>
+    /// <returns>Whether the rows were written.</returns>
+    public bool AppendDecisions(long? eventId, IReadOnlyList<Decision> decisions)
+    {
+        ArgumentNullException.ThrowIfNull(decisions);
+
+        if (_unavailable || _disposed || decisions.Count == 0)
+        {
+            return false;
+        }
+
+        try
+        {
+            var connection = Connect();
+
+            using var transaction = connection.BeginTransaction();
+            WriteDecisions(connection, transaction, eventId, decisions);
+            transaction.Commit();
+
+            return true;
+        }
+        catch (Exception ex) when (ex is SqliteException or IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            FailedCount++;
+
+            Unavailable(ex);
+
+            return false;
+        }
+    }
+
+    private static void WriteDecisions(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        long? eventId,
+        IReadOnlyList<Decision> decisions)
+    {
+        foreach (var decision in decisions)
+        {
+            using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = InsertDecision;
+            command.Parameters.AddWithValue("$event_id", (object?)eventId ?? DBNull.Value);
+            command.Parameters.AddWithValue("$ts", decision.Ts.ToString("o", CultureInfo.InvariantCulture));
+            command.Parameters.AddWithValue("$session_id", (object?)decision.SessionId ?? DBNull.Value);
+            command.Parameters.AddWithValue("$kind", decision.Kind.ToString());
+            command.Parameters.AddWithValue("$from_state", (object?)decision.FromState ?? DBNull.Value);
+            command.Parameters.AddWithValue("$to_state", (object?)decision.ToState ?? DBNull.Value);
+            command.Parameters.AddWithValue("$reason", (object?)decision.Reason ?? DBNull.Value);
+            command.Parameters.AddWithValue("$detail", (object?)decision.Detail ?? DBNull.Value);
+            command.ExecuteNonQuery();
+        }
+    }
+
+    /// <summary>One archived event, as the replay reads it back (T1.37).</summary>
+    /// <param name="Id">The row id — what a decision's <c>event_id</c> points at.</param>
+    /// <param name="SessionId">The session.</param>
+    /// <param name="Ts">The event's timestamp, ISO-8601.</param>
+    /// <param name="EventType">The hook event name.</param>
+    /// <param name="Payload">The verbatim payload, in its unprintable wrapper: operator text.</param>
+    /// <param name="Cwd">The working directory.</param>
+    public sealed record ArchivedEvent(
+        long Id,
+        string SessionId,
+        string Ts,
+        string EventType,
+        PayloadJson Payload,
+        string Cwd);
+
+    /// <summary>
+    /// Reads every event row in id order — the replay's input (T1.37). Never modifies anything.
+    /// </summary>
+    /// <remarks>
+    /// Into memory rather than streamed, deliberately: the replay writes <c>decisions</c> rows on
+    /// this same connection while it walks, and holding a reader open across those writes is the
+    /// kind of same-connection interleaving that works until it does not. A month of history is
+    /// ~10 MB (the store's own measured 300 KB/day); the simplicity is worth the allocation.
+    /// </remarks>
+    public IReadOnlyList<ArchivedEvent> ReadEvents()
+    {
+        var connection = Connect();
+
+        using var command = connection.CreateCommand();
+        command.CommandText =
+            "SELECT id, session_id, ts, event_type, payload_json, cwd FROM events ORDER BY id;";
+
+        var rows = new List<ArchivedEvent>();
+
+        using var reader = command.ExecuteReader();
+
+        while (reader.Read())
+        {
+            rows.Add(new ArchivedEvent(
+                reader.GetInt64(0),
+                reader.GetString(1),
+                reader.GetString(2),
+                reader.GetString(3),
+                new PayloadJson(reader.GetString(4)),
+                reader.GetString(5)));
+        }
+
+        return rows;
     }
 
     /// <summary>Closes the file. Safe to call twice.</summary>

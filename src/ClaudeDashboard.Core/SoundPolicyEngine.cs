@@ -49,6 +49,13 @@ namespace ClaudeDashboard.Core;
 public sealed class SoundPolicyEngine : ISoundModeReader
 {
     private readonly ISoundPlayer _player;
+
+    // The decisions record (T1.37, issue #48). An intent port beside the player: the engine
+    // says what it decided — played, or suppressed and why — at the moment it decides, because
+    // the reasons live in this type's private state and cross no other boundary. Observation
+    // only: nothing the sink hears changes a decision, and the default is the null sink, which
+    // is this engine exactly as it was.
+    private readonly IDecisionSink _sink;
     private readonly IClock _clock;
     private readonly SoundPolicyOptions _options;
     private readonly Dictionary<SessionId, Tracked> _tracked = [];
@@ -102,7 +109,8 @@ public sealed class SoundPolicyEngine : ISoundModeReader
         ISoundPlayer player,
         IClock clock,
         SingleWriterGuard guard,
-        SoundPolicyOptions options)
+        SoundPolicyOptions options,
+        IDecisionSink? sink = null)
     {
         ArgumentNullException.ThrowIfNull(player);
         ArgumentNullException.ThrowIfNull(clock);
@@ -114,6 +122,9 @@ public sealed class SoundPolicyEngine : ISoundModeReader
         _options = options;
         _options.Validate();
         _guard = guard;
+
+        // Optional so no existing caller changes, and null-object so no call site checks.
+        _sink = sink ?? NullDecisionSink.Instance;
     }
 
     /// <summary>
@@ -180,7 +191,16 @@ public sealed class SoundPolicyEngine : ISoundModeReader
 
         if (NoticeFor(session.State) is { } sound && !IsGroupDone(session.State, effectiveGroup))
         {
-            Play(session.Id, tracked.Group, sound, _options.NoticeGain, TimeSpan.Zero);
+            Play(session.Id, tracked.Group, sound, _options.NoticeGain, TimeSpan.Zero,
+                SoundDecisionKind.Notice, rung: 0, waited: TimeSpan.Zero);
+        }
+        else if (NoticeFor(session.State) is { } suppressed)
+        {
+            // The member's done notice belongs to its roster group, which will announce once for
+            // everyone (issue #16). Suppressed here at the point of emission — and recorded here,
+            // because this is the one suppression Play never sees: the call is not made at all.
+            _sink.SoundSuppressed(
+                SoundDecisionKind.Notice, session.Id, effectiveGroup, suppressed, SuppressionReason.GroupDone);
         }
     }
 
@@ -227,7 +247,8 @@ public sealed class SoundPolicyEngine : ISoundModeReader
             NextNudgeAt = _options.UnreadNudgeAfter is { } after ? settledAt + after : null,
         };
 
-        Play(GroupNotice, group, SoundId.Finished, _options.NoticeGain, TimeSpan.Zero);
+        Play(GroupNotice, group, SoundId.Finished, _options.NoticeGain, TimeSpan.Zero,
+            SoundDecisionKind.GroupNotice, rung: 0, waited: TimeSpan.Zero);
     }
 
     /// <summary>
@@ -300,7 +321,8 @@ public sealed class SoundPolicyEngine : ISoundModeReader
 
             if (NoticeFor(tracked.State) is { } sound)
             {
-                Play(id, tracked.Group, sound, _options.NudgeGain, _options.NudgeFadeIn);
+                Play(id, tracked.Group, sound, _options.NudgeGain, _options.NudgeFadeIn,
+                    SoundDecisionKind.Nudge, tracked.Step, now - tracked.EnteredAt);
             }
 
             if (tracked.State == SessionState.Unread)
@@ -323,7 +345,8 @@ public sealed class SoundPolicyEngine : ISoundModeReader
                 continue;
             }
 
-            Play(GroupNotice, key, SoundId.Finished, _options.NudgeGain, _options.NudgeFadeIn);
+            Play(GroupNotice, key, SoundId.Finished, _options.NudgeGain, _options.NudgeFadeIn,
+                SoundDecisionKind.GroupNudge, rung: 0, waited: TimeSpan.Zero);
 
             // TS §IV.5: an unread result gets at most one soft nudge, and a settled group is one
             // unread result however many members produced it.
@@ -453,15 +476,28 @@ public sealed class SoundPolicyEngine : ISoundModeReader
     /// time-boxed "mute all for 30 minutes" drop in as one more clause here, with no change to
     /// scheduling.
     /// </remarks>
-    private void Play(SessionId session, GroupKey group, SoundId sound, double gain, TimeSpan fade)
+    private void Play(
+        SessionId session,
+        GroupKey group,
+        SoundId sound,
+        double gain,
+        TimeSpan fade,
+        SoundDecisionKind kind,
+        int rung,
+        TimeSpan waited)
     {
         // Global mute and pause fold in here, exactly as this method's remarks anticipated: one
         // more clause at the point of emission, and no change to scheduling. The ladder goes on
         // advancing silently, so resuming picks up the natural cadence instead of releasing a
         // backlog of reminders the operator asked not to hear — which matters most for pause,
         // which has no expiry and can span hours.
-        if (IsSilenced(_clock.Now) || IsMuted(session, group))
+        //
+        // T1.37: the same predicates, in the same order, now also NAME the reason for the
+        // record. ReasonOf reads exactly what this condition reads, once, so the recorded reason
+        // and the suppression cannot disagree.
+        if (ReasonOf(_clock.Now, session, group) is { } reason)
         {
+            _sink.SoundSuppressed(kind, session, group, sound, reason);
             return;
         }
 
@@ -469,6 +505,39 @@ public sealed class SoundPolicyEngine : ISoundModeReader
         // finished number; it does not know there is such a thing as a master volume, which is
         // what keeps "how loud is this" answerable by reading one method.
         _player.Play(sound, gain * _options.MasterVolume, fade);
+        _sink.SoundPlayed(kind, session, group, sound, rung, waited);
+    }
+
+    /// <summary>
+    /// Why a sound would be suppressed right now, or null when it would play — the same
+    /// predicates <see cref="IsSilenced"/> and <see cref="IsMuted"/> ask, in the same order,
+    /// asked once so the reason and the decision cannot disagree (T1.37).
+    /// </summary>
+    private SuppressionReason? ReasonOf(DateTimeOffset now, SessionId session, GroupKey group)
+    {
+        if (_monitoringPaused)
+        {
+            return SuppressionReason.MonitoringPaused;
+        }
+
+        var ticks = Volatile.Read(ref _allMutedUntilTicks);
+
+        if (ticks != 0 && now.UtcTicks < ticks)
+        {
+            return SuppressionReason.AllMuted;
+        }
+
+        if (_mutedSessions.Contains(session))
+        {
+            return SuppressionReason.SessionMuted;
+        }
+
+        if (_mutedGroups.Contains(group))
+        {
+            return SuppressionReason.GroupMuted;
+        }
+
+        return null;
     }
 
     /// <summary>The sound a state announces itself with, or null if it announces nothing.</summary>

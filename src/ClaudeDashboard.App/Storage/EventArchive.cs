@@ -41,7 +41,7 @@ public sealed class EventArchive
     /// </remarks>
     public const int DefaultCapacity = 1024;
 
-    private readonly Channel<InboundEvent> _channel;
+    private readonly Channel<ArchiveRecord> _channel;
     private readonly ILogger _logger;
 
     /// <summary>Creates the archive channel.</summary>
@@ -54,7 +54,7 @@ public sealed class EventArchive
 
         _logger = logger;
 
-        _channel = Channel.CreateBounded<InboundEvent>(
+        _channel = Channel.CreateBounded<ArchiveRecord>(
             new BoundedChannelOptions(capacity)
             {
                 FullMode = BoundedChannelFullMode.DropOldest,
@@ -65,7 +65,13 @@ public sealed class EventArchive
     }
 
     /// <summary>The read side. Only <see cref="EventArchiveWriter"/> may read it.</summary>
-    public ChannelReader<InboundEvent> Reader => _channel.Reader;
+    public ChannelReader<ArchiveRecord> Reader => _channel.Reader;
+
+    /// <summary>
+    /// Told when the channel drops a record (T1.37). Set once at composition; invoked on the
+    /// consumer thread, whose TryWrite is what overflows this channel.
+    /// </summary>
+    public Action<ArchiveRecord>? Dropped { get; set; }
 
     /// <summary>How many events were dropped because the disk could not keep up.</summary>
     /// <remarks>
@@ -78,28 +84,36 @@ public sealed class EventArchive
     public long OfferedCount { get; private set; }
 
     /// <summary>
-    /// Hands an event to the writer. Never blocks, never throws, and never waits on the disk.
+    /// Hands a record — an event with its decisions, or a tick's decisions alone — to the
+    /// writer. Never blocks, never throws, and never waits on the disk.
     /// </summary>
     /// <remarks>
-    /// Events that did not come off the wire carry no payload and are not archived — the table
-    /// records hook events, and a row whose <c>payload_json</c> was empty would be a row Phase 5
-    /// could never search. The global sound commands that ride the event channel are the case
-    /// this excludes.
+    /// <para>
+    /// <strong>The record travels whole (T1.37).</strong> The event's row id does not exist
+    /// until the archive thread inserts it, so the decisions ride WITH the event and take the id
+    /// inside the writer's one transaction — still exactly one non-blocking hand-off per event.
+    /// </para>
+    /// <para>
+    /// The old rule "an empty payload is not archived" is gone with the old shape: the Ack event
+    /// carries no payload and IS archived now, with its decision rows — its absence was exactly
+    /// the hole issue #48's investigation fell into. What still does not land is a record with
+    /// nothing in it at all.
+    /// </para>
     /// </remarks>
-    /// <returns><see langword="true"/> if the event was taken for writing.</returns>
-    /// <exception cref="ArgumentNullException"><paramref name="inboundEvent"/> is null.</exception>
-    public bool TryArchive(InboundEvent inboundEvent)
+    /// <returns><see langword="true"/> if the record was taken for writing.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="record"/> is null.</exception>
+    public bool TryArchive(ArchiveRecord record)
     {
-        ArgumentNullException.ThrowIfNull(inboundEvent);
+        ArgumentNullException.ThrowIfNull(record);
 
-        if (inboundEvent.Payload.IsEmpty)
+        if (record.IsEmpty)
         {
             return false;
         }
 
         OfferedCount++;
 
-        return _channel.Writer.TryWrite(inboundEvent);
+        return _channel.Writer.TryWrite(record);
     }
 
     /// <summary>Closes the channel so the writer drains and stops.</summary>
@@ -126,9 +140,19 @@ public sealed class EventArchive
             OfferedCount);
     }
 
-    private void OnDropped(InboundEvent dropped)
+    private void OnDropped(ArchiveRecord record)
     {
         DroppedCount++;
+        Dropped?.Invoke(record);
+
+        if (record.Event is not { } dropped)
+        {
+            _logger.Debug(
+                "The event archive is full; discarded {DecisionCount} tick decision(s) unwritten.",
+                record.Decisions.Count);
+
+            return;
+        }
 
         // TWO NAMED FIELDS, NEVER THE EVENT. A diagnostic line must not carry the operator's
         // words, and {HookEventName} and {SessionId} are the whole of what this needs.

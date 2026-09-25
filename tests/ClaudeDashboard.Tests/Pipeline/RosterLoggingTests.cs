@@ -84,6 +84,7 @@ public sealed class RosterLoggingTests : IAsyncLifetime
             new RecordingUiTick(),
             _archive,
             _rosters,
+            recorder: TestDecisions.For(_registry, _archive),
             tickInterval: TimeSpan.FromMilliseconds(20),
             watch: new RosterGroupWatch(window: TimeSpan.Zero, misMarkWindow: TimeSpan.FromHours(1)));
 

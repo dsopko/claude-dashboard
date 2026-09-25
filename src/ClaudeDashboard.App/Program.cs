@@ -107,6 +107,14 @@ public static class Program
                 return RunHookSwitch(requested, paths);
             }
 
+            // The decisions replay (T1.37): offline, against a copy the operator names, before
+            // the gate for the switches' reason — the dashboard may be running, and the replay
+            // touches only the file it was handed.
+            if (ReplaySwitch.Requested(args) is { } replayPath)
+            {
+                return RunReplay(replayPath, paths);
+            }
+
             gate = SingleInstanceGate.Acquire(paths.Root);
         }
         catch (Exception ex)
@@ -351,6 +359,32 @@ public static class Program
     /// keeping in any case.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// Runs <c>--replay</c> against the named database and exits, without starting anything
+    /// (T1.37). Console and log reporting exactly as the hook switches do.
+    /// </summary>
+    private static int RunReplay(string databasePath, DashboardPaths paths)
+    {
+        var attached = ConsoleReport.TryAttach();
+
+        var foldersReady = paths.TryEnsureCreated(out _);
+        var settings = new SettingsStore(paths).Load().Settings;
+        using var logger = AppHost.CreateLogger(paths, settings.Logging, foldersReady);
+
+        var code = ReplaySwitch.Run(databasePath, line =>
+        {
+            logger.Information("--replay: {Line}", line);
+
+            if (attached)
+            {
+                Console.Out.WriteLine(line);
+            }
+        },
+        logger);
+
+        return code;
+    }
+
     private static int RunHookSwitch(string requested, DashboardPaths paths)
     {
         // Before anything touches Console: .NET caches the standard streams on first use, and a

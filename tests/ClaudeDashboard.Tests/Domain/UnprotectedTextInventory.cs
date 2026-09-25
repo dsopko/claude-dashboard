@@ -239,6 +239,16 @@ public sealed class UnprotectedTextInventory
         "DashboardPaths.SettingsFile", "DashboardPaths.SoundFolder",
         "HealthProbeResult.Instance", "HealthProbeResult.Problem",
 
+        // T1.37's decisions record. Every field is an enum name, a session or group identifier,
+        // a state name, or key=value identifier pairs — the record's own contract (issue #48:
+        // "never a title, prompt, payload or message body"), and the tests per kind assert it.
+        // The archived payload itself travels as the PayloadJson wrapper, not as a string here.
+        "Decision.Detail", "Decision.FromState", "Decision.Reason",
+        "Decision.SessionId", "Decision.ToState",
+
+        // The log file's floor: an enum name from the operator's own settings file.
+        "LoggingSettings.MinimumLevel",
+
         // Issue #29's hook installer. ScriptPath is a path in the dashboard's own data folder;
         // ClaudeConfigDirectory (T1.33) is Claude Code's configuration path — our configuration,
         // not the operator's words, and the refusal line names it so a CLAUDE_CONFIG_DIR pointing

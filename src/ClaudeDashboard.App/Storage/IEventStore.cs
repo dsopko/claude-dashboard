@@ -31,4 +31,16 @@ public interface IEventStore
     /// more.
     /// </returns>
     bool Append(InboundEvent inboundEvent);
+
+    /// <summary>
+    /// Appends one record — an event, or none for a tick, plus its decisions — atomically
+    /// (T1.37). Never throws.
+    /// </summary>
+    /// <remarks>
+    /// The event row and its decision rows share one transaction, so a failure between them
+    /// leaves neither: the record can never say an event happened while losing why, or the
+    /// reverse.
+    /// </remarks>
+    /// <returns><see langword="true"/> if the record was written.</returns>
+    bool Append(ArchiveRecord record);
 }

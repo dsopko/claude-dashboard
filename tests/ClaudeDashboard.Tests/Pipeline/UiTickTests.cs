@@ -62,6 +62,7 @@ public sealed class UiTickTests : IAsyncLifetime
             Logger.None,
             archive: _archive,
             rosters: new RosterStore(new RecordingEventSink()),
+            recorder: TestDecisions.For(_registry, _archive),
             tickInterval: TimeSpan.FromMilliseconds(25),
             uiTick: _tick);
 
@@ -431,6 +432,7 @@ public sealed class UiTickTests : IAsyncLifetime
             Logger.None,
             archive: _archive,
             rosters: new RosterStore(new RecordingEventSink()),
+            recorder: TestDecisions.For(_registry, _archive),
             tickInterval: TimeSpan.FromMilliseconds(25),
             uiTick: failing);
 

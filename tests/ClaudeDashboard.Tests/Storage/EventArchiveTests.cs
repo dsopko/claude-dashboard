@@ -13,6 +13,9 @@ public sealed class EventArchiveTests
     private static Serilog.Core.Logger Logger(RecordingLogSink sink) =>
         new Serilog.LoggerConfiguration().MinimumLevel.Verbose().WriteTo.Sink(sink).CreateLogger();
 
+    /// <summary>An event as the consumer now hands it over: a record with no decisions.</summary>
+    private static ArchiveRecord Record(ClaudeDashboard.Core.Events.InboundEvent inboundEvent) => new(inboundEvent, []);
+
     /// <summary>
     /// <strong>Handing an event over cannot block, even with nothing draining.</strong>
     /// </summary>
@@ -42,7 +45,7 @@ public sealed class EventArchiveTests
 
         for (var i = 0; i < 80; i++)
         {
-            archive.TryArchive(TestEvents.Hook($$"""{"n":{{i}}}"""));
+            archive.TryArchive(Record(TestEvents.Hook($$"""{"n":{{i}}}""")));
         }
 
         clock.Stop();
@@ -70,14 +73,14 @@ public sealed class EventArchiveTests
 
         for (var i = 0; i < 10; i++)
         {
-            archive.TryArchive(TestEvents.Hook($$"""{"n":{{i}}}"""));
+            archive.TryArchive(Record(TestEvents.Hook($$"""{"n":{{i}}}""")));
         }
 
         var survived = new List<string>();
 
         while (archive.Reader.TryRead(out var kept))
         {
-            survived.Add(kept.Payload.Reveal());
+            survived.Add(kept.Event!.Payload.Reveal());
         }
 
         Assert.Equal(
@@ -85,25 +88,38 @@ public sealed class EventArchiveTests
             survived);
     }
 
-    /// <summary>Events with no wire body are not archived.</summary>
+    /// <summary>An empty record — no event, no decisions — is refused; anything else lands.</summary>
     /// <remarks>
-    /// Acks and sound commands ride the same event channel but never came off the wire. A row with
-    /// an empty <c>payload_json</c> is a row Phase 5 could never search, and it would make the
-    /// table's own count a lie about how many hooks arrived.
+    /// <para>
+    /// <strong>This test's predecessor asserted the opposite for the Ack, and T1.37 is why it
+    /// turned.</strong> The old rule skipped any event with an empty payload, which kept the Ack
+    /// out of the table — and the Ack's absence was exactly the hole issue #48's investigation
+    /// fell into: an acknowledgment came and went with no durable trace. The Ack now rides a
+    /// record with its decision rows; what the recorder keeps out of the events table — sound
+    /// commands, roster wakes — it keeps out by building the record with a null event, not by
+    /// this channel judging payloads.
+    /// </para>
     /// </remarks>
     [Fact]
-    public void An_event_that_never_came_off_the_wire_is_not_archived()
+    public void An_empty_record_is_refused_and_an_ack_is_not()
     {
         var archive = new EventArchive(Serilog.Core.Logger.None);
 
-        Assert.False(archive.TryArchive(TestEvents.Synthetic()));
+        Assert.False(archive.TryArchive(new ArchiveRecord(null, [])));
         Assert.Equal(0, archive.OfferedCount);
         Assert.False(archive.Reader.TryRead(out _));
 
-        // The control: one that did come off the wire is taken, so the refusal above is about the
-        // payload and not about the archive refusing everything.
-        Assert.True(archive.TryArchive(TestEvents.Hook("""{"real":true}""")));
+        // The Ack, empty payload and all, with its decisions.
+        Assert.True(archive.TryArchive(new ArchiveRecord(
+            TestEvents.Synthetic(),
+            [new Decision(DateTimeOffset.UnixEpoch, "s-1", DecisionKind.AckApplied, Reason: "Manual")])));
         Assert.Equal(1, archive.OfferedCount);
+
+        // And a tick's decisions with no event at all.
+        Assert.True(archive.TryArchive(new ArchiveRecord(
+            null,
+            [new Decision(DateTimeOffset.UnixEpoch, null, DecisionKind.MuteExpired)])));
+        Assert.Equal(2, archive.OfferedCount);
     }
 
     // ---- The gap is never silent ---------------------------------------------------------------
@@ -115,7 +131,7 @@ public sealed class EventArchiveTests
         var log = new RecordingLogSink();
         var archive = new EventArchive(Logger(log), capacity: 16);
 
-        archive.TryArchive(TestEvents.Hook("{}"));
+        archive.TryArchive(Record(TestEvents.Hook("{}")));
         archive.ReportDrops();
 
         Assert.DoesNotContain(log.Events, entry => entry.Level >= LogEventLevel.Warning);
@@ -136,7 +152,7 @@ public sealed class EventArchiveTests
 
         for (var i = 0; i < 20; i++)
         {
-            archive.TryArchive(TestEvents.Hook($$"""{"n":{{i}}}"""));
+            archive.TryArchive(Record(TestEvents.Hook($$"""{"n":{{i}}}""")));
         }
 
         archive.ReportDrops();
@@ -158,8 +174,8 @@ public sealed class EventArchiveTests
         var log = new RecordingLogSink();
         var archive = new EventArchive(Logger(log), capacity: 1);
 
-        archive.TryArchive(TestEvents.Hook($$"""{"prompt":"{{Secret}}"}"""));
-        archive.TryArchive(TestEvents.Hook("""{"prompt":"the one that displaced it"}"""));
+        archive.TryArchive(Record(TestEvents.Hook($$"""{"prompt":"{{Secret}}"}""")));
+        archive.TryArchive(Record(TestEvents.Hook("""{"prompt":"the one that displaced it"}""")));
         archive.ReportDrops();
 
         var everything = string.Join(
@@ -196,6 +212,6 @@ public sealed class EventArchiveTests
         archive.Complete();
         archive.Complete();
 
-        Assert.False(archive.TryArchive(TestEvents.Hook("{}")));
+        Assert.False(archive.TryArchive(Record(TestEvents.Hook("{}"))));
     }
 }

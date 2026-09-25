@@ -218,8 +218,30 @@ public sealed record DashboardSettings
 /// </remarks>
 public sealed record LoggingSettings
 {
+    /// <summary>The default floor: the file carries Information and up.</summary>
+    public const string DefaultMinimumLevel = "Information";
+
     /// <summary>Two weeks of daily files.</summary>
     public const int DefaultRetainedFiles = 14;
+
+    /// <summary>
+    /// The log file's floor (T1.37). <c>Debug</c> is what turns the decisions record on in the
+    /// text log, without a rebuild.
+    /// </summary>
+    /// <remarks>
+    /// A string in the file so a typo cannot stop the dashboard starting — Impl §10.1's rule for
+    /// this whole file — and mapped through <see cref="EffectiveMinimumLevel"/>, where anything
+    /// unrecognised falls back to Information rather than to silence or to a flood.
+    /// </remarks>
+    [JsonPropertyName("minimumLevel")]
+    public string MinimumLevel { get; init; } = DefaultMinimumLevel;
+
+    /// <summary>The floor as Serilog reads it; unrecognised values are Information.</summary>
+    [JsonIgnore]
+    public Serilog.Events.LogEventLevel EffectiveMinimumLevel =>
+        Enum.TryParse<Serilog.Events.LogEventLevel>(MinimumLevel, ignoreCase: true, out var level)
+            ? level
+            : Serilog.Events.LogEventLevel.Information;
 
     /// <summary>16 MB per file before it rolls again.</summary>
     public const long DefaultFileSizeLimitBytes = 16L * 1024 * 1024;

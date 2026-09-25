@@ -173,7 +173,19 @@ public static class AppHost
         // only (Impl Part 7, Part 8). This is the first setting anything consumes, and the
         // direction is the whole point: Core owns the defaults and never learns a file exists.
         builder.Services.AddSingleton(loaded.Settings.Sound.Apply());
-        builder.Services.AddSingleton<SoundPolicyEngine>();
+
+        // The decisions recorder (T1.37, issue #48): the scribe that puts every judgement beside
+        // the event that caused it. The engine is built by factory so the recorder reaches it as
+        // its IDecisionSink — the sink parameter stays optional for standalone construction, and
+        // an optional parameter of a registered service type is what the composition guard
+        // forbids, so the factory is the shape that satisfies both.
+        builder.Services.AddSingleton<DecisionRecorder>();
+        builder.Services.AddSingleton(sp => new SoundPolicyEngine(
+            sp.GetRequiredService<ISoundPlayer>(),
+            sp.GetRequiredService<Core.Ports.IClock>(),
+            sp.GetRequiredService<SingleWriterGuard>(),
+            sp.GetRequiredService<SoundPolicyOptions>(),
+            sp.GetRequiredService<DecisionRecorder>()));
         builder.Services.AddSingleton<IUiDispatcher, WpfDispatcher>();
         builder.Services.AddSingleton<SessionProjection>();
 
@@ -194,19 +206,40 @@ public static class AppHost
         builder.Services.AddSingleton<MainViewModel>();
         builder.Services.AddSingleton<MainWindow>();
         builder.Services.AddSingleton<ISoundModeReader>(sp => sp.GetRequiredService<SoundPolicyEngine>());
-        builder.Services.AddSingleton<TrayViewModel>();
-        builder.Services.AddSingleton<TrayIcon>();
-        builder.Services.AddHostedService(sp => sp.GetRequiredService<EventConsumer>());
-        builder.Services.AddSingleton<EventConsumer>();
 
-        // The durable event log (T1.17). The archive is the channel the consumer hands events to
-        // without ever waiting; the writer is the only thing that touches the file. They are
+        // By factory for the recorder's sake, like the engine: the tray's light changing is a
+        // decision, and the log parameter is optional-and-unregistered so tests build trays
+        // without one while the product cannot lose the wiring silently — the composition test
+        // asserts it arrived.
+        builder.Services.AddSingleton(sp => new TrayViewModel(
+            sp.GetRequiredService<SessionProjection>(),
+            sp.GetRequiredService<ISoundModeReader>(),
+            sp.GetRequiredService<IEventSink>(),
+            sp.GetRequiredService<Core.Ports.IClock>(),
+            sp.GetRequiredService<IngressStatus>(),
+            sp.GetRequiredService<ILogger>(),
+            sp.GetRequiredService<DecisionRecorder>()));
+        builder.Services.AddSingleton<TrayIcon>();
+        // The durable event log (T1.17). The archive is the channel the consumer hands records
+        // to without ever waiting; the writer is the only thing that touches the file. They are
         // separate registrations because they are separate threads: if the store were reachable
         // from the consumer, a slow disk would stall the Registry's only writer.
+        //
+        // The writer's hosted service is registered BEFORE the consumer's, and the order is a
+        // correctness constraint, not taste: hosted services stop in reverse registration order,
+        // and since T1.37 the archive record is born on the consumer thread. The consumer's
+        // stop-drain applies whatever ingress queued and hands the last records to the archive;
+        // only a writer that stops after it can still write them. Registered the other way
+        // round, the writer drained an empty channel, the consumer archived into a stopped
+        // writer, and the final events of a run vanished — caught by HookToDatabaseTests under
+        // full-suite load, where the consumer loses the race with shutdown.
         builder.Services.AddSingleton<EventArchive>();
         builder.Services.AddSingleton<IEventStore, SqliteEventStore>();
         builder.Services.AddSingleton<EventArchiveWriter>();
         builder.Services.AddHostedService(sp => sp.GetRequiredService<EventArchiveWriter>());
+
+        builder.Services.AddHostedService(sp => sp.GetRequiredService<EventConsumer>());
+        builder.Services.AddSingleton<EventConsumer>();
 
         // The seam the composition guard reads (T1.12b; ServiceCompositionTests). A built
         // WebApplication does not publish its own descriptors — measured on a clean host, not
@@ -226,7 +259,31 @@ public static class AppHost
         registry.SessionChanged += (_, e) =>
             sound.OnSessionChanged(e.Session, GroupKeys.Effective(e.Session, rosters.Book));
         _ = app.Services.GetRequiredService<SessionProjection>();
-        app.MapIngress(onShow);
+
+        // The decisions recorder hears about drops and about /show (T1.37). Post-build wiring,
+        // like the sound engine's subscription above: these callbacks fire on the writing thread
+        // — ingress for the pipeline, the consumer for the archive, Kestrel for /show — and ride
+        // the recorder's cross-thread queue.
+        var decisions = app.Services.GetRequiredService<DecisionRecorder>();
+        var wallClock = app.Services.GetRequiredService<Core.Ports.IClock>();
+
+        app.Services.GetRequiredService<EventPipeline>().Dropped = dropped =>
+            decisions.External(new Storage.Decision(
+                wallClock.Now, dropped.SessionId.Value, Storage.DecisionKind.EventDropped, Reason: "pipeline"));
+
+        app.Services.GetRequiredService<EventArchive>().Dropped = record =>
+            decisions.External(new Storage.Decision(
+                wallClock.Now,
+                record.Event?.SessionId.Value,
+                Storage.DecisionKind.EventDropped,
+                Reason: "archive"));
+
+        app.MapIngress(() =>
+        {
+            decisions.External(new Storage.Decision(
+                wallClock.Now, null, Storage.DecisionKind.WindowSurfaced));
+            onShow?.Invoke();
+        });
 
         if (ingress.CanReceiveHooks)
         {
@@ -331,7 +388,12 @@ public static class AppHost
     internal static Serilog.Core.Logger CreateLogger(DashboardPaths paths, LoggingSettings logging, bool foldersReady)
     {
         var configuration = new LoggerConfiguration()
-            .MinimumLevel.Information()
+
+            // The operator's own floor (T1.37): logging.minimumLevel in settings.json, default
+            // Information. Debug is what turns the decisions record on in the text log — the
+            // database is the queryable record; the log is what someone tails — and a settings
+            // key is what makes that possible without a rebuild.
+            .MinimumLevel.Is(logging.EffectiveMinimumLevel)
 
             // The framework logs four lines per request at Information — request starting,
             // endpoint executing, status code, request finished. Across fifteen busy sessions

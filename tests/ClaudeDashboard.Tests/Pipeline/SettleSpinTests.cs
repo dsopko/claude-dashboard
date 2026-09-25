@@ -74,6 +74,7 @@ public sealed class SettleSpinTests : IAsyncLifetime
             _tick,
             _archive,
             _rosters,
+            recorder: TestDecisions.For(_registry, _archive),
 
             // Short enough that the loop takes its ordinary tick several times inside the watch
             // window, so the control has something to count and the defect stands out against it.

@@ -44,6 +44,13 @@ public sealed class EventArchiveWriterTests : IDisposable
 
             return false;
         }
+
+        public bool Append(ArchiveRecord record)
+        {
+            Attempts++;
+
+            return false;
+        }
     }
 
     /// <summary>What the channel is given reaches the file.</summary>
@@ -63,8 +70,8 @@ public sealed class EventArchiveWriterTests : IDisposable
 
         await writer.StartAsync(CancellationToken.None);
 
-        archive.TryArchive(TestEvents.Hook("""{"one":1}"""));
-        archive.TryArchive(TestEvents.Hook("""{"two":2}"""));
+        archive.TryArchive(new ArchiveRecord(TestEvents.Hook("""{"one":1}"""), []));
+        archive.TryArchive(new ArchiveRecord(TestEvents.Hook("""{"two":2}"""), []));
         archive.Complete();
 
         await writer.StopAsync(CancellationToken.None);
@@ -95,7 +102,7 @@ public sealed class EventArchiveWriterTests : IDisposable
         // is the only thing that can write these.
         for (var i = 0; i < 20; i++)
         {
-            archive.TryArchive(TestEvents.Hook($$"""{"n":{{i}}}"""));
+            archive.TryArchive(new ArchiveRecord(TestEvents.Hook($$"""{"n":{{i}}}"""), []));
         }
 
         await writer.StartAsync(CancellationToken.None);
@@ -121,7 +128,7 @@ public sealed class EventArchiveWriterTests : IDisposable
 
         for (var i = 0; i < 30; i++)
         {
-            archive.TryArchive(TestEvents.Hook($$"""{"n":{{i}}}"""));
+            archive.TryArchive(new ArchiveRecord(TestEvents.Hook($$"""{"n":{{i}}}"""), []));
         }
 
         archive.Complete();
@@ -150,7 +157,7 @@ public sealed class EventArchiveWriterTests : IDisposable
         var writer = new EventArchiveWriter(archive, store, Logger(log));
 
         await writer.StartAsync(CancellationToken.None);
-        archive.TryArchive(TestEvents.Hook("""{"a":1}"""));
+        archive.TryArchive(new ArchiveRecord(TestEvents.Hook("""{"a":1}"""), []));
         archive.Complete();
         await writer.StopAsync(CancellationToken.None);
 

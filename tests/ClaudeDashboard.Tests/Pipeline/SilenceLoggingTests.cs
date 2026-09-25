@@ -68,6 +68,7 @@ public sealed class SilenceLoggingTests : IAsyncLifetime
             new RecordingUiTick(),
             _archive,
             new RosterStore(new RecordingEventSink()),
+            recorder: TestDecisions.For(_registry, _archive),
 
             // Short enough that the loop ticks without the test waiting on a real fifteen seconds,
             // and unrelated to the threshold below, which is what the sweep actually measures.

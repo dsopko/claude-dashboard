@@ -73,12 +73,20 @@ public sealed class EventPipeline
     /// <summary>How many events the channel has discarded to make room. Diagnostic only.</summary>
     public int DroppedCount { get; private set; }
 
+    /// <summary>
+    /// Told when the channel drops an event (T1.37). Set once at composition; the decisions
+    /// recorder is the one listener. Invoked on whichever thread was writing when the channel
+    /// overflowed, so a listener must be thread-safe — the recorder's External is.
+    /// </summary>
+    public Action<InboundEvent>? Dropped { get; set; }
+
     /// <summary>The sink ingress and Phase 3 publish through.</summary>
     public IEventSink Sink => new ChannelEventSink(_channel.Writer, _logger);
 
     private void OnDropped(InboundEvent dropped)
     {
         DroppedCount++;
+        Dropped?.Invoke(dropped);
 
         _logger.Warning(
             "The event pipeline is full; discarded the oldest queued event {HookEventName} for session " +

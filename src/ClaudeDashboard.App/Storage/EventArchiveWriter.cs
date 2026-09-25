@@ -70,9 +70,9 @@ public sealed class EventArchiveWriter : BackgroundService
     {
         try
         {
-            await foreach (var inboundEvent in _archive.Reader.ReadAllAsync(stoppingToken).ConfigureAwait(false))
+            await foreach (var record in _archive.Reader.ReadAllAsync(stoppingToken).ConfigureAwait(false))
             {
-                Write(inboundEvent);
+                Write(record);
             }
         }
         catch (OperationCanceledException)
@@ -108,9 +108,9 @@ public sealed class EventArchiveWriter : BackgroundService
     {
         await base.StopAsync(cancellationToken).ConfigureAwait(false);
 
-        while (_archive.Reader.TryRead(out var inboundEvent))
+        while (_archive.Reader.TryRead(out var record))
         {
-            Write(inboundEvent);
+            Write(record);
         }
 
         _archive.ReportDrops();
@@ -121,9 +121,9 @@ public sealed class EventArchiveWriter : BackgroundService
             RefusedCount);
     }
 
-    private void Write(InboundEvent inboundEvent)
+    private void Write(ArchiveRecord record)
     {
-        if (_store.Append(inboundEvent))
+        if (_store.Append(record))
         {
             WrittenCount++;
 

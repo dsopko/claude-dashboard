@@ -63,6 +63,7 @@ public sealed class SoundCommandPipelineTests : IAsyncLifetime
             new RecordingUiTick(),
             _archive,
             new RosterStore(new RecordingEventSink()),
+            recorder: TestDecisions.For(_registry, _archive),
             tickInterval: TimeSpan.FromMilliseconds(25));
 
         return _consumer.StartAsync(CancellationToken.None);
