@@ -35,11 +35,12 @@ namespace ClaudeDashboard.Tests.Ui;
 /// </para>
 /// </remarks>
 [Collection(WpfApplicationSuite.Name)]
-public sealed class MainWindowTests(StaHarness harness)
+public sealed class MainWindowTests(StaHarness harness, Xunit.Abstractions.ITestOutputHelper output)
 {
     private static readonly DateTimeOffset At = FakeClock.DefaultStart;
 
     private readonly StaHarness _harness = harness;
+    private readonly Xunit.Abstractions.ITestOutputHelper _output = output;
 
     /// <summary>
     /// Builds a window over <paramref name="arrange"/>'s sessions and lays it out, then hands
@@ -187,6 +188,115 @@ public sealed class MainWindowTests(StaHarness harness)
     private static ContentPresenter RowFor(MainWindow window, string sessionId) =>
         RowsOf(window).Single(row =>
             row.DataContext is SessionViewModel session && session.Id.Value == sessionId);
+
+    // ---- The caption's own icon (T1.38) --------------------------------------------------------
+
+    /// <summary>
+    /// <strong>The caption draws the frame made for its display scale, at that frame's own size,
+    /// pixel for pixel.</strong>
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The display scale is the machine's, not the test's: <see cref="VisualTreeHelper.SetRootDpi"/>
+    /// cannot pin it once a window has been realized in the process (FittingStripTests records
+    /// the measurement). So this asserts what must hold at the scale it finds, and says in the
+    /// output which scale that was. At 100% that is the acceptance as written: the 20 px frame,
+    /// 20 device pixels, unscaled. At 150% it is the same claim for the 30 px frame.
+    /// </para>
+    /// <para>
+    /// <strong>The pixel check is the point.</strong> The size and the alignment say the frame
+    /// COULD be drawn unscaled; rendering the window and reading the pixels back says it WAS.
+    /// Only the frame's fully opaque pixels are compared, because every other pixel is blended
+    /// with the caption behind it, and any resampling changes opaque pixels too: each one next
+    /// to a different neighbour would take some of that neighbour's colour.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void The_caption_draws_its_own_icon_frame_pixel_for_pixel()
+    {
+        var scale = WithWindow(
+            _ => { },
+            (window, _) =>
+            {
+                var scale = VisualTreeHelper.GetDpi(window).DpiScaleX;
+                var image = window.CaptionIconImage;
+                var frame = Assert.IsAssignableFrom<System.Windows.Media.Imaging.BitmapImage>(image.Source);
+
+                Assert.Equal(CaptionIcon.Pack(CaptionIcon.FrameFor(scale)), frame.UriSource);
+
+                // 20 DIP, whatever the scale: the slot the design gives the icon.
+                Assert.Equal(20.0, image.ActualWidth, 6);
+                Assert.Equal(20.0, image.ActualHeight, 6);
+
+                var origin = image.TransformToAncestor(window).Transform(default);
+                var deviceX = origin.X * scale;
+                var deviceY = origin.Y * scale;
+
+                if (scale is not (1.0 or 1.5))
+                {
+                    // No frame was made for this scale, so there is no native size to assert.
+                    return scale;
+                }
+
+                // Native: the drawn size in device pixels IS the frame's pixel size, and the
+                // frame starts on a whole device pixel.
+                Assert.Equal(frame.PixelWidth, (int)Math.Round(20 * scale));
+                Assert.Equal(frame.PixelHeight, (int)Math.Round(20 * scale));
+                Assert.Equal(Math.Round(deviceX), deviceX, 6);
+                Assert.Equal(Math.Round(deviceY), deviceY, 6);
+
+                var size = frame.PixelWidth;
+                var expected = Pixels(frame, 0, 0, size);
+
+                var rendered = new System.Windows.Media.Imaging.RenderTargetBitmap(
+                    (int)Math.Ceiling(window.ActualWidth * scale),
+                    (int)Math.Ceiling(window.ActualHeight * scale),
+                    96 * scale,
+                    96 * scale,
+                    PixelFormats.Pbgra32);
+                rendered.Render(window);
+
+                var drawn = Pixels(rendered, (int)Math.Round(deviceX), (int)Math.Round(deviceY), size);
+
+                var opaque = 0;
+
+                for (var i = 0; i < expected.Length; i += 4)
+                {
+                    if (expected[i + 3] != 255)
+                    {
+                        continue;
+                    }
+
+                    opaque++;
+
+                    Assert.True(
+                        expected.AsSpan(i, 4).SequenceEqual(drawn.AsSpan(i, 4)),
+                        $"Pixel ({(i / 4) % size}, {(i / 4) / size}) of the {size} px frame is drawn as " +
+                        $"BGRA {string.Join(",", drawn[i..(i + 4)])}, not {string.Join(",", expected[i..(i + 4)])}: " +
+                        "the frame was resampled.");
+                }
+
+                // Most of the tile is opaque; a frame with none would pass vacuously.
+                Assert.True(opaque > size * size / 2, $"Only {opaque} opaque pixel(s) were compared.");
+
+                return scale;
+            });
+
+        _output.WriteLine(scale is 1.0 or 1.5
+            ? $"Display scale {scale:P0}: the {(scale == 1.0 ? 20 : 30)} px frame is drawn at its own size, pixel for pixel."
+            : $"Display scale {scale:P0}: no frame is made for this scale; checked the frame choice and the 20 DIP slot only.");
+    }
+
+    /// <summary>A square of pixels as premultiplied BGRA, the format the renderer writes.</summary>
+    private static byte[] Pixels(System.Windows.Media.Imaging.BitmapSource source, int x, int y, int size)
+    {
+        var converted = new System.Windows.Media.Imaging.FormatConvertedBitmap(source, PixelFormats.Pbgra32, null, 0);
+        var pixels = new byte[size * size * 4];
+
+        converted.CopyPixels(new Int32Rect(x, y, size, size), pixels, size * 4, 0);
+
+        return pixels;
+    }
 
     // ---- It renders what the view model holds -------------------------------------------------
 

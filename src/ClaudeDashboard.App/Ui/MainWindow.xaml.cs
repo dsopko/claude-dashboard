@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Media;
 
 namespace ClaudeDashboard.App.Ui;
 
@@ -32,6 +33,7 @@ public partial class MainWindow : Window
         ViewModel = viewModel;
         InitializeComponent();
         DataContext = viewModel;
+        ApplyCaptionIcon();
     }
 
     /// <summary>What the window is showing.</summary>
@@ -104,6 +106,7 @@ public partial class MainWindow : Window
             hovered => IsMaximizeHovered = hovered);
 
         ApplyMaximizedInset();
+        ApplyCaptionIcon();
     }
 
     /// <inheritdoc/>
@@ -124,6 +127,7 @@ public partial class MainWindow : Window
         base.OnDpiChanged(oldDpi, newDpi);
 
         ApplyMaximizedInset();
+        ApplyCaptionIcon();
     }
 
     /// <summary>
@@ -133,6 +137,19 @@ public partial class MainWindow : Window
     /// See <see cref="CaptionChrome.MaximizedInset"/>: the overflow is the window frame, which is
     /// invisible while it is non-client and is content once the caption is drawn instead.
     /// </remarks>
+    /// <summary>
+    /// Draws the caption icon's frame for the display scale the window is on (T1.38).
+    /// </summary>
+    /// <remarks>
+    /// Three times, because the scale is known three times: from the system in the constructor,
+    /// from the window's own monitor once it has a handle (per-monitor aware, it can open on a
+    /// monitor that scales differently), and again on every move to another. Read from the
+    /// window rather than passed from <see cref="OnDpiChanged"/>, so every caller asks the same
+    /// question. Internal for the realized-window test.
+    /// </remarks>
+    internal void ApplyCaptionIcon() =>
+        CaptionIconImage.Source = CaptionIcon.Load(VisualTreeHelper.GetDpi(this).DpiScaleX);
+
     private void ApplyMaximizedInset() =>
         RootBorder.Margin = WindowState == WindowState.Maximized
             ? CaptionChrome.MaximizedInset(this)

@@ -146,17 +146,64 @@
   -->
   <ItemGroup>
     <!--
-      AND THE SAME FILE AGAIN, AS A WPF RESOURCE. <ApplicationIcon> above puts app.ico in the
-      apphost's Win32 resources, which is what the taskbar, Alt-Tab and the old title bar read —
-      but nothing in the managed assembly can reach it, and the drawn caption of design option 2c
-      has an icon slot to fill. This line embeds it in the assembly so MainWindow can bind to it.
+      THE CAPTION'S OWN ICON, AS WPF RESOURCES (T1.38, issue #50). <ApplicationIcon> above puts
+      app.ico in the apphost's Win32 resources, which is what the taskbar, Alt-Tab and the Start
+      menu read — but nothing in the managed assembly can reach it, and the drawn caption of
+      design option 2c has an icon slot to fill. These two lines embed the caption's frames in
+      the assembly so MainWindow can draw them. The publish output still gains no file.
 
-      The publish output still gains no file: it is inside ClaudeDashboard.App.dll, not beside
-      it. The cost is the assembly growing by the .ico's size, and it is one file rather than
-      two — a second, smaller copy for the caption would be a second thing to regenerate, and the
-      one that fell behind would be the one nobody looks at directly.
+      THIS USED TO BE app.ico ITSELF, embedded a second time, and the remark here argued against
+      anything else: a second, smaller copy for the caption would be a second thing to
+      regenerate, and the one that fell behind would be the one nobody looks at directly. That
+      was the right default and the operator overruled it on 2026-09-26, for a reason the default
+      could not see. The caption draws the mark at 20 DIP, and no frame of app.ico is that size:
+      its 32 was reduced again at draw time, and a thin "C" reduced twice stops reading as a "C".
+      A frame made FOR 20 px, and one for 30 px (150%), from the same sheet, is the fix — and the
+      glyph is lightly thickened for it, which the exe icon must not be. So the caption has its
+      own asset, and the exe icon stays byte-identical. The regeneration cost the old remark
+      named is real; the answer to it is the recipe below, which reproduces both frames from the
+      sheet with 0 differing pixels (magick compare -metric AE), and IconAssetTests, which fails
+      if the caption drifts back to app.ico or the exe drifts to the caption.
+
+      TWO PNGs, NOT A TWO-FRAME .ico. The frames must reach the screen exactly as made. An .ico
+      is one more packing step, and packing is where app.ico's recipe records a silent loss (the
+      -type TrueColorAlpha note above): partial alpha flattened with nothing reporting it. A PNG
+      is the recipe's own output, compared as is. And WPF chooses a frame from an .ico by its own
+      rules, while MainWindow has to choose by display scale, so a single file would buy nothing.
+
+      REGENERABLE FROM THE SAME SHEET, run from an empty folder, one command per line. The first
+      five lines are app.ico's; the rest is the caption's own:
+
+        magick "docs\Claude Dashboard Icon-selection.png" -crop 512x512+58+54 +repage raw512.png
+        magick raw512.png -alpha set -fuzz 5% -fill none -draw "alpha 0,0 floodfill" -draw "alpha 511,0 floodfill" -draw "alpha 0,511 floodfill" -draw "alpha 511,511 floodfill" base512.png
+        magick base512.png -crop 293x321+93+81 +repage g-src.png
+        magick g-src.png -colorspace Gray -level 7%,52% g-mask.png
+        magick base512.png -fill "rgb(20,19,15)" -draw "rectangle 93,81 385,401" tile-clean.png
+        magick g-mask.png -morphology Dilate Disk:6 m6.png
+        magick g-src.png -morphology Dilate Disk:6 gs6.png
+        magick gs6.png m6.png -alpha off -compose CopyOpacity -composite g-cut6.png
+        magick g-cut6.png -resize 381x417! g-130-6.png
+        GOLD=$(magick g-130-6.png -format "%[pixel:p{274,206}]" info:)
+        magick g-130-6.png ( g-130-6.png -alpha extract ( -size 381x417 xc:white -fill black -draw "circle 274,206 274,294" ) -compose multiply -composite ) -alpha off -compose CopyOpacity -composite nodot.png
+        magick nodot.png -fill "$GOLD" -draw "circle 274,206 354,206" g-dot100.png
+        magick tile-clean.png g-dot100.png -geometry +49+33 -compose over -composite cap100.png
+        magick cap100.png -filter Mitchell -resize 20x20 -sigmoidal-contrast 4x40% Assets\caption-20.png
+        magick cap100.png -filter Mitchell -resize 30x30 -sigmoidal-contrast 4x40% Assets\caption-30.png
+
+      The GOLD line and the parentheses are written for bash (escape them as \( \) there); the
+      operator's reference was produced that way. The PNG bytes differ run to run by their
+      timestamps; the pixels do not, which is why the comparison is -metric AE and not a hash.
+
+      What differs from app.ico's recipe, and why. THE DILATION: Disk:6 on both the colour source
+      and the mask, before the 130% enlargement, so the stroke thickens by the same amount it
+      reads thin at 20 px — "lightly", the operator's word, chosen against heavier candidates on
+      the live title bar. THE DOT: the dilation swells the dot as well, so it is erased with a
+      disc of radius 88 at its centre (274, 206) and redrawn flat at radius 80 — its drawn size —
+      in the glyph's own gold sampled at that centre. Everything else is app.ico's numbers, for
+      app.ico's reasons.
     -->
-    <Resource Include="Assets\app.ico" />
+    <Resource Include="Assets\caption-20.png" />
+    <Resource Include="Assets\caption-30.png" />
   </ItemGroup>
 
   <ItemGroup>

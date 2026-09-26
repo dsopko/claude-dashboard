@@ -100,20 +100,27 @@
                         </Grid.ColumnDefinitions>
 
                         <!--
-                            The application icon of issue #17, at the design's 20 DIP. The 32 px
-                            frame is asked for by name: 20 DIP is 20 device pixels at 100% and 30
-                            at 150%, so the 32 is a reduction at every scaling this runs at, and a
-                            reduction is what stays crisp. The 16 would have to be enlarged.
+                            The caption's own icon (T1.38, issue #50), at the design's 20 DIP.
+                            Its Source is set in code, by display scale: CaptionIcon holds a frame
+                            made for 20 px (100%) and one for 30 px (150%), so at both scales the
+                            frame is drawn at its own size and nothing resamples it.
+
+                            THIS USED TO READ app.ico's 32 px FRAME, on the reasoning that 32 was
+                            a reduction at every scale this runs at and a reduction stays crisp.
+                            Superseded: a reduction stays crisp only relative to an enlargement.
+                            The 32 was reduced to 20 or 30 at draw time from a frame already
+                            reduced from the 512 art, and the thin "C" read as a smudge. The fix
+                            is a frame per scale, made for the size it is drawn at — and a glyph
+                            lightly thickened for that size, which the exe icon must not be.
+
+                            HighQuality stays for the scales no frame was made for (see
+                            CaptionIcon); at 100% and 150% it has nothing to do.
                         -->
-                        <Image Grid.Column="0"
+                        <Image x:Name="CaptionIconImage"
+                               Grid.Column="0"
                                Width="20" Height="20" Margin="14,0"
                                VerticalAlignment="Center"
-                               RenderOptions.BitmapScalingMode="HighQuality">
-                            <Image.Source>
-                                <BitmapImage UriSource="/ClaudeDashboard.App;component/Assets/app.ico"
-                                             DecodePixelWidth="32" />
-                            </Image.Source>
-                        </Image>
+                               RenderOptions.BitmapScalingMode="HighQuality" />
 
                         <TextBlock Grid.Column="1"
                                    Text="Claude Dashboard"

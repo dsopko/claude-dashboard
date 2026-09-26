@@ -1,4 +1,5 @@
 using System.IO;
+using ClaudeDashboard.App.Ui;
 
 namespace ClaudeDashboard.Tests.Architecture;
 
@@ -93,6 +94,88 @@ public sealed class IconAssetTests
         // Joined rather than compared as sequences so a failure reads "256, 48, 32" against
         // "256, 48, 32, 16" — the missing size named, rather than an index and a count.
         Assert.Equal(string.Join(", ", Expected), string.Join(", ", sizes.OrderDescending()));
+    }
+
+    /// <summary>
+    /// <strong>The caption reads its own asset, and the executable keeps <c>app.ico</c></strong>
+    /// (T1.38, issue #50).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Two icons now, which means two ways to drift, and each is silent. The caption pointed back
+    /// at <c>app.ico</c> builds and draws — the thin "C" the operator ruled out, resampled again.
+    /// The exe pointed at a caption frame builds too, and the taskbar gets a thickened 20 px
+    /// mark. The operator's ruling was the caption only, the exe byte-identical; this is the
+    /// ruling as a test.
+    /// </para>
+    /// <para>
+    /// The frames' pixel sizes are read from their PNG headers, because <see cref="CaptionIcon"/>
+    /// chooses between them by display scale on the promise that each is exactly the size it
+    /// will be drawn at. Whether they are the operator's pixels is not a property of the wiring:
+    /// that was checked against the reference images with <c>magick compare -metric AE</c> and is
+    /// written down in the task's status report.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void The_caption_reads_its_own_asset_and_the_executable_keeps_app_ico()
+    {
+        Assert.Equal(@"Assets\app.ico", Declared());
+
+        var resources = RepoLayout.EffectiveBuildFiles(RepoLayout.App)
+            .SelectMany(file => file.Xml.Descendants("Resource"))
+            .Select(item => (string?)item.Attribute("Include"))
+            .OfType<string>()
+            .Order(StringComparer.Ordinal)
+            .ToList();
+
+        Assert.Equal([@"Assets\caption-20.png", @"Assets\caption-30.png"], resources);
+
+        Assert.EndsWith("component/Assets/caption-20.png", CaptionIcon.Frame20.OriginalString, StringComparison.Ordinal);
+        Assert.EndsWith("component/Assets/caption-30.png", CaptionIcon.Frame30.OriginalString, StringComparison.Ordinal);
+
+        var project = RepoLayout.Project(RepoLayout.App).Directory!.FullName;
+
+        Assert.Equal((20, 20), PngSize(Path.Combine(project, "Assets", "caption-20.png")));
+        Assert.Equal((30, 30), PngSize(Path.Combine(project, "Assets", "caption-30.png")));
+
+        // The caption's markup names no icon at all — its frame is chosen in code, by scale —
+        // so a hard-coded source, app.ico above all, is the drift this catches. Attribute values
+        // only: the comment above the caption explains app.ico's history by name, and should.
+        var named = System.Xml.Linq.XDocument.Load(Path.Combine(project, "Ui", "MainWindow.xaml"))
+            .Descendants()
+            .SelectMany(element => element.Attributes())
+            .Where(attribute => attribute.Value.Contains(".ico", StringComparison.OrdinalIgnoreCase)
+                || attribute.Value.Contains("caption-", StringComparison.OrdinalIgnoreCase))
+            .Select(attribute => $"{attribute.Parent!.Name.LocalName}.{attribute.Name.LocalName}=\"{attribute.Value}\"")
+            .ToList();
+
+        Assert.Empty(named);
+    }
+
+    /// <summary>Each scale the operator runs at gets the frame made for it; the rest take the 30.</summary>
+    /// <remarks>
+    /// The realized-window test can only check the scale the machine happens to run at, so the
+    /// rule for the others is asserted here, where no display is involved.
+    /// </remarks>
+    [Theory]
+    [InlineData(1.0, 20)]
+    [InlineData(1.25, 30)]
+    [InlineData(1.5, 30)]
+    [InlineData(2.0, 30)]
+    public void Each_display_scale_gets_its_caption_frame(double scale, int frame) =>
+        Assert.Equal(frame == 20 ? CaptionIcon.Frame20 : CaptionIcon.Frame30, CaptionIcon.FrameFor(scale));
+
+    /// <summary>A PNG's width and height, from its IHDR chunk.</summary>
+    private static (int Width, int Height) PngSize(string path)
+    {
+        var bytes = File.ReadAllBytes(path);
+
+        Assert.True(bytes.Length >= 24, $"{path} is too short to be a PNG.");
+        Assert.Equal(new byte[] { 0x89, (byte)'P', (byte)'N', (byte)'G' }, bytes[..4]);
+
+        static int BigEndian(byte[] b, int at) => (b[at] << 24) | (b[at + 1] << 16) | (b[at + 2] << 8) | b[at + 3];
+
+        return (BigEndian(bytes, 16), BigEndian(bytes, 20));
     }
 
     /// <summary>What <c>ApplicationIcon</c> is set to, as the build sees it after every import.</summary>
