@@ -210,6 +210,14 @@ public sealed class MainWindowTests(StaHarness harness, Xunit.Abstractions.ITest
     /// with the caption behind it, and any resampling changes opaque pixels too: each one next
     /// to a different neighbour would take some of that neighbour's colour.
     /// </para>
+    /// <para>
+    /// <strong>At any other scale the pixel proof does not run, and a green result there proves
+    /// nothing about pixels.</strong> The proof runs at 100% and 150% only, the two scales a frame
+    /// was made for. At 125%, 175%, 200% or any other, the test checks the frame choice and the
+    /// 20 DIP slot, then passes; xUnit 2.9 has no run-time skip, so it cannot report itself as
+    /// skipped. The output line begins "PIXEL PROOF DID NOT RUN" in that case. Read it before
+    /// counting this test as evidence.
+    /// </para>
     /// </remarks>
     [Fact]
     public void The_caption_draws_its_own_icon_frame_pixel_for_pixel()
@@ -234,7 +242,10 @@ public sealed class MainWindowTests(StaHarness harness, Xunit.Abstractions.ITest
 
                 if (scale is not (1.0 or 1.5))
                 {
-                    // No frame was made for this scale, so there is no native size to assert.
+                    // No frame was made for this scale, so there is no native size to assert
+                    // and the pixel proof does NOT run. The test still passes — xUnit 2.9 has no
+                    // skip that can be decided at run time — so the output line below is the
+                    // record, and it says so in so many words.
                     return scale;
                 }
 
@@ -284,7 +295,9 @@ public sealed class MainWindowTests(StaHarness harness, Xunit.Abstractions.ITest
 
         _output.WriteLine(scale is 1.0 or 1.5
             ? $"Display scale {scale:P0}: the {(scale == 1.0 ? 20 : 30)} px frame is drawn at its own size, pixel for pixel."
-            : $"Display scale {scale:P0}: no frame is made for this scale; checked the frame choice and the 20 DIP slot only.");
+            : $"PIXEL PROOF DID NOT RUN. Display scale {scale:P0} has no frame made for it, so this pass " +
+              "checked only the frame choice and the 20 DIP slot and proves nothing about pixels. " +
+              "The pixel proof runs at 100% (the 20 px frame) and 150% (the 30 px frame); run it on a machine at one of those.");
     }
 
     /// <summary>A square of pixels as premultiplied BGRA, the format the renderer writes.</summary>

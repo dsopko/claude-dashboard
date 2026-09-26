@@ -131,13 +131,6 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Keeps a maximized window's content inside the screen it is maximized on.
-    /// </summary>
-    /// <remarks>
-    /// See <see cref="CaptionChrome.MaximizedInset"/>: the overflow is the window frame, which is
-    /// invisible while it is non-client and is content once the caption is drawn instead.
-    /// </remarks>
-    /// <summary>
     /// Draws the caption icon's frame for the display scale the window is on (T1.38).
     /// </summary>
     /// <remarks>
@@ -150,6 +143,13 @@ public partial class MainWindow : Window
     internal void ApplyCaptionIcon() =>
         CaptionIconImage.Source = CaptionIcon.Load(VisualTreeHelper.GetDpi(this).DpiScaleX);
 
+    /// <summary>
+    /// Keeps a maximized window's content inside the screen it is maximized on.
+    /// </summary>
+    /// <remarks>
+    /// See <see cref="CaptionChrome.MaximizedInset"/>: the overflow is the window frame, which is
+    /// invisible while it is non-client and is content once the caption is drawn instead.
+    /// </remarks>
     private void ApplyMaximizedInset() =>
         RootBorder.Margin = WindowState == WindowState.Maximized
             ? CaptionChrome.MaximizedInset(this)
