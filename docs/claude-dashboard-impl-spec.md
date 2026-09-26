@@ -166,6 +166,20 @@ Realizes the "background-thread ingress, UI-thread rendering, one crossing point
 
 Synthetic acknowledgment events (from focus inference, Phase 3) enter the **same** Channel, so all ack sources — new prompt, manual click, inferred focus — travel one path (TS §I.3).
 
+**The archive and the decisions record (T1.37, issue #48).** After the consumer has applied an event and the sound engine has decided, it hands the event and every decision it caused to the archive as one record, and the archive's own thread writes both in one transaction: an `events` row, and `decisions` rows whose `event_id` points at it (NULL for a tick). To answer "why did that sound play?", take the sessions that played something around the instant, and read their state moves, sweeps and sounds before it, with the event that caused each:
+
+```sql
+SELECT d.ts, d.session_id, d.kind, d.from_state, d.to_state, d.reason, d.detail, e.event_type
+FROM decisions d LEFT JOIN events e ON e.id = d.event_id
+WHERE d.session_id IN (SELECT session_id FROM decisions
+                       WHERE kind IN ('NoticePlayed', 'NudgePlayed') AND ts BETWEEN $from AND $to)
+  AND d.kind IN ('NoticePlayed', 'NudgePlayed', 'StateMoved', 'SilenceSwept')
+  AND d.ts BETWEEN $since AND $to
+ORDER BY d.session_id, d.id;
+```
+
+`ts` is ISO-8601 text with the local offset, so the range compares correctly as text within one offset. A roster group's notice has no `session_id`; its `detail` names the group and the member ids.
+
 ---
 
 ## Part 5 — WPF host and tray

@@ -217,6 +217,28 @@ public sealed class DecisionRecordTests : IAsyncLifetime
         Assert.Equal("resume", Row(record, DecisionKind.SessionRefreshed).Reason);
     }
 
+    /// <summary>An unknown source is recorded as "other", never passed through.</summary>
+    /// <remarks>
+    /// The source is a matcher by contract, but it arrives as payload text and nothing stops a
+    /// payload from carrying anything there. The row names the known five by their wire
+    /// spelling and folds everything else to one word (T1.24).
+    /// </remarks>
+    [Fact]
+    public async Task An_unknown_session_start_source_is_recorded_as_other()
+    {
+        Publish(Prompt());
+        _clock.AdvanceMinutes(1);
+        Publish(new SessionEnd { SessionId = Id, Timestamp = _clock.Now, Cwd = Cwd, Reason = "clear" });
+        await RecordWith(DecisionKind.SessionEnded);
+
+        _clock.AdvanceMinutes(1);
+        Publish(new SessionStart { SessionId = Id, Timestamp = _clock.Now, Cwd = Cwd, Source = Marker });
+
+        var record = await RecordWith(DecisionKind.SessionRefreshed);
+
+        Assert.Equal("other", Row(record, DecisionKind.SessionRefreshed).Reason);
+    }
+
     /// <summary>The session ending is its own kind, so removal work can find it later.</summary>
     [Fact]
     public async Task A_session_end_is_recorded_ended()

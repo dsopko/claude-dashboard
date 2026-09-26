@@ -304,7 +304,9 @@ public sealed class EventConsumer : BackgroundService
                 //   - a DECLINED event still archives, now as a decline row rather than silence;
                 //   - an Apply that THROWS still archives, the finally sees to it, with an
                 //     ApplyFailed row carrying the exception's type.
-                // Still one non-blocking TryWrite per event; the consumer never waits on a disk.
+                // One non-blocking TryWrite per event, or two when decisions born on other
+                // threads are pending — Complete sends those as their own record first, so they
+                // never borrow this event's id. Either way the consumer never waits on a disk.
                 _recorder.BeginEvent(inboundEvent);
 
                 try

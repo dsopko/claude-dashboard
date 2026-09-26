@@ -29,6 +29,13 @@ namespace ClaudeDashboard.Tests.Setup;
 /// replay drives the same registry, engine and recorder — and this test is where the
 /// construction is made to prove it on disk.
 /// </para>
+/// <para>
+/// <strong>What the parity covers, and what it does not.</strong> It is exact for the
+/// event-driven rows, which is what this fixture produces. Tick rows — nudges and sweeps — match
+/// only within one tick, by construction: the live loop ticks at an arbitrary phase and replay
+/// synthesises its own. Suppression rows cannot replay at all, because mutes and roster edits
+/// were never archived; a live record that suppressed a notice replays as the notice played.
+/// </para>
 /// </remarks>
 [System.Diagnostics.CodeAnalysis.SuppressMessage(
     "Design",
@@ -182,6 +189,17 @@ public sealed class ReplayParityTests : IAsyncLifetime
             ForeignSqliteReader.Query(replayedPath, "SELECT id, session_id, ts, event_type, payload_json FROM events ORDER BY id"));
 
         Assert.Contains(reported, line => line.Contains("Replayed", StringComparison.Ordinal));
+
+        // The summary says the one thing that moves the most rows: restarts were never archived.
+        Assert.Contains(reported, line => line.Contains("restarts", StringComparison.Ordinal));
+        Assert.Contains(reported, line => line.Contains("uninterrupted", StringComparison.Ordinal));
+
+        // Replay appends, so a second run over the same file refuses rather than doubling it.
+        var again = new List<string>();
+
+        Assert.Equal(1, ReplaySwitch.Run(replayedPath, again.Add, Logger.None));
+        Assert.Contains(again, line => line.StartsWith("REFUSED", StringComparison.Ordinal));
+        Assert.Equal(replayed.Count, ForeignSqliteReader.Query(replayedPath, rows).Count);
     }
 
     /// <summary>

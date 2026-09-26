@@ -91,7 +91,8 @@ public sealed class EventArchive
     /// <para>
     /// <strong>The record travels whole (T1.37).</strong> The event's row id does not exist
     /// until the archive thread inserts it, so the decisions ride WITH the event and take the id
-    /// inside the writer's one transaction — still exactly one non-blocking hand-off per event.
+    /// inside the writer's one transaction. One non-blocking hand-off per event, or two when
+    /// decisions born on other threads are pending and leave as their own record first.
     /// </para>
     /// <para>
     /// The old rule "an empty payload is not archived" is gone with the old shape: the Ack event

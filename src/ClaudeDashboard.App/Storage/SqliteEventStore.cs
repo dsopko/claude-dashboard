@@ -340,6 +340,21 @@ public sealed class SqliteEventStore : IEventStore, IDisposable
         return rows;
     }
 
+    /// <summary>How many decisions rows the file already holds — replay's refusal check (T1.37).</summary>
+    /// <remarks>
+    /// Connecting runs the schema step, so a database older than T1.37 gains an empty table and
+    /// reads zero, which is the case replay exists for.
+    /// </remarks>
+    public long CountDecisions()
+    {
+        var connection = Connect();
+
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT COUNT(*) FROM decisions;";
+
+        return (long)(command.ExecuteScalar() ?? 0L);
+    }
+
     /// <summary>Closes the file. Safe to call twice.</summary>
     public void Dispose()
     {

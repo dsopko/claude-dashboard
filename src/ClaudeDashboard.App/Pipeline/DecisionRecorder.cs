@@ -25,10 +25,11 @@ namespace ClaudeDashboard.App.Pipeline;
 /// <strong>Scoped to the consumer thread.</strong> <see cref="BeginEvent"/> or
 /// <see cref="BeginTick"/> opens a scope, the decisions accumulate, and
 /// <see cref="Complete"/> builds the <see cref="ArchiveRecord"/> and offers it — one
-/// non-blocking hand-off, exactly as the plain event was before. Decisions born on other
-/// threads — a channel drop on the ingress thread, the tray light on the dispatcher, a
-/// <c>/show</c> on a Kestrel thread — go through <see cref="External"/>, a concurrent queue the
-/// next scope drains, and land with <c>event_id NULL</c>.
+/// non-blocking hand-off, or two when decisions born on other threads are pending. Those — a
+/// channel drop on the ingress thread, the tray light on the dispatcher, a <c>/show</c> on a
+/// Kestrel thread — go through <see cref="External"/>, a concurrent queue the next scope
+/// drains, and leave as their own record first, with <c>event_id NULL</c>, so they never
+/// borrow the scope's event id. Neither hand-off blocks.
 /// </para>
 /// <para>
 /// <strong>Identifiers and enums only, throughout (T1.24).</strong> Never a title, prompt,
@@ -196,8 +197,13 @@ public sealed class DecisionRecorder : IDecisionSink, IDecisionLog
         }
         else if (inboundEvent is SessionStart start)
         {
+            // The known matchers by their wire spelling, and "other" for anything else: the raw
+            // source is payload text, and payload text never reaches a decision row (T1.24).
             Add(new Decision(
-                _now, id, DecisionKind.SessionRefreshed, Reason: start.Source));
+                _now,
+                id,
+                DecisionKind.SessionRefreshed,
+                Reason: start.ParsedSource.ToWireValue() ?? "other"));
         }
 
         if (before is not null && after is not null && before.State != after.State)

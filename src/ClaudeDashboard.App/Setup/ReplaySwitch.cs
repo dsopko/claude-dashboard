@@ -33,7 +33,26 @@ namespace ClaudeDashboard.App.Setup;
 /// all of this.
 /// </para>
 /// <para>
-/// It never modifies <c>events</c>. It writes only <c>decisions</c> rows.
+/// <strong>Replay assumes one uninterrupted run, and the live dashboard never had one.</strong>
+/// The live Registry starts empty at every process start; replay runs the whole history as one
+/// process, because restarts were never archived. A session that went quiet before a restart
+/// was forgotten live but stays tracked here, so the nudge ladder and the silence sweep keep
+/// working on it: over the operator's real database one session that never sent another event
+/// produced a question nudge every ten minutes for four weeks — 4,076 of 5,168 nudge rows.
+/// Nudge and sweep rows are therefore the would-haves of a dashboard that never restarted, and
+/// restarts move more rows than anything else replay cannot know.
+/// </para>
+/// <para>
+/// <strong>Ticks.</strong> Between events, ticks are synthesised at the live fifteen-second
+/// cadence, and one more runs at each event's own instant, BEFORE that event applies — see the
+/// loop for why. The consequence, stated rather than hidden: that tick can sweep a session the
+/// event is about to refresh, when its silence is within one tick past the threshold. Live, the
+/// event might have arrived first. It is bounded to one tick, and over the operator's real
+/// history it produced no sweep the live log did not also carry.
+/// </para>
+/// <para>
+/// It never modifies <c>events</c>. It writes only <c>decisions</c> rows, and refuses a database
+/// whose <c>decisions</c> table is not empty: it appends, so a second run would double every row.
 /// </para>
 /// </remarks>
 public static class ReplaySwitch
@@ -96,6 +115,17 @@ public static class ReplaySwitch
 
         try
         {
+            // Replay appends; it is not idempotent. A second run would double every row, and a
+            // copy the live dashboard already recorded into would hold both sets, mixed. So it
+            // refuses a non-empty table rather than guess which rows to keep.
+            if (store.CountDecisions() is var existing and > 0)
+            {
+                report($"REFUSED: {databasePath} already holds {existing} decisions rows. Replay appends, " +
+                    "so running it again would double them, and a copy the live dashboard recorded " +
+                    "into would hold both sets. Replay a copy with an empty decisions table. Nothing was written.");
+                return 1;
+            }
+
             history = store.ReadEvents();
         }
         catch (Exception ex) when (ex is Microsoft.Data.Sqlite.SqliteException or IOException or InvalidOperationException)
@@ -231,8 +261,11 @@ public static class ReplaySwitch
         }
 
         report($"Replayed {history.Count} events and {ticks} synthesised ticks; wrote {written} decisions rows; skipped {skipped} rows that would not parse.");
-        report("Replay cannot know what was never archived: mutes, roster edits and the audio device are absent, " +
+        report("Replay cannot know what was never archived: restarts, mutes, roster edits and the audio device are absent, " +
             "every sound row is a would-have, acks archived before T1.37 do not appear, and an archived ack replays as Manual.");
+        report("Replay runs the whole history as one uninterrupted process; the live dashboard forgot every session at each " +
+            "restart. Nudge and sweep rows are what a dashboard that never restarted would have done, and a session that " +
+            "went quiet before a restart can be nudged here for as long as the history runs.");
 
         return 0;
     }
