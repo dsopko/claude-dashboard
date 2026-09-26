@@ -178,7 +178,7 @@ WHERE d.session_id IN (SELECT session_id FROM decisions
 ORDER BY d.session_id, d.id;
 ```
 
-`ts` is ISO-8601 text with the local offset, so the range compares correctly as text within one offset. A roster group's notice has no `session_id`; its `detail` names the group and the member ids.
+`ts` is ISO-8601 text with the local offset, so the range compares correctly as text within one offset. Rows of one event share `ts` and `event_id`, and the sound is listed before the move that caused it: the engine decides inside the Registry's change notification, before the consumer records the move, so `id` order within an event is not causal order. A roster group's notice has no `session_id`; its `detail` names the group and the member ids.
 
 ---
 
