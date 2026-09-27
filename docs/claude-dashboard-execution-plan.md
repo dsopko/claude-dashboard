@@ -375,6 +375,14 @@ Tasks landing after T1.20. Each one puts the acceptance document out of date in 
 - **Acceptance:** `FittingStripTests` covers tier 2 against widths measured in the same run. Every word is gone before any count is dropped. The prefix rule still holds, so no separator dangles. The tooltip is asserted against the view model's counts. Both suite counts.
 - **Guardrails:** no pixel figure is asserted as a literal (#33). Nothing in `FittingStrip.cs`'s selection logic changes unless a test shows it has to. T1.38's icon and its realized-window test are untouched.
 
+**T1.40 — "You asked" says how long ago, and the work keeps one clock**
+- **Goal:** the row says how long the current piece of work has been going, and flips between states do not restart it.
+- **Depends:** T1.23, T1.24
+- **Realizes:** Closes [issue #51](https://github.com/dsopko/claude-dashboard/issues/51), which is the authority, with the operator's rulings recorded on it. Lands before #52, which shows this anchor on its Waiting row.
+- **Deliverables:** "You asked [time] · [time ago]" in the expanded row, the time ago in the row's existing relative form, ticking on the panel's 15-second refresh. One anchor for the work: the prompt that began it — an operator's prompt or a cross-session message; a `<task-notification>` wake-up is a continuation and moves nothing. The collapsed row's time reads from the same anchor while the session is working, so it no longer restarts on every state transition. Finished states keep today's behaviour.
+- **Acceptance:** the relative time ticks; a session flipped across states repeatedly under a fake clock keeps one elapsed time from the original prompt; a `<task-notification>` prompt changes neither "You asked" nor the elapsed time; an operator's prompt and a cross-session message each start a new ask; both suite counts.
+- **Guardrails:** no Waiting state here — that is #52. A `<task-notification>` is recognised by its prefix only, never by reading the rest of the prompt. Never log the prompt.
+
 **Ordering ruled 2026-09-02:** the packaging workstream — `PKG.1` → `PKG.2` → `PKG.3` → T1.33 → `PKG.4` in the [Packaging Execution Plan](claude-dashboard-packaging-execution-plan.md) — runs **ahead of T2.1**. Appendix A is unchanged; the packaging plan carries its own order.
 
 ---
