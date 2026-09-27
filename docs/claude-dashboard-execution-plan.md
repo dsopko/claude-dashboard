@@ -367,6 +367,14 @@ Tasks landing after T1.20. Each one puts the acceptance document out of date in 
 - **Acceptance:** the committed 20 px and 30 px frames are pixel-identical to the operator's reference images (`magick compare -metric AE` reports 0); `app.ico` is unchanged byte for byte; in a realized window at 100% the caption draws the 20 px frame unscaled; `IconAssetTests` still pass and gain a test that the caption reads its own asset and the exe keeps `app.ico`; both suite counts.
 - **Guardrails:** no change to `ApplicationIcon`, the tray glyph, or the Velopack `--icon`. The reference images, not a description of them, are the authority.
 
+**T1.39 — Numbers before no numbers: a numbers-only caption tier**
+- **Goal:** narrowing the window loses words before it loses a single count.
+- **Depends:** T1.29, T1.31, T1.38
+- **Realizes:** T1.29's own rule, "words are cheaper to lose than numbers, so the words go first", which the built ladder stops following after tier 1. Closes [issue #53](https://github.com/dsopko/claude-dashboard/issues/53), which is the authority.
+- **Deliverables:** a tier 2 in the caption strip that shows numbers only (`11 · 3 · 5 · 8`), placed before any count is dropped. The `need`, `unread` and `working` words hide at tier 2 through `ui:FittingStrip.HideAtTier="2"`. The colours name each count. A tooltip on the strip carries the full text of the non-zero counts, and it follows them as they change. The XAML remark's tier table gains a row for the new tier.
+- **Acceptance:** `FittingStripTests` covers tier 2 against widths measured in the same run. Every word is gone before any count is dropped. The prefix rule still holds, so no separator dangles. The tooltip is asserted against the view model's counts. Both suite counts.
+- **Guardrails:** no pixel figure is asserted as a literal (#33). Nothing in `FittingStrip.cs`'s selection logic changes unless a test shows it has to. T1.38's icon and its realized-window test are untouched.
+
 **Ordering ruled 2026-09-02:** the packaging workstream — `PKG.1` → `PKG.2` → `PKG.3` → T1.33 → `PKG.4` in the [Packaging Execution Plan](claude-dashboard-packaging-execution-plan.md) — runs **ahead of T2.1**. Appendix A is unchanged; the packaging plan carries its own order.
 
 ---
