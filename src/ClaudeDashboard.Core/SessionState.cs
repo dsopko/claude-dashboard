@@ -67,4 +67,30 @@ public enum SessionState
     /// </para>
     /// </remarks>
     Interrupted = 8,
+
+    /// <summary>
+    /// The turn ended while the session still has background work running — a shell command or a
+    /// subagent — and Claude Code will wake it when that work reports back (T1.41, issue #52).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>Not finished.</strong> Before this state, such a turn went Unread and chimed
+    /// "finished" while the agent was still waiting. Entered from a <c>Stop</c> whose
+    /// <c>background_tasks</c> lists at least one running task of an allowed kind (see
+    /// <see cref="BackgroundTaskKind"/>); left by any prompt, which is how the wake-up arrives.
+    /// </para>
+    /// <para>
+    /// <strong>Working, but calm.</strong> It sits in the Working band and is blue on the tray,
+    /// by the operator's ruling: it is work, not quiet. It does not pulse, makes no sound and is
+    /// never nudged. The subagent's own tool calls arrive as <c>PostToolBatch</c> under this
+    /// session and leave it here; a permission, a question or an error outranks it, as they do
+    /// Working. The silence sweep never applies to it (T1.30's rule stays Working-only, by
+    /// ruling): it is quiet because it is waiting, not because it was cut off.
+    /// </para>
+    /// <para>
+    /// If the work never reports back the session stays here. That is intended: a session
+    /// waiting forever is a stuck process, and the row says so rather than hiding it.
+    /// </para>
+    /// </remarks>
+    Waiting = 9,
 }

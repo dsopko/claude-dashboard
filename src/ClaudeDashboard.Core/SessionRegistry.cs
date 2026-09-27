@@ -412,6 +412,11 @@ public sealed class SessionRegistry(SingleWriterGuard guard)
             LastHeardAt = inboundEvent.Timestamp,
             ErrorKind = (inboundEvent as StopFailure)?.ErrorKind,
 
+            // A session first seen on a Stop that still lists running work is Waiting on it (T1.41).
+            WaitingOn = inboundEvent is Stop first
+                ? WaitingTasks.Following(WaitingTasks.Empty, first.BackgroundTasks, first.Timestamp)
+                : WaitingTasks.Empty,
+
             // The very first event a session is seen on may already carry the title, so the latch
             // starts here rather than waiting for a second event to change something.
             Title = TitleOn(inboundEvent),
@@ -429,6 +434,8 @@ public sealed class SessionRegistry(SingleWriterGuard guard)
         SessionStart or CwdChanged => SessionState.Acked,
         UserPromptSubmit => SessionState.Working,
         Notification notification => TargetOf(notification),
+        // A turn that ended with allowed background work still running is not finished (T1.41).
+        Stop { BackgroundTasks.Count: > 0 } => SessionState.Waiting,
         Stop => SessionState.Unread,
         StopFailure => SessionState.Error,
         SessionEnd => SessionState.Ended,
@@ -577,10 +584,30 @@ public sealed class SessionRegistry(SingleWriterGuard guard)
             prompt,
             latest: exchange,
             errorKind: null,
-            cause: Acknowledgment.Applies(current.State)
-                ? $"{prompt.HookEventName} (auto-ack of {current.State})"
-                : prompt.HookEventName));
+            cause: CauseOf(current, prompt)));
     }
+
+    /// <summary>What the transition log says moved the session to Working on a prompt.</summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>Tier-1 acknowledgment is a claim about the operator, and only the operator's own
+    /// prompt makes it (T1.41, issue #52).</strong> "The operator cannot have typed a new prompt
+    /// without having seen the previous result" is true of a typed prompt and false of one nobody
+    /// typed — a task notification, a peer's message, an idle notice. Those still move the session
+    /// to Working, because the work did start again, but the log does not record them as an
+    /// acknowledgment of what was pending.
+    /// </para>
+    /// <para>
+    /// This cause is tier-1's only trace in the product: measured for T1.41, nothing beyond the
+    /// state change reads whether a prompt acknowledged anything. The state change is the same
+    /// either way, so this string, and the decisions record's reason beside it, are where the
+    /// distinction lives.
+    /// </para>
+    /// </remarks>
+    private static string CauseOf(Session current, UserPromptSubmit prompt) =>
+        !Acknowledgment.Applies(current.State) ? prompt.HookEventName
+        : prompt.IsMachinePrompt ? $"{prompt.HookEventName} (machine prompt, not an ack of {current.State})"
+        : $"{prompt.HookEventName} (auto-ack of {current.State})";
 
     /// <summary>
     /// The exchange after a prompt that continues the work (T1.40, issue #51): the same ask, a
@@ -640,9 +667,12 @@ public sealed class SessionRegistry(SingleWriterGuard guard)
             return Transitioned.Declined(ApplyOutcome.Uncorrelated);
         }
 
-        if (current.State == SessionState.Unread && current.Latest.IsAnswered)
+        if (current.State is SessionState.Unread or SessionState.Waiting && current.Latest.IsAnswered)
         {
-            // Already recorded this turn's answer.
+            // Already recorded this turn's answer. Waiting shares the guard (T1.41): Claude Code
+            // sends one Stop per turn, and the next Stop after Waiting follows the wake-up prompt
+            // under a new prompt_id, so a second Stop here is a redelivery. Without the guard its
+            // later timestamp would rewrite AnsweredAt and log a Waiting-to-Waiting move.
             return Transitioned.Declined(ApplyOutcome.Duplicate);
         }
 
@@ -652,8 +682,19 @@ public sealed class SessionRegistry(SingleWriterGuard guard)
             AnsweredAt = stop.Timestamp,
         };
 
-        return Transitioned.FromMove(
-            Moved(current, SessionState.Unread, stop, latest: answered, errorKind: null));
+        // Every Stop decides again (T1.41, issue #52). Allowed background work still running
+        // means the session will be woken when it reports back, so it is Waiting, not finished;
+        // nothing running means it is finished, as before. The answer is recorded either way —
+        // while Waiting it is what Claude has said so far.
+        var waitingOn = WaitingTasks.Following(current.WaitingOn, stop.BackgroundTasks, stop.Timestamp);
+        var target = waitingOn.Count > 0 ? SessionState.Waiting : SessionState.Unread;
+
+        // A second Stop for an answered turn was declined above, so a list change cannot arrive
+        // alone: the task list is replaced whenever the Stop moves anything, and a Stop that moves
+        // nothing is a duplicate, as before.
+        var moved = Moved(current, target, stop, latest: answered, errorKind: null);
+
+        return Transitioned.FromMove(moved is null ? null : moved with { WaitingOn = waitingOn });
     }
 
     private static Transitioned ApplyStopFailure(Session current, StopFailure failure)

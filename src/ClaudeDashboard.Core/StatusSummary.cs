@@ -89,7 +89,11 @@ public readonly record struct StatusSummary
                     unread++;
                     break;
 
+                // Waiting counts as working, by the operator's ruling on issue #52 (T1.41): the tray
+                // light stays blue and the tooltip says "working" for a session paused on its own
+                // background work.
                 case SessionState.Working:
+                case SessionState.Waiting:
                     working++;
                     break;
 

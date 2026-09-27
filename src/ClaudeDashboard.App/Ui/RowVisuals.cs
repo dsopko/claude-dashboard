@@ -41,6 +41,9 @@ public static class RowVisuals
         SessionState.Error => Accent.Amber,
         SessionState.Unread => Accent.Green,
         SessionState.Working => Accent.Blue,
+
+        // Work in progress, paused on its own background work: the Working band's colour (T1.41).
+        SessionState.Waiting => Accent.Blue,
         _ => Accent.Grey,
     };
 
@@ -69,6 +72,7 @@ public static class RowVisuals
         SessionState.Error => "ERROR",
         SessionState.Unread => "FINISHED",
         SessionState.Working => "WORKING",
+        SessionState.Waiting => "WAITING",
         SessionState.Acked => "QUIET",
 
         // The operator asked for this word in issue #28. What the dashboard observed is silence;
@@ -131,6 +135,10 @@ public static class RowVisuals
             string.Create(CultureInfo.CurrentCulture, $"waiting {Duration(age)}"),
         SessionState.Unread or SessionState.Acked or SessionState.Ended or SessionState.Interrupted =>
             string.Create(CultureInfo.CurrentCulture, $"{Duration(age)} ago"),
+
+        // A bare duration, like Working: the work's elapsed time from the ask, which a flip between
+        // the two never restarts (T1.41). Not "waiting": that word is time blocked on the operator.
+        SessionState.Waiting => Duration(age),
         _ => Duration(age),
     };
 }

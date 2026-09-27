@@ -1208,6 +1208,11 @@ public sealed class SessionRegistryTests
             // recovers the one false positive the threshold cannot prevent: a single tool call
             // longer than the threshold, which emits nothing until it resolves.
             [SessionState.Interrupted] = true,
+
+            // Not resumed, and this is the rule that matters most (T1.41, issue #52): while a session
+            // waits on a subagent, the subagent's own tool calls arrive as batches under the
+            // parent's session. Only the wake-up prompt ends Waiting.
+            [SessionState.Waiting] = false,
         };
 
         Assert.Equal(Enum.GetValues<SessionState>().Length, resumes.Count);
@@ -1269,6 +1274,10 @@ public sealed class SessionRegistryTests
             case SessionState.Interrupted:
                 _clock.Advance(SilenceWatch.DefaultThreshold + TimeSpan.FromMinutes(1));
                 _registry.SweepSilent(_clock.Now, SilenceWatch.DefaultThreshold);
+                break;
+            // A turn that ended with a background command still running (T1.41, issue #52).
+            case SessionState.Waiting:
+                Apply(Finished() with { BackgroundTasks = [new BackgroundTask("b1", BackgroundTaskKind.Shell, "Run the build")] });
                 break;
             case SessionState.Ended:
                 Apply(Ended());

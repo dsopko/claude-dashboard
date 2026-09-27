@@ -88,11 +88,15 @@ public static class AttentionOrder
     /// </remarks>
     public static int Rank(SessionState state) => state switch
     {
-        SessionState.NeedsPermission => 7,
-        SessionState.Error => 6,
-        SessionState.NeedsQuestion => 5,
-        SessionState.Unread => 4,
-        SessionState.Working => 3,
+        SessionState.NeedsPermission => 8,
+        SessionState.Error => 7,
+        SessionState.NeedsQuestion => 6,
+        SessionState.Unread => 5,
+        SessionState.Working => 4,
+
+        // Below Working, so a group of the two reads as busy, not paused; above Interrupted and the
+        // quiet states, because it is work in progress (T1.41, issue #52).
+        SessionState.Waiting => 3,
         SessionState.Interrupted => 2,
         SessionState.Acked => 1,
         SessionState.Ended => 0,
@@ -127,6 +131,14 @@ public static class AttentionOrder
     /// <c>Interrupted</c> ranks 2 under either order and can tie with neither.
     /// </para>
     /// <para>
+    /// <strong>SINCE T1.41 THE SWAP IS A ROTATION OF THREE, AND STILL TIE-FREE.</strong>
+    /// <see cref="SessionState.Waiting"/> ranks 3, directly under <c>Working</c> (4) and
+    /// <c>Unread</c> (5). In a roster the three rotate — <c>Working</c> takes 5, <c>Waiting</c>
+    /// takes 4, <c>Unread</c> takes 3 — so a member still working, or paused on its own background
+    /// work, keeps the group from reading finished, and the three ranks stay distinct under
+    /// either order. <c>Interrupted</c> is still 2 under both and ties with none of them.
+    /// </para>
+    /// <para>
     /// <strong>Had it been placed between them it would have tied with <c>Unread</c> here</strong>,
     /// since the swap gives <c>Unread</c> the rank <c>Working</c> vacated. <see cref="WorstOf"/>
     /// reduces over these ranks, and <see cref="Rank(SessionState)"/>'s own remark requires such a
@@ -141,8 +153,11 @@ public static class AttentionOrder
     {
         SeverityOrder.RosterGroup => state switch
         {
+            // Working and Waiting both outrank Unread in a roster: a member still working, or paused
+            // on its own background work, means the hand-off is not finished (T1.41 adds Waiting).
             SessionState.Working => Rank(SessionState.Unread),
-            SessionState.Unread => Rank(SessionState.Working),
+            SessionState.Waiting => Rank(SessionState.Working),
+            SessionState.Unread => Rank(SessionState.Waiting),
             _ => Rank(state),
         },
 
@@ -162,6 +177,10 @@ public static class AttentionOrder
             AttentionBand.NeedsYou,
         SessionState.Unread => AttentionBand.Unread,
         SessionState.Working => AttentionBand.Working,
+
+        // Work in progress, paused on its own background work: the Working band, not Quiet, by the
+        // operator's ruling on issue #52 (T1.41).
+        SessionState.Waiting => AttentionBand.Working,
 
         // TS §IV.2's Quiet band reads "Acked, idle". `SessionState` has no Idle member, and
         // T1.2 files a just-started session under Acked, so Acked carries both meanings.

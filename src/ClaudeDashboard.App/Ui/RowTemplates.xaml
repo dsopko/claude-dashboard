@@ -743,6 +743,18 @@
                                    FontSize="11"
                                    VerticalAlignment="Center"
                                    Foreground="{StaticResource Ink3Brush}" />
+                        <!--
+                            "WAITING 23 min · Run the test suite" (T1.41, issue #52): the first task
+                            the session is waiting on, empty in every other state. Agent-written
+                            text, rendered as data; bounded, because it can be any length.
+                        -->
+                        <TextBlock Text="{Binding WaitingSummary}"
+                                   Visibility="{Binding WaitingSummary, Converter={StaticResource EmptyToCollapsed}}"
+                                   MaxWidth="240"
+                                   TextTrimming="CharacterEllipsis"
+                                   FontSize="11"
+                                   VerticalAlignment="Center"
+                                   Foreground="{StaticResource Ink3Brush}" />
                         <Border Margin="7,0,0,0"
                                 Padding="5,0"
                                 CornerRadius="4"
@@ -777,7 +789,7 @@
                                            Foreground="{StaticResource InkBrush}" />
 
                                 <StackPanel Visibility="{Binding HasAnswer, Converter={StaticResource BoolToVisible}}">
-                                    <TextBlock Text="CLAUDE ANSWERED"
+                                    <TextBlock Text="{Binding AnswerLabel}"
                                                Margin="0,14,0,4"
                                                FontSize="10"
                                                FontWeight="SemiBold"
@@ -797,6 +809,29 @@
                                                    TextWrapping="Wrap"
                                                    Foreground="{StaticResource Ink2Brush}" />
                                     </ScrollViewer>
+                                </StackPanel>
+
+                                <!--
+                                    "WAITING ON", one line per running task (T1.41, issue #52):
+                                    "Run the test suite · background command · 7 min". Only while
+                                    Waiting. The description is agent-written text, rendered as
+                                    data. A task's command is never here: it was never read.
+                                -->
+                                <StackPanel Visibility="{Binding IsWaiting, Converter={StaticResource BoolToVisible}}">
+                                    <TextBlock Text="WAITING ON"
+                                               Margin="0,14,0,4"
+                                               FontSize="10"
+                                               FontWeight="SemiBold"
+                                               Foreground="{StaticResource Ink3Brush}" />
+                                    <ItemsControl ItemsSource="{Binding WaitingOnLines}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <TextBlock FontSize="12"
+                                                           TextWrapping="Wrap"
+                                                           Foreground="{StaticResource Ink2Brush}"><Run Text="{Binding Description, Mode=OneWay}" /><Run Text=" · " Foreground="{StaticResource Ink3Brush}" /><Run Text="{Binding Kind, Mode=OneWay}" Foreground="{StaticResource Ink3Brush}" /><Run Text=" · " Foreground="{StaticResource Ink3Brush}" /><Run Text="{Binding Age, Mode=OneWay}" Foreground="{StaticResource Ink3Brush}" /></TextBlock>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
                                 </StackPanel>
                             </StackPanel>
                         </Border>

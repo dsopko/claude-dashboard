@@ -178,4 +178,24 @@ public sealed record Session
         get => _transitions;
         init => _transitions = value ?? throw new ArgumentNullException(nameof(value));
     }
+
+    /// <summary>
+    /// The background tasks the latest <c>Stop</c> said were still running, each with the instant
+    /// it was first listed (T1.41, issue #52). Never null; empty by default.
+    /// </summary>
+    /// <remarks>
+    /// Replaced by every <c>Stop</c> and by nothing else: a task keeps its first-seen instant
+    /// across the Stops that go on listing it, and drops out when a Stop no longer does. A prompt
+    /// leaves it alone, so a task still running after the wake-up keeps its age when the next
+    /// Stop lists it again. It is what the row's "Waiting on" block shows while the session is
+    /// <see cref="SessionState.Waiting"/>, and it is read for nothing else.
+    /// </remarks>
+    /// <exception cref="ArgumentNullException">Set to null.</exception>
+    public WaitingTasks WaitingOn
+    {
+        get => _waitingOn;
+        init => _waitingOn = value ?? throw new ArgumentNullException(nameof(value));
+    }
+
+    private readonly WaitingTasks _waitingOn = WaitingTasks.Empty;
 }

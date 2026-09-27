@@ -82,8 +82,27 @@ Eight of thirty-three. This is the whole integration surface.
 **Documented fields:** `last_assistant_message` — the final assistant text of the turn.
 **Blocking:** **yes** — exit 2 prevents Claude stopping and continues the conversation.
 
-> **Dashboard:** → **Unread**; store the answer. `last_assistant_message` arriving inline is what lets an expanded row show the answer beside the question without reading the transcript [verified].
+> **Dashboard:** → **Unread**, or **Waiting** when background work is still running (below); store the answer. `last_assistant_message` arriving inline is what lets an expanded row show the answer beside the question without reading the transcript [verified].
 > Another hook with blocking power the dashboard must never exercise.
+
+**Undocumented fields, observed on the wire** (the operator's archive, measured 2026-09-27: both present on 2,149 of 2,150 archived `Stop`s):
+
+- **`background_tasks`** — an array of the background work still running as the turn ended. Each entry is an object:
+  - `id` (string) — stable across the `Stop`s that list the same task.
+  - `type` (string) — `shell` (292 entries), `subagent` (10), `monitor` (25). Set by Claude Code, not the agent.
+  - `status` (string) — `running` on every entry observed. A finished task drops off the list rather than changing status.
+  - `description` (string) — what the agent says the task is. Agent-written text.
+  - `command` (string) — **on `shell` entries only.** The command line itself. It can carry prompts or secrets: **the dashboard never reads it** (T1.24, T1.41).
+  - `agent_type` (string) — on `subagent` entries only.
+- **`session_crons`** — an array of the scheduled wake-ups the session has set. Empty on most `Stop`s; 292 entries across 3 sessions, first seen 2026-09-03. Each entry is an object:
+  - `id` (string).
+  - `schedule` (string) — when it fires.
+  - `prompt` (string) — the prompt it will wake the session with. **Prompt text:** the dashboard does not read the field, and must never log it.
+  - `recurring` (boolean).
+
+  #52 files it under case 4 (a cron that wakes the agent, then a false "finished"), not the Waiting state; it belongs with the observability line's quiet-prompt rule.
+
+> **Dashboard (T1.41, issue #52):** a `Stop` whose `background_tasks` lists at least one running `shell` or `subagent` → **Waiting**, not Unread, with no sound. It is an allow-list: `monitor` and any unseen type change nothing, and an unseen type is recorded in the decisions record by count. Only `id`, `type`, `status` and `description` are read; a malformed list reads as empty. `session_crons` is not read at all.
 
 ### ✅ `StopFailure`
 

@@ -133,6 +133,10 @@ public sealed class MotionPolicy : ObservableObject, IDisposable
     {
         SessionState.NeedsPermission or SessionState.NeedsQuestion => MotionKind.Blink,
         SessionState.Working => MotionKind.Breathe,
+
+        // Named, not left to the default: Waiting is calm by ruling (issue #52, T1.41). It is
+        // work, but nothing is happening on screen worth drawing the eye to.
+        SessionState.Waiting => MotionKind.None,
         _ => MotionKind.None,
     };
 

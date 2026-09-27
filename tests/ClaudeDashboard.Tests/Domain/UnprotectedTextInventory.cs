@@ -114,6 +114,17 @@ public sealed class UnprotectedTextInventory
         "SessionViewModel.TitlePrefix",
         "SessionViewModel.TitleTooltip",
         "SessionViewModel.RowName",
+
+        // A background task's description (T1.41, issue #52): what the agent said the task is,
+        // agent-written, so it is operator-adjacent text in every layer that carries it — the
+        // domain event, the session, and the two places the row shows it. Added on the brief's
+        // instruction and because it is true, not to quiet this test; that it never reaches a
+        // log is WaitingLoggingTests' to measure. The task's command is in none of these: it is
+        // never read off the wire.
+        "BackgroundTask.Description",
+        "WaitingTask.Description",
+        "SessionViewModel.WaitingSummary",
+        "WaitingOnLine.Description",
     };
 
     /// <summary>
@@ -194,6 +205,9 @@ public sealed class UnprotectedTextInventory
         "BandHeaderViewModel.Label",
         "GroupViewModel.IdleText", "GroupViewModel.Label", "GroupViewModel.Workspace",
         "QuietFooterViewModel.Key", "QuietFooterViewModel.Text",
+        // T1.41: a fixed label, a fixed kind word, a duration, and Claude Code's task ids.
+        "SessionViewModel.AnswerLabel", "WaitingOnLine.Age", "WaitingOnLine.Kind",
+        "BackgroundTask.Id", "WaitingTask.Id",
         "SessionViewModel.AgeText", "SessionViewModel.AskedAgoText", "SessionViewModel.AskedAtText",
         "SessionViewModel.BadgeText",
         "SessionViewModel.Cwd", "SessionViewModel.Detail", "SessionViewModel.ErrorKind",

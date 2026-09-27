@@ -74,6 +74,43 @@ public sealed record UserPromptSubmit : InboundEvent
     /// </para>
     /// </remarks>
     public bool ContinuesTheAsk => Prompt.StartsWith(TaskNotificationPrefix, StringComparison.Ordinal);
+
+    /// <summary>
+    /// The prefixes of prompts nobody typed: Claude Code's wake-ups and the messages other
+    /// sessions send (T1.41, issue #52).
+    /// </summary>
+    /// <remarks>
+    /// One place, beside <see cref="TaskNotificationPrefix"/>, which is the first of them. Matched
+    /// ordinally at the very start, by prefix only. Measured on the operator's archive
+    /// (2026-09-27): 157 task notifications, 951 cross-session messages, 391 cross-session idle
+    /// notices and 4 agent messages, each starting exactly so.
+    /// </remarks>
+    public static readonly IReadOnlyList<string> MachinePromptPrefixes =
+    [
+        TaskNotificationPrefix,
+        "<cross-session-message",
+        "[Cross-session idle notice]",
+        "<agent-message",
+    ];
+
+    /// <summary>
+    /// Whether nobody typed this prompt, so it is not the operator having seen anything (T1.41,
+    /// issue #52).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>Tier-1 acknowledgment reads "the operator cannot have typed a new prompt without
+    /// having seen the previous result".</strong> A machine prompt was not typed, so it is not
+    /// that. It still moves the session to Working — the work did start again — but it is not
+    /// recorded as an acknowledgment of what was pending, by the operator's ruling on the issue.
+    /// </para>
+    /// <para>
+    /// A different question from <see cref="ContinuesTheAsk"/>. A cross-session message is a
+    /// machine prompt and still starts a new ask (T1.40's ruling); a task notification is both.
+    /// </para>
+    /// </remarks>
+    public bool IsMachinePrompt =>
+        MachinePromptPrefixes.Any(prefix => Prompt.StartsWith(prefix, StringComparison.Ordinal));
 }
 
 /// <summary>
@@ -125,6 +162,38 @@ public sealed record Stop : InboundEvent
     /// answer beside the question.
     /// </summary>
     public string? LastAssistantMessage { get; init; }
+
+    /// <summary>
+    /// The running background tasks of an allowed kind that the turn ended with — the ones that
+    /// will wake the session when they report back (T1.41, issue #52). Empty when there are none.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// From the payload's <c>background_tasks</c>, keeping only entries whose <c>status</c> is
+    /// <c>running</c> and whose <c>type</c> is on the allow-list (<see cref="BackgroundTaskKind"/>).
+    /// Non-empty means the session is not finished: the Registry moves it to
+    /// <see cref="SessionState.Waiting"/> instead of Unread.
+    /// </para>
+    /// <para>
+    /// A malformed list reads as empty, so the Stop means what it meant before T1.41. Degrade,
+    /// never crash.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="ArgumentNullException">Set to null.</exception>
+    public IReadOnlyList<BackgroundTask> BackgroundTasks
+    {
+        get => _backgroundTasks;
+        init => _backgroundTasks = value ?? throw new ArgumentNullException(nameof(value));
+    }
+
+    /// <summary>
+    /// How many running tasks had a <c>type</c> this build has never seen (T1.41). They count as
+    /// nothing — the Stop falls back to today's behaviour — and the decisions record notes them,
+    /// by count, so a new type can be classified later. <c>monitor</c> is known and is not counted.
+    /// </summary>
+    public int UnrecognisedBackgroundTasks { get; init; }
+
+    private readonly IReadOnlyList<BackgroundTask> _backgroundTasks = [];
 }
 
 /// <summary>

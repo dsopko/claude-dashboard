@@ -42,6 +42,15 @@ public enum DecisionKind
     /// <summary>An acknowledgment was declined — nothing to acknowledge, or stale.</summary>
     AckDeclined = 9,
 
+    /// <summary>
+    /// A <c>Stop</c> listed running background work of a type this build does not recognise, so it
+    /// did not count toward Waiting (T1.41, issue #52). <c>reason</c> is
+    /// <see cref="TaskTypeReason.UnrecognisedType"/>; <c>detail</c> is how many. Never the type
+    /// text or the description: the causing <c>events</c> row, by <c>event_id</c>, holds the
+    /// payload for whoever classifies the type later.
+    /// </summary>
+    TaskTypeUnrecognised = 10,
+
     // ---- Sound engine -------------------------------------------------------------------------
 
     /// <summary>A notice was emitted; <c>reason</c> carries the sound.</summary>
@@ -80,6 +89,35 @@ public enum DecisionKind
 
     /// <summary>The operator edited a roster.</summary>
     RosterEdited = 62,
+}
+
+/// <summary>
+/// The <c>reason</c> on a <see cref="DecisionKind.StateMoved"/> row a prompt caused (T1.41,
+/// issue #52).
+/// </summary>
+/// <remarks>
+/// Tier-1 acknowledgment — "the operator cannot have typed a new prompt without having seen the
+/// previous result" — has no effect beyond the state change it makes, measured for T1.41. So the
+/// distinction the operator ruled on, that a prompt nobody typed is not an acknowledgment, is
+/// recorded here and in the transition log, and nowhere is it invented.
+/// </remarks>
+public enum PromptMeaning
+{
+    /// <summary>The operator's own prompt, on a session with something to acknowledge.</summary>
+    AutoAcknowledgment = 1,
+
+    /// <summary>
+    /// A prompt nobody typed — a task notification, a peer's message, an idle notice, an agent
+    /// message. It moves the session to Working and acknowledges nothing.
+    /// </summary>
+    MachinePrompt = 2,
+}
+
+/// <summary>The <c>reason</c> on a <see cref="DecisionKind.TaskTypeUnrecognised"/> row.</summary>
+public enum TaskTypeReason
+{
+    /// <summary>The <c>type</c> is on neither the allow-list nor the known-excluded list.</summary>
+    UnrecognisedType = 1,
 }
 
 /// <summary>

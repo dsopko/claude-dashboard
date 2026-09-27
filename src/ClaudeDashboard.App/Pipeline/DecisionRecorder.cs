@@ -173,6 +173,18 @@ public sealed class DecisionRecorder : IDecisionSink, IDecisionLog
 
         var id = inboundEvent.SessionId.Value;
 
+        // Seen, whatever the Stop went on to decide: the type is what the row reports, by count
+        // only, so it can be classified later from the causing event's payload (T1.41).
+        if (inboundEvent is Stop { UnrecognisedBackgroundTasks: > 0 } unseen)
+        {
+            Add(new Decision(
+                _now,
+                id,
+                DecisionKind.TaskTypeUnrecognised,
+                Reason: nameof(TaskTypeReason.UnrecognisedType),
+                Detail: $"count={unseen.UnrecognisedBackgroundTasks}"));
+        }
+
         if (!outcome.Changed())
         {
             Add(new Decision(
@@ -213,7 +225,8 @@ public sealed class DecisionRecorder : IDecisionSink, IDecisionLog
                 id,
                 after.State == SessionState.Ended ? DecisionKind.SessionEnded : DecisionKind.StateMoved,
                 FromState: before.State.ToString(),
-                ToState: after.State.ToString()));
+                ToState: after.State.ToString(),
+                Reason: MeaningOf(inboundEvent, before)?.ToString()));
         }
 
         if (before is not null && after is not null && before.WorkspaceGroup != after.WorkspaceGroup)
@@ -225,6 +238,22 @@ public sealed class DecisionRecorder : IDecisionSink, IDecisionLog
                 Detail: $"from={before.WorkspaceGroup.Value} to={after.WorkspaceGroup.Value}"));
         }
     }
+
+    /// <summary>
+    /// What a prompt that moved a session meant, for the move's <c>reason</c> (T1.41, issue #52),
+    /// or null for anything else.
+    /// </summary>
+    /// <remarks>
+    /// Read from the event and the state it left, exactly as the Registry's transition cause is:
+    /// a machine prompt is never an acknowledgment; the operator's own prompt is one when the
+    /// state it left had something to acknowledge. See <see cref="PromptMeaning"/>.
+    /// </remarks>
+    private static PromptMeaning? MeaningOf(InboundEvent inboundEvent, Session before) => inboundEvent switch
+    {
+        UserPromptSubmit { IsMachinePrompt: true } => PromptMeaning.MachinePrompt,
+        UserPromptSubmit when Acknowledgment.Applies(before.State) => PromptMeaning.AutoAcknowledgment,
+        _ => null,
+    };
 
     /// <summary>The silence sweep moved a session (T1.30's rows, now durable).</summary>
     public void Swept(SilentSession silent) =>

@@ -564,6 +564,96 @@ public sealed class MainWindowTests(StaHarness harness, Xunit.Abstractions.ITest
         Assert.False(back.Enabled, "The band went and the long form fits again; the tooltip should be off.");
     }
 
+    /// <summary>
+    /// <strong>A Waiting row, on a real window</strong> (T1.41, issue #52): the collapsed line, "Claude
+    /// said so far", the "Waiting on" block with two tasks — and "Claude answered" again once the
+    /// work really finishes.
+    /// </summary>
+    /// <remarks>
+    /// Through the real markup, so a misspelled binding path fails here: <c>WithWindow</c> fails
+    /// on any binding error it collects. The events after the first look are applied to the same
+    /// registry under the realized window, the way the pipeline would.
+    /// </remarks>
+    [Fact]
+    public void A_waiting_row_says_what_it_waits_on_and_answers_once_finished()
+    {
+        RegistryHarness? registry = null;
+        string? promptId = null;
+
+        var seen = WithWindow(
+            harness =>
+            {
+                registry = harness;
+                promptId = harness.Working("waiter", At, prompt: "cut the release");
+                harness.Apply(new Core.Events.Stop
+                {
+                    SessionId = new SessionId("waiter"),
+                    Timestamp = At.AddMinutes(1),
+                    Cwd = RegistryHarness.Workspace,
+                    PromptId = promptId,
+                    LastAssistantMessage = "Started the build and a review.",
+                    BackgroundTasks =
+                    [
+                        new BackgroundTask("b1", BackgroundTaskKind.Shell, "Run the test suite"),
+                        new BackgroundTask("a1", BackgroundTaskKind.Subagent, "Review the diff"),
+                    ],
+                });
+            },
+            (window, viewModel) =>
+            {
+                var row = viewModel.Rows.OfType<SessionViewModel>().Single();
+                row.IsExpanded = true;
+                window.UpdateLayout();
+
+                var waiting = VisibleTexts(window, "waiter");
+
+                // The work reports back, and the woken turn ends with nothing running.
+                registry!.Apply(new Core.Events.UserPromptSubmit
+                {
+                    SessionId = new SessionId("waiter"),
+                    Timestamp = At.AddMinutes(5),
+                    Cwd = RegistryHarness.Workspace,
+                    PromptId = "p-wake",
+                    Prompt = "<task-notification>\n<task-id>b1</task-id>",
+                });
+                registry.Apply(new Core.Events.Stop
+                {
+                    SessionId = new SessionId("waiter"),
+                    Timestamp = At.AddMinutes(6),
+                    Cwd = RegistryHarness.Workspace,
+                    PromptId = "p-wake",
+                    LastAssistantMessage = "All green.",
+                });
+                _harness.Pump(DispatcherPriority.Background);
+                window.UpdateLayout();
+
+                var row2 = viewModel.Rows.OfType<SessionViewModel>().Single();
+                row2.IsExpanded = true;
+                window.UpdateLayout();
+
+                return (Waiting: waiting, Finished: VisibleTexts(window, "waiter"));
+            });
+
+        // Collapsed: the badge, the work's elapsed time, and the first task.
+        Assert.Contains("WAITING", seen.Waiting);
+        Assert.Contains(" · Run the test suite", seen.Waiting);
+
+        // Expanded: what Claude has said so far, and what it is waiting on, one line each.
+        Assert.Contains("CLAUDE SAID SO FAR", seen.Waiting);
+        Assert.DoesNotContain("CLAUDE ANSWERED", seen.Waiting);
+        Assert.Contains("Started the build and a review.", seen.Waiting);
+        Assert.Contains("WAITING ON", seen.Waiting);
+        Assert.Contains(seen.Waiting, text => text.StartsWith("Run the test suite · background command · ", StringComparison.Ordinal));
+        Assert.Contains(seen.Waiting, text => text.StartsWith("Review the diff · subagent · ", StringComparison.Ordinal));
+
+        // Finished: the answer is an answer again, and the block is gone.
+        Assert.Contains("CLAUDE ANSWERED", seen.Finished);
+        Assert.Contains("All green.", seen.Finished);
+        Assert.DoesNotContain("WAITING ON", seen.Finished);
+        Assert.DoesNotContain("CLAUDE SAID SO FAR", seen.Finished);
+        Assert.DoesNotContain(seen.Finished, text => text.Contains("Run the test suite", StringComparison.Ordinal));
+    }
+
     private static FittingStrip StripOf(MainWindow window) =>
         StaHarness.FindAll<FittingStrip>(window).Single();
 

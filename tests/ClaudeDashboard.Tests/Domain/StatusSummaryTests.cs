@@ -171,6 +171,20 @@ public sealed class StatusSummaryTests
                 });
                 break;
 
+            // A turn that ended with a background command still running (T1.41, issue #52).
+            case SessionState.Waiting:
+                Prompt();
+                registry.Apply(new Core.Events.Stop
+                {
+                    SessionId = sessionId,
+                    Timestamp = At.AddMinutes(1),
+                    Cwd = Cwd,
+                    PromptId = "p-1",
+                    LastAssistantMessage = "started the build",
+                    BackgroundTasks = [new BackgroundTask("b1", BackgroundTaskKind.Shell, "Run the build")],
+                });
+                break;
+
             case SessionState.Error:
                 Prompt();
                 registry.Apply(new Core.Events.StopFailure

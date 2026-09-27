@@ -77,8 +77,9 @@ public static class TrayVisuals
     /// <para>
     /// Expressed as thresholds on <see cref="AttentionOrder.Rank"/> so that the mapping cannot
     /// disagree with the ranking about which of two states is worse. Every rank below
-    /// <see cref="SessionState.Working"/>'s is grey, which is why an Ended session and an empty
-    /// dashboard look the same and why neither can be told from a quiet one.
+    /// <see cref="SessionState.Waiting"/>'s — the lowest working rank since T1.41 — is grey,
+    /// which is why an Ended session and an empty dashboard look the same and why neither can be
+    /// told from a quiet one.
     /// </para>
     /// <para>
     /// <strong>THE THRESHOLDS ARE NAMED STATES, NOT LITERAL NUMBERS, AND THAT MATTERS (issue #28).</strong>
@@ -106,7 +107,9 @@ public static class TrayVisuals
             // Error and NeedsQuestion merged onto one colour, per Impl §5.2.
             _ when rank >= AttentionOrder.Rank(SessionState.NeedsQuestion) => TrayColour.Amber,
             _ when rank >= AttentionOrder.Rank(SessionState.Unread) => TrayColour.Green,
-            _ when rank >= AttentionOrder.Rank(SessionState.Working) => TrayColour.Blue,
+            // Waiting is the lowest working rank, so it names the blue boundary: it is work, not
+            // quiet, by the operator's ruling on issue #52 (T1.41).
+            _ when rank >= AttentionOrder.Rank(SessionState.Waiting) => TrayColour.Blue,
 
             // Interrupted, Acked, Ended, and anything unrecognised.
             _ => TrayColour.Grey,

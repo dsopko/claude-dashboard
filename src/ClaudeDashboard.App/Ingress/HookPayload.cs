@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace ClaudeDashboard.App.Ingress;
@@ -55,6 +56,18 @@ public sealed record HookPayload
     /// <summary><c>Stop</c>: the final assistant message, inline (Impl §9.1).</summary>
     [JsonPropertyName("last_assistant_message")]
     public string? LastAssistantMessage { get; init; }
+
+    /// <summary>
+    /// <c>Stop</c>: the background tasks still running as the turn ended, raw (T1.41, issue #52).
+    /// </summary>
+    /// <remarks>
+    /// A <see cref="JsonElement"/>, not a typed list, so that no shape it arrives in can fail the
+    /// whole payload: a malformed list must leave the Stop meaning what it did before T1.41, not
+    /// lose it. <see cref="BackgroundTaskReader"/> reads it, leniently, and never reads an
+    /// entry's <c>command</c>.
+    /// </remarks>
+    [JsonPropertyName("background_tasks")]
+    public JsonElement? BackgroundTasks { get; init; }
 
     /// <summary>
     /// <c>Notification</c>: which notification this is — <c>permission_prompt</c>,

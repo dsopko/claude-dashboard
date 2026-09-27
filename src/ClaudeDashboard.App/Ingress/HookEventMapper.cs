@@ -107,12 +107,7 @@ public sealed class HookEventMapper(IClock clock)
                 NotificationType = payload.NotificationType ?? payload.Matcher ?? string.Empty,
             },
 
-            HookEventNames.Stop => new Stop
-            {
-                SessionId = sessionId, Timestamp = timestamp, Cwd = cwd,
-                PromptId = promptId, TranscriptPath = transcript,
-                LastAssistantMessage = payload.LastAssistantMessage,
-            },
+            HookEventNames.Stop => StopOf(payload, sessionId, timestamp, cwd, promptId, transcript),
 
             HookEventNames.StopFailure => new StopFailure
             {
@@ -165,5 +160,32 @@ public sealed class HookEventMapper(IClock clock)
         return new HookMapping(
             mapped with { Payload = raw, SessionTitle = payload.SessionTitle },
             HookRejection.None);
+    }
+
+    /// <summary>
+    /// A <c>Stop</c>, with the running background tasks of an allowed kind (T1.41, issue #52).
+    /// </summary>
+    /// <remarks>
+    /// See <see cref="BackgroundTaskReader"/> for the allow-list, the lenient read, and why an
+    /// entry's command is never taken.
+    /// </remarks>
+    private static Stop StopOf(
+        HookPayload payload,
+        SessionId sessionId,
+        DateTimeOffset timestamp,
+        string cwd,
+        string? promptId,
+        string? transcript)
+    {
+        var (allowed, unrecognised) = BackgroundTaskReader.Read(payload.BackgroundTasks);
+
+        return new Stop
+        {
+            SessionId = sessionId, Timestamp = timestamp, Cwd = cwd,
+            PromptId = promptId, TranscriptPath = transcript,
+            LastAssistantMessage = payload.LastAssistantMessage,
+            BackgroundTasks = allowed,
+            UnrecognisedBackgroundTasks = unrecognised,
+        };
     }
 }

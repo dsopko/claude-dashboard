@@ -570,6 +570,47 @@ public sealed partial class SessionViewModel : DashboardRow
     /// <summary>Whether there is an answer to show in an expanded row.</summary>
     public bool HasAnswer => _session.Latest.IsAnswered;
 
+    /// <summary>
+    /// The answer's label: "CLAUDE SAID SO FAR" while the session is Waiting, "CLAUDE ANSWERED"
+    /// otherwise (T1.41, the operator's ruling on issue #52).
+    /// </summary>
+    /// <remarks>
+    /// While Waiting, the text is what Claude said as the turn ended — usually "I started X and
+    /// will report back" — and the work is not over, so it is not the answer yet.
+    /// </remarks>
+    public string AnswerLabel => IsWaiting ? "CLAUDE SAID SO FAR" : "CLAUDE ANSWERED";
+
+    /// <summary>Whether the session is paused on its own background work (T1.41).</summary>
+    public bool IsWaiting => _session.State == SessionState.Waiting;
+
+    /// <summary>
+    /// The first task the session is waiting on, as the collapsed line's " · Run the test suite",
+    /// or empty when it is not Waiting (T1.41).
+    /// </summary>
+    /// <remarks>
+    /// Agent-written text, rendered as data and never logged. The first listed, because the line
+    /// has room for one; the expanded row lists them all.
+    /// </remarks>
+    public string WaitingSummary => IsWaiting && _session.WaitingOn.Count > 0
+        ? $" · {_session.WaitingOn[0].Description}"
+        : string.Empty;
+
+    /// <summary>
+    /// The expanded row's "Waiting on" block, one line per task, as of the last
+    /// <see cref="RefreshAge"/> (T1.41). Empty when the session is not Waiting.
+    /// </summary>
+    /// <remarks>
+    /// Each task's age counts from the Stop that first listed it, which the Session carries across
+    /// the Stops that go on listing it. Rebuilt on every read, because the ages tick with the
+    /// panel's refresh; there are at most a handful.
+    /// </remarks>
+    public IReadOnlyList<WaitingOnLine> WaitingOnLines => IsWaiting
+        ? [.. _session.WaitingOn.Select(task => new WaitingOnLine(
+            task.Description,
+            task.Kind == BackgroundTaskKind.Shell ? "background command" : "subagent",
+            RowVisuals.Duration(_now - task.FirstSeenAt)))]
+        : [];
+
     /// <summary>The workspace this session is running in.</summary>
     public string Cwd => _session.Cwd;
 
@@ -717,8 +758,8 @@ public sealed partial class SessionViewModel : DashboardRow
 
     /// <summary>
     /// The collapsed row's clock, as of the last <see cref="RefreshAge"/>: how long the work has
-    /// been going while it is <see cref="SessionState.Working"/>, and how long the state has held
-    /// in every other state.
+    /// been going while it is <see cref="SessionState.Working"/> or <see cref="SessionState.Waiting"/>,
+    /// and how long the state has held in every other state.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -739,8 +780,9 @@ public sealed partial class SessionViewModel : DashboardRow
     /// <list type="table">
     /// <listheader><term>State</term><description>Clock, and what the label means</description></listheader>
     /// <item>
-    /// <term>Working</term>
-    /// <description>The ask: how long this piece of work has run.</description>
+    /// <term>Working, Waiting</term>
+    /// <description>The ask: how long this piece of work has run. Waiting joined in T1.41, so a
+    /// Working/Waiting flip never restarts it.</description>
     /// </item>
     /// <item>
     /// <term>NeedsPermission, NeedsQuestion</term>
@@ -762,7 +804,7 @@ public sealed partial class SessionViewModel : DashboardRow
     /// <para>
     /// The operator's ruling (issue #51) was that the WORKING time must not restart on a flip. It
     /// did not redefine "waiting N min" on a permission prompt, and reading the ask there would do
-    /// exactly that, silently. Issue #52 adds its Waiting state to the ask-anchored set. The
+    /// exactly that, silently. Issue #52 (T1.41) added its Waiting state to the ask-anchored set. The
     /// expanded row's "You asked · 23 min ago" reads the ask in every state.
     /// </para>
     /// <para>
@@ -789,7 +831,7 @@ public sealed partial class SessionViewModel : DashboardRow
         string.Create(CultureInfo.CurrentCulture, $"{RowVisuals.Duration(_now - _session.Latest.StartedAt)} ago");
 
     /// <summary>Whether the collapsed row's clock counts from the ask in this state. See <see cref="Age"/>.</summary>
-    private static bool ReadsTheAsk(SessionState state) => state is SessionState.Working;
+    private static bool ReadsTheAsk(SessionState state) => state is SessionState.Working or SessionState.Waiting;
 
     /// <summary>Recomputes <see cref="Age"/> against <paramref name="now"/>.</summary>
     /// <remarks>Call on the UI thread; it raises a property change.</remarks>
@@ -804,6 +846,7 @@ public sealed partial class SessionViewModel : DashboardRow
         OnPropertyChanged(nameof(Age));
         OnPropertyChanged(nameof(AgeText));
         OnPropertyChanged(nameof(AskedAgoText));
+        OnPropertyChanged(nameof(WaitingOnLines));
     }
 
     /// <summary>
@@ -841,6 +884,10 @@ public sealed partial class SessionViewModel : DashboardRow
         OnPropertyChanged(nameof(SelectionRefusal));
         OnPropertyChanged(nameof(Answer));
         OnPropertyChanged(nameof(HasAnswer));
+        OnPropertyChanged(nameof(AnswerLabel));
+        OnPropertyChanged(nameof(IsWaiting));
+        OnPropertyChanged(nameof(WaitingSummary));
+        OnPropertyChanged(nameof(WaitingOnLines));
         OnPropertyChanged(nameof(Cwd));
         OnPropertyChanged(nameof(ErrorKind));
         OnPropertyChanged(nameof(CanAcknowledge));
@@ -850,3 +897,9 @@ public sealed partial class SessionViewModel : DashboardRow
         OnPropertyChanged(nameof(Age));
     }
 }
+
+/// <summary>One line of the expanded row's "Waiting on" block (T1.41, issue #52).</summary>
+/// <param name="Description">What the agent said the task is. Agent-written text, rendered as data.</param>
+/// <param name="Kind">"background command" or "subagent".</param>
+/// <param name="Age">How long since the task was first listed, in the row's relative form.</param>
+public sealed record WaitingOnLine(string Description, string Kind, string Age);
