@@ -220,6 +220,35 @@ public sealed class FittingStrip : Panel
     /// </remarks>
     public bool IsShortened => (bool)GetValue(IsShortenedProperty);
 
+    private static readonly DependencyPropertyKey HasDroppedPropertyKey =
+        DependencyProperty.RegisterReadOnly(
+            nameof(HasDropped),
+            typeof(bool),
+            typeof(FittingStrip),
+            new FrameworkPropertyMetadata(false));
+
+    /// <summary>Identifies the <see cref="HasDropped"/> dependency property.</summary>
+    public static readonly DependencyProperty HasDroppedProperty = HasDroppedPropertyKey.DependencyProperty;
+
+    /// <summary>
+    /// Whether the last measure left a child out: no tier fit them all, not even the shortest
+    /// (T1.43, issue #54).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Narrower than <see cref="IsShortened"/>, which is also true of a shorter tier that still
+    /// fits everything. This is the one the caption reads to move its counts to a row of their
+    /// own: the operator's rule is that the counts move only when even numbers-only does not fit.
+    /// </para>
+    /// <para>
+    /// Set at the end of each measure from the measure's own decision, like
+    /// <see cref="IsShortened"/>, and read by nothing in the layout. It depends only on the room
+    /// the strip was measured with — which is why a caller may hide the strip (Hidden, still
+    /// measured) on it without the answer moving.
+    /// </para>
+    /// </remarks>
+    public bool HasDropped => (bool)GetValue(HasDroppedProperty);
+
     /// <inheritdoc/>
     protected override void OnVisualChildrenChanged(DependencyObject visualAdded, DependencyObject visualRemoved)
     {
@@ -294,6 +323,7 @@ public sealed class FittingStrip : Panel
 
         _kept = kept;
         SetValue(IsShortenedPropertyKey, chosen > 0 || !full);
+        SetValue(HasDroppedPropertyKey, !full);
 
         return new Size(used, height);
     }
@@ -314,6 +344,13 @@ public sealed class FittingStrip : Panel
     /// <para>
     /// So measure records how many leading children it kept, and this draws exactly those. One
     /// decision, made once; the two passes cannot disagree about it.
+    /// </para>
+    /// <para>
+    /// <strong>This assumes the parent arranges the strip at the width it measured</strong> —
+    /// its desired width, give or take the pixel rounding above — and never narrower, because
+    /// nothing here checks again. Both places the counts sit guarantee it: the caption puts the
+    /// strip in a star column, and the counts row (T1.43) aligns it left, and a non-stretched
+    /// element is arranged at its desired size; MainWindowTests asserts it on both lines.
     /// </para>
     /// </remarks>
     protected override Size ArrangeOverride(Size finalSize)

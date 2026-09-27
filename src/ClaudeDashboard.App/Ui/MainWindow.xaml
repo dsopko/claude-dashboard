@@ -69,6 +69,7 @@
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
             </Grid.RowDefinitions>
 
@@ -257,84 +258,36 @@
                             count ticking 9 -> 10 does not shove the words beside it.
                         -->
                         <!--
-                            THE TOOLTIP SHOWS ONLY WHEN THE STRIP IS SHORTENED: past tier 0, or a
-                            count dropped (the operator's ruling on issue #53, 2026-09-27). When
-                            the full text is on screen a tooltip would repeat it. Enabled from the
-                            strip's own IsShortened, so "shortened" is the strip's decision and not
-                            a second measurement. The counts' rule only — not an app-wide one.
+                            THE CAPTION'S PLACE FOR THE COUNTS, AND WHEN IT GIVES THEM UP (T1.43,
+                            issue #54). The counts are CountsStrip — the same markup the counts row
+                            below places — and the placement here is the caption's own.
+
+                            When even numbers-only does not fit, the counts move to the counts row
+                            and this place is left empty: all of them move, never some. It is left
+                            HIDDEN, not collapsed, and that is the property the layout rests on. A
+                            hidden element is still measured, so the strip here goes on measuring
+                            itself against this column and goes on answering "do I fit?". And the
+                            column is starred: its width is the window less the fixed columns
+                            beside it, whatever the strip wants. So moving the counts cannot change
+                            the width that decided to move them — the choice is a pure function of
+                            the window's width, and it cannot oscillate.
                         -->
-                        <ui:FittingStrip x:Name="CountsStrip"
-                                         Grid.Column="2"
-                                         ToolTip="{Binding CountsText}"
-                                         ToolTipService.IsEnabled="{Binding IsShortened, RelativeSource={RelativeSource Self}}"
-                                         VerticalAlignment="Center"
-                                         HorizontalAlignment="Right"
-                                         ClipToBounds="True"
-                                         Margin="14,0,0,0">
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="{Binding SessionCount}"
-                                           FontFamily="{StaticResource UiFont}" FontSize="12"
-                                           Foreground="{StaticResource Ink2Brush}"
-                                           Typography.NumeralAlignment="Tabular" />
-                                <!--
-                                    HideAtTier rather than Labels, because this word is bound —
-                                    it is "session" or "sessions" — and writing Text locally
-                                    would kill the binding. Tier 1 takes the word and leaves the
-                                    number, which is the cheapest 44 pixels on the ladder.
-                                -->
-                                <TextBlock Text="{Binding SessionsWord}"
-                                           ui:FittingStrip.HideAtTier="1"
-                                           FontFamily="{StaticResource UiFont}" FontSize="12"
-                                           Foreground="{StaticResource Ink2Brush}" />
-                            </StackPanel>
-
-                            <StackPanel Orientation="Horizontal"
-                                        Visibility="{Binding NeedsYouCount, Converter={StaticResource ZeroToCollapsed}}">
-                                <TextBlock Text=" · " FontFamily="{StaticResource UiFont}" FontSize="12"
-                                           Foreground="{StaticResource Ink2Brush}" />
-                                <TextBlock Text="{Binding NeedsYouCount}"
-                                           FontFamily="{StaticResource UiFont}" FontSize="12" FontWeight="SemiBold"
-                                           Foreground="{StaticResource RedBrush}"
-                                           Typography.NumeralAlignment="Tabular" />
-                                <!--
-                                    The only count whose word is worth shortening: "unread" and
-                                    "working" are one word already, and abbreviating either would
-                                    cost more meaning than the four pixels it saved.
-                                -->
-                                <TextBlock ui:FittingStrip.Labels=" need you| need"
-                                           ui:FittingStrip.HideAtTier="2"
-                                           FontFamily="{StaticResource UiFont}" FontSize="12"
-                                           Foreground="{StaticResource Ink2Brush}" />
-                            </StackPanel>
-
-                            <StackPanel Orientation="Horizontal"
-                                        Visibility="{Binding UnreadCount, Converter={StaticResource ZeroToCollapsed}}">
-                                <TextBlock Text=" · " FontFamily="{StaticResource UiFont}" FontSize="12"
-                                           Foreground="{StaticResource Ink2Brush}" />
-                                <TextBlock Text="{Binding UnreadCount}"
-                                           FontFamily="{StaticResource UiFont}" FontSize="12" FontWeight="SemiBold"
-                                           Foreground="{StaticResource GreenBrush}"
-                                           Typography.NumeralAlignment="Tabular" />
-                                <TextBlock Text=" unread"
-                                           ui:FittingStrip.HideAtTier="2"
-                                           FontFamily="{StaticResource UiFont}" FontSize="12"
-                                           Foreground="{StaticResource Ink2Brush}" />
-                            </StackPanel>
-
-                            <StackPanel Orientation="Horizontal"
-                                        Visibility="{Binding WorkingCount, Converter={StaticResource ZeroToCollapsed}}">
-                                <TextBlock Text=" · " FontFamily="{StaticResource UiFont}" FontSize="12"
-                                           Foreground="{StaticResource Ink2Brush}" />
-                                <TextBlock Text="{Binding WorkingCount}"
-                                           FontFamily="{StaticResource UiFont}" FontSize="12" FontWeight="SemiBold"
-                                           Foreground="{StaticResource BlueBrush}"
-                                           Typography.NumeralAlignment="Tabular" />
-                                <TextBlock Text=" working"
-                                           ui:FittingStrip.HideAtTier="2"
-                                           FontFamily="{StaticResource UiFont}" FontSize="12"
-                                           Foreground="{StaticResource Ink2Brush}" />
-                            </StackPanel>
-                        </ui:FittingStrip>
+                        <ui:CountsStrip x:Name="CaptionCounts"
+                                        Grid.Column="2"
+                                        VerticalAlignment="Center"
+                                        HorizontalAlignment="Right"
+                                        ClipToBounds="True"
+                                        Margin="14,0,0,0">
+                            <ui:CountsStrip.Style>
+                                <Style TargetType="ui:CountsStrip">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding Strip.HasDropped, RelativeSource={RelativeSource Self}}" Value="True">
+                                            <Setter Property="Visibility" Value="Hidden" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </ui:CountsStrip.Style>
+                        </ui:CountsStrip>
 
                         <Rectangle Grid.Column="3"
                                    Width="1" Height="18" Margin="14,0"
@@ -352,8 +305,39 @@
                 </Grid>
             </Border>
 
+            <!-- ==== Counts row: the counts, when the caption has no room for them (T1.43) ===== -->
+            <!--
+                Issue #54, ruled by the operator 2026-09-27. When even numbers-only does not fit in
+                the caption, ALL the counts come down here, and the caption's place is left empty;
+                they are never split between the two. Shown exactly when the caption's strip has
+                dropped a count — its own measure's answer against the caption's own column, which
+                this row cannot change: the row sits below the caption and takes nothing from its
+                width. So the choice is a pure function of the window's width.
+
+                On this line the ladder starts again, from full words, on the row's own width: it is
+                the same CountsStrip, with the same tiers, the same order and the same tooltip rule.
+                The list below moves down a line while the row is up; the operator accepted that.
+
+                LEFT-ALIGNED, AND THAT IS LOAD-BEARING (the T1.42 review). FittingStrip draws the
+                counts its measure kept without checking the width again, so it must be arranged at
+                the width it measured. A non-stretched element is arranged at its desired size, and
+                MainWindowTests asserts it here as it does in the caption.
+            -->
+            <Border x:Name="CountsRow"
+                    Grid.Row="1"
+                    Padding="14,4"
+                    Background="{StaticResource CaptionBrush}"
+                    BorderBrush="{StaticResource CaptionRuleBrush}"
+                    BorderThickness="0,0,0,1"
+                    Visibility="{Binding Strip.HasDropped, ElementName=CaptionCounts, Converter={StaticResource BoolToVisible}}">
+                <ui:CountsStrip x:Name="RowCounts"
+                                HorizontalAlignment="Left"
+                                VerticalAlignment="Center"
+                                ClipToBounds="True" />
+            </Border>
+
             <!-- ==== Toolbar: Grouped/Flat · Select · Mute all · Ack all (2c + issue #43) ======= -->
-            <Border Grid.Row="1" Padding="12,10"
+            <Border Grid.Row="2" Padding="12,10"
                     BorderBrush="{StaticResource HairlineBrush}" BorderThickness="0,0,0,1">
                 <Grid>
                     <Grid.ColumnDefinitions>
@@ -441,7 +425,7 @@
             </Border>
 
             <!-- ==== Body: the rows, in the order T1.10 assembled them ========================= -->
-            <ScrollViewer Grid.Row="2"
+            <ScrollViewer Grid.Row="3"
                           VerticalScrollBarVisibility="Auto"
                           HorizontalScrollBarVisibility="Disabled"
                           Focusable="False">

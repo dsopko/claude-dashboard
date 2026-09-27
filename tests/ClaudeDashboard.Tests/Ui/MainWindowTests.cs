@@ -690,7 +690,8 @@ public sealed class MainWindowTests(StaHarness harness, Xunit.Abstractions.ITest
             {
                 Assert.Equal((3, 0, 2, 1), (viewModel.SessionCount, viewModel.NeedsYouCount, viewModel.UnreadCount, viewModel.WorkingCount));
 
-                var strip = StripOf(window);
+                // The caption's own strip, whichever line is in use: this is about the caption's room.
+                var strip = window.CaptionCounts.Strip;
                 var seen = new List<(double Room, int Tier, List<(bool Visible, bool Drawn, double Width)> Segments)>();
 
                 for (var width = window.MinWidth; width <= window.MinWidth + 400; width++)
@@ -742,8 +743,215 @@ public sealed class MainWindowTests(StaHarness harness, Xunit.Abstractions.ITest
             + (scale == 1.0 ? " At 100% the fault cannot occur here; FittingStripTests reproduces it at fractional scales." : string.Empty));
     }
 
+    // ---- The counts row (T1.43, issue #54) --------------------------------------------------------
+
+    /// <summary>What the counts looked like at one window width.</summary>
+    private sealed record CountsAt(
+        double Width,
+        bool InCaption,
+        bool RowUp,
+        bool CaptionDropped,
+        double CaptionRoom,
+        double RowRoom,
+        int RowTier,
+        bool RowShortened,
+        bool RowTooltip,
+        string? RowTip,
+        double ArrangedWidth,
+        double DesiredWidth,
+        double DrawnWidth);
+
+    /// <summary>
+    /// Counts long enough that the row itself must shorten near the window's minimum width, so
+    /// the row's own ladder and tooltip are exercised. Set on the view model: only their width
+    /// matters here.
+    /// </summary>
+    private static void LongCounts(MainViewModel viewModel)
+    {
+        viewModel.SessionCount = 11111;
+        viewModel.NeedsYouCount = 2222;
+        viewModel.UnreadCount = 3333;
+        viewModel.WorkingCount = 4444;
+    }
+
+    /// <summary>
+    /// Sweeps the window one DIP at a time across <paramref name="widths"/>, laying out twice at
+    /// each, and records where the counts are.
+    /// </summary>
+    private List<CountsAt> Sweep(MainWindow window, MainViewModel viewModel, IEnumerable<double> widths)
+    {
+        var seen = new List<CountsAt>();
+
+        foreach (var width in widths)
+        {
+            window.Width = width;
+            window.UpdateLayout();
+            _harness.Pump(DispatcherPriority.Background);
+            window.UpdateLayout();
+
+            var inCaption = window.CaptionCounts.Visibility == Visibility.Visible;
+            var rowUp = window.CountsRow.Visibility == Visibility.Visible;
+            var inUse = rowUp ? window.RowCounts.Strip : window.CaptionCounts.Strip;
+
+            var drawn = inUse.Children.Cast<FrameworkElement>()
+                .Where(child => LayoutInformation.GetLayoutSlot(child).Width > 0)
+                .Sum(child => child.DesiredSize.Width);
+
+            seen.Add(new CountsAt(
+                width,
+                inCaption,
+                rowUp,
+                window.CaptionCounts.Strip.HasDropped,
+                LayoutInformation.GetLayoutSlot(window.CaptionCounts).Width - window.CaptionCounts.Margin.Left,
+                LayoutInformation.GetLayoutSlot(window.RowCounts).Width,
+                window.RowCounts.Strip.Tier,
+                window.RowCounts.Strip.IsShortened,
+                ToolTipService.GetIsEnabled(window.RowCounts.Strip),
+                window.RowCounts.Strip.ToolTip as string,
+                inUse.RenderSize.Width,
+                inUse.DesiredSize.Width,
+                drawn));
+
+            // Laid out again at the same width: the choice must not move on its own.
+            window.UpdateLayout();
+            _harness.Pump(DispatcherPriority.Background);
+
+            Assert.True(
+                (window.CaptionCounts.Visibility == Visibility.Visible) == inCaption
+                    && (window.CountsRow.Visibility == Visibility.Visible) == rowUp,
+                $"At {width} the counts moved without the width changing.");
+        }
+
+        return seen;
+    }
+
+    /// <summary>
+    /// <strong>The counts are in exactly one place at every width, the choice is a pure function
+    /// of the width, and it cannot oscillate</strong> (T1.43, issue #54).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Swept one DIP at a time from the window's minimum width up past the point where the caption
+    /// takes the counts back, then down again. At every width: the counts show in the caption or
+    /// on the row, never both and never neither; a second layout at the same width changes
+    /// nothing; and the width decides the same way whichever direction it was reached from — any
+    /// hysteresis, which is what an oscillation needs, would show as a disagreement.
+    /// </para>
+    /// <para>
+    /// The widths are the window's, stepped from its own MinWidth; the threshold is wherever this
+    /// run's measurement puts it. Nothing is written down.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void The_counts_are_in_exactly_one_place_at_every_width()
+    {
+        var (up, down) = WithWindow(
+            registry => registry.Working("busy", At),
+            (window, viewModel) =>
+            {
+                LongCounts(viewModel);
+
+                var widths = Enumerable.Range(0, 401).Select(step => window.MinWidth + step).ToList();
+
+                return (Sweep(window, viewModel, widths), Sweep(window, viewModel, Enumerable.Reverse(widths)));
+            });
+
+        foreach (var at in up.Concat(down))
+        {
+            Assert.True(at.InCaption ^ at.RowUp, $"At {at.Width} the counts were in the caption: {at.InCaption}, on the row: {at.RowUp}.");
+
+            // The rule: on the row exactly when the caption could not fit even numbers-only.
+            Assert.Equal(at.CaptionDropped, at.RowUp);
+        }
+
+        var byWidth = down.ToDictionary(at => at.Width);
+
+        Assert.All(up, at => Assert.Equal(byWidth[at.Width].RowUp, at.RowUp));
+
+        // One threshold: the row below it, the caption above it, and both are reached.
+        var changes = up.Zip(up.Skip(1)).Count(pair => pair.First.RowUp != pair.Second.RowUp);
+
+        Assert.Equal(1, changes);
+        Assert.True(up[0].RowUp, "At the window's minimum width the counts should be on the row.");
+        Assert.False(up[^1].RowUp, "At the widest width swept the counts should be back in the caption.");
+    }
+
+    /// <summary>
+    /// <strong>On the row the ladder starts again from full words, and follows the same rules
+    /// down to the minimum width</strong>; the tooltip follows #53's rule there; and on either line
+    /// the strip is arranged at the width it measured (the T1.42 review).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The row's longest tier is measured in this run: the row's own strip, measured unbounded,
+    /// asks for the full-words width. Wherever the row has that much room it shows tier 0 with no
+    /// tooltip; wherever it has less it is shortened and the tooltip carries the full text. A
+    /// count is left out only at the last tier, and what is drawn fits.
+    /// </para>
+    /// <para>
+    /// <strong>Arranged at the measured width.</strong> FittingStrip draws the counts its measure
+    /// kept without checking the width again (T1.42), so its parent must arrange it at the width it
+    /// measured — its desired width, give or take a pixel of rounding. Asserted on whichever line
+    /// is in use at every width.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void The_row_follows_the_ladder_and_the_tooltip_rule_down_to_the_minimum_width()
+    {
+        var (seen, fullWords, fullText, minWidth) = WithWindow(
+            registry => registry.Working("busy", At),
+            (window, viewModel) =>
+            {
+                LongCounts(viewModel);
+
+                var seen = Sweep(window, viewModel, Enumerable.Range(0, 401).Select(step => window.MinWidth + step));
+
+                // What the row's strip asks for with nothing held back: the full-words width.
+                var strip = window.RowCounts.Strip;
+                strip.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+                var fullWords = strip.DesiredSize.Width;
+                strip.InvalidateMeasure();
+                window.UpdateLayout();
+
+                return (seen, fullWords, viewModel.CountsText, window.MinWidth);
+            });
+
+        var onRow = seen.Where(at => at.RowUp).ToList();
+
+        Assert.NotEmpty(onRow);
+        Assert.Contains(onRow, at => at.Width == minWidth);
+
+        foreach (var at in onRow)
+        {
+            if (at.RowRoom >= fullWords)
+            {
+                Assert.True(at.RowTier == 0 && !at.RowShortened, $"At {at.Width} the row had room for full words ({at.RowRoom} of {fullWords}) and showed tier {at.RowTier}.");
+                Assert.False(at.RowTooltip, $"At {at.Width} the row showed the full text and still offered the tooltip.");
+            }
+            else
+            {
+                Assert.True(at.RowShortened, $"At {at.Width} the row had {at.RowRoom} of the {fullWords} full words need, and was not shortened.");
+                Assert.True(at.RowTooltip, $"At {at.Width} the row was shortened and offered no tooltip.");
+                Assert.Equal(fullText, at.RowTip);
+            }
+        }
+
+        // The minimum width shortens the row: the row's ladder is exercised, not just its long form.
+        Assert.True(onRow.Single(at => at.Width == minWidth).RowShortened, "Pick longer counts: the row fit full words even at the minimum width.");
+
+        foreach (var at in seen)
+        {
+            Assert.True(at.DrawnWidth <= at.ArrangedWidth + 0.01, $"At {at.Width} the strip drew {at.DrawnWidth} in an arrangement {at.ArrangedWidth} wide.");
+            Assert.True(Math.Abs(at.ArrangedWidth - at.DesiredWidth) <= 1, $"At {at.Width} the strip measured {at.DesiredWidth} and was arranged at {at.ArrangedWidth}.");
+        }
+    }
+
+    /// <summary>
+    /// The counts strip on the line in use: the counts row when it is up, the caption otherwise
+    /// (T1.43). Both are the same CountsStrip markup.
+    /// </summary>
     private static FittingStrip StripOf(MainWindow window) =>
-        StaHarness.FindAll<FittingStrip>(window).Single();
+        window.CountsRow.Visibility == Visibility.Visible ? window.RowCounts.Strip : window.CaptionCounts.Strip;
 
     // ---- Colour comes from the accent ----------------------------------------------------------
 

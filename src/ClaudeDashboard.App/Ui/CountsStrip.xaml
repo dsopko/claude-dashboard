@@ -1,0 +1,100 @@
+<!--
+    The status counts — "11 sessions · 3 need you · 5 unread · 8 working" — as one piece of markup
+    (T1.43, issue #54). MainWindow places it twice: in the caption, and on the counts row below the
+    caption that takes the counts when even numbers-only does not fit there. The operator ruled it
+    must be the same FittingStrip with the same markup on both lines, so it lives here, once.
+
+    The placement — column, alignment, margin, clipping — belongs to each line and is set where
+    MainWindow places it. What is here is what the two lines share: the four segments, their
+    ladder, and the tooltip rule.
+
+    RowTemplates is merged here as well as into the window, because a UserControl resolves its
+    StaticResources when it is loaded, before it is in the window's tree.
+-->
+<UserControl x:Class="ClaudeDashboard.App.Ui.CountsStrip"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="clr-namespace:ClaudeDashboard.App.Ui">
+    <UserControl.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="/ClaudeDashboard.App;component/Ui/RowTemplates.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </UserControl.Resources>
+
+    <!--
+        THE TOOLTIP SHOWS ONLY WHEN THE STRIP IS SHORTENED: past tier 0, or a count dropped (the
+        operator's ruling on issue #53, 2026-09-27). When the full text is on screen a tooltip
+        would repeat it. Enabled from the strip's own IsShortened, so "shortened" is the strip's
+        decision and not a second measurement. The counts' rule only — not an app-wide one. It
+        holds on whichever line the counts are on, because both lines are this markup.
+    -->
+    <ui:FittingStrip x:Name="StripPart"
+                     ToolTip="{Binding CountsText}"
+                     ToolTipService.IsEnabled="{Binding IsShortened, RelativeSource={RelativeSource Self}}">
+        <StackPanel Orientation="Horizontal">
+            <TextBlock Text="{Binding SessionCount}"
+                       FontFamily="{StaticResource UiFont}" FontSize="12"
+                       Foreground="{StaticResource Ink2Brush}"
+                       Typography.NumeralAlignment="Tabular" />
+            <!--
+                HideAtTier rather than Labels, because this word is bound —
+                it is "session" or "sessions" — and writing Text locally
+                would kill the binding. Tier 1 takes the word and leaves the
+                number, which is the cheapest 44 pixels on the ladder.
+            -->
+            <TextBlock Text="{Binding SessionsWord}"
+                       ui:FittingStrip.HideAtTier="1"
+                       FontFamily="{StaticResource UiFont}" FontSize="12"
+                       Foreground="{StaticResource Ink2Brush}" />
+        </StackPanel>
+    
+        <StackPanel Orientation="Horizontal"
+                    Visibility="{Binding NeedsYouCount, Converter={StaticResource ZeroToCollapsed}}">
+            <TextBlock Text=" · " FontFamily="{StaticResource UiFont}" FontSize="12"
+                       Foreground="{StaticResource Ink2Brush}" />
+            <TextBlock Text="{Binding NeedsYouCount}"
+                       FontFamily="{StaticResource UiFont}" FontSize="12" FontWeight="SemiBold"
+                       Foreground="{StaticResource RedBrush}"
+                       Typography.NumeralAlignment="Tabular" />
+            <!--
+                The only count whose word is worth shortening: "unread" and
+                "working" are one word already, and abbreviating either would
+                cost more meaning than the four pixels it saved.
+            -->
+            <TextBlock ui:FittingStrip.Labels=" need you| need"
+                       ui:FittingStrip.HideAtTier="2"
+                       FontFamily="{StaticResource UiFont}" FontSize="12"
+                       Foreground="{StaticResource Ink2Brush}" />
+        </StackPanel>
+    
+        <StackPanel Orientation="Horizontal"
+                    Visibility="{Binding UnreadCount, Converter={StaticResource ZeroToCollapsed}}">
+            <TextBlock Text=" · " FontFamily="{StaticResource UiFont}" FontSize="12"
+                       Foreground="{StaticResource Ink2Brush}" />
+            <TextBlock Text="{Binding UnreadCount}"
+                       FontFamily="{StaticResource UiFont}" FontSize="12" FontWeight="SemiBold"
+                       Foreground="{StaticResource GreenBrush}"
+                       Typography.NumeralAlignment="Tabular" />
+            <TextBlock Text=" unread"
+                       ui:FittingStrip.HideAtTier="2"
+                       FontFamily="{StaticResource UiFont}" FontSize="12"
+                       Foreground="{StaticResource Ink2Brush}" />
+        </StackPanel>
+    
+        <StackPanel Orientation="Horizontal"
+                    Visibility="{Binding WorkingCount, Converter={StaticResource ZeroToCollapsed}}">
+            <TextBlock Text=" · " FontFamily="{StaticResource UiFont}" FontSize="12"
+                       Foreground="{StaticResource Ink2Brush}" />
+            <TextBlock Text="{Binding WorkingCount}"
+                       FontFamily="{StaticResource UiFont}" FontSize="12" FontWeight="SemiBold"
+                       Foreground="{StaticResource BlueBrush}"
+                       Typography.NumeralAlignment="Tabular" />
+            <TextBlock Text=" working"
+                       ui:FittingStrip.HideAtTier="2"
+                       FontFamily="{StaticResource UiFont}" FontSize="12"
+                       Foreground="{StaticResource Ink2Brush}" />
+        </StackPanel>
+    </ui:FittingStrip>
+</UserControl>
