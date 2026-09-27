@@ -391,6 +391,22 @@ Tasks landing after T1.20. Each one puts the acceptance document out of date in 
 - **Acceptance:** each "must" in #52 has a test; in #52's event-by-event run there is no "finished" chime at step 4 and exactly one at step 8; a replay of the archive on a copy counts the Stops that now decide Waiting and the false "finished" notices removed; a task's command is never stored, shown or logged; both suite counts.
 - **Guardrails:** every `SessionState` switch has a `_ =>` arm, so the compiler will not list the sites. Find every one by search and report the list (T1.30's lesson). Only the type field decides; description text never decides state. Registry invariants stand.
 
+**T1.42 — The strip keeps a count it has room for**
+- **Goal:** the caption never drops a count while any tier would fit it.
+- **Depends:** T1.39
+- **Realizes:** T1.29's and T1.39's ladder rule. Closes [issue #55](https://github.com/dsopko/claude-dashboard/issues/55), which is the authority.
+- **Deliverables:** a reproduction first, then the fix. On 0.0.15 the operator saw a grey 3 and a green 2 with room to spare, while one session was Working. The fix names which rule dropped the count.
+- **Acceptance:** a test reproduces it in the window's own layout, with counts total 3, unread 2, working 1, at a width where all three fit in some tier, and fails before the fix. The strip always picks the richest tier that fits, and a count is dropped only when no tier fits it. Both are asserted against widths the strip is asked for, never written down (T1.31). Both suite counts.
+- **Guardrails:** state the cause before changing code. T1.39's ladder, tooltip and tests stay green.
+
+**T1.43 — Counts on their own row when even numbers do not fit**
+- **Goal:** a narrow window still shows every count, on a line of its own.
+- **Depends:** T1.42
+- **Realizes:** [issue #54](https://github.com/dsopko/claude-dashboard/issues/54), which is the authority, with the operator's rulings of 2026-09-27.
+- **Deliverables:** a thin row between the caption and the toolbar. It is used when the caption slot is narrower than the numbers-only tier. All the counts move there together, and the caption's slot is left empty. The ladder starts again from full words on the row's own width. #53's tooltip rule holds on either line.
+- **Acceptance:** #54's list, and in particular a 1 px window sweep with no width that shows the counts in both places or in neither, and no oscillation. Both suite counts.
+- **Guardrails:** the caption stays at 48, and its drag, snap and system menu are unchanged. The choice is a pure function of the window's width.
+
 **Ordering ruled 2026-09-02:** the packaging workstream — `PKG.1` → `PKG.2` → `PKG.3` → T1.33 → `PKG.4` in the [Packaging Execution Plan](claude-dashboard-packaging-execution-plan.md) — runs **ahead of T2.1**. Appendix A is unchanged; the packaging plan carries its own order.
 
 ---
