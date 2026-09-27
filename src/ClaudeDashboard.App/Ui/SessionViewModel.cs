@@ -717,27 +717,53 @@ public sealed partial class SessionViewModel : DashboardRow
 
     /// <summary>
     /// The collapsed row's clock, as of the last <see cref="RefreshAge"/>: how long the work has
-    /// been going while it is under way, and how long the state has held once it is finished.
+    /// been going while it is <see cref="SessionState.Working"/>, and how long the state has held
+    /// in every other state.
     /// </summary>
     /// <remarks>
     /// <para>
     /// <strong>Two clocks, chosen by state (T1.40, issue #51).</strong>
     /// </para>
     /// <para>
-    /// While the work is under way — <see cref="SessionState.Working"/>,
-    /// <see cref="SessionState.NeedsPermission"/>, <see cref="SessionState.NeedsQuestion"/>,
-    /// <see cref="SessionState.Error"/>, <see cref="SessionState.Interrupted"/> — it counts from
-    /// the anchor, <see cref="Exchange.StartedAt"/>: the prompt that began the work, the same
-    /// instant "You asked" shows. Time in state restarted on every transition, so a session that
-    /// asked for permission and carried on showed three short clocks for one piece of work. The
-    /// anchor does not move on a flip, and a task notification does not move it either (see
-    /// <c>UserPromptSubmit.ContinuesTheAsk</c>), so the collapsed and the expanded row agree.
+    /// <strong>Working counts from the ask</strong>, <see cref="Exchange.StartedAt"/>: the prompt
+    /// that began the work, the same instant "You asked" shows. Time in state restarted on every
+    /// transition, so a session that stopped for permission and carried on showed a fresh working
+    /// clock each time it came back. The ask does not move on a flip, and a task notification does
+    /// not move it either (see <c>UserPromptSubmit.ContinuesTheAsk</c>), so returning to Working
+    /// reads the original ask again, and the collapsed row agrees with the expanded one.
     /// </para>
     /// <para>
-    /// Once the work is finished — <see cref="SessionState.Unread"/>,
-    /// <see cref="SessionState.Acked"/>, <see cref="SessionState.Ended"/> — it stays time in
-    /// state, <see cref="Session.EnteredAt"/>, as before: "2 min ago" is how long the result has
-    /// gone unseen, which is what a finished row is asking the operator about.
+    /// <strong>Every other state keeps time in state</strong>, <see cref="Session.EnteredAt"/>, as
+    /// before, because its label already says what that clock means and the operator reads it so:
+    /// </para>
+    /// <list type="table">
+    /// <listheader><term>State</term><description>Clock, and what the label means</description></listheader>
+    /// <item>
+    /// <term>Working</term>
+    /// <description>The ask: how long this piece of work has run.</description>
+    /// </item>
+    /// <item>
+    /// <term>NeedsPermission, NeedsQuestion</term>
+    /// <description>Time in state: "waiting 4 min" is time blocked on the operator.</description>
+    /// </item>
+    /// <item>
+    /// <term>Error</term>
+    /// <description>Time in state: how long the turn has been dead.</description>
+    /// </item>
+    /// <item>
+    /// <term>Interrupted</term>
+    /// <description>Time in state: "4 min ago" is time gone silent.</description>
+    /// </item>
+    /// <item>
+    /// <term>Unread, Acked, Ended</term>
+    /// <description>Time in state: "2 min ago" is how long the result has gone unseen.</description>
+    /// </item>
+    /// </list>
+    /// <para>
+    /// The operator's ruling (issue #51) was that the WORKING time must not restart on a flip. It
+    /// did not redefine "waiting N min" on a permission prompt, and reading the ask there would do
+    /// exactly that, silently. Issue #52 adds its Waiting state to the ask-anchored set. The
+    /// expanded row's "You asked · 23 min ago" reads the ask in every state.
     /// </para>
     /// <para>
     /// Only this display reads the anchor. The sort order, the nudge ladder and the roster settle
@@ -749,7 +775,7 @@ public sealed partial class SessionViewModel : DashboardRow
     /// loop in the process, deliberately (T1.9).
     /// </para>
     /// </remarks>
-    public TimeSpan Age => _now - (IsUnderWay(_session.State) ? _session.Latest.StartedAt : _session.EnteredAt);
+    public TimeSpan Age => _now - (ReadsTheAsk(_session.State) ? _session.Latest.StartedAt : _session.EnteredAt);
 
     /// <summary>
     /// How long ago the work was asked for, for the expanded row's "YOU ASKED · 14:32 · 23 min ago"
@@ -762,10 +788,8 @@ public sealed partial class SessionViewModel : DashboardRow
     public string AskedAgoText =>
         string.Create(CultureInfo.CurrentCulture, $"{RowVisuals.Duration(_now - _session.Latest.StartedAt)} ago");
 
-    /// <summary>Whether the work is still under way, so the row's clock counts from the ask.</summary>
-    private static bool IsUnderWay(SessionState state) => state is
-        SessionState.Working or SessionState.NeedsPermission or SessionState.NeedsQuestion
-        or SessionState.Error or SessionState.Interrupted;
+    /// <summary>Whether the collapsed row's clock counts from the ask in this state. See <see cref="Age"/>.</summary>
+    private static bool ReadsTheAsk(SessionState state) => state is SessionState.Working;
 
     /// <summary>Recomputes <see cref="Age"/> against <paramref name="now"/>.</summary>
     /// <remarks>Call on the UI thread; it raises a property change.</remarks>

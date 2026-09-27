@@ -41,13 +41,21 @@ public sealed class AskAnchorTests
     // ---- The one clock across flips (acceptance 2) ---------------------------------------------
 
     /// <summary>
-    /// <strong>Working → NeedsPermission → Working → Interrupted → Working keeps one elapsed
-    /// time, from the original prompt, on the collapsed and the expanded row.</strong>
+    /// <strong>Working → NeedsPermission → Working → Interrupted → Working: every Working leg
+    /// counts from the original prompt, and each flip back to Working reads it again.</strong>
     /// </summary>
     /// <remarks>
-    /// Before T1.40 the collapsed row's clock was time in state, so every one of these flips
-    /// restarted it. Each step is checked at the instant it happens and again a minute later, so
-    /// a clock that restarted at the flip would read one minute where the anchor reads many.
+    /// <para>
+    /// Before T1.40 the collapsed row's clock was time in state, so every return to Working
+    /// restarted it. Now Working reads the ask. The legs between keep time in state, because
+    /// their labels mean it: "waiting 3 min" is time blocked on the operator, and "1 min ago" on
+    /// Interrupted is time gone silent (the director's correction to the brief).
+    /// </para>
+    /// <para>
+    /// Each leg is checked at the instant it begins and again a minute later, so a Working clock
+    /// that restarted at the flip would read one minute where the ask reads many. "You asked"
+    /// reads the ask on every leg.
+    /// </para>
     /// </remarks>
     [Fact]
     public void Flipping_between_working_states_keeps_one_elapsed_time()
@@ -55,11 +63,12 @@ public sealed class AskAnchorTests
         var asked = _clock.Now;
         Apply(Prompt(Asked, "p-1"));
         var askedAt = Row().AskedAtText;
+        OneClock(asked, askedAt);
 
         _clock.AdvanceMinutes(2);
         Apply(new Notification { SessionId = Id, Timestamp = _clock.Now, Cwd = Cwd, NotificationType = "permission_prompt" });
         Assert.Equal(SessionState.NeedsPermission, Current.State);
-        OneClock(asked, askedAt);
+        TimeInStateLeg(asked, askedAt);
 
         _clock.AdvanceMinutes(3);
         Apply(Batch());
@@ -69,12 +78,34 @@ public sealed class AskAnchorTests
         _clock.AdvanceMinutes(11);
         Assert.Single(_registry.SweepSilent(_clock.Now, SilenceWatch.DefaultThreshold));
         Assert.Equal(SessionState.Interrupted, Current.State);
-        OneClock(asked, askedAt);
+        TimeInStateLeg(asked, askedAt);
 
         _clock.AdvanceMinutes(1);
         Apply(Batch());
         Assert.Equal(SessionState.Working, Current.State);
         OneClock(asked, askedAt);
+    }
+
+    /// <summary>
+    /// NeedsQuestion and Error keep time in state too — the two rows of the Age remark's table
+    /// the flipping path above does not visit.
+    /// </summary>
+    [Fact]
+    public void A_question_and_an_error_keep_time_in_state()
+    {
+        var asked = _clock.Now;
+        Apply(Prompt(Asked, "p-1"));
+        var askedAt = Row().AskedAtText;
+
+        _clock.AdvanceMinutes(2);
+        Apply(new Notification { SessionId = Id, Timestamp = _clock.Now, Cwd = Cwd, NotificationType = "agent_needs_input" });
+        Assert.Equal(SessionState.NeedsQuestion, Current.State);
+        TimeInStateLeg(asked, askedAt);
+
+        _clock.AdvanceMinutes(3);
+        Apply(new StopFailure { SessionId = Id, Timestamp = _clock.Now, Cwd = Cwd, ErrorKind = "rate_limit" });
+        Assert.Equal(SessionState.Error, Current.State);
+        TimeInStateLeg(asked, askedAt);
     }
 
     // ---- A task notification is a continuation (acceptance 3) ----------------------------------
@@ -324,6 +355,28 @@ public sealed class AskAnchorTests
             row.RefreshAge(at);
 
             Assert.Equal(at - asked, row.Age);
+            Assert.Equal($"{RowVisuals.Duration(at - asked)} ago", row.AskedAgoText);
+            Assert.Equal(askedAt, row.AskedAtText);
+        }
+    }
+
+    /// <summary>
+    /// A leg that is not Working: the collapsed row counts time in state, from the instant the
+    /// leg began, while "You asked" still counts from <paramref name="asked"/>.
+    /// </summary>
+    private void TimeInStateLeg(DateTimeOffset asked, string askedAt)
+    {
+        var entered = Current.EnteredAt;
+
+        Assert.Equal(_clock.Now, entered);
+
+        foreach (var at in new[] { _clock.Now, _clock.Now + TimeSpan.FromMinutes(1) })
+        {
+            var row = new SessionViewModel(Current);
+            row.RefreshAge(at);
+
+            Assert.Equal(at - entered, row.Age);
+            Assert.Equal(RowVisuals.Age(Current.State, at - entered), row.AgeText);
             Assert.Equal($"{RowVisuals.Duration(at - asked)} ago", row.AskedAgoText);
             Assert.Equal(askedAt, row.AskedAtText);
         }
