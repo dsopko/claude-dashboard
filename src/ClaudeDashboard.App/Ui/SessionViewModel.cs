@@ -716,14 +716,56 @@ public sealed partial class SessionViewModel : DashboardRow
     public bool CanRaiseAck => CanAcknowledge && _ack is not null;
 
     /// <summary>
-    /// How long the session has been in its current state, as of the last <see cref="RefreshAge"/>.
+    /// The collapsed row's clock, as of the last <see cref="RefreshAge"/>: how long the work has
+    /// been going while it is under way, and how long the state has held once it is finished.
     /// </summary>
     /// <remarks>
-    /// Derived from <see cref="Session.EnteredAt"/> and a supplied instant rather than read from
-    /// a clock, so that it advances only when something drives it. This type starts no timer —
-    /// the event consumer owns the only periodic loop in the process, deliberately (T1.9).
+    /// <para>
+    /// <strong>Two clocks, chosen by state (T1.40, issue #51).</strong>
+    /// </para>
+    /// <para>
+    /// While the work is under way — <see cref="SessionState.Working"/>,
+    /// <see cref="SessionState.NeedsPermission"/>, <see cref="SessionState.NeedsQuestion"/>,
+    /// <see cref="SessionState.Error"/>, <see cref="SessionState.Interrupted"/> — it counts from
+    /// the anchor, <see cref="Exchange.StartedAt"/>: the prompt that began the work, the same
+    /// instant "You asked" shows. Time in state restarted on every transition, so a session that
+    /// asked for permission and carried on showed three short clocks for one piece of work. The
+    /// anchor does not move on a flip, and a task notification does not move it either (see
+    /// <c>UserPromptSubmit.ContinuesTheAsk</c>), so the collapsed and the expanded row agree.
+    /// </para>
+    /// <para>
+    /// Once the work is finished — <see cref="SessionState.Unread"/>,
+    /// <see cref="SessionState.Acked"/>, <see cref="SessionState.Ended"/> — it stays time in
+    /// state, <see cref="Session.EnteredAt"/>, as before: "2 min ago" is how long the result has
+    /// gone unseen, which is what a finished row is asking the operator about.
+    /// </para>
+    /// <para>
+    /// Only this display reads the anchor. The sort order, the nudge ladder and the roster settle
+    /// all still read <see cref="Session.EnteredAt"/>, and none of them changed.
+    /// </para>
+    /// <para>
+    /// Derived from a supplied instant rather than read from a clock, so it advances only when
+    /// something drives it. This type starts no timer — the event consumer owns the only periodic
+    /// loop in the process, deliberately (T1.9).
+    /// </para>
     /// </remarks>
-    public TimeSpan Age => _now - _session.EnteredAt;
+    public TimeSpan Age => _now - (IsUnderWay(_session.State) ? _session.Latest.StartedAt : _session.EnteredAt);
+
+    /// <summary>
+    /// How long ago the work was asked for, for the expanded row's "YOU ASKED · 14:32 · 23 min ago"
+    /// (T1.40, issue #51).
+    /// </summary>
+    /// <remarks>
+    /// The same anchor as <see cref="AskedAtText"/>, in the row's own relative form, and on the
+    /// same refresh as <see cref="Age"/>.
+    /// </remarks>
+    public string AskedAgoText =>
+        string.Create(CultureInfo.CurrentCulture, $"{RowVisuals.Duration(_now - _session.Latest.StartedAt)} ago");
+
+    /// <summary>Whether the work is still under way, so the row's clock counts from the ask.</summary>
+    private static bool IsUnderWay(SessionState state) => state is
+        SessionState.Working or SessionState.NeedsPermission or SessionState.NeedsQuestion
+        or SessionState.Error or SessionState.Interrupted;
 
     /// <summary>Recomputes <see cref="Age"/> against <paramref name="now"/>.</summary>
     /// <remarks>Call on the UI thread; it raises a property change.</remarks>
@@ -737,6 +779,7 @@ public sealed partial class SessionViewModel : DashboardRow
         _now = now;
         OnPropertyChanged(nameof(Age));
         OnPropertyChanged(nameof(AgeText));
+        OnPropertyChanged(nameof(AskedAgoText));
     }
 
     /// <summary>
@@ -762,6 +805,7 @@ public sealed partial class SessionViewModel : DashboardRow
         OnPropertyChanged(nameof(HasDetail));
         OnPropertyChanged(nameof(GroupTag));
         OnPropertyChanged(nameof(AskedAtText));
+        OnPropertyChanged(nameof(AskedAgoText));
         OnPropertyChanged(nameof(Prompt));
         OnPropertyChanged(nameof(PromptSnippet));
         OnPropertyChanged(nameof(HasTitle));

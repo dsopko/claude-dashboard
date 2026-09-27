@@ -439,6 +439,17 @@ public sealed class SessionRegistry(SingleWriterGuard guard)
 
     private static Exchange InitialExchange(InboundEvent inboundEvent) => inboundEvent switch
     {
+        // A session first seen through a task notification: the work began before the dashboard
+        // saw it, so the ask is unknown — as it is for a Stop seen first. The notification is not
+        // the operator's question and is not shown as one (T1.40); the work's clock starts here,
+        // the earliest instant known.
+        UserPromptSubmit { ContinuesTheAsk: true } prompt => new Exchange
+        {
+            Prompt = string.Empty,
+            PromptId = prompt.PromptId,
+            StartedAt = prompt.Timestamp,
+        },
+
         UserPromptSubmit prompt => new Exchange
         {
             Prompt = prompt.Prompt,
@@ -549,13 +560,17 @@ public sealed class SessionRegistry(SingleWriterGuard guard)
             return Transitioned.Declined(ApplyOutcome.Duplicate);
         }
 
-        var exchange = new Exchange
-        {
-            Prompt = prompt.Prompt,
-            PromptId = prompt.PromptId,
-            StartedAt = prompt.Timestamp,
-        };
+        var exchange = prompt.ContinuesTheAsk
+            ? Continued(current.Latest, prompt)
+            : new Exchange
+            {
+                Prompt = prompt.Prompt,
+                PromptId = prompt.PromptId,
+                StartedAt = prompt.Timestamp,
+            };
 
+        // The state moves to Working either way: a continuation is still a turn beginning. Only
+        // the anchor of the work ignores it (T1.40).
         return Transitioned.FromMove(Moved(
             current,
             SessionState.Working,
@@ -566,6 +581,35 @@ public sealed class SessionRegistry(SingleWriterGuard guard)
                 ? $"{prompt.HookEventName} (auto-ack of {current.State})"
                 : prompt.HookEventName));
     }
+
+    /// <summary>
+    /// The exchange after a prompt that continues the work (T1.40, issue #51): the same ask, a
+    /// new turn.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>Kept:</strong> the prompt text and <see cref="Exchange.StartedAt"/>. They are the
+    /// anchor — what "You asked" shows, and the instant the work's elapsed time counts from — and
+    /// a task notification is not the operator asking anything.
+    /// </para>
+    /// <para>
+    /// <strong>Taken from the new turn:</strong> the <c>prompt_id</c>, and an unanswered state.
+    /// The id is what correlates the turn's own <see cref="Stop"/>; keeping the old one would
+    /// decline that Stop as belonging to a finished turn, and the session would never reach
+    /// Unread. The answer is cleared because this turn has not answered yet, which is what the
+    /// Stop duplicate guard and <see cref="Exchange.IsAnswered"/> read.
+    /// </para>
+    /// <para>
+    /// A redelivered continuation builds this same exchange again, which <see cref="Moved"/>
+    /// declines as changing nothing — idempotent without a guard of its own.
+    /// </para>
+    /// </remarks>
+    private static Exchange Continued(Exchange latest, UserPromptSubmit prompt) => latest with
+    {
+        PromptId = prompt.PromptId,
+        Answer = null,
+        AnsweredAt = null,
+    };
 
     private static Transitioned ApplyNotification(Session current, Notification notification)
     {

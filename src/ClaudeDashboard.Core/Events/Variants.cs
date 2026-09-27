@@ -41,6 +41,39 @@ public sealed record UserPromptSubmit : InboundEvent
         get => _prompt;
         init => _prompt = value ?? throw new ArgumentNullException(nameof(value));
     }
+
+    /// <summary>
+    /// What a <c>&lt;task-notification&gt;</c> prompt begins with — the prompt Claude Code sends
+    /// when background work finishes (T1.40, issue #51).
+    /// </summary>
+    public const string TaskNotificationPrefix = "<task-notification>";
+
+    /// <summary>
+    /// Whether this prompt continues the work already under way rather than starting a new ask
+    /// (T1.40, issue #51).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>A task notification is a continuation.</strong> Nobody typed it: Claude Code sends
+    /// it when background work the session started has finished, and the session carries on with
+    /// the same piece of work. So it moves neither the instant the work began nor the words
+    /// "You asked" shows. Every other prompt starts a new ask — the operator's own, and, by the
+    /// operator's ruling on the issue, a cross-session message too: that is new work for the
+    /// session receiving it, even though nobody typed it there either.
+    /// </para>
+    /// <para>
+    /// <strong>Recognised by its prefix, and by nothing further into the prompt.</strong> The text
+    /// is data (TS §II.5): the dashboard does not parse it, and a rule that read past the tag
+    /// would be a rule about what the notification says. The prefix is the tag that opens it,
+    /// matched ordinally at the very start; across the operator's archive every one of 155 task
+    /// notifications starts exactly so, and none carries the tag anywhere else.
+    /// </para>
+    /// <para>
+    /// Here, on the event, because it is a fact about what the event means. The Registry is what
+    /// acts on it; the view reads the result.
+    /// </para>
+    /// </remarks>
+    public bool ContinuesTheAsk => Prompt.StartsWith(TaskNotificationPrefix, StringComparison.Ordinal);
 }
 
 /// <summary>

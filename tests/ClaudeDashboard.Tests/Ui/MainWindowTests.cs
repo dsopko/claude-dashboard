@@ -681,10 +681,16 @@ public sealed class MainWindowTests(StaHarness harness, Xunit.Abstractions.ITest
                         .Select(_ => button))
                     .SingleOrDefault();
 
-                return (Texts: texts, TerminalEnabled: terminal?.IsEnabled, HasTerminal: terminal is not null);
+                return (Texts: texts, TerminalEnabled: terminal?.IsEnabled, HasTerminal: terminal is not null,
+                    Asked: $"YOU ASKED · {row.AskedAtText} · {row.AskedAgoText}");
             });
 
         Assert.Contains("write the tests", found.Texts);
+
+        // The clock time and the time ago (T1.40), as the row's own view model states them, on
+        // one line: the markup is what is under test here, not the clock.
+        Assert.Contains(found.Asked, found.Texts);
+        Assert.EndsWith(" ago", found.Asked, StringComparison.Ordinal);
         Assert.Contains("Added 23 tests.", found.Texts);
         Assert.Contains("CLAUDE ANSWERED", found.Texts);
 

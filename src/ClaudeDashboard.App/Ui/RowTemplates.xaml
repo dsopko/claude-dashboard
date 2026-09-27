@@ -761,7 +761,13 @@
                         <Border BorderBrush="{StaticResource HairlineBrush}" BorderThickness="2,0,0,0" Padding="12,0,0,0">
                             <StackPanel>
                                 <TextBlock FontSize="10" FontWeight="SemiBold" Foreground="{StaticResource Ink3Brush}">
-                                    <Run Text="YOU ASKED · " /><Run Text="{Binding AskedAtText, Mode=OneWay}" />
+                                    <!--
+                                        "YOU ASKED · 14:32 · 23 min ago" (T1.40, issue #51). Both
+                                        halves read the anchor of the work, the prompt that began
+                                        it; a task notification moves neither. The time ago ticks
+                                        on the panel's refresh, with the row's own age.
+                                    -->
+                                    <Run Text="YOU ASKED · " /><Run Text="{Binding AskedAtText, Mode=OneWay}" /><Run Text=" · " /><Run Text="{Binding AskedAgoText, Mode=OneWay}" />
                                 </TextBlock>
                                 <TextBlock Text="{Binding Prompt}"
                                            Margin="0,4,0,0"

@@ -194,7 +194,8 @@ public sealed class UnprotectedTextInventory
         "BandHeaderViewModel.Label",
         "GroupViewModel.IdleText", "GroupViewModel.Label", "GroupViewModel.Workspace",
         "QuietFooterViewModel.Key", "QuietFooterViewModel.Text",
-        "SessionViewModel.AgeText", "SessionViewModel.AskedAtText", "SessionViewModel.BadgeText",
+        "SessionViewModel.AgeText", "SessionViewModel.AskedAgoText", "SessionViewModel.AskedAtText",
+        "SessionViewModel.BadgeText",
         "SessionViewModel.Cwd", "SessionViewModel.Detail", "SessionViewModel.ErrorKind",
         "SessionViewModel.GroupTag",
 
