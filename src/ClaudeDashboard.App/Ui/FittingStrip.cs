@@ -169,6 +169,36 @@ public sealed class FittingStrip : Panel
     /// <summary>The tier in force, for the caption to report and for tests to read.</summary>
     public int Tier { get; private set; }
 
+    private static readonly DependencyPropertyKey IsShortenedPropertyKey =
+        DependencyProperty.RegisterReadOnly(
+            nameof(IsShortened),
+            typeof(bool),
+            typeof(FittingStrip),
+            new FrameworkPropertyMetadata(false));
+
+    /// <summary>Identifies the <see cref="IsShortened"/> dependency property.</summary>
+    public static readonly DependencyProperty IsShortenedProperty = IsShortenedPropertyKey.DependencyProperty;
+
+    /// <summary>
+    /// Whether the strip is showing less than its long form: a tier past 0, or a dropped child
+    /// (T1.39, issue #53).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>The strip's own decision, reported — not a second measurement of it.</strong> Set
+    /// at the end of each measure from the two things measuring has just decided: the tier it
+    /// chose, and whether a child failed to fit. Anything that computed "truncated" from widths
+    /// on its own would be a second copy of the selection, free to disagree with it by a pixel.
+    /// </para>
+    /// <para>
+    /// A dependency property so markup can bind to it. The caption binds the counts tooltip's
+    /// <c>ToolTipService.IsEnabled</c> here, on the operator's ruling that the tooltip appears
+    /// only when the visible text is shorter than the full text. Nothing in the layout reads it,
+    /// so setting it during measure affects nothing that is being measured.
+    /// </para>
+    /// </remarks>
+    public bool IsShortened => (bool)GetValue(IsShortenedProperty);
+
     /// <inheritdoc/>
     protected override void OnVisualChildrenChanged(DependencyObject visualAdded, DependencyObject visualRemoved)
     {
@@ -238,6 +268,8 @@ public sealed class FittingStrip : Panel
                 full = false;
             }
         }
+
+        SetValue(IsShortenedPropertyKey, chosen > 0 || !full);
 
         return new Size(used, height);
     }

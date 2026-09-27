@@ -256,8 +256,17 @@
                             Tabular figures per the design's font-feature-settings:'tnum', so a
                             count ticking 9 -> 10 does not shove the words beside it.
                         -->
-                        <ui:FittingStrip Grid.Column="2"
+                        <!--
+                            THE TOOLTIP SHOWS ONLY WHEN THE STRIP IS SHORTENED: past tier 0, or a
+                            count dropped (the operator's ruling on issue #53, 2026-09-27). When
+                            the full text is on screen a tooltip would repeat it. Enabled from the
+                            strip's own IsShortened, so "shortened" is the strip's decision and not
+                            a second measurement. The counts' rule only — not an app-wide one.
+                        -->
+                        <ui:FittingStrip x:Name="CountsStrip"
+                                         Grid.Column="2"
                                          ToolTip="{Binding CountsText}"
+                                         ToolTipService.IsEnabled="{Binding IsShortened, RelativeSource={RelativeSource Self}}"
                                          VerticalAlignment="Center"
                                          HorizontalAlignment="Right"
                                          ClipToBounds="True"

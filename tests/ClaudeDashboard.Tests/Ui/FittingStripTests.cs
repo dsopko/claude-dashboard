@@ -110,7 +110,7 @@ public sealed class FittingStripTests(StaHarness harness, ITestOutputHelper outp
     /// "11 · 3 · 5 · 8" at tier 2. Text, not pixels, which is what lets the order of the ladder
     /// be asserted at any display scale.
     /// </param>
-    private sealed record Result(int Tier, double Desired, IReadOnlyList<bool> Shown, string NeedsYouWord, string Text)
+    private sealed record Result(int Tier, double Desired, IReadOnlyList<bool> Shown, string NeedsYouWord, string Text, bool IsShortened)
     {
         /// <summary>How many counts were given a place.</summary>
         public int Counts => Shown.Count(seen => seen);
@@ -161,7 +161,7 @@ public sealed class FittingStripTests(StaHarness harness, ITestOutputHelper outp
                 .Where(run => run.Visibility == Visibility.Visible)
                 .Select(run => run.Text));
 
-            return new Result(strip.Tier, strip.DesiredSize.Width, shown, NeedsYouWordOf(strip), text);
+            return new Result(strip.Tier, strip.DesiredSize.Width, shown, NeedsYouWordOf(strip), text, strip.IsShortened);
         });
 
     /// <summary>The widths the strip steps down through, widest first.</summary>
@@ -427,6 +427,56 @@ public sealed class FittingStripTests(StaHarness harness, ITestOutputHelper outp
 
         Assert.Equal(2, narrow.Tier);
         Assert.Equal($"{Sessions} · {NeedsYou} · {Working}", narrow.Text);
+    }
+
+    // ---- Shortened: when the counts tooltip is on (issue #53's ruling) -------------------------
+
+    /// <summary>
+    /// <strong>The strip reports itself shortened exactly when what it shows is not the long
+    /// form</strong> — at every width.
+    /// </summary>
+    /// <remarks>
+    /// The operator's ruling: the counts tooltip shows only when the visible text is shorter than
+    /// the full text. The caption enables the tooltip from <see cref="FittingStrip.IsShortened"/>,
+    /// so this is the ruling stated as the strip's property, swept one pixel at a time: shortened
+    /// if and only if the rendered caption differs from the long form.
+    /// </remarks>
+    [Fact]
+    public void Shortened_exactly_when_the_rendered_text_is_not_the_long_form()
+    {
+        var tierZero = At(Unbounded).Desired;
+
+        for (var slot = Math.Ceiling(tierZero) + 4; slot >= 0; slot--)
+        {
+            var measured = At(slot);
+
+            Assert.Equal(measured.Text != TierZeroText, measured.IsShortened);
+        }
+    }
+
+    /// <summary>Not shortened where tier 0 fits whole; shortened at tier 1, tier 2, and with a
+    /// count dropped.</summary>
+    /// <remarks>Each at a width measured in this run, one rung of the ladder apiece.</remarks>
+    [Fact]
+    public void Shortened_at_every_rung_below_the_long_form()
+    {
+        var (tierZero, tierOne, tierTwo, threeCounts, _) = Ladder();
+
+        Assert.False(At(Unbounded).IsShortened);
+        Assert.False(At(tierZero).IsShortened);
+
+        var one = At(tierOne);
+        Assert.Equal(1, one.Tier);
+        Assert.True(one.IsShortened);
+
+        var two = At(tierTwo);
+        Assert.Equal(2, two.Tier);
+        Assert.Equal(4, two.Counts);
+        Assert.True(two.IsShortened);
+
+        var dropped = At(threeCounts);
+        Assert.Equal(3, dropped.Counts);
+        Assert.True(dropped.IsShortened);
     }
 
     // ---- What is dropped, and in what order ----------------------------------------------------

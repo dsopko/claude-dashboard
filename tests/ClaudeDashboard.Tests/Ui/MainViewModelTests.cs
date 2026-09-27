@@ -283,6 +283,25 @@ public sealed class MainViewModelTests : IDisposable
         Assert.Equal("2 sessions · 1 need you · 1 unread", _viewModel.CountsText);
 
         Assert.True(raised >= 2, $"CountsText was raised {raised} time(s) across three count changes.");
+
+        // Each count on its own, so a notification missing from one of them cannot hide behind
+        // the others: a projection change moves several counts at once, and "at least twice"
+        // above is satisfied by any two. Set directly, one property per step.
+        var each = new (string Name, Action Change)[]
+        {
+            (nameof(MainViewModel.SessionCount), () => _viewModel.SessionCount++),
+            (nameof(MainViewModel.NeedsYouCount), () => _viewModel.NeedsYouCount++),
+            (nameof(MainViewModel.UnreadCount), () => _viewModel.UnreadCount++),
+            (nameof(MainViewModel.WorkingCount), () => _viewModel.WorkingCount++),
+        };
+
+        foreach (var (name, change) in each)
+        {
+            var before = raised;
+            change();
+
+            Assert.True(raised == before + 1, $"A change to {name} alone raised CountsText {raised - before} time(s), not once.");
+        }
     }
 
     // ---- Churn ------------------------------------------------------------------------------------------

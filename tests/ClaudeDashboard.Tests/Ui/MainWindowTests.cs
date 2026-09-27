@@ -485,6 +485,81 @@ public sealed class MainWindowTests(StaHarness harness, Xunit.Abstractions.ITest
             }.OfType<string>());
     }
 
+    /// <summary>
+    /// <strong>The counts tooltip is on only while the strip is shortened</strong> — the
+    /// operator's ruling on issue #53.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Through the real markup: the tooltip's text is bound to <c>CountsText</c> and its
+    /// <c>ToolTipService.IsEnabled</c> to the strip's own <see cref="FittingStrip.IsShortened"/>,
+    /// so this checks the binding and the property together. Widths come from this run: the
+    /// window is widened by exactly what the strip's long form lacks, which puts the slot at the
+    /// tier 0 boundary on whatever machine runs it.
+    /// </para>
+    /// <para>
+    /// Then a count moves the strip across that boundary without the window changing: a band
+    /// appears and the long form no longer fits, so the tooltip comes on; it goes, and the
+    /// tooltip goes off again.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void The_counts_tooltip_is_on_only_while_the_strip_is_shortened()
+    {
+        var steps = WithWindow(
+            registry => registry.Working("busy", At),
+            (window, viewModel) =>
+            {
+                var strip = StripOf(window);
+                var seen = new List<(string Step, bool Enabled, int Tier, string? Tip, string Full)>();
+
+                void Record(string step)
+                {
+                    _harness.Pump(DispatcherPriority.Background);
+                    window.UpdateLayout();
+                    seen.Add((step, ToolTipService.GetIsEnabled(strip), strip.Tier, strip.ToolTip as string, viewModel.CountsText));
+                }
+
+                Record("narrow");
+
+                // What the long form needs, against what the slot gives: the strip's own answer
+                // to an unbounded measure, and its layout slot less its left margin.
+                var available = LayoutInformation.GetLayoutSlot(strip).Width - strip.Margin.Left;
+                strip.Measure(new Size(double.PositiveInfinity, strip.ActualHeight));
+                var longForm = strip.DesiredSize.Width;
+
+                window.Width = window.ActualWidth + Math.Ceiling(longForm - available);
+                Record("widened to the tier 0 boundary");
+
+                viewModel.NeedsYouCount = 1;
+                Record("a band appears");
+
+                viewModel.NeedsYouCount = 0;
+                Record("the band goes");
+
+                return seen;
+            });
+
+        var narrow = steps[0];
+        Assert.True(narrow.Enabled, $"At 400 the strip is at tier {narrow.Tier} and the tooltip should be on.");
+        Assert.True(narrow.Tier > 0);
+        Assert.Equal(narrow.Full, narrow.Tip);
+
+        var wide = steps[1];
+        Assert.Equal(0, wide.Tier);
+        Assert.False(wide.Enabled, "The long form is on screen whole; the tooltip should be off.");
+
+        var crossed = steps[2];
+        Assert.True(crossed.Tier > 0, "A new band should push the strip past tier 0 at the boundary width.");
+        Assert.True(crossed.Enabled, "The strip is shortened again; the tooltip should be on.");
+        Assert.Equal(crossed.Full, crossed.Tip);
+        Assert.Contains("need you", crossed.Tip, StringComparison.Ordinal);
+
+        var back = steps[3];
+        Assert.Equal(0, back.Tier);
+        Assert.False(back.Enabled, "The band went and the long form fits again; the tooltip should be off.");
+    }
+
     private static FittingStrip StripOf(MainWindow window) =>
         StaHarness.FindAll<FittingStrip>(window).Single();
 
