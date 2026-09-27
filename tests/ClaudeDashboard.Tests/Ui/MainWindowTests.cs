@@ -528,7 +528,11 @@ public sealed class MainWindowTests(StaHarness harness, Xunit.Abstractions.ITest
                 strip.Measure(new Size(double.PositiveInfinity, strip.ActualHeight));
                 var longForm = strip.DesiredSize.Width;
 
-                window.Width = window.ActualWidth + Math.Ceiling(longForm - available);
+                // Plus one DIP. At 150% layout rounding snaps the slot to device pixels, which
+                // can leave it up to a third of a DIP short of the exact shortfall, and the long
+                // form would miss by that third. One DIP covers any rounding at any scale and is
+                // far narrower than " · 1 need you", so the band below still crosses the boundary.
+                window.Width = window.ActualWidth + Math.Ceiling(longForm - available) + 1;
                 Record("widened to the tier 0 boundary");
 
                 viewModel.NeedsYouCount = 1;

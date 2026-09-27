@@ -479,6 +479,43 @@ public sealed class FittingStripTests(StaHarness harness, ITestOutputHelper outp
         Assert.True(dropped.IsShortened);
     }
 
+    /// <summary>
+    /// A strip with no tiers at all is shortened when it drops a child — the "or a child did not
+    /// fit" half of <see cref="FittingStrip.IsShortened"/>, on its own.
+    /// </summary>
+    /// <remarks>
+    /// The counts strip cannot pin that half: it always has three tiers, so by the time it drops
+    /// a count it is already past tier 0 and the tier alone says "shortened". A strip with no
+    /// Labels and no HideAtTier stays at tier 0 whatever its width, so only the dropped child can
+    /// make it shortened. Too narrow is measured in this run: one DIP less than it asks for.
+    /// </remarks>
+    [Fact]
+    public void A_strip_without_tiers_is_shortened_when_it_drops_a_child()
+    {
+        var (wide, narrow) = _harness.Invoke(() =>
+        {
+            FittingStrip Plain()
+            {
+                var strip = new FittingStrip();
+                strip.Children.Add(Word("first"));
+                strip.Children.Add(Word(" · second"));
+                return strip;
+            }
+
+            var whole = Plain();
+            whole.Measure(new Size(Unbounded, 48));
+            var wanted = whole.DesiredSize.Width;
+
+            var cut = Plain();
+            cut.Measure(new Size(wanted - 1, 48));
+
+            return ((whole.Tier, whole.IsShortened), (cut.Tier, cut.IsShortened));
+        });
+
+        Assert.Equal((0, false), wide);
+        Assert.Equal((0, true), narrow);
+    }
+
     // ---- What is dropped, and in what order ----------------------------------------------------
 
     /// <summary>
