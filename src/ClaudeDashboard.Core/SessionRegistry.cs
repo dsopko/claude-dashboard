@@ -413,9 +413,8 @@ public sealed class SessionRegistry(SingleWriterGuard guard)
             ErrorKind = (inboundEvent as StopFailure)?.ErrorKind,
 
             // A session first seen on a Stop that still lists running work is Waiting on it (T1.41).
-            WaitingOn = inboundEvent is Stop first
-                ? WaitingTasks.Following(WaitingTasks.Empty, first.BackgroundTasks, first.Timestamp)
-                : WaitingTasks.Empty,
+            WaitingOn = FirstListed(inboundEvent),
+            ListedTasks = FirstListed(inboundEvent),
 
             // The very first event a session is seen on may already carry the title, so the latch
             // starts here rather than waiting for a second event to change something.
@@ -536,13 +535,25 @@ public sealed class SessionRegistry(SingleWriterGuard guard)
     /// these per tool batch and must go on being Working without a transition being recorded for
     /// each.
     /// </para>
+    /// <para>
+    /// <strong>Back to Waiting, not Working, when the session is still waiting (T1.41).</strong>
+    /// While a session waits on a subagent, the subagent's own permission prompt, question or
+    /// error arrives under the parent's id and outranks Waiting — and its next batch arrives
+    /// under the parent too. That batch resumes the subagent, not the parent. So a non-empty
+    /// <see cref="Session.WaitingOn"/> — the last Stop left work running and no prompt has woken
+    /// the session since — returns it to Waiting, where the silence sweep cannot reach it and the
+    /// "Waiting on" block still shows. Otherwise Working, as before. The reviewer's ruling.
+    /// </para>
     /// </remarks>
     private static Transitioned ApplyPostToolBatch(Session current, PostToolBatch batch) =>
         current.State is SessionState.NeedsPermission
                       or SessionState.NeedsQuestion
                       or SessionState.Error
                       or SessionState.Interrupted
-            ? Transitioned.FromMove(Moved(current, SessionState.Working, batch))
+            ? Transitioned.FromMove(Moved(
+                current,
+                current.WaitingOn.Count > 0 ? SessionState.Waiting : SessionState.Working,
+                batch))
             : Transitioned.Declined(ApplyOutcome.Ignored);
 
     /// <summary>
@@ -578,14 +589,28 @@ public sealed class SessionRegistry(SingleWriterGuard guard)
 
         // The state moves to Working either way: a continuation is still a turn beginning. Only
         // the anchor of the work ignores it (T1.40).
-        return Transitioned.FromMove(Moved(
+        var moved = Moved(
             current,
             SessionState.Working,
             prompt,
             latest: exchange,
             errorKind: null,
-            cause: CauseOf(current, prompt)));
+            cause: CauseOf(current, prompt));
+
+        // Any prompt ends the wait: the session has been woken, so nothing is left running on its
+        // behalf until the next Stop says otherwise (T1.41, the reviewer's ruling). The tasks'
+        // first-seen instants stay in ListedTasks for that Stop to carry forward.
+        return Transitioned.FromMove(moved is null ? null : moved with { WaitingOn = WaitingTasks.Empty });
     }
+
+    /// <summary>
+    /// The running tasks of a Stop that creates the session, first seen at that Stop; empty for
+    /// any other event (T1.41).
+    /// </summary>
+    private static WaitingTasks FirstListed(InboundEvent inboundEvent) =>
+        inboundEvent is Stop first
+            ? WaitingTasks.Following(WaitingTasks.Empty, first.BackgroundTasks, first.Timestamp)
+            : WaitingTasks.Empty;
 
     /// <summary>What the transition log says moved the session to Working on a prompt.</summary>
     /// <remarks>
@@ -686,7 +711,9 @@ public sealed class SessionRegistry(SingleWriterGuard guard)
         // means the session will be woken when it reports back, so it is Waiting, not finished;
         // nothing running means it is finished, as before. The answer is recorded either way —
         // while Waiting it is what Claude has said so far.
-        var waitingOn = WaitingTasks.Following(current.WaitingOn, stop.BackgroundTasks, stop.Timestamp);
+        // First-seen instants carry forward from the last Stop's list, which a prompt does not
+        // clear; WaitingOn itself was cleared by the wake-up prompt (T1.41).
+        var waitingOn = WaitingTasks.Following(current.ListedTasks, stop.BackgroundTasks, stop.Timestamp);
         var target = waitingOn.Count > 0 ? SessionState.Waiting : SessionState.Unread;
 
         // A second Stop for an answered turn was declined above, so a list change cannot arrive
@@ -694,7 +721,7 @@ public sealed class SessionRegistry(SingleWriterGuard guard)
         // nothing is a duplicate, as before.
         var moved = Moved(current, target, stop, latest: answered, errorKind: null);
 
-        return Transitioned.FromMove(moved is null ? null : moved with { WaitingOn = waitingOn });
+        return Transitioned.FromMove(moved is null ? null : moved with { WaitingOn = waitingOn, ListedTasks = waitingOn });
     }
 
     private static Transitioned ApplyStopFailure(Session current, StopFailure failure)

@@ -215,6 +215,84 @@ public sealed class WaitingStateTests
         Assert.Equal(SessionState.Waiting, Current.State);
     }
 
+    // ---- The subagent's own permission prompt (the review's finding) --------------------------
+
+    /// <summary>
+    /// <strong>The reviewer's path: a subagent's permission prompt, then its next batch, returns
+    /// the parent to Waiting — and the silence sweep leaves it alone.</strong>
+    /// </summary>
+    /// <remarks>
+    /// Before the fix the batch moved the session to Working: the batch arm had no memory that
+    /// the session was waiting. The parent then lost its "Waiting on" block and, eleven quiet
+    /// minutes later, the sweep marked it Interrupted — the one thing the operator ruled must
+    /// never happen to a waiting session.
+    /// </remarks>
+    [Fact]
+    public void A_subagents_permission_then_batch_returns_the_parent_to_waiting()
+    {
+        Apply(Prompt("go", "p-1"));
+        Apply(Stopped("p-1", new BackgroundTask("a1", BackgroundTaskKind.Subagent, "Review the diff")));
+        Assert.Equal(SessionState.Waiting, Current.State);
+
+        _clock.AdvanceMinutes(1);
+        Apply(Notified("permission_prompt"));
+        Assert.Equal(SessionState.NeedsPermission, Current.State);
+
+        _clock.AdvanceMinutes(1);
+        Apply(Batch());
+        Assert.Equal(SessionState.Waiting, Current.State);
+        Assert.Equal(["a1"], Current.WaitingOn.Select(task => task.Id).ToArray());
+
+        _clock.AdvanceMinutes(11);
+        Assert.Empty(_registry.SweepSilent(_clock.Now, SilenceWatch.DefaultThreshold));
+        Assert.Equal(SessionState.Waiting, Current.State);
+    }
+
+    /// <summary>
+    /// The same path with a prompt in between ends in Working, as before: the prompt woke the
+    /// session, so the batch after the permission prompt is its own.
+    /// </summary>
+    [Fact]
+    public void The_same_path_after_a_prompt_returns_to_working_as_before()
+    {
+        Apply(Prompt("go", "p-1"));
+        Apply(Stopped("p-1", new BackgroundTask("a1", BackgroundTaskKind.Subagent, "Review the diff")));
+
+        _clock.AdvanceMinutes(1);
+        Apply(Prompt("<task-notification>\n<task-id>a1</task-id>", "p-2"));
+        Assert.Equal(SessionState.Working, Current.State);
+
+        _clock.AdvanceMinutes(1);
+        Apply(Notified("permission_prompt"));
+        _clock.AdvanceMinutes(1);
+        Apply(Batch());
+
+        Assert.Equal(SessionState.Working, Current.State);
+
+        // And Working is swept as it always was.
+        _clock.AdvanceMinutes(11);
+        Assert.Single(_registry.SweepSilent(_clock.Now, SilenceWatch.DefaultThreshold));
+        Assert.Equal(SessionState.Interrupted, Current.State);
+    }
+
+    /// <summary>
+    /// A prompt in Waiting leaves nothing to wait on; the tasks' first-seen instants survive
+    /// separately, for the next Stop to carry forward.
+    /// </summary>
+    [Fact]
+    public void A_prompt_in_waiting_empties_what_it_waits_on()
+    {
+        GivenWaiting();
+        var listed = Current.ListedTasks;
+
+        _clock.AdvanceMinutes(1);
+        Apply(Prompt("carry on", "p-2"));
+
+        Assert.Equal(SessionState.Working, Current.State);
+        Assert.Empty(Current.WaitingOn);
+        Assert.Equal(listed, Current.ListedTasks);
+    }
+
     // ---- Acceptance 6: a roster with a Waiting member ------------------------------------------
 
     /// <summary>

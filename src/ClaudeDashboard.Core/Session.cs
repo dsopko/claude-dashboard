@@ -180,15 +180,22 @@ public sealed record Session
     }
 
     /// <summary>
-    /// The background tasks the latest <c>Stop</c> said were still running, each with the instant
-    /// it was first listed (T1.41, issue #52). Never null; empty by default.
+    /// The background tasks the session is waiting on: what the last <c>Stop</c> left running,
+    /// provided no prompt has arrived since (T1.41, issue #52). Never null; empty by default.
     /// </summary>
     /// <remarks>
-    /// Replaced by every <c>Stop</c> and by nothing else: a task keeps its first-seen instant
-    /// across the Stops that go on listing it, and drops out when a Stop no longer does. A prompt
-    /// leaves it alone, so a task still running after the wake-up keeps its age when the next
-    /// Stop lists it again. It is what the row's "Waiting on" block shows while the session is
-    /// <see cref="SessionState.Waiting"/>, and it is read for nothing else.
+    /// <para>
+    /// <strong>Non-empty means exactly this:</strong> the last Stop left allowed work running, and
+    /// nothing has woken the session since. Set by every Stop that moves the session, cleared by
+    /// every prompt that does — the reviewer's ruling on T1.41. That is what lets a
+    /// <c>PostToolBatch</c> return a session to <see cref="SessionState.Waiting"/> rather than
+    /// Working after a subagent's own permission prompt, question or error: the batch is the
+    /// subagent's, and the parent is still waiting on it.
+    /// </para>
+    /// <para>
+    /// It is what the row's "Waiting on" block shows while the session is Waiting. The tasks'
+    /// first-seen instants survive a prompt in <see cref="ListedTasks"/>, not here.
+    /// </para>
     /// </remarks>
     /// <exception cref="ArgumentNullException">Set to null.</exception>
     public WaitingTasks WaitingOn
@@ -198,4 +205,24 @@ public sealed record Session
     }
 
     private readonly WaitingTasks _waitingOn = WaitingTasks.Empty;
+
+    /// <summary>
+    /// The tasks the last <c>Stop</c> listed, with the instant each was first listed — kept across
+    /// prompts so a task keeps its age (T1.41). Never null; empty by default.
+    /// </summary>
+    /// <remarks>
+    /// Replaced by every Stop that moves the session and by nothing else. The next Stop reads it to
+    /// carry each still-listed task's first-seen instant forward, and drops the ids it no longer
+    /// lists. Separate from <see cref="WaitingOn"/> because a prompt must clear that one and must
+    /// not reset a task's age: a build still running after the wake-up is the same build, and the
+    /// "Waiting on" line says how long it has run. Read for nothing else.
+    /// </remarks>
+    /// <exception cref="ArgumentNullException">Set to null.</exception>
+    public WaitingTasks ListedTasks
+    {
+        get => _listedTasks;
+        init => _listedTasks = value ?? throw new ArgumentNullException(nameof(value));
+    }
+
+    private readonly WaitingTasks _listedTasks = WaitingTasks.Empty;
 }
