@@ -383,6 +383,14 @@ Tasks landing after T1.20. Each one puts the acceptance document out of date in 
 - **Acceptance:** the relative time ticks; a session flipped across states repeatedly under a fake clock keeps one elapsed time from the original prompt; a `<task-notification>` prompt changes neither "You asked" nor the elapsed time; an operator's prompt and a cross-session message each start a new ask; both suite counts.
 - **Guardrails:** no Waiting state here — that is #52. A `<task-notification>` is recognised by its prefix only, never by reading the rest of the prompt. Never log the prompt.
 
+**T1.41 — Waiting: a session paused on its own background work is not finished**
+- **Goal:** the operator hears "finished" once, when the work is finished, and never while an agent waits on a background command or subagent.
+- **Depends:** T1.30, T1.37, T1.40
+- **Realizes:** Closes [issue #52](https://github.com/dsopko/claude-dashboard/issues/52), which is the authority, with the operator's rulings in its comments. Documents `background_tasks` and `session_crons` in the hook reference.
+- **Deliverables:** `SessionState.Waiting`. A `Stop` whose `background_tasks` lists a running entry of type `shell` or `subagent` moves the session to Waiting instead of Unread, with no sound and no nudge. The allow-list is exactly those two types: `monitor` and any unseen type fall back to today's behaviour, and the decisions record logs the unseen type. The wake-up prompt moves Waiting to Working. A `PostToolBatch` while Waiting leaves the session Waiting. A permission `Notification` outranks Waiting. The silence sweep stays Working-only. Waiting keeps a roster group unfinished and counts as working for the tray light. The collapsed row reads "Waiting [elapsed from the ask] · [task description] · [project]". The expanded row reads "Claude said so far" and gains a "Waiting on" block, one line per task: description, kind, age. Waiting joins T1.40's ask-anchored clock. **#52 owns the general rule that a prompt the operator did not type moves the session to Working without tier-1 auto-acknowledgment.**
+- **Acceptance:** each "must" in #52 has a test; in #52's event-by-event run there is no "finished" chime at step 4 and exactly one at step 8; a replay of the archive on a copy counts the Stops that now decide Waiting and the false "finished" notices removed; a task's command is never stored, shown or logged; both suite counts.
+- **Guardrails:** every `SessionState` switch has a `_ =>` arm, so the compiler will not list the sites. Find every one by search and report the list (T1.30's lesson). Only the type field decides; description text never decides state. Registry invariants stand.
+
 **Ordering ruled 2026-09-02:** the packaging workstream — `PKG.1` → `PKG.2` → `PKG.3` → T1.33 → `PKG.4` in the [Packaging Execution Plan](claude-dashboard-packaging-execution-plan.md) — runs **ahead of T2.1**. Appendix A is unchanged; the packaging plan carries its own order.
 
 ---
