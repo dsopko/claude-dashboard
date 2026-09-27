@@ -49,7 +49,7 @@ namespace ClaudeDashboard.Tests.Ui;
 /// on any machine. Only <see cref="The_recorded_ladder"/> quotes the numbers the caption's
 /// remarks and the execution plan carry. It checks them three ways so that being unable to
 /// verify them exactly is never the same as not checking them: the ladder's <em>shape</em> and
-/// its <em>range</em> are asserted at every scale, the four exact widths only where the scale
+/// its <em>range</em> are asserted at every scale, the five exact widths only where the scale
 /// they were recorded at still holds, and which of those happened is written to the test's
 /// output rather than left to a comment. A recorded figure edited to something impossible fails
 /// on any machine; that was verified by planting one.
@@ -86,8 +86,14 @@ public sealed class FittingStripTests(StaHarness harness, ITestOutputHelper outp
     /// <summary>The short form, at 100% display scaling.</summary>
     private const double RecordedTierOne = 175;
 
-    /// <summary>Total, needs-you and unread, at 100% display scaling.</summary>
-    private const double RecordedThreeCounts = 113;
+    /// <summary>Numbers only, all four: "11 · 3 · 5 · 8", at 100% display scaling (T1.39).</summary>
+    private const double RecordedTierTwo = 60;
+
+    /// <summary>
+    /// Total, needs-you and unread as numbers only, at 100% display scaling. It was 113 before
+    /// T1.39, when the third rung still carried "need" and "unread"; tier 2 comes first now.
+    /// </summary>
+    private const double RecordedThreeCounts = 44;
 
     /// <summary>"11" alone, at 100% scaling — and the probe for whether that is still the scale.</summary>
     private const double RecordedOneCount = 12;
@@ -99,10 +105,28 @@ public sealed class FittingStripTests(StaHarness harness, ITestOutputHelper outp
     /// <param name="Desired">How wide it asked to be.</param>
     /// <param name="Shown">Whether each of the four counts got a place, in order.</param>
     /// <param name="NeedsYouWord">The needs-you label as it would render.</param>
-    private sealed record Result(int Tier, double Desired, IReadOnlyList<bool> Shown, string NeedsYouWord)
+    /// <param name="Text">
+    /// What a reader sees: the visible runs of every count given a place, joined — so
+    /// "11 · 3 · 5 · 8" at tier 2. Text, not pixels, which is what lets the order of the ladder
+    /// be asserted at any display scale.
+    /// </param>
+    private sealed record Result(int Tier, double Desired, IReadOnlyList<bool> Shown, string NeedsYouWord, string Text)
     {
         /// <summary>How many counts were given a place.</summary>
         public int Counts => Shown.Count(seen => seen);
+    }
+
+    /// <summary>Which rungs of the ladder the strip is built with.</summary>
+    private enum Rungs
+    {
+        /// <summary>What <c>MainWindow.xaml</c> declares: tiers 0, 1 and 2.</summary>
+        Full,
+
+        /// <summary>The ladder before T1.39: tier 2 taken away, so counts drop after tier 1.</summary>
+        UpToTierOne,
+
+        /// <summary>No ladder at all: the long form, and nothing hidden by tier.</summary>
+        LongFormOnly,
     }
 
     /// <summary>Measures and arranges a strip in a slot <paramref name="slot"/> wide.</summary>
@@ -110,10 +134,10 @@ public sealed class FittingStripTests(StaHarness harness, ITestOutputHelper outp
     /// Arranged at what it asked for rather than at the whole slot, which is what the caption
     /// does: the strip is right-aligned in its column, so WPF arranges it at its desired size.
     /// </remarks>
-    private Result At(double slot, int unread = Unread, int working = Working, bool longFormOnly = false) =>
+    private Result At(double slot, int unread = Unread, int working = Working, Rungs rungs = Rungs.Full) =>
         _harness.Invoke(() =>
         {
-            var strip = Build(unread, working, longFormOnly);
+            var strip = Build(unread, working, rungs);
 
             strip.Measure(new Size(slot, 48));
             strip.Arrange(new Rect(0, 0, strip.DesiredSize.Width, 48));
@@ -130,24 +154,33 @@ public sealed class FittingStripTests(StaHarness harness, ITestOutputHelper outp
                 .Select(child => LayoutInformation.GetLayoutSlot(child).Width > 0)
                 .ToList();
 
-            return new Result(strip.Tier, strip.DesiredSize.Width, shown, NeedsYouWordOf(strip));
+            var text = string.Concat(strip.Children
+                .Cast<StackPanel>()
+                .Where((segment, i) => shown[i] && segment.Visibility == Visibility.Visible)
+                .SelectMany(segment => segment.Children.Cast<TextBlock>())
+                .Where(run => run.Visibility == Visibility.Visible)
+                .Select(run => run.Text));
+
+            return new Result(strip.Tier, strip.DesiredSize.Width, shown, NeedsYouWordOf(strip), text);
         });
 
-    /// <summary>The four widths the strip steps down through, widest first.</summary>
+    /// <summary>The widths the strip steps down through, widest first.</summary>
     /// <remarks>
     /// Asked for rather than written down: each is what the strip says it wants once the one
     /// above it will not fit. This is the ladder every rule below is stated against, and it is
-    /// what makes them true at any display scale.
+    /// what makes them true at any display scale. Tier 2, numbers only, sits between tier 1 and
+    /// the first dropped count (T1.39).
     /// </remarks>
-    private (double TierZero, double TierOne, double ThreeCounts, double OneCount) Ladder()
+    private (double TierZero, double TierOne, double TierTwo, double ThreeCounts, double OneCount) Ladder()
     {
         var tierZero = At(Unbounded).Desired;
         var tierOne = At(tierZero - 1).Desired;
-        var threeCounts = At(tierOne - 1).Desired;
+        var tierTwo = At(tierOne - 1).Desired;
+        var threeCounts = At(tierTwo - 1).Desired;
         var twoCounts = At(threeCounts - 1).Desired;
         var oneCount = At(twoCounts - 1).Desired;
 
-        return (tierZero, tierOne, threeCounts, oneCount);
+        return (tierZero, tierOne, tierTwo, threeCounts, oneCount);
     }
 
     // ---- The tier ladder -----------------------------------------------------------------------
@@ -206,7 +239,7 @@ public sealed class FittingStripTests(StaHarness harness, ITestOutputHelper outp
     [Fact]
     public void It_shortens_before_it_drops()
     {
-        var (tierZero, tierOne, _, _) = Ladder();
+        var (tierZero, tierOne, _, _, _) = Ladder();
 
         foreach (var slot in new[] { tierZero - 1, tierOne, (tierZero + tierOne) / 2 })
         {
@@ -229,15 +262,171 @@ public sealed class FittingStripTests(StaHarness harness, ITestOutputHelper outp
     [Fact]
     public void Shortening_buys_a_count_the_long_form_would_have_dropped()
     {
-        var (tierZero, tierOne, _, _) = Ladder();
+        var (tierZero, tierOne, _, _, _) = Ladder();
 
         // Between the two tier widths: too narrow for the long form, wide enough for the short.
         var slot = (tierZero + tierOne) / 2;
 
         Assert.Equal(4, At(slot).Counts);
         Assert.True(
-            At(slot, longFormOnly: true).Counts < 4,
+            At(slot, rungs: Rungs.LongFormOnly).Counts < 4,
             $"Without the ladder the strip should already have dropped a count in a {slot}-wide slot.");
+    }
+
+    // ---- Numbers before no numbers (T1.39, issue #53) ------------------------------------------
+
+    /// <summary>The long form, as a reader sees it.</summary>
+    private static readonly string TierZeroText =
+        $"{Sessions} sessions · {NeedsYou} need you · {Unread} unread · {Working} working";
+
+    /// <summary>The short form.</summary>
+    private static readonly string TierOneText =
+        $"{Sessions} · {NeedsYou} need · {Unread} unread · {Working} working";
+
+    /// <summary>Numbers only: the colours name the counts.</summary>
+    private static readonly string TierTwoText = $"{Sessions} · {NeedsYou} · {Unread} · {Working}";
+
+    /// <summary>
+    /// <strong>Tier 2 is numbers only, and it keeps all four.</strong>
+    /// </summary>
+    /// <remarks>
+    /// One pixel short of tier 1 is where the ladder before T1.39 dropped the working count
+    /// while "unread" was still showing — the operator's report, <c>3 · 1 unread</c> going
+    /// straight to <c>3</c>. Now every word goes and every number stays.
+    /// </remarks>
+    [Fact]
+    public void Tier_two_is_numbers_only_and_keeps_every_count()
+    {
+        var (_, tierOne, tierTwo, _, _) = Ladder();
+
+        foreach (var slot in new[] { tierOne - 1, tierTwo, (tierOne + tierTwo) / 2 })
+        {
+            var narrow = At(slot);
+
+            Assert.Equal(2, narrow.Tier);
+            Assert.Equal(4, narrow.Counts);
+            Assert.Equal(TierTwoText, narrow.Text);
+        }
+    }
+
+    /// <summary>
+    /// <strong>T1.29's rule, now kept all the way down: every word is gone before any count is
+    /// dropped.</strong>
+    /// </summary>
+    /// <remarks>
+    /// Swept one pixel at a time across the whole range, because the failure is a width. Any
+    /// slot that has lost a count must be at the last tier and show no letter at all.
+    /// </remarks>
+    [Fact]
+    public void Every_word_is_gone_before_any_count_is_dropped()
+    {
+        var tierZero = At(Unbounded).Desired;
+        var droppedSomewhere = false;
+
+        for (var slot = Math.Ceiling(tierZero) + 4; slot >= 0; slot--)
+        {
+            var measured = At(slot);
+
+            if (measured.Counts == 4)
+            {
+                continue;
+            }
+
+            droppedSomewhere = true;
+
+            Assert.Equal(2, measured.Tier);
+            Assert.False(
+                measured.Text.Any(char.IsLetter),
+                $"A count was dropped while a word still showed, in a {slot}-wide slot: \"{measured.Text}\".");
+        }
+
+        Assert.True(droppedSomewhere, "The sweep never reached a slot narrow enough to drop a count.");
+    }
+
+    /// <summary>
+    /// <strong>The whole ladder, as a reader reads it, narrowing one pixel at a time.</strong>
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Seven captions and no others, in this order: both word tiers, numbers only, then whole
+    /// counts from the right. Stated as text rather than widths, so it holds at any display
+    /// scale — and it states three rules at once. Words before counts, because every caption
+    /// with a word comes first. The prefix rule, because each caption after tier 2 is the one
+    /// before it with its last count removed. And no dangling separator, asserted outright:
+    /// every count but the first carries its own leading " · ", so a separator at either end
+    /// would mean a count was dropped and its separator was not.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void The_captions_narrow_in_order_and_no_separator_dangles()
+    {
+        var tierZero = At(Unbounded).Desired;
+        var captions = new List<string>();
+
+        for (var slot = Math.Ceiling(tierZero) + 4; slot >= 0; slot--)
+        {
+            var text = At(slot).Text;
+
+            if (captions.Count == 0 || text != captions[^1])
+            {
+                captions.Add(text);
+            }
+        }
+
+        Assert.Equal(
+            [
+                TierZeroText,
+                TierOneText,
+                TierTwoText,
+                $"{Sessions} · {NeedsYou} · {Unread}",
+                $"{Sessions} · {NeedsYou}",
+                $"{Sessions}",
+                string.Empty,
+            ],
+            captions);
+
+        Assert.All(captions, caption =>
+        {
+            Assert.False(caption.StartsWith(" ·", StringComparison.Ordinal), $"\"{caption}\" starts with a separator.");
+            Assert.False(caption.EndsWith("· ", StringComparison.Ordinal), $"\"{caption}\" ends with a separator.");
+        });
+    }
+
+    /// <summary>
+    /// And numbers only buys real counts: at a width tier 1 cannot hold, the ladder before T1.39
+    /// had already dropped one.
+    /// </summary>
+    /// <remarks>
+    /// The return on tier 2, asserted as the comparison the issue was filed about — the same tree
+    /// with tier 2 taken away — rather than as a number.
+    /// </remarks>
+    [Fact]
+    public void Numbers_only_keeps_a_count_the_old_ladder_dropped()
+    {
+        var (_, tierOne, tierTwo, _, _) = Ladder();
+
+        var slot = (tierOne + tierTwo) / 2;
+
+        Assert.Equal(4, At(slot).Counts);
+        Assert.True(
+            At(slot, rungs: Rungs.UpToTierOne).Counts < 4,
+            $"Without tier 2 the strip should already have dropped a count in a {slot}-wide slot.");
+    }
+
+    /// <summary>
+    /// A zero count at tier 2 is still absent, separator and all: the non-zero counts, as
+    /// numbers only.
+    /// </summary>
+    [Fact]
+    public void Tier_two_leaves_out_a_zero_count_with_its_separator()
+    {
+        var tierZero = At(Unbounded, unread: 0).Desired;
+        var tierOne = At(tierZero - 1, unread: 0).Desired;
+
+        var narrow = At(tierOne - 1, unread: 0);
+
+        Assert.Equal(2, narrow.Tier);
+        Assert.Equal($"{Sessions} · {NeedsYou} · {Working}", narrow.Text);
     }
 
     // ---- What is dropped, and in what order ----------------------------------------------------
@@ -341,12 +530,12 @@ public sealed class FittingStripTests(StaHarness harness, ITestOutputHelper outp
     /// <para>
     /// <strong>The only test here that knows a number, and the only one that is allowed to stop
     /// knowing it.</strong> The recorded ladder is a fact about 100% display scaling: 244 for the
-    /// long form, 175 for the short one, 113 for three counts, 12 for one. On a machine at
-    /// another scale those are simply different, because Display mode quantizes to device pixels,
-    /// so asserting them there would be asserting the monitor.
+    /// long form, 175 for the short one, 60 for numbers only, 44 for three counts, 12 for one. On
+    /// a machine at another scale those are simply different, because Display mode quantizes to
+    /// device pixels, so asserting them there would be asserting the monitor.
     /// </para>
     /// <para>
-    /// It does not go quiet in that case. The ladder's shape — four rungs, strictly descending,
+    /// It does not go quiet in that case. The ladder's shape — five rungs, strictly descending,
     /// none degenerate — is true at every scale and is asserted either way, so this test always
     /// states something and never states something false.
     /// </para>
@@ -354,11 +543,14 @@ public sealed class FittingStripTests(StaHarness harness, ITestOutputHelper outp
     [Fact]
     public void The_recorded_ladder()
     {
-        var (tierZero, tierOne, threeCounts, oneCount) = Ladder();
+        var (tierZero, tierOne, tierTwo, threeCounts, oneCount) = Ladder();
 
-        // True at any scale: four distinct rungs, each narrower than the one above it.
+        output.WriteLine($"Measured here: {tierZero} / {tierOne} / {tierTwo} / {threeCounts} / {oneCount}.");
+
+        // True at any scale: five distinct rungs, each narrower than the one above it.
         Assert.True(tierZero > tierOne, $"tier 0 ({tierZero}) should exceed tier 1 ({tierOne}).");
-        Assert.True(tierOne > threeCounts, $"tier 1 ({tierOne}) should exceed three counts ({threeCounts}).");
+        Assert.True(tierOne > tierTwo, $"tier 1 ({tierOne}) should exceed tier 2 ({tierTwo}).");
+        Assert.True(tierTwo > threeCounts, $"tier 2 ({tierTwo}) should exceed three counts ({threeCounts}).");
         Assert.True(threeCounts > oneCount, $"three counts ({threeCounts}) should exceed one count ({oneCount}).");
         Assert.True(oneCount > 0, $"one count ({oneCount}) should have a width.");
 
@@ -370,6 +562,7 @@ public sealed class FittingStripTests(StaHarness harness, ITestOutputHelper outp
         // error rather than a different monitor, and it fails here whatever the scale.
         WithinAQuarter(RecordedTierZero, tierZero, "tier 0");
         WithinAQuarter(RecordedTierOne, tierOne, "tier 1");
+        WithinAQuarter(RecordedTierTwo, tierTwo, "tier 2");
         WithinAQuarter(RecordedThreeCounts, threeCounts, "three counts");
         WithinAQuarter(RecordedOneCount, oneCount, "one count");
 
@@ -381,8 +574,8 @@ public sealed class FittingStripTests(StaHarness harness, ITestOutputHelper outp
             output.WriteLine(
                 $"NOT CHECKED EXACTLY: the recorded ladder is 100% figures and this machine "
                     + $"measures the smallest rung at {oneCount} rather than {RecordedOneCount}. "
-                    + $"Measured here: {tierZero} / {tierOne} / {threeCounts} / {oneCount}. "
-                    + "Shape and range were checked; the four exact widths were not.");
+                    + $"Measured here: {tierZero} / {tierOne} / {tierTwo} / {threeCounts} / {oneCount}. "
+                    + "Shape and range were checked; the five exact widths were not.");
 
             return;
         }
@@ -391,6 +584,7 @@ public sealed class FittingStripTests(StaHarness harness, ITestOutputHelper outp
 
         Assert.Equal(RecordedTierZero, tierZero);
         Assert.Equal(RecordedTierOne, tierOne);
+        Assert.Equal(RecordedTierTwo, tierTwo);
         Assert.Equal(RecordedThreeCounts, threeCounts);
     }
 
@@ -417,13 +611,18 @@ public sealed class FittingStripTests(StaHarness harness, ITestOutputHelper outp
     /// </summary>
     /// <param name="unread">The unread count, so a zero can be exercised.</param>
     /// <param name="working">The working count.</param>
-    /// <param name="longFormOnly">
-    /// Builds the strip without a ladder — one label set, nothing hidden by tier. What the
-    /// caption was before the tiers, and the thing the tiers are worth measuring against.
+    /// <param name="rungs">
+    /// Which rungs to build. <see cref="Rungs.Full"/> is the markup. The other two take rungs
+    /// away — the ladder before T1.39, and no ladder at all — which is what each rung is worth
+    /// measuring against.
     /// </param>
-    private static FittingStrip Build(int unread, int working, bool longFormOnly)
+    private static FittingStrip Build(int unread, int working, Rungs rungs)
     {
         var strip = new FittingStrip();
+        var longFormOnly = rungs == Rungs.LongFormOnly;
+
+        // The tier the three band words hide at: tier 2, numbers only, in the markup.
+        int? wordsHideAt = rungs == Rungs.Full ? 2 : null;
 
         TextOptions.SetTextFormattingMode(strip, TextFormattingMode.Display);
 
@@ -440,15 +639,19 @@ public sealed class FittingStripTests(StaHarness harness, ITestOutputHelper outp
         total.Children.Add(sessionsWord);
         strip.Children.Add(total);
 
-        strip.Children.Add(Count(NeedsYou, longFormOnly ? " need you" : null, longFormOnly ? null : " need you| need"));
-        strip.Children.Add(Count(unread, " unread"));
-        strip.Children.Add(Count(working, " working"));
+        strip.Children.Add(Count(
+            NeedsYou,
+            longFormOnly ? " need you" : null,
+            longFormOnly ? null : " need you| need",
+            wordsHideAt));
+        strip.Children.Add(Count(unread, " unread", hideAt: wordsHideAt));
+        strip.Children.Add(Count(working, " working", hideAt: wordsHideAt));
 
         return strip;
     }
 
     /// <summary>One count: its separator, its number in semibold, and its word.</summary>
-    private static StackPanel Count(int value, string? label = null, string? tiers = null)
+    private static StackPanel Count(int value, string? label = null, string? tiers = null, int? hideAt = null)
     {
         var segment = new StackPanel
         {
@@ -466,6 +669,11 @@ public sealed class FittingStripTests(StaHarness harness, ITestOutputHelper outp
         if (tiers is not null)
         {
             FittingStrip.SetLabels(word, tiers);
+        }
+
+        if (hideAt is { } tier)
+        {
+            FittingStrip.SetHideAtTier(word, tier);
         }
 
         segment.Children.Add(word);

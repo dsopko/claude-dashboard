@@ -83,15 +83,19 @@ public sealed partial class MainViewModel : ObservableObject, IUiTickTarget, IDi
     /// </remarks>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(SessionsWord))]
+    [NotifyPropertyChangedFor(nameof(CountsText))]
     private int _sessionCount;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CountsText))]
     private int _needsYouCount;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CountsText))]
     private int _unreadCount;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CountsText))]
     private int _workingCount;
 
     [ObservableProperty]
@@ -137,6 +141,50 @@ public sealed partial class MainViewModel : ObservableObject, IUiTickTarget, IDi
     /// </para>
     /// </remarks>
     public string SessionsWord => SessionCount == 1 ? " session" : " sessions";
+
+    /// <summary>
+    /// The caption's counts in full words, for the tooltip on the strip (T1.39, issue #53):
+    /// "11 sessions · 3 need you · 5 unread · 8 working".
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>The words the strip takes away, one hover away.</strong> At its narrowest tier
+    /// before counts drop, the strip shows numbers only and lets the colours name them. That
+    /// depends on the reader knowing the colours; this does not.
+    /// </para>
+    /// <para>
+    /// Exactly the strip's long form, zeros included in the same way: the total always, a band
+    /// only when it is not zero. The words are the markup's, stated again here because the markup
+    /// splits them across runs a tooltip cannot reach. Raised with every count it reads.
+    /// </para>
+    /// </remarks>
+    public string CountsText
+    {
+        get
+        {
+            var parts = new List<string>(4)
+            {
+                string.Create(CultureInfo.CurrentCulture, $"{SessionCount}{SessionsWord}"),
+            };
+
+            if (NeedsYouCount > 0)
+            {
+                parts.Add(string.Create(CultureInfo.CurrentCulture, $"{NeedsYouCount} need you"));
+            }
+
+            if (UnreadCount > 0)
+            {
+                parts.Add(string.Create(CultureInfo.CurrentCulture, $"{UnreadCount} unread"));
+            }
+
+            if (WorkingCount > 0)
+            {
+                parts.Add(string.Create(CultureInfo.CurrentCulture, $"{WorkingCount} working"));
+            }
+
+            return string.Join(" · ", parts);
+        }
+    }
 
     /// <summary>Binds to <paramref name="projection"/>.</summary>
     /// <remarks>

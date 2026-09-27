@@ -248,6 +248,43 @@ public sealed class MainViewModelTests : IDisposable
         Assert.Equal(1, _viewModel.UnreadCount);
     }
 
+    /// <summary>
+    /// The strip's tooltip text follows the counts through the real projection, and is raised
+    /// when they change (T1.39).
+    /// </summary>
+    /// <remarks>
+    /// Asserted against the view model's own counts at each step, so it checks the text against
+    /// the numbers rather than against a literal — and the singular, which only one session
+    /// reaches.
+    /// </remarks>
+    [Fact]
+    public void The_counts_text_follows_the_counts()
+    {
+        var raised = 0;
+        _viewModel.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(MainViewModel.CountsText))
+            {
+                raised++;
+            }
+        };
+
+        Apply(Prompt("s-1", At));
+
+        Assert.Equal(1, _viewModel.SessionCount);
+        Assert.Equal(1, _viewModel.WorkingCount);
+        Assert.Equal("1 session · 1 working", _viewModel.CountsText);
+
+        Apply(Finished("s-1", At.AddMinutes(1)));
+        Apply(Prompt("s-2", At.AddMinutes(1)));
+        Apply(Blocked("s-2", At.AddMinutes(2)));
+
+        Assert.Equal((2, 1, 1, 0), (_viewModel.SessionCount, _viewModel.NeedsYouCount, _viewModel.UnreadCount, _viewModel.WorkingCount));
+        Assert.Equal("2 sessions · 1 need you · 1 unread", _viewModel.CountsText);
+
+        Assert.True(raised >= 2, $"CountsText was raised {raised} time(s) across three count changes.");
+    }
+
     // ---- Churn ------------------------------------------------------------------------------------------
 
     /// <summary>

@@ -220,11 +220,14 @@ public sealed class UnprotectedTextInventory
         //     group, compared against nothing, never derived from a prompt or an answer. The same
         //     classification Roster.Name already carries.
         //   · MainViewModel.SelectionText is built from a count.
+        //   · MainViewModel.CountsText (T1.39) is the four counts and the strip's fixed words —
+        //     "sessions", "need you", "unread", "working" — and nothing a session carries.
         //   · SessionViewModel.SelectionRefusal is one of two fixed strings.
         //
         // A roster's MEMBERS are the other half and are session titles, which stay out of this list
         // only because the scan cannot see a collection of strings — filed separately, and closed
         // meanwhile by the never-log tests rather than by the inventory.
+        "MainViewModel.CountsText",
         "MainViewModel.SelectionText",
         "MainViewModel.SessionsWord",
         "RosterPromptViewModel.Name",

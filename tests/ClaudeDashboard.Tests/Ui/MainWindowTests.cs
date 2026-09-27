@@ -377,26 +377,116 @@ public sealed class MainWindowTests(StaHarness harness, Xunit.Abstractions.ITest
         Assert.Contains("Cascadia", family, StringComparison.Ordinal);
     }
 
+    /// <summary>The strip shows a band's segment only when the band has something in it.</summary>
+    /// <remarks>
+    /// Asserted on the segments, not on the words. This window is realized at 400, where the
+    /// strip is at its numbers-only tier since T1.39 and shows no word at all — so a word would
+    /// assert the width, not the band. Before T1.39 this test looked for the " need" stem for the
+    /// same reason one tier up.
+    /// </remarks>
     [Fact]
     public void The_counts_strip_shows_only_the_bands_that_have_something_in_them()
     {
-        var texts = WithWindow(
+        var shown = WithWindow(
             registry =>
             {
                 registry.Working("blocked", At);
                 registry.Blocked("blocked", At.AddMinutes(1));
             },
-            (window, _) => StaHarness.FindAll<TextBlock>(window)
-                .Where(block => block.IsVisible)
-                .Select(TextOf)
+            (window, _) => StripOf(window).Children
+                .Cast<UIElement>()
+                .Select(segment => segment.Visibility == Visibility.Visible)
                 .ToList());
 
-        // The needs-you word, whichever tier the caption's strip is in. It shortens to " need"
-        // once the slot runs short, and this window is realized at 400 — narrow enough to be in
-        // the short tier — so asserting the long form would assert the width, not the band.
-        Assert.Contains(texts, text => text.StartsWith(" need", StringComparison.Ordinal));
-        Assert.DoesNotContain(" unread", texts);
+        // Total, needs you, unread, working.
+        Assert.Equal([true, true, false, false], shown);
     }
+
+    /// <summary>
+    /// <strong>The markup declares the ladder FittingStripTests measures</strong> (T1.39).
+    /// </summary>
+    /// <remarks>
+    /// FittingStripTests builds its strip in code, as a copy of this markup, so it can measure
+    /// without a window. This is the half that keeps the copy honest: the sessions word hides at
+    /// tier 1, the needs-you word shortens and then hides at tier 2, and so do unread and
+    /// working. Read from the realized tree, so a HideAtTier deleted from the markup fails here
+    /// while every FittingStripTests test stays green.
+    /// </remarks>
+    [Fact]
+    public void The_strip_markup_hides_every_band_word_at_tier_two()
+    {
+        var declared = WithWindow(
+            registry => registry.Working("busy", At),
+            (window, _) => StripOf(window).Children
+                .Cast<Panel>()
+                .Select(segment => segment.Children.OfType<TextBlock>().Last())
+                .Select(word => (FittingStrip.GetLabels(word), FittingStrip.GetHideAtTier(word)))
+                .ToList());
+
+        Assert.Equal(
+            [
+                (null, 1),
+                (" need you| need", 2),
+                (null, 2),
+                (null, 2),
+            ],
+            declared);
+    }
+
+    /// <summary>
+    /// <strong>The strip's tooltip is the view model's counts in full, and follows them</strong>
+    /// (T1.39).
+    /// </summary>
+    /// <remarks>
+    /// Asserted against the view model's own counts, not a literal: the tooltip is bound, so it
+    /// is the property the view model computes from those counts, before and after a change.
+    /// </remarks>
+    [Fact]
+    public void The_strip_tooltip_spells_out_the_counts_and_follows_them()
+    {
+        var (before, beforeCounts, after, afterCounts) = WithWindow(
+            registry =>
+            {
+                registry.Working("busy", At);
+                registry.Working("blocked", At);
+                registry.Blocked("blocked", At.AddMinutes(1));
+            },
+            (window, viewModel) =>
+            {
+                var strip = StripOf(window);
+                var first = (string)strip.ToolTip;
+                var firstCounts = (viewModel.SessionCount, viewModel.NeedsYouCount, viewModel.UnreadCount, viewModel.WorkingCount);
+
+                // A count changes under the window: the blocked session finishes.
+                viewModel.NeedsYouCount = 0;
+                viewModel.UnreadCount = 1;
+                _harness.Pump(DispatcherPriority.Background);
+
+                var second = (string)strip.ToolTip;
+                var secondCounts = (viewModel.SessionCount, viewModel.NeedsYouCount, viewModel.UnreadCount, viewModel.WorkingCount);
+
+                return (first, firstCounts, second, secondCounts);
+            });
+
+        Assert.Equal(Spelled(beforeCounts), before);
+        Assert.Equal(Spelled(afterCounts), after);
+        Assert.NotEqual(before, after);
+
+        // The counts in full words, zeros left out, the total always — computed here from the
+        // counts rather than read back from the view model, so the two are checked against each
+        // other.
+        static string Spelled((int Sessions, int NeedsYou, int Unread, int Working) counts) =>
+            string.Join(" · ", new[]
+            {
+                $"{counts.Sessions} {(counts.Sessions == 1 ? "session" : "sessions")}",
+                counts.NeedsYou > 0 ? $"{counts.NeedsYou} need you" : null,
+                counts.Unread > 0 ? $"{counts.Unread} unread" : null,
+                counts.Working > 0 ? $"{counts.Working} working" : null,
+            }.OfType<string>());
+    }
+
+    private static FittingStrip StripOf(MainWindow window) =>
+        StaHarness.FindAll<FittingStrip>(window).Single();
 
     // ---- Colour comes from the accent ----------------------------------------------------------
 

@@ -187,8 +187,12 @@
                             AND ALL FOUR DO NOT FIT, which is the one place 2c had to bend. The
                             design is drawn in an 820-pixel window; this one opens at 520, where
                             the slot holds 150 pixels and the four counts want 244. So the strip
-                            is a FittingStrip: it shortens its words while that is enough, and
-                            drops whole counts from the right once it is not.
+                            is a FittingStrip: it shortens its words, then drops every word, and
+                            only then drops whole counts from the right. Words are cheaper to lose
+                            than numbers, and the numbers-only tier (T1.39, issue #53) is what
+                            makes that true all the way down: before it, "3 . 1 unread" went
+                            straight to "3" while a word was still showing. The colours name each
+                            bare number, and the strip's tooltip spells them out in full.
 
                             MEASURED AT 100% DISPLAY SCALING, at the counts a fifteen-session
                             dashboard actually reaches — a two-digit total and single-digit
@@ -204,6 +208,11 @@
 
                               tier 0   "11 sessions . 3 need you . 5 unread . 8 working"   614
                               tier 1   "11 . 3 need . 5 unread . 8 working"                545
+                              tier 2   "11 . 3 . 5 . 8"                                    430
+
+                            Below 430 whole counts go from the right: "11 . 3 . 5" at 414,
+                            "11 . 3" and then "11" — never a word again, and never a separator
+                            without its number.
 
                             WHAT 150% DOES, AND WHAT IS WORTH WRITING DOWN ABOUT IT. The strip
                             measures WIDER there, not narrower: the reviewer and I both get
@@ -228,21 +237,27 @@
                             recorded in this remark all the same — it has carried a wrong one
                             twice, and the number the caption is judged on is not a width.
 
-                            WHAT DOES HOLD, re-measured after the above: A 520 WINDOW SHOWS THREE
-                            COUNTS AT BOTH SCALES. That is the fact the operator needs, it is
-                            about behaviour rather than pixels, and it is the one this window is
-                            actually judged on. FittingStripTests states every rule against
-                            widths it measures in the same run for exactly this reason.
+                            WHAT DOES HOLD is about behaviour rather than pixels, and it is what
+                            this window is actually judged on. FittingStripTests states every rule
+                            against widths it measures in the same run for exactly this reason.
 
-                            So the 520 this window opens at shows three counts. ALL FOUR NEVER
-                            FIT AT 520 while the help slot is kept, and keeping it was the
-                            operator's call: that slot and its divider are 49 of the 370, and
-                            without them tier 1 would fit whole at 494.
+                            BEFORE T1.39 a 520 window showed three counts at both scales,
+                            re-measured after the above: "11 . 3 need . 5 unread", the working
+                            count dropped while two words still showed. That is issue #53. SINCE
+                            T1.39 A 520 WINDOW SHOWS ALL FOUR COUNTS, AS NUMBERS ONLY, at 100%:
+                            the 150-pixel slot holds tier 2's 60 and not tier 1's 175. At 150%
+                            this was not re-measured for T1.39; 150% measures a few per cent
+                            wider, and tier 2 has more than twice its width to spare there.
+
+                            THE WORDS NEVER FIT AT 520 while the help slot is kept, and keeping it
+                            was the operator's call: that slot and its divider are 49 of the 370,
+                            and without them tier 1 would fit whole at 494.
 
                             Tabular figures per the design's font-feature-settings:'tnum', so a
                             count ticking 9 -> 10 does not shove the words beside it.
                         -->
                         <ui:FittingStrip Grid.Column="2"
+                                         ToolTip="{Binding CountsText}"
                                          VerticalAlignment="Center"
                                          HorizontalAlignment="Right"
                                          ClipToBounds="True"
@@ -278,6 +293,7 @@
                                     cost more meaning than the four pixels it saved.
                                 -->
                                 <TextBlock ui:FittingStrip.Labels=" need you| need"
+                                           ui:FittingStrip.HideAtTier="2"
                                            FontFamily="{StaticResource UiFont}" FontSize="12"
                                            Foreground="{StaticResource Ink2Brush}" />
                             </StackPanel>
@@ -290,7 +306,9 @@
                                            FontFamily="{StaticResource UiFont}" FontSize="12" FontWeight="SemiBold"
                                            Foreground="{StaticResource GreenBrush}"
                                            Typography.NumeralAlignment="Tabular" />
-                                <TextBlock Text=" unread" FontFamily="{StaticResource UiFont}" FontSize="12"
+                                <TextBlock Text=" unread"
+                                           ui:FittingStrip.HideAtTier="2"
+                                           FontFamily="{StaticResource UiFont}" FontSize="12"
                                            Foreground="{StaticResource Ink2Brush}" />
                             </StackPanel>
 
@@ -302,7 +320,9 @@
                                            FontFamily="{StaticResource UiFont}" FontSize="12" FontWeight="SemiBold"
                                            Foreground="{StaticResource BlueBrush}"
                                            Typography.NumeralAlignment="Tabular" />
-                                <TextBlock Text=" working" FontFamily="{StaticResource UiFont}" FontSize="12"
+                                <TextBlock Text=" working"
+                                           ui:FittingStrip.HideAtTier="2"
+                                           FontFamily="{StaticResource UiFont}" FontSize="12"
                                            Foreground="{StaticResource Ink2Brush}" />
                             </StackPanel>
                         </ui:FittingStrip>
