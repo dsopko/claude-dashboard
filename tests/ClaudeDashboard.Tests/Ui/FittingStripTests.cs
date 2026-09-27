@@ -516,6 +516,134 @@ public sealed class FittingStripTests(StaHarness harness, ITestOutputHelper outp
         Assert.Equal((0, true), narrow);
     }
 
+    // ---- Arrange draws what measure kept (T1.42, issue #55) ------------------------------------
+
+    /// <summary>The fractional display scales Windows offers between 100% and 200%.</summary>
+    public static TheoryData<double> FractionalScales => [1.25, 1.5, 1.75, 2.0];
+
+    /// <summary>
+    /// <strong>Every child measure kept is drawn, at every fractional scale</strong> — the
+    /// operator's "3 · 2" with the working count missing and room left for it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>Why this cannot be a caption fixture.</strong> This machine may run at 100%, where
+    /// Display text makes every width a whole DIP and every sum exact, so a real caption never
+    /// shows the fault here. What causes it is the arithmetic of a fractional scale: widths that
+    /// are whole device pixels are thirds of a DIP at 150%, a double cannot hold a third, and a sum
+    /// of them can exceed its own value rounded to the pixel grid by a last-bit residue. And WPF,
+    /// with layout rounding on as the main window sets it, hands <c>ArrangeOverride</c> that
+    /// rounded size (measured for T1.42 on this machine: 20.4 arrives as 20).
+    /// </para>
+    /// <para>
+    /// So the children here are what the text stack produces at that scale — widths of whole
+    /// device pixels, swept across the sizes a count and its separator take — and the strip is
+    /// arranged at what it asked for, rounded as WPF rounds it. Before the fix, arrange decided
+    /// fit again against that rounded width and left the last kept child undrawn for dozens of
+    /// these combinations. No width in this test is a recorded measurement: each is an input, or
+    /// what the strip asked for in this run.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [MemberData(nameof(FractionalScales))]
+    public void Every_kept_child_is_drawn_at_a_fractional_scale(double scale)
+    {
+        var failures = _harness.Invoke(() =>
+        {
+            var found = new List<string>();
+
+            // A count's number, then two bands of separator and number: device pixels at this scale.
+            for (var total = 6; total <= 30; total++)
+            {
+                for (var band = 18; band <= 40; band++)
+                {
+                    var strip = FixedWidths(total / scale, band / scale, band / scale);
+
+                    strip.Measure(new Size(Unbounded, 48));
+                    var arranged = RoundToPixels(strip.DesiredSize.Width, scale);
+                    strip.Arrange(new Rect(0, 0, arranged, 48));
+
+                    var drawn = strip.Children.Cast<FrameworkElement>()
+                        .Count(child => LayoutInformation.GetLayoutSlot(child).Width > 0);
+
+                    if (drawn != 3)
+                    {
+                        found.Add($"{total}+{band}+{band} device px: drew {drawn} of 3 in {arranged:R}");
+                    }
+                }
+            }
+
+            return found;
+        });
+
+        Assert.True(failures.Count == 0, $"At {scale:P0}: " + string.Join("; ", failures.Take(5)));
+    }
+
+    /// <summary>
+    /// <strong>A strip given exactly the room it asked for keeps everything</strong>, at every
+    /// fractional scale — the richest fit is not refused over the last bit of a float.
+    /// </summary>
+    /// <remarks>
+    /// The same residue, on the measure side: the room a grid hands over is itself on the pixel
+    /// grid, and a sum of thirds can exceed it by a last bit. Measured with exactly its own
+    /// rounded width, the strip must keep all three.
+    /// </remarks>
+    [Theory]
+    [MemberData(nameof(FractionalScales))]
+    public void Exactly_the_room_asked_for_keeps_everything(double scale)
+    {
+        var failures = _harness.Invoke(() =>
+        {
+            var found = new List<string>();
+
+            for (var total = 6; total <= 30; total++)
+            {
+                for (var band = 18; band <= 40; band++)
+                {
+                    var asked = FixedWidths(total / scale, band / scale, band / scale);
+                    asked.Measure(new Size(Unbounded, 48));
+
+                    var room = RoundToPixels(asked.DesiredSize.Width, scale);
+
+                    var strip = FixedWidths(total / scale, band / scale, band / scale);
+                    strip.Measure(new Size(room, 48));
+                    strip.Arrange(new Rect(0, 0, RoundToPixels(strip.DesiredSize.Width, scale), 48));
+
+                    var drawn = strip.Children.Cast<FrameworkElement>()
+                        .Count(child => LayoutInformation.GetLayoutSlot(child).Width > 0);
+
+                    if (drawn != 3 || strip.IsShortened)
+                    {
+                        found.Add($"{total}+{band}+{band} device px in {room:R}: drew {drawn}, shortened {strip.IsShortened}");
+                    }
+                }
+            }
+
+            return found;
+        });
+
+        Assert.True(failures.Count == 0, $"At {scale:P0}: " + string.Join("; ", failures.Take(5)));
+    }
+
+    /// <summary>A strip of fixed-width children, with no tiers: only the fit is under test.</summary>
+    private static FittingStrip FixedWidths(params double[] widths)
+    {
+        var strip = new FittingStrip();
+
+        foreach (var width in widths)
+        {
+            strip.Children.Add(new Border { Width = width, Height = 12 });
+        }
+
+        return strip;
+    }
+
+    /// <summary>
+    /// A width rounded to the device-pixel grid, the way WPF's layout rounding rounds the arrange
+    /// size: to the nearest whole device pixel, in DIPs.
+    /// </summary>
+    private static double RoundToPixels(double width, double scale) => Math.Round(width * scale) / scale;
+
     // ---- What is dropped, and in what order ----------------------------------------------------
 
     /// <summary>

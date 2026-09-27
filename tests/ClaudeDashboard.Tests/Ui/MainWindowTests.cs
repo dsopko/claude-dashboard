@@ -654,6 +654,94 @@ public sealed class MainWindowTests(StaHarness harness, Xunit.Abstractions.ITest
         Assert.DoesNotContain(seen.Finished, text => text.Contains("Run the test suite", StringComparison.Ordinal));
     }
 
+    /// <summary>
+    /// <strong>The operator's counts in the window's own caption</strong> (T1.42, issue #55): total
+    /// 3, unread 2, working 1. At every width, a count is left out only when it cannot fit, only at
+    /// the last tier, and never while its room stands empty.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Swept one DIP at a time from where nothing fits to where the long form does, in the real
+    /// markup. Every width is what the caption gives the strip in this run — its layout slot less
+    /// its margin — and every count's width is what the strip measured it at, so nothing here is
+    /// written down.
+    /// </para>
+    /// <para>
+    /// <strong>On a 100% display this passes with or without the fix, and says so.</strong> The
+    /// fault needs a fractional scale: there, widths are fractions of a DIP whose float sum can
+    /// exceed the pixel-rounded arrange size by a last bit. At 100% every width is whole and every
+    /// sum exact. FittingStripTests reproduces the arithmetic at 125%, 150% and 175% and fails
+    /// before the fix; this is the same rule, held in the real caption at whatever scale runs it.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void The_operators_counts_are_never_dropped_while_their_room_stands_empty()
+    {
+        var (scale, steps) = WithWindow(
+            registry =>
+            {
+                var first = registry.Working("done-1", At);
+                registry.Finished("done-1", At.AddMinutes(1), first);
+                var second = registry.Working("done-2", At);
+                registry.Finished("done-2", At.AddMinutes(1), second);
+                registry.Working("busy", At);
+            },
+            (window, viewModel) =>
+            {
+                Assert.Equal((3, 0, 2, 1), (viewModel.SessionCount, viewModel.NeedsYouCount, viewModel.UnreadCount, viewModel.WorkingCount));
+
+                var strip = StripOf(window);
+                var seen = new List<(double Room, int Tier, List<(bool Visible, bool Drawn, double Width)> Segments)>();
+
+                for (var width = window.MinWidth; width <= window.MinWidth + 400; width++)
+                {
+                    window.Width = width;
+                    window.UpdateLayout();
+
+                    seen.Add((
+                        LayoutInformation.GetLayoutSlot(strip).Width - strip.Margin.Left,
+                        strip.Tier,
+                        [.. strip.Children.Cast<FrameworkElement>().Select(segment => (
+                            segment.Visibility == Visibility.Visible,
+                            LayoutInformation.GetLayoutSlot(segment).Width > 0,
+                            segment.DesiredSize.Width))]));
+                }
+
+                return (VisualTreeHelper.GetDpi(window).DpiScaleX, seen);
+            });
+
+        var allThree = false;
+
+        foreach (var (room, tier, segments) in steps)
+        {
+            var shown = segments.Where(s => s.Visible).ToList();
+            var drawnWidth = shown.Where(s => s.Drawn).Sum(s => s.Width);
+
+            // What is drawn is a prefix of what is visible: no count after a dropped one.
+            var firstDropped = shown.FindIndex(s => !s.Drawn);
+
+            if (firstDropped < 0)
+            {
+                allThree = true;
+                continue;
+            }
+
+            Assert.All(shown.Skip(firstDropped), s => Assert.False(s.Drawn, $"A count was drawn after a dropped one, in {room}."));
+
+            // Dropped only at the last tier, and only because it really does not fit.
+            Assert.True(tier == 2, $"A count was dropped at tier {tier}, in {room}: every word goes first.");
+            Assert.True(
+                drawnWidth + shown[firstDropped].Width > room,
+                $"In {room} the strip drew {drawnWidth} and left out a count {shown[firstDropped].Width} wide: it had room for it.");
+        }
+
+        // And the sweep reached a width where all three counts are drawn.
+        Assert.True(allThree, "No width in the sweep showed all three counts.");
+
+        _output.WriteLine($"Display scale {scale:P0}: the rule held at every width swept."
+            + (scale == 1.0 ? " At 100% the fault cannot occur here; FittingStripTests reproduces it at fractional scales." : string.Empty));
+    }
+
     private static FittingStrip StripOf(MainWindow window) =>
         StaHarness.FindAll<FittingStrip>(window).Single();
 

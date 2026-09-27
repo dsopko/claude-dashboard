@@ -169,6 +169,27 @@ public sealed class FittingStrip : Panel
     /// <summary>The tier in force, for the caption to report and for tests to read.</summary>
     public int Tier { get; private set; }
 
+    /// <summary>
+    /// How many leading children the last measure kept — the prefix <see cref="ArrangeOverride"/>
+    /// draws (T1.42).
+    /// </summary>
+    private int _kept;
+
+    /// <summary>
+    /// How far a sum may exceed the room and still fit: a hundredth of a DIP (T1.42, issue #55).
+    /// </summary>
+    /// <remarks>
+    /// Far above the residue a double leaves when it adds widths that are multiples of a device
+    /// pixel at a fractional scale (thirds of a DIP at 150%, around 1e-14), and far below a device
+    /// pixel at any scale Windows offers (a fifth of a DIP at 500%). So a tier or a count that fits
+    /// exactly is not refused over the last bit of a float, and nothing that is really a pixel too
+    /// wide is let in.
+    /// </remarks>
+    private const double Tolerance = 0.01;
+
+    /// <summary>Whether <paramref name="needed"/> fits in <paramref name="available"/>, allowing <see cref="Tolerance"/>.</summary>
+    private static bool Fits(double needed, double available) => needed <= available + Tolerance;
+
     private static readonly DependencyPropertyKey IsShortenedPropertyKey =
         DependencyProperty.RegisterReadOnly(
             nameof(IsShortened),
@@ -234,7 +255,7 @@ public sealed class FittingStrip : Panel
                 height = Math.Max(height, child.DesiredSize.Height);
             }
 
-            if (wanted <= availableSize.Width)
+            if (Fits(wanted, availableSize.Width))
             {
                 break;
             }
@@ -244,6 +265,7 @@ public sealed class FittingStrip : Panel
 
         var used = 0.0;
         var full = true;
+        var kept = 0;
 
         foreach (UIElement child in InternalChildren)
         {
@@ -258,9 +280,10 @@ public sealed class FittingStrip : Panel
                 continue;
             }
 
-            if (used + wanted.Width <= availableSize.Width)
+            if (Fits(used + wanted.Width, availableSize.Width))
             {
                 used += wanted.Width;
+                kept++;
             }
             else
             {
@@ -269,22 +292,40 @@ public sealed class FittingStrip : Panel
             }
         }
 
+        _kept = kept;
         SetValue(IsShortenedPropertyKey, chosen > 0 || !full);
 
         return new Size(used, height);
     }
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// <para>
+    /// <strong>Arrange draws what measure kept, and does not decide again (T1.42, issue #55).</strong>
+    /// It used to re-check each child's width against <paramref name="finalSize"/>. That width is
+    /// not the one measure judged against: with layout rounding on, as the main window sets it,
+    /// WPF rounds the arrange size to the device-pixel grid first (measured: 20.4 arrives as 20).
+    /// At a fractional display scale every width is a multiple of a device pixel in DIPs — thirds
+    /// of a DIP at 150% — which a double cannot hold exactly, so the sum of the kept children could
+    /// exceed the rounded size by a last-bit residue. The last kept count then failed the
+    /// re-check and was not drawn, in a strip that had reserved its room: the operator's
+    /// "3 · 2" with the working count missing and space where it belonged.
+    /// </para>
+    /// <para>
+    /// So measure records how many leading children it kept, and this draws exactly those. One
+    /// decision, made once; the two passes cannot disagree about it.
+    /// </para>
+    /// </remarks>
     protected override Size ArrangeOverride(Size finalSize)
     {
         var x = 0.0;
-        var full = true;
+        var index = 0;
 
         foreach (UIElement child in InternalChildren)
         {
             var wanted = child.DesiredSize;
 
-            if (full && x + wanted.Width <= finalSize.Width)
+            if (index++ < _kept)
             {
                 child.Arrange(new Rect(x, 0, wanted.Width, finalSize.Height));
                 x += wanted.Width;
@@ -292,10 +333,9 @@ public sealed class FittingStrip : Panel
                 continue;
             }
 
-            // No room, and none for anything after it either. Arranged empty rather than
-            // collapsed, so the count's own visibility binding is left alone and the child comes
-            // back the moment the window widens.
-            full = false;
+            // Not kept, and nothing after it is either. Arranged empty rather than collapsed, so
+            // the count's own visibility binding is left alone and the child comes back the
+            // moment the window widens.
             child.Arrange(default);
         }
 
