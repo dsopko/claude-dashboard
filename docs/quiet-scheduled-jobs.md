@@ -14,9 +14,11 @@ The dashboard recognizes a tick by structure, not by what the prompt says. A tur
 
 Add this line to the end of the scheduled job's prompt:
 
-> If nothing is overdue and you took no action, reply with exactly `WATCHDOG-QUIET` and nothing else.
+> If nothing is overdue and you took no action, reply with exactly WATCHDOG-QUIET with no punctuation, quotes or formatting, and nothing else.
 
 When the agent's whole reply is `WATCHDOG-QUIET`, the dashboard treats the tick as quiet. Whitespace around it does not matter. Anything else, including the word followed by a full stop, the word in backticks or bold, or the word with any other text, is an ordinary reply and beeps as before.
+
+The line spells this out for the agent, because the agent reads only the job's prompt, never this guide. Agents tend to end even a one-word reply with a full stop, and a word shown in backticks invites a reply in backticks, so the line names the word bare and asks for no punctuation, quotes or formatting.
 
 ## A complete example
 
@@ -24,7 +26,7 @@ A watchdog prompt for a session that directs other sessions, with the line in pl
 
 ```text
 Check every task you have handed out. If a peer has sent no report, verdict or idle notice for 30 minutes, ping it for status and note it in a Progress Update. If anything needs the operator, resurface it now.
-If nothing is overdue and you took no action, reply with exactly `WATCHDOG-QUIET` and nothing else.
+If nothing is overdue and you took no action, reply with exactly WATCHDOG-QUIET with no punctuation, quotes or formatting, and nothing else.
 ```
 
 ## It is opt-in, per job

@@ -38,7 +38,7 @@ public static class QuietTicks
     /// Execution Plan's watchdog instruction carry.
     /// </summary>
     public const string OptInLine =
-        "If nothing is overdue and you took no action, reply with exactly `WATCHDOG-QUIET` and nothing else.";
+        "If nothing is overdue and you took no action, reply with exactly WATCHDOG-QUIET with no punctuation, quotes or formatting, and nothing else.";
 
     /// <summary>Whether <paramref name="reply"/> is exactly the sentinel, after trimming surrounding whitespace.</summary>
     public static bool IsQuietReply(string? reply) =>

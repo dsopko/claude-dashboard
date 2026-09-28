@@ -15,10 +15,22 @@ namespace ClaudeDashboard.Tests.Architecture;
 /// </remarks>
 public sealed class QuietScheduledJobsDocsTests
 {
+    /// <summary>
+    /// The line tells the agent the sentinel bare, and tells it directly not to decorate it.
+    /// </summary>
+    /// <remarks>
+    /// The agent reads only the cron prompt, never the guide. Measured on the archive, one-word
+    /// replies end in punctuation; and a sentinel shown in backticks invites a reply in backticks.
+    /// Both fail safe as one extra beep, but together they could mean the feature never works — so
+    /// the line carries no backticks and says "no punctuation, quotes or formatting" (the T1.44
+    /// review, ruled in). The matcher is unchanged: exact after trimming.
+    /// </remarks>
     [Fact]
-    public void The_opt_in_line_carries_the_sentinel_the_code_compares()
+    public void The_opt_in_line_carries_the_bare_sentinel_and_forbids_decoration()
     {
-        Assert.Contains($"`{QuietTicks.Sentinel}`", QuietTicks.OptInLine, StringComparison.Ordinal);
+        Assert.Contains($" {QuietTicks.Sentinel} ", QuietTicks.OptInLine, StringComparison.Ordinal);
+        Assert.DoesNotContain("`", QuietTicks.OptInLine, StringComparison.Ordinal);
+        Assert.Contains("no punctuation, quotes or formatting", QuietTicks.OptInLine, StringComparison.Ordinal);
     }
 
     [Fact]
