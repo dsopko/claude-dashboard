@@ -407,6 +407,25 @@ Tasks landing after T1.20. Each one puts the acceptance document out of date in 
 - **Acceptance:** #54's list, and in particular a 1 px window sweep with no width that shows the counts in both places or in neither, and no oscillation. Both suite counts.
 - **Guardrails:** the caption stays at 48, and its drag, snap and system menu are unchanged. The choice is a pure function of the window's width.
 
+**T1.44 — A watchdog tick that finds nothing makes no sound**
+- **Goal:** a scheduled job that checks and finds nothing does not beep.
+- **Depends:** T1.37, T1.41
+- **Realizes:** the quiet-prompt rule, built on T1.41's machine-prompt rule. Closes [issue #56](https://github.com/dsopko/claude-dashboard/issues/56); the issue body and its comment are the authority.
+- **Deliverables:**
+  - **A tick is identified by structure.** It is a `UserPromptSubmit` whose prompt exactly equals a cron listed in `session_crons` on that session's previous `Stop`. No keyword matching.
+  - **The quiet rule.** A tick whose `Stop` reply, trimmed, is exactly `WATCHDOG-QUIET` plays no finished sound and no nudge. The row reverts to its pre-tick state, answer and `EnteredAt`, including Waiting. Anything else beeps and displays as today.
+  - **Decisions rows** record a suppression with its reason.
+  - **Documentation:**
+    - `docs/quiet-scheduled-jobs.md`, the user guide the operator's comment specifies;
+    - a *Quiet scheduled jobs* section in the README that links to it;
+    - the sentinel convention in the hook reference;
+    - Appendix B's watchdog instruction gains the opt-in line, word for word the guide's example line.
+- **Acceptance:** #56's list, including the typed-prompt and unlisted-cron negatives, and a replay of a copy of the archive that reports zero silenced ticks today. Also the shape of `last_assistant_message` confirmed from real Stop payloads, the nudge ladder not reset by a quiet tick, and both suite counts.
+- **Guardrails:**
+  - The failure mode is always a beep, never a silenced escalation.
+  - The reply is compared as data and never logged.
+  - The operator's own settings are untouched. The dashboard changes no cron.
+
 **Ordering ruled 2026-09-02:** the packaging workstream — `PKG.1` → `PKG.2` → `PKG.3` → T1.33 → `PKG.4` in the [Packaging Execution Plan](claude-dashboard-packaging-execution-plan.md) — runs **ahead of T2.1**. Appendix A is unchanged; the packaging plan carries its own order.
 
 ---
