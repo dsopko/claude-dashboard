@@ -111,6 +111,28 @@ public enum PromptMeaning
     /// message. It moves the session to Working and acknowledges nothing.
     /// </summary>
     MachinePrompt = 2,
+
+    /// <summary>
+    /// The session's own scheduled job firing: a prompt exactly equal to a cron its previous Stop
+    /// listed (T1.44, issue #56). A machine prompt too — nobody typed it — and it acknowledges
+    /// nothing.
+    /// </summary>
+    ScheduledPrompt = 3,
+}
+
+/// <summary>
+/// The <c>reason</c> on the <see cref="DecisionKind.StateMoved"/> row of a Stop that ended a tick
+/// quietly (T1.44, issue #56).
+/// </summary>
+/// <remarks>
+/// The row moves the session back to what it showed before the tick. The sound engine's own row
+/// beside it, <c>NoticeSuppressed</c> with reason <c>AlreadyAnnounced</c>, says why no finished
+/// sound played. The reply is never in either: it was compared, not recorded.
+/// </remarks>
+public enum TickOutcome
+{
+    /// <summary>The tick's reply was exactly the sentinel: the row went back as it was.</summary>
+    QuietTick = 1,
 }
 
 /// <summary>The <c>reason</c> on a <see cref="DecisionKind.TaskTypeUnrecognised"/> row.</summary>

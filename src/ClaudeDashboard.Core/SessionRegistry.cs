@@ -415,6 +415,7 @@ public sealed class SessionRegistry(SingleWriterGuard guard)
             // A session first seen on a Stop that still lists running work is Waiting on it (T1.41).
             WaitingOn = FirstListed(inboundEvent),
             ListedTasks = FirstListed(inboundEvent),
+            ScheduledPrompts = (inboundEvent as Stop)?.ScheduledPrompts ?? ScheduledPrompts.None,
 
             // The very first event a session is seen on may already carry the title, so the latch
             // starts here rather than waiting for a second event to change something.
@@ -600,8 +601,53 @@ public sealed class SessionRegistry(SingleWriterGuard guard)
         // Any prompt ends the wait: the session has been woken, so nothing is left running on its
         // behalf until the next Stop says otherwise (T1.41, the reviewer's ruling). The tasks'
         // first-seen instants stay in ListedTasks for that Stop to carry forward.
-        return Transitioned.FromMove(moved is null ? null : moved with { WaitingOn = WaitingTasks.Empty });
+        // A tick of the session's own scheduled job keeps what the row showed before it, so a quiet
+        // one can put it back; any other prompt is real work and drops it (T1.44). The first
+        // snapshot is kept if a tick fires during a tick: that is still the row before the ticking.
+        var tick = QuietTicks.IsTick(current, prompt);
+
+        return Transitioned.FromMove(moved is null ? null : moved with
+        {
+            WaitingOn = WaitingTasks.Empty,
+            PreTick = tick ? current.PreTick ?? SnapshotOf(current) : null,
+        });
     }
+
+    /// <summary>What the row shows now, for a tick to put back if it turns out quiet (T1.44).</summary>
+    private static TickSnapshot SnapshotOf(Session current) =>
+        new(current.State, current.Latest, current.EnteredAt, current.ErrorKind, current.WaitingOn);
+
+    /// <summary>
+    /// The row after a quiet tick: back to what it showed before the tick began (T1.44, issue #56).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>As if the tick never happened, for everything the operator reads or hears.</strong>
+    /// The state, the exchange — so "Claude answered" is the real answer, not the sentinel — the
+    /// error kind, what a Waiting session waited on, and the instant the state was entered. That
+    /// last one is what keeps the sound engine quiet and its nudge ladder where it was: the engine
+    /// recognises an entry it already announced by its state and its entry instant, and does not
+    /// announce it again (see <c>SoundPolicyEngine.OnSessionChanged</c>).
+    /// </para>
+    /// <para>
+    /// What the tick did change stays changed, because it did happen: the session was heard from,
+    /// the scheduled jobs are the ones this Stop lists, and the transition log records the tick and
+    /// the revert — the log is the one place that tells the truth about what occurred.
+    /// </para>
+    /// </remarks>
+    private static Session Reverted(Session current, TickSnapshot pre, Stop stop) => current with
+    {
+        State = pre.State,
+        Latest = pre.Latest,
+        EnteredAt = pre.EnteredAt,
+        ErrorKind = pre.ErrorKind,
+        WaitingOn = pre.WaitingOn,
+        ScheduledPrompts = stop.ScheduledPrompts,
+        PreTick = null,
+        LastActivity = stop.Timestamp,
+        Transitions = current.Transitions.Append(
+            new StateTransition(current.State, pre.State, stop.Timestamp, $"{stop.HookEventName} (quiet tick, reverted)")),
+    };
 
     /// <summary>
     /// The running tasks of a Stop that creates the session, first seen at that Stop; empty for
@@ -631,6 +677,7 @@ public sealed class SessionRegistry(SingleWriterGuard guard)
     /// </remarks>
     private static string CauseOf(Session current, UserPromptSubmit prompt) =>
         !Acknowledgment.Applies(current.State) ? prompt.HookEventName
+        : QuietTicks.IsTick(current, prompt) ? $"{prompt.HookEventName} (scheduled prompt, not an ack of {current.State})"
         : prompt.IsMachinePrompt ? $"{prompt.HookEventName} (machine prompt, not an ack of {current.State})"
         : $"{prompt.HookEventName} (auto-ack of {current.State})";
 
@@ -701,6 +748,13 @@ public sealed class SessionRegistry(SingleWriterGuard guard)
             return Transitioned.Declined(ApplyOutcome.Duplicate);
         }
 
+        // A tick of the session's own scheduled job that says it found nothing puts the row back
+        // as it was before the tick (T1.44, issue #56). Compared as data, exactly, never logged.
+        if (QuietTicks.IsQuiet(current, stop) && current.PreTick is { } pre)
+        {
+            return Transitioned.To(Reverted(current, pre, stop));
+        }
+
         var answered = current.Latest with
         {
             Answer = stop.LastAssistantMessage,
@@ -721,7 +775,13 @@ public sealed class SessionRegistry(SingleWriterGuard guard)
         // nothing is a duplicate, as before.
         var moved = Moved(current, target, stop, latest: answered, errorKind: null);
 
-        return Transitioned.FromMove(moved is null ? null : moved with { WaitingOn = waitingOn, ListedTasks = waitingOn });
+        return Transitioned.FromMove(moved is null ? null : moved with
+        {
+            WaitingOn = waitingOn,
+            ListedTasks = waitingOn,
+            ScheduledPrompts = stop.ScheduledPrompts,
+            PreTick = null,
+        });
     }
 
     private static Transitioned ApplyStopFailure(Session current, StopFailure failure)

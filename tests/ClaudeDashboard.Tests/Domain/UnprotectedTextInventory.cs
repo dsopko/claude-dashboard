@@ -195,6 +195,11 @@ public sealed class UnprotectedTextInventory
         "Exchange.PromptId", "Session.Cwd", "Session.ErrorKind",
         "SessionId.Value", "GroupKey.Value", "SoundId.Name", "StateTransition.Cause",
 
+        // T1.44: the error matcher a quiet tick puts back — Session.ErrorKind, copied. The cron
+        // prompts a tick is recognised by are prompt text, and are deliberately not a string
+        // property anywhere: ScheduledPrompts holds them to compare and prints only a count.
+        "TickSnapshot.ErrorKind",
+
         // The wire DTO's non-prose fields.
         "HookPayload.Cwd", "HookPayload.ErrorType", "HookPayload.HookEventName",
         "HookPayload.Matcher", "HookPayload.NotificationType", "HookPayload.PromptId",

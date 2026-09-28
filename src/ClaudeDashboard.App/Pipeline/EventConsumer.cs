@@ -588,7 +588,12 @@ public sealed class EventConsumer : BackgroundService
             switch (change.Event)
             {
                 case RosterGroupEvent.Settled:
-                    _sound.OnRosterGroupSettled(change.Group, now);
+                    // With the instant the group went quiet, so a settle already announced and
+                    // brought back by a quiet tick is recognised and not announced again (T1.44).
+                    _sound.OnRosterGroupSettled(
+                        change.Group,
+                        now,
+                        RosterSettle.QuietSince(groups.First(group => group.Key == change.Group)));
                     SettledCount++;
                     break;
 

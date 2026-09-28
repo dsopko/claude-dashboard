@@ -97,12 +97,14 @@ Eight of thirty-three. This is the whole integration surface.
 - **`session_crons`** — an array of the scheduled wake-ups the session has set. Empty on most `Stop`s; 292 entries across 3 sessions, first seen 2026-09-03. Each entry is an object:
   - `id` (string).
   - `schedule` (string) — when it fires.
-  - `prompt` (string) — the prompt it will wake the session with. **Prompt text:** the dashboard does not read the field, and must never log it.
+  - `prompt` (string) — the prompt it will wake the session with. **Prompt text:** the dashboard reads it only to compare it (T1.44): it is held in memory for that and is never logged or shown. The raw payload, like every payload, is archived verbatim.
   - `recurring` (boolean).
 
-  #52 files it under case 4 (a cron that wakes the agent, then a false "finished"), not the Waiting state; it belongs with the observability line's quiet-prompt rule.
+  #52 files it under case 4 (a cron that wakes the agent, then a false "finished"), not the Waiting state. T1.44 (issue #56) is that rule, below.
 
-> **Dashboard (T1.41, issue #52):** a `Stop` whose `background_tasks` lists at least one running `shell` or `subagent` → **Waiting**, not Unread, with no sound. It is an allow-list: `monitor` and any unseen type change nothing, and an unseen type is recorded in the decisions record by count. Only `id`, `type`, `status` and `description` are read; a malformed list reads as empty. `session_crons` is not read at all.
+> **Dashboard (T1.41, issue #52):** a `Stop` whose `background_tasks` lists at least one running `shell` or `subagent` → **Waiting**, not Unread, with no sound. It is an allow-list: `monitor` and any unseen type change nothing, and an unseen type is recorded in the decisions record by count. Only `id`, `type`, `status` and `description` are read; a malformed list reads as empty.
+
+> **Dashboard (T1.44, issue #56): the quiet-tick sentinel.** A `UserPromptSubmit` whose `prompt` **exactly equals** the `prompt` of an entry in `session_crons` on the same session's **previous** `Stop` is a **tick** of that scheduled job — identified by structure, never by keywords (203 of 203 watchdog ticks on the operator's archive). A tick is a machine prompt: it does not acknowledge anything. If the tick's own `Stop` has a `last_assistant_message` that, trimmed of surrounding whitespace, is **exactly** `WATCHDOG-QUIET`, the tick is **quiet**: no finished sound, no nudge, and the row goes back to what it showed before the tick. Any other reply beeps as today. A job opts in by ending its prompt with the line in [Quiet scheduled jobs](quiet-scheduled-jobs.md). Measured on 2,222 archived `Stop`s: no `last_assistant_message` had leading or trailing whitespace, and the one-word replies all ended in punctuation — so `WATCHDOG-QUIET.` is not quiet. Only each entry's `prompt` is read; a malformed list reads as none, and then no prompt is a tick.
 
 ### ✅ `StopFailure`
 

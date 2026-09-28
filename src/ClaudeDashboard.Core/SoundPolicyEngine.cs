@@ -64,6 +64,17 @@ public sealed class SoundPolicyEngine : ISoundModeReader
     private readonly Dictionary<GroupKey, TrackedGroup> _groups = [];
 
     /// <summary>
+    /// The entry each session's latest transition replaced, so an entry that comes back unchanged is
+    /// recognised as one already announced (T1.44). One per session; dropped when it ends.
+    /// </summary>
+    private readonly Dictionary<SessionId, Tracked> _replaced = [];
+
+    /// <summary>
+    /// The settle each roster group's latest unsettle removed, for the same reason (T1.44).
+    /// </summary>
+    private readonly Dictionary<GroupKey, TrackedGroup> _unsettled = [];
+
+    /// <summary>
     /// The session a group notice is attributed to: none, because a group notice is the group's.
     /// </summary>
     /// <remarks>
@@ -164,6 +175,7 @@ public sealed class SoundPolicyEngine : ISoundModeReader
         if (session.State == SessionState.Ended)
         {
             _tracked.Remove(session.Id);
+            _replaced.Remove(session.Id);
             return;
         }
 
@@ -176,6 +188,38 @@ public sealed class SoundPolicyEngine : ISoundModeReader
             // the group can have moved, and that changes which mute applies.
             existing!.Group = effectiveGroup;
             return;
+        }
+
+        // AN ENTRY ALREADY ANNOUNCED, BACK UNCHANGED (T1.44, issue #56). A quiet tick of the
+        // session's own scheduled job puts the row back as it was — the same state, and the same
+        // instant it entered that state, which no real transition ever reuses. That is the entry
+        // this engine already announced, so it is not announced again, and its nudge ladder is
+        // restored where it was rather than restarted. Recorded as a suppression, so the decisions
+        // record says why a Finished state made no sound.
+        if (_replaced.TryGetValue(session.Id, out var prior)
+            && prior.State == session.State
+            && prior.EnteredAt == session.EnteredAt)
+        {
+            prior.Group = effectiveGroup;
+            _tracked[session.Id] = prior;
+            _replaced.Remove(session.Id);
+
+            if (NoticeFor(session.State) is { } again)
+            {
+                _sink.SoundSuppressed(
+                    SoundDecisionKind.Notice, session.Id, effectiveGroup, again, SuppressionReason.AlreadyAnnounced);
+            }
+
+            return;
+        }
+
+        if (known)
+        {
+            _replaced[session.Id] = existing!;
+        }
+        else
+        {
+            _replaced.Remove(session.Id);
         }
 
         var tracked = new Tracked
@@ -226,9 +270,19 @@ public sealed class SoundPolicyEngine : ISoundModeReader
     /// Calling this again for a group that is already settled changes nothing and re-sounds
     /// nothing: the settle is an edge, and the caller reports it once.
     /// </para>
+    /// <para>
+    /// <strong>A settle already announced, back unchanged (T1.44).</strong> A quiet tick in a
+    /// member unsettles the group and then puts the member back exactly as it was, so the group
+    /// settles again with the same <paramref name="quietSince"/> — the latest member's entry
+    /// instant, which no real hand-off reuses. That is the settle already announced: restored with
+    /// its nudge ladder, and not announced twice. Without the instant the settle is always new.
+    /// </para>
     /// </remarks>
+    /// <param name="group">The roster group that settled.</param>
+    /// <param name="settledAt">When the settle was observed.</param>
+    /// <param name="quietSince">When the group went quiet: its latest member's entry instant.</param>
     /// <exception cref="ArgumentException"><paramref name="group"/> names no group.</exception>
-    public void OnRosterGroupSettled(GroupKey group, DateTimeOffset settledAt)
+    public void OnRosterGroupSettled(GroupKey group, DateTimeOffset settledAt, DateTimeOffset? quietSince = null)
     {
         if (group.IsEmpty)
         {
@@ -242,9 +296,21 @@ public sealed class SoundPolicyEngine : ISoundModeReader
             return;
         }
 
+        if (quietSince is { } since
+            && _unsettled.TryGetValue(group, out var prior)
+            && prior.QuietSince == since)
+        {
+            _groups[group] = prior;
+            _unsettled.Remove(group);
+            _sink.SoundSuppressed(
+                SoundDecisionKind.GroupNotice, default, group, SoundId.Finished, SuppressionReason.AlreadyAnnounced);
+            return;
+        }
+
         _groups[group] = new TrackedGroup
         {
             NextNudgeAt = _options.UnreadNudgeAfter is { } after ? settledAt + after : null,
+            QuietSince = quietSince,
         };
 
         Play(GroupNotice, group, SoundId.Finished, _options.NoticeGain, TimeSpan.Zero,
@@ -261,7 +327,13 @@ public sealed class SoundPolicyEngine : ISoundModeReader
     public void OnRosterGroupUnsettled(GroupKey group)
     {
         using var writing = _guard.Enter("clearing a roster group's settle in the sound engine");
-        _groups.Remove(group);
+
+        // Kept aside, not forgotten: if the group settles again at the same quiet instant, it is
+        // this settle coming back (T1.44), and it is restored rather than announced again.
+        if (_groups.Remove(group, out var gone) && gone.QuietSince is not null)
+        {
+            _unsettled[group] = gone;
+        }
     }
 
     /// <summary>
@@ -597,6 +669,9 @@ public sealed class SoundPolicyEngine : ISoundModeReader
     private sealed class TrackedGroup
     {
         public required DateTimeOffset? NextNudgeAt { get; set; }
+
+        /// <summary>When the group went quiet, for recognising the same settle again (T1.44).</summary>
+        public DateTimeOffset? QuietSince { get; init; }
     }
 
     /// <summary>What the engine remembers about one session.</summary>

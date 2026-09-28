@@ -35,6 +35,10 @@ That is all. On its first start the dashboard adds one hook to your Claude Code 
 
 **Portable.** The release also carries `dsopko.ClaudeDashboard-win-Portable.zip`: extract it anywhere and run `current\ClaudeDashboard.App.exe`. No Start Menu entry, no Apps entry.
 
+## Quiet scheduled jobs
+
+A scheduled job, such as a watchdog that checks every 30 minutes, can end its turn without the dashboard playing **finished**: add one line to its prompt, and a tick that finds nothing to do replies `WATCHDOG-QUIET` and makes no sound. Anything else it says still beeps, so an escalation is never silenced. See [Quiet scheduled jobs](docs/quiet-scheduled-jobs.md) for the line, a complete example, and how to check it is working.
+
 ## Documents
 
 Everything lives in [`docs/`](docs/). Read in this order:

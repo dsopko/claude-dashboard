@@ -186,6 +186,7 @@ public sealed class HookEventMapper(IClock clock)
             LastAssistantMessage = payload.LastAssistantMessage,
             BackgroundTasks = allowed,
             UnrecognisedBackgroundTasks = unrecognised,
+            ScheduledPrompts = SessionCronReader.Read(payload.SessionCrons),
         };
     }
 }

@@ -194,6 +194,19 @@ public sealed record Stop : InboundEvent
     public int UnrecognisedBackgroundTasks { get; init; }
 
     private readonly IReadOnlyList<BackgroundTask> _backgroundTasks = [];
+
+    /// <summary>
+    /// The prompts of the session's scheduled jobs, from the payload's <c>session_crons</c>
+    /// (T1.44). None when there are none, or when the list is malformed.
+    /// </summary>
+    /// <exception cref="ArgumentNullException">Set to null.</exception>
+    public ScheduledPrompts ScheduledPrompts
+    {
+        get => _scheduledPrompts;
+        init => _scheduledPrompts = value ?? throw new ArgumentNullException(nameof(value));
+    }
+
+    private readonly ScheduledPrompts _scheduledPrompts = ScheduledPrompts.None;
 }
 
 /// <summary>

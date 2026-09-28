@@ -225,4 +225,33 @@ public sealed record Session
     }
 
     private readonly WaitingTasks _listedTasks = WaitingTasks.Empty;
+
+    /// <summary>
+    /// The prompts of the scheduled jobs the session's latest <c>Stop</c> listed (T1.44). Never
+    /// null; none by default.
+    /// </summary>
+    /// <remarks>
+    /// Replaced by every Stop the Registry applies. A prompt that exactly equals one of these is
+    /// the session's own cron firing — a tick — rather than anything anyone typed. See
+    /// <see cref="QuietTicks"/>.
+    /// </remarks>
+    /// <exception cref="ArgumentNullException">Set to null.</exception>
+    public ScheduledPrompts ScheduledPrompts
+    {
+        get => _scheduledPrompts;
+        init => _scheduledPrompts = value ?? throw new ArgumentNullException(nameof(value));
+    }
+
+    private readonly ScheduledPrompts _scheduledPrompts = ScheduledPrompts.None;
+
+    /// <summary>
+    /// What the row showed before a tick of the session's own scheduled job began, while that tick
+    /// is running; null otherwise (T1.44).
+    /// </summary>
+    /// <remarks>
+    /// Taken when a tick's prompt arrives, cleared by any other prompt and by the tick's Stop. If
+    /// that Stop's reply is exactly the sentinel, the row is put back to this — state, answer,
+    /// entry instant and what it waited on — as though the tick never happened.
+    /// </remarks>
+    public TickSnapshot? PreTick { get; init; }
 }

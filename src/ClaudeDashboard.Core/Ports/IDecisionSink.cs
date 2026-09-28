@@ -36,6 +36,13 @@ public enum SuppressionReason
     /// (issue #16).
     /// </summary>
     GroupDone = 5,
+
+    /// <summary>
+    /// An entry the engine had already announced came back unchanged — same state, same entry
+    /// instant — after a quiet tick put the row back (T1.44, issue #56). It is the same entry, so
+    /// it is not announced twice, and its nudge ladder resumes where it was.
+    /// </summary>
+    AlreadyAnnounced = 6,
 }
 
 /// <summary>

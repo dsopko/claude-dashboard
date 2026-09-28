@@ -70,6 +70,13 @@ public sealed record HookPayload
     public JsonElement? BackgroundTasks { get; init; }
 
     /// <summary>
+    /// <c>Stop</c>: the session's scheduled jobs, raw (T1.44, issue #56). Read for each entry's
+    /// <c>prompt</c> only, by <see cref="SessionCronReader"/>, leniently: a malformed list reads as none.
+    /// </summary>
+    [JsonPropertyName("session_crons")]
+    public JsonElement? SessionCrons { get; init; }
+
+    /// <summary>
     /// <c>Notification</c>: which notification this is — <c>permission_prompt</c>,
     /// <c>idle_prompt</c>, <c>agent_needs_input</c>, <c>agent_completed</c>.
     /// </summary>

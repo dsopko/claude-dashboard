@@ -163,8 +163,11 @@ public static class RosterSettle
     /// is 1.5 seconds late.
     /// </para>
     /// </remarks>
-    private static DateTimeOffset QuietSince(Group group)
+    /// <exception cref="ArgumentNullException"><paramref name="group"/> is null.</exception>
+    public static DateTimeOffset QuietSince(Group group)
     {
+        ArgumentNullException.ThrowIfNull(group);
+
         var latest = group.Members[0].EnteredAt;
 
         foreach (var member in group.Members)

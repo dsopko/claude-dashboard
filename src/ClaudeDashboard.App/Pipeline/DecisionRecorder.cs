@@ -226,7 +226,7 @@ public sealed class DecisionRecorder : IDecisionSink, IDecisionLog
                 after.State == SessionState.Ended ? DecisionKind.SessionEnded : DecisionKind.StateMoved,
                 FromState: before.State.ToString(),
                 ToState: after.State.ToString(),
-                Reason: MeaningOf(inboundEvent, before)?.ToString()));
+                Reason: ReasonOf(inboundEvent, before)));
         }
 
         if (before is not null && after is not null && before.WorkspaceGroup != after.WorkspaceGroup)
@@ -240,18 +240,26 @@ public sealed class DecisionRecorder : IDecisionSink, IDecisionLog
     }
 
     /// <summary>
-    /// What a prompt that moved a session meant, for the move's <c>reason</c> (T1.41, issue #52),
-    /// or null for anything else.
+    /// Why a prompt or a Stop moved a session, for the move's <c>reason</c> (T1.41, T1.44), or
+    /// null for anything else.
     /// </summary>
     /// <remarks>
-    /// Read from the event and the state it left, exactly as the Registry's transition cause is:
-    /// a machine prompt is never an acknowledgment; the operator's own prompt is one when the
-    /// state it left had something to acknowledge. See <see cref="PromptMeaning"/>.
+    /// Read from the event and the session it left, with the same Core rules the Registry applied:
+    /// a machine prompt — including the session's own scheduled job — is never an
+    /// acknowledgment; the operator's own prompt is one when the state it left had something to
+    /// acknowledge (<see cref="PromptMeaning"/>); and a Stop that ended a tick quietly put the row
+    /// back (<see cref="TickOutcome"/>).
     /// </remarks>
-    private static PromptMeaning? MeaningOf(InboundEvent inboundEvent, Session before) => inboundEvent switch
+    private static string? ReasonOf(InboundEvent inboundEvent, Session before) => inboundEvent switch
     {
-        UserPromptSubmit { IsMachinePrompt: true } => PromptMeaning.MachinePrompt,
-        UserPromptSubmit when Acknowledgment.Applies(before.State) => PromptMeaning.AutoAcknowledgment,
+        // The session's own cron first: it is recognised by the previous Stop's list, exactly as
+        // the Registry recognises it, and it is a machine prompt whatever its text (T1.44).
+        UserPromptSubmit prompt when QuietTicks.IsTick(before, prompt) => nameof(PromptMeaning.ScheduledPrompt),
+        UserPromptSubmit { IsMachinePrompt: true } => nameof(PromptMeaning.MachinePrompt),
+        UserPromptSubmit when Acknowledgment.Applies(before.State) => nameof(PromptMeaning.AutoAcknowledgment),
+
+        // The one rule the Registry applied to put the row back (T1.44). The reply is not recorded.
+        Stop stop when QuietTicks.IsQuiet(before, stop) => nameof(TickOutcome.QuietTick),
         _ => null,
     };
 
