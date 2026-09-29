@@ -1,6 +1,7 @@
 using System.IO;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using ClaudeDashboard.App.Configuration;
 using ClaudeDashboard.App.Hosting;
 using ClaudeDashboard.Core.Events;
@@ -13,7 +14,7 @@ using Serilog;
 namespace ClaudeDashboard.App.Ingress;
 
 /// <summary>
-/// The three ingress endpoints (Impl §3.2).
+/// The ingress endpoints (Impl §3.2), and <c>/state</c> beside them (T1.46).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -33,6 +34,11 @@ namespace ClaudeDashboard.App.Ingress;
 /// <para>
 /// Nothing here touches the Registry (Impl §3.2). Map, publish, return.
 /// </para>
+/// <para>
+/// <c>/state</c> is the exception to the paragraphs above, because it emits rather than ingests:
+/// it answers <c>404</c> when no token is configured, and a body when one is. Its remarks say
+/// why. Claude Code never calls it.
+/// </para>
 /// </remarks>
 public static class IngressEndpoints
 {
@@ -42,7 +48,20 @@ public static class IngressEndpoints
         AllowTrailingCommas = true,
     };
 
-    /// <summary>Maps <c>/hook</c>, <c>/show</c> and <c>/health</c>.</summary>
+    /// <summary>
+    /// How <c>/state</c> is written: field names for a reader, states and bands by name, indented.
+    /// Titles and descriptions go through <see cref="OperatorTextJsonConverter"/>, which the type
+    /// itself names.
+    /// </summary>
+    internal static readonly JsonSerializerOptions StateOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        DictionaryKeyPolicy = JsonNamingPolicy.CamelCase,
+        WriteIndented = true,
+        Converters = { new JsonStringEnumConverter() },
+    };
+
+    /// <summary>Maps <c>/hook</c>, <c>/show</c>, <c>/health</c> and <c>/state</c>.</summary>
     /// <param name="app">The endpoint route builder.</param>
     /// <param name="onShow">What to do when a second instance asks this one to surface (T1.15).</param>
     public static void MapIngress(this IEndpointRouteBuilder app, Action? onShow = null)
@@ -52,6 +71,7 @@ public static class IngressEndpoints
         app.MapPost("/hook", (Delegate)HandleHook);
         app.MapPost("/show", (HttpContext context) => HandleShow(context, onShow));
         app.MapGet("/health", (HttpContext context) => HandleHealth(context));
+        app.MapGet("/state", (HttpContext context) => HandleState(context));
     }
 
     /// <summary>
@@ -85,6 +105,55 @@ public static class IngressEndpoints
         var instance = paths is null ? string.Empty : SingleInstanceGate.NameFor(paths.Root);
 
         return Results.Text(HealthProbe.BodyFor(instance), "application/json");
+    }
+
+    /// <summary>
+    /// What the Registry believes now (T1.46, issue #10). Read-only: it changes no session, no
+    /// acknowledgment and no setting.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>The token is required here, and only here.</strong> <see cref="IngressToken.Accepts"/>
+    /// passes everything when no token is configured. That default is right for <c>/hook</c>,
+    /// which swallows data and answers empty. This is the first endpoint that <em>emits</em>: it
+    /// sends session titles and task descriptions to whoever asks. So with no token configured it
+    /// answers <c>404</c> — not <c>401</c>, because the endpoint is not available at all and a
+    /// <c>401</c> would tell a caller it exists. With a token configured, a missing or wrong one
+    /// gets <c>401</c> through <see cref="Authorized"/>, like the other endpoints.
+    /// </para>
+    /// <para>
+    /// <strong>The request thread reads one published reference and nothing else.</strong> It
+    /// never touches <c>SessionRegistry.Sessions</c> or the sound engine; <see cref="StateBoard"/>
+    /// explains why and how.
+    /// </para>
+    /// <para>
+    /// <strong>The body is never logged.</strong> It carries titles and task descriptions. The
+    /// lines here name the count and nothing else.
+    /// </para>
+    /// </remarks>
+    private static IResult HandleState(HttpContext context)
+    {
+        var services = context.RequestServices;
+        var logger = services.GetService(typeof(ILogger)) as ILogger ?? Log.Logger;
+        var token = services.GetService(typeof(IngressToken)) as IngressToken;
+        var board = services.GetService(typeof(StateBoard)) as StateBoard;
+
+        if (token is null || !token.IsConfigured || board is null)
+        {
+            return Results.NotFound();
+        }
+
+        if (!Authorized(context, services))
+        {
+            logger.Warning("Rejected a /state request with a missing or incorrect token.");
+            return Results.Unauthorized();
+        }
+
+        var report = board.Current;
+
+        logger.Debug("Served /state with {SessionCount} sessions.", report.SessionCount);
+
+        return Results.Json(report, StateOptions);
     }
 
     /// <summary>The single ingest endpoint (Impl §3.2).</summary>

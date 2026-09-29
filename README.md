@@ -39,6 +39,16 @@ That is all. On its first start the dashboard adds one hook to your Claude Code 
 
 A scheduled job, such as a watchdog that checks every 30 minutes, can end its turn without the dashboard playing **finished**: add one line to its prompt, and a tick that finds nothing to do replies `WATCHDOG-QUIET` and makes no sound. Anything else it says still beeps, so an escalation is never silenced. See [Quiet scheduled jobs](docs/quiet-scheduled-jobs.md) for the line, a complete example, and how to check it is working.
 
+## Asking the dashboard what it believes
+
+`GET http://127.0.0.1:<port>/state` answers with what the dashboard believes now: every session with its state, band, title, waiting tasks and next nudge time, then the band counts and the tray light. It is for tests, diagnosis and a future phone view. It never carries a prompt or an answer.
+
+It needs a token. Set `CLAUDE_DASHBOARD_TOKEN` for your user, restart the dashboard, and send the same value in an `X-Dashboard-Token` header. With no token set, `/state` answers `404`; with a wrong or missing one, `401`. The port is in `%LocalAppData%\ClaudeDashboard\listening.txt` while the dashboard runs.
+
+```powershell
+Invoke-RestMethod "http://127.0.0.1:$(Get-Content $env:LOCALAPPDATA\ClaudeDashboard\listening.txt)/state" -Headers @{ 'X-Dashboard-Token' = $env:CLAUDE_DASHBOARD_TOKEN }
+```
+
 ## Documents
 
 Everything lives in [`docs/`](docs/). Read in this order:

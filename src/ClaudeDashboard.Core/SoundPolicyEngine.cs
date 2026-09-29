@@ -384,6 +384,8 @@ public sealed class SoundPolicyEngine : ISoundModeReader
         // it no longer writes would reopen exactly the race this closed.
         using var writing = _guard.Enter("evaluating the nudge schedule");
 
+        var advanced = false;
+
         foreach (var (id, tracked) in _tracked)
         {
             if (tracked.NextNudgeAt is not { } due || due > now)
@@ -401,11 +403,13 @@ public sealed class SoundPolicyEngine : ISoundModeReader
             {
                 // TS §IV.5: an unread result gets at most one soft nudge.
                 tracked.NextNudgeAt = null;
+                advanced = true;
                 continue;
             }
 
             tracked.Step++;
             tracked.NextNudgeAt = now + IntervalAt(tracked.Step);
+            advanced = true;
         }
 
         // Settled roster groups nudge on the same pass and through the same Play, so mute, global
@@ -423,6 +427,11 @@ public sealed class SoundPolicyEngine : ISoundModeReader
             // TS §IV.5: an unread result gets at most one soft nudge, and a settled group is one
             // unread result however many members produced it.
             group.NextNudgeAt = null;
+        }
+
+        if (advanced)
+        {
+            NudgeScheduleAdvanced?.Invoke(this, EventArgs.Empty);
         }
     }
 
@@ -536,6 +545,26 @@ public sealed class SoundPolicyEngine : ISoundModeReader
     /// </summary>
     public DateTimeOffset? NextNudgeAt(SessionId session) =>
         _tracked.TryGetValue(session, out var tracked) ? tracked.NextNudgeAt : null;
+
+    /// <summary>
+    /// Raised when <see cref="Evaluate(DateTimeOffset)"/> moves a session's
+    /// <see cref="NextNudgeAt"/>: a nudge fired, and the next one is scheduled or none is.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>The one change to the schedule that no session change announces.</strong> Every
+    /// other move of <see cref="NextNudgeAt"/> happens inside <see cref="OnSessionChanged"/>,
+    /// which the Registry's <c>SessionChanged</c> drives. A nudge firing is time passing, and
+    /// nothing else says so. The state endpoint (T1.46) listens here, so the time it reports
+    /// does not go stale in the past after the first nudge.
+    /// </para>
+    /// <para>
+    /// Raised on the thread that called <see cref="Evaluate(DateTimeOffset)"/>, inside the
+    /// single-writer region, after the pass. A handler may read <see cref="NextNudgeAt"/> and
+    /// must do nothing else here.
+    /// </para>
+    /// </remarks>
+    public event EventHandler? NudgeScheduleAdvanced;
 
     /// <summary>
     /// Emits an intent unless the session is muted.

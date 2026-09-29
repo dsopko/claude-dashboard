@@ -220,6 +220,7 @@ public static class AppHost
             sp.GetRequiredService<ILogger>(),
             sp.GetRequiredService<DecisionRecorder>()));
         builder.Services.AddSingleton<TrayIcon>();
+        builder.Services.AddSingleton<StateBoard>();
         // The durable event log (T1.17). The archive is the channel the consumer hands records
         // to without ever waiting; the writer is the only thing that touches the file. They are
         // separate registrations because they are separate threads: if the store were reachable
@@ -259,6 +260,12 @@ public static class AppHost
         registry.SessionChanged += (_, e) =>
             sound.OnSessionChanged(e.Session, GroupKeys.Effective(e.Session, rosters.Book));
         _ = app.Services.GetRequiredService<SessionProjection>();
+
+        // AFTER the sound engine's subscription, and the order is a correctness constraint: events
+        // run their handlers in subscription order, and the board reads the nudge time the engine
+        // has just set for this change. Resolved the other way round, /state would report the
+        // schedule as it stood before the change (T1.46; StateBoard's remarks).
+        _ = app.Services.GetRequiredService<StateBoard>();
 
         // The decisions recorder hears about drops and about /show (T1.37). Post-build wiring,
         // like the sound engine's subscription above: these callbacks fire on the writing thread

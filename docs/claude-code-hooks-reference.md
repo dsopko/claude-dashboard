@@ -381,6 +381,15 @@ A hook's JSON stdout carries decisions, which makes this the same rule as `200`-
 
 **`SessionEnd` was not observed** in the `claude -p` run above. Not investigated, and not needed for T1.28 — recorded so nobody reads the three events as a complete list.
 
+# `GET /state` is not a hook
+
+The ingress host also serves `GET /state` (T1.46, issue #10). **Claude Code never calls it**, and no hook configuration names it. It is here so nobody mistakes it for part of the hook contract, and so its token rule sits beside the one for `/hook`.
+
+- **It reports what the dashboard believes now:** one entry per session with its state, band, group, working directory, timestamps, error kind, title, waiting tasks and next nudge time, then the band counts, the session count and the tray roll-up. The decisions table records history; this is the present.
+- **The token is required.** `/hook` accepts any post when `CLAUDE_DASHBOARD_TOKEN` is unset, because it only swallows data. `/state` emits titles and task descriptions, so it does not inherit that default: with no token configured it answers `404`, and with one configured a missing or wrong `X-Dashboard-Token` gets `401`.
+- **It never carries prompt or answer text**, and never a background task's command.
+- It is read-only and changes nothing. `/hook` still answers `200` with an empty body and no decision field.
+
 ---
 
 ## Refreshing this document

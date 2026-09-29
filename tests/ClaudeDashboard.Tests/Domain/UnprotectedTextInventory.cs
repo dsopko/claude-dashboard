@@ -200,6 +200,15 @@ public sealed class UnprotectedTextInventory
         // property anywhere: ScheduledPrompts holds them to compare and prints only a count.
         "TickSnapshot.ErrorKind",
 
+        // T1.46's /state report: the session id, the workspace group key, the working directory,
+        // the error matcher and Claude Code's task id — each a copy of a field already classified
+        // here (Session.Cwd, Session.ErrorKind, SessionId.Value, GroupKey.Value, WaitingTask.Id).
+        // The report's prose — the title and the task description — is NOT a string property: it
+        // travels as OperatorText, which the scan cannot see and Serilog cannot print, so
+        // CarriesOperatorText did not grow. OperatorTextTests measures that through Serilog.
+        "SessionStateEntry.Cwd", "SessionStateEntry.ErrorKind", "SessionStateEntry.Group",
+        "SessionStateEntry.Id", "WaitingTaskEntry.Id",
+
         // The wire DTO's non-prose fields.
         "HookPayload.Cwd", "HookPayload.ErrorType", "HookPayload.HookEventName",
         "HookPayload.Matcher", "HookPayload.NotificationType", "HookPayload.PromptId",
