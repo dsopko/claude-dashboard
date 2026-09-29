@@ -426,6 +426,14 @@ Tasks landing after T1.20. Each one puts the acceptance document out of date in 
   - The reply is compared as data and never logged.
   - The operator's own settings are untouched. The dashboard changes no cron.
 
+**T1.45 — Upgrade Velopack**
+- **Goal:** the packager and its runtime are current before the update client (install path, Step 3) is built on them.
+- **Depends:** PKG.1, PKG.3
+- **Realizes:** Packaging Design D1 and D5. `vpk` reported 1.2.158 available against our pinned 1.2.0.
+- **Deliverables:** the `Velopack` PackageReference and the `vpk` tool in `.config/dotnet-tools.json` raised together to the newest stable release that restores against `net10.0-windows`. The version-match test already enforces that the two agree. Any source or `build\package.ps1` change the upgrade requires, found from Velopack's own release notes rather than by trial.
+- **Acceptance:** .NET 10 support confirmed from the package, not assumed; `build\package.ps1 -Version x.y.z` produces the six artefacts with the same names; `VelopackApp.Build().Run()` is still the first statement of `Main`, and its guard passes; the portable zip runs with roots redirected; **a Setup built with the new version upgrades an install made by the old one in place**, keeping the data folder, in a throwaway install root and never on the operator's machine; both suite counts.
+- **Guardrails:** stable releases only, no preview. The two versions move together or not at all. If the newest stable release changes the update-feed format or the `vpk pack` flags in a way that breaks an existing install's upgrade, stop and report.
+
 **Ordering ruled 2026-09-02:** the packaging workstream — `PKG.1` → `PKG.2` → `PKG.3` → T1.33 → `PKG.4` in the [Packaging Execution Plan](claude-dashboard-packaging-execution-plan.md) — runs **ahead of T2.1**. Appendix A is unchanged; the packaging plan carries its own order.
 
 ---
