@@ -452,6 +452,20 @@ Tasks landing after T1.20. Each one puts the acceptance document out of date in 
   - `/health` stays unauthenticated, and `Health_answers_without_a_token` stays green.
   - No prompt and no answer text, ever. A background task's `command` is not stored and does not appear (T1.41).
 
+**T1.47 — The finish clock, and the reserved button hidden**
+- **Goal:** a finished row keeps telling the operator when the work finished, through an acknowledgment and through the session's end; and the row shows no control that does nothing. Closes issues #59 and #60.
+- **Depends:** T1.40 (the ask clock), T1.41 (Waiting joins the ask)
+- **Realizes:** the operator's ruling of 2026-09-29: the time that matters is when the session finished, not when it was acknowledged or closed.
+- **Deliverables:**
+  - `SessionViewModel.Age` reads a third anchor. Working and Waiting read the ask, `Exchange.StartedAt`, as today. **Unread, Acked and Ended read the finish, `Exchange.AnsweredAt`.** When `AnsweredAt` is null — a session closed or acknowledged in the middle of a turn — they read `Session.EnteredAt`, as today. NeedsPermission, NeedsQuestion, Error and Interrupted keep time in state.
+  - The remark on `Age` rewritten to match, including the table of states and clocks.
+  - The **Open terminal · PHASE 2** button in `RowTemplates.xaml` hidden. The markup stays in place for Phase 2 navigation, with a comment saying why it is hidden.
+- **Acceptance:** an acknowledged row reads the same age after the click as before it; an Unread row that ends reads the same age after `SessionEnd` as before it; a session that ends in the middle of a turn counts from its end; an Unread row reads the same age it reads today; the sort order, the nudge ladder and the roster settle are unchanged; no visible control in the expanded row says "PHASE 2"; the expanded row lays out correctly without the button at 100% and at a fractional scale; both suite counts.
+- **Guardrails:**
+  - Only the display reads the new anchor. The sort order, the nudge ladder and the roster settle keep reading `Session.EnteredAt` (the line T1.40 drew).
+  - The short session id in the expanded row stays.
+  - Hide the button; do not delete it.
+
 **Ordering ruled 2026-09-02:** the packaging workstream — `PKG.1` → `PKG.2` → `PKG.3` → T1.33 → `PKG.4` in the [Packaging Execution Plan](claude-dashboard-packaging-execution-plan.md) — runs **ahead of T2.1**. Appendix A is unchanged; the packaging plan carries its own order.
 
 ---
