@@ -45,6 +45,10 @@ A scheduled job, such as a watchdog that checks every 30 minutes, can end its tu
 
 It needs a token. Set `CLAUDE_DASHBOARD_TOKEN` for your user, restart the dashboard, and send the same value in an `X-Dashboard-Token` header. With no token set, `/state` answers `404`; with a wrong or missing one, `401`. The port is in `%LocalAppData%\ClaudeDashboard\listening.txt` while the dashboard runs.
 
+**Setting a token also requires restarting every Claude Code session, and the terminal that launches them.** Once a token is set, the dashboard refuses any hook that does not carry it. A session started before you set the variable does not have it, so its hooks do not send it, and the dashboard refuses every one of them. The symptom is a session that never appears in the dashboard, or that stops changing. Nothing tells you on screen. The dashboard log records each refusal as `Rejected a /hook post with a missing or incorrect token.` Close each terminal, open a new one, and start the session again.
+
+`nextNudgeAt` is the schedule, not what you will hear: a muted session still shows a time. When it is `null`, either no nudge is coming or the session is a finished member of a roster group, and the group owns the notice.
+
 ```powershell
 Invoke-RestMethod "http://127.0.0.1:$(Get-Content $env:LOCALAPPDATA\ClaudeDashboard\listening.txt)/state" -Headers @{ 'X-Dashboard-Token' = $env:CLAUDE_DASHBOARD_TOKEN }
 ```

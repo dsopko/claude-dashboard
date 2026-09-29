@@ -125,6 +125,32 @@ public sealed class StateBoardTests : IDisposable
         Assert.True(second > _clock.Now, "after the nudge fires, the report must show the next one, not the one just spent");
     }
 
+    /// <summary>
+    /// An unread session gets one nudge. Once it fires, the report shows none scheduled, not the
+    /// time just spent.
+    /// </summary>
+    /// <remarks>
+    /// The engine clears an Unread nudge rather than scheduling the next one, and that is the
+    /// other branch of <see cref="SoundPolicyEngine.NudgeScheduleAdvanced"/>. Nothing else changes
+    /// when it fires, so without the event the report would go on showing a time in the past.
+    /// </remarks>
+    [Fact]
+    public void An_unread_sessions_single_nudge_fires_and_the_report_then_shows_none()
+    {
+        _harness.Finished("unread", T0, _harness.Working("unread", T0));
+
+        var due = Entry("unread").NextNudgeAt;
+
+        Assert.NotNull(due);
+        Assert.Equal(SessionState.Unread, Entry("unread").State);
+
+        _clock.Now = due.Value.AddSeconds(1);
+        _sound.Evaluate(_clock.Now);
+
+        Assert.Null(_sound.NextNudgeAt(new SessionId("unread")));
+        Assert.Null(Entry("unread").NextNudgeAt);
+    }
+
     [Fact]
     public void A_session_with_nothing_scheduled_reports_no_nudge()
     {

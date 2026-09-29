@@ -117,8 +117,10 @@ public static class IngressEndpoints
     /// passes everything when no token is configured. That default is right for <c>/hook</c>,
     /// which swallows data and answers empty. This is the first endpoint that <em>emits</em>: it
     /// sends session titles and task descriptions to whoever asks. So with no token configured it
-    /// answers <c>404</c> — not <c>401</c>, because the endpoint is not available at all and a
-    /// <c>401</c> would tell a caller it exists. With a token configured, a missing or wrong one
+    /// answers <c>404</c> — not <c>401</c>, because the endpoint is not usable at all, and a
+    /// <c>401</c> would invite a caller to find the token. It does not hide that the route exists: a
+    /// <c>POST /state</c> answers <c>405</c>, as <c>POST /health</c> does. The claim is only that a
+    /// <c>404</c> does not advertise a usable endpoint. With a token configured, a missing or wrong one
     /// gets <c>401</c> through <see cref="Authorized"/>, like the other endpoints.
     /// </para>
     /// <para>

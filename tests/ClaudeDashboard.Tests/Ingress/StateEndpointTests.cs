@@ -25,8 +25,9 @@ namespace ClaudeDashboard.Tests.Ingress;
 /// <para>
 /// <strong>404 with no token configured, not 401.</strong> <see cref="IngressToken.Accepts"/>
 /// passes everything when no token is set, which is right for <c>/hook</c> and wrong for the first
-/// endpoint that emits. With none configured the endpoint is not there at all, and a <c>401</c>
-/// would tell a caller it exists.
+/// endpoint that emits. With none configured the endpoint is not usable, and a <c>404</c> does not
+/// advertise it as usable the way a <c>401</c> would. It does not hide the route: a
+/// <c>POST /state</c> answers <c>405</c>.
 /// </para>
 /// <para>
 /// Each test builds its own host, because the token is a host-wide choice and the two cases need
@@ -177,10 +178,14 @@ public sealed class StateEndpointTests
     /// here and answer <c>500</c>. That is the defect this test was planted against, and it failed.
     /// </para>
     /// <para>
-    /// A bulk copy such as <c>[.. Sessions.Values]</c> does not throw: it copies the array with no
-    /// version check. It is still wrong, because it reads entries the writer is changing. This
-    /// test cannot see that; <c>A_state_request_changes_nothing</c> catches a report rebuilt per
-    /// request instead.
+    /// A bulk copy such as <c>[.. Sessions.Values]</c> fails differently, and not reliably. It
+    /// sizes the destination from <c>Count</c> and then copies with no version check, so a writer
+    /// adding a key between the two makes <c>ValueCollection.CopyTo</c> throw
+    /// <see cref="ArgumentException"/> ("Destination array is not long enough") — the review
+    /// measured that in <c>StateHostTests</c>. Without that timing it can take an entry whose
+    /// count was raised before its value was written. Either way it is wrong, and this test
+    /// catches it only by chance. <c>The_endpoint_serves_the_published_report_and_nothing_else</c>
+    /// is the test that holds the handler to the published reference.
     /// </para>
     /// <para>
     /// The writer's side is checked as firmly as the reader's: every event applied, none lost, and
@@ -235,6 +240,58 @@ public sealed class StateEndpointTests
         Assert.True(requests > 1, $"only {requests} request overlapped the writer; the test proved nothing");
         Assert.Equal(Sessions, outcomes.Count(outcome => outcome == ApplyOutcome.Applied));
         Assert.Equal(Sessions, host.Board.Current.SessionCount);
+    }
+
+    /// <summary>
+    /// The handler serves the report the board published, and builds nothing of its own.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The board is disposed, so it stops hearing the Registry, and then the Registry changes. The
+    /// body must still describe the world the board last published. A handler that built its
+    /// report per request — from <see cref="SessionRegistry.Sessions"/>, the sound engine and the
+    /// clock — would describe the changed world instead, and fail here.
+    /// </para>
+    /// <para>
+    /// This is the guard the review asked for (P1b). The concurrency tests catch an off-thread
+    /// read only when it happens to collide with a write, and
+    /// <c>A_state_request_changes_nothing</c> cannot tell a per-request build from the published
+    /// report when the clock is injected, because both give the same body.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task The_endpoint_serves_the_published_report_and_nothing_else()
+    {
+        await using var host = await StateHost.Start(Token);
+
+        host.Registry.Apply(new UserPromptSubmit
+        {
+            SessionId = new SessionId("published"),
+            Timestamp = FakeClock.DefaultStart,
+            Cwd = @"C:\work",
+            PromptId = "p-1",
+            Prompt = "go",
+        });
+
+        host.Board.Dispose();
+
+        host.Registry.Apply(new UserPromptSubmit
+        {
+            SessionId = new SessionId("unpublished"),
+            Timestamp = FakeClock.DefaultStart.AddSeconds(1),
+            Cwd = @"C:\work",
+            PromptId = "p-1",
+            Prompt = "go",
+        });
+
+        using var response = await host.Client.SendAsync(Get("/state", Token));
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var root = document.RootElement;
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(2, host.Registry.Sessions.Count);
+        Assert.Equal(1, root.GetProperty("sessionCount").GetInt32());
+        Assert.Equal("published", Assert.Single(root.GetProperty("sessions").EnumerateArray().ToList()).GetProperty("id").GetString());
     }
 
     private static HttpRequestMessage Get(string path, string token)
