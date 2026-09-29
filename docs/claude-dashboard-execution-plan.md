@@ -434,6 +434,24 @@ Tasks landing after T1.20. Each one puts the acceptance document out of date in 
 - **Acceptance:** .NET 10 support confirmed from the package, not assumed; `build\package.ps1 -Version x.y.z` produces the six artefacts with the same names; `VelopackApp.Build().Run()` is still the first statement of `Main`, and its guard passes; the portable zip runs with roots redirected; **a Setup built with the new version upgrades an install made by the old one in place**, keeping the data folder, in a throwaway install root and never on the operator's machine; both suite counts.
 - **Guardrails:** stable releases only, no preview. The two versions move together or not at all. If the newest stable release changes the update-feed format or the `vpk pack` flags in a way that breaks an existing install's upgrade, stop and report.
 
+**T1.46 — The state endpoint**
+- **Goal:** the assembled program can be asked what it currently believes, so a correct dashboard and a wrong one stop answering identically from outside. Closes issue #10.
+- **Depends:** T1.37 (the decisions record, which covers history where this covers the present)
+- **Realizes:** Impl §3.2's endpoint set, widened by one. The acceptance gap named in `docs/claude-dashboard-phase1-acceptance.md` §5 criterion 4 — nudge firing unobservable outside the process — closes with it.
+- **Deliverables:**
+  - `GET /state`, loopback-bound, returning one entry per session the Registry holds: id, state, band, workspace group, `EnteredAt`, `LastActivity`, `LastHeardAt`, `ErrorKind`, the title, the waiting tasks with their kind and description, and the session's next nudge time; plus the band counts and the tray roll-up.
+  - **A token is required, not optional.** With no `CLAUDE_DASHBOARD_TOKEN` configured, `/state` answers `404` and is not served. `IngressToken.Accepts` passes everything when no token is set, and this is the first endpoint that *emits* rather than ingests, so it must not inherit that default. `/hook`, `/show` and `/health` are unchanged.
+  - **A snapshot the request thread owns.** The Registry has one writer and no locks, and `SessionRegistry.Sessions` is a live view that throws when enumerated mid-apply — the T1.2 review hit exactly that. Copy `SessionProjection`: subscribe to `SessionChanged`, take the immutable `Session` out of the event arguments on the consumer thread, and read `SoundPolicyEngine.NextNudgeAt` there too.
+  - **Prose wrapped, not inventoried.** The title and the task descriptions are in `UnprotectedTextInventory.CarriesOperatorText`. They reach the response through a wrapper modelled on `PayloadJson` — no public string property, a redacting `ToString()`, a `Reveal()`, and a `JsonConverter` that writes the revealed value. The inventory shrinks or stays level; it does not grow.
+  - Counts derived by calling `AttentionOrder.BandOf`, never by a second copy of the band rule.
+  - The endpoint and its token requirement documented in the README and the hook reference.
+- **Acceptance:** `/state` against a running dashboard reports the states the window shows, for at least one session in each of Needs-You, Working and Quiet; a next-nudge time that arrives before the nudge fires; `404` with no token configured and `401` with the wrong one; counts equal to the window's; no prompt or answer text anywhere in the body; the response object rendered through a real Serilog pipeline reveals no title and no task description; both suite counts.
+- **Guardrails:**
+  - Read-only. No request may change a session, an acknowledgment or a setting.
+  - The request thread never touches `SessionRegistry.Sessions`.
+  - `/health` stays unauthenticated, and `Health_answers_without_a_token` stays green.
+  - No prompt and no answer text, ever. A background task's `command` is not stored and does not appear (T1.41).
+
 **Ordering ruled 2026-09-02:** the packaging workstream — `PKG.1` → `PKG.2` → `PKG.3` → T1.33 → `PKG.4` in the [Packaging Execution Plan](claude-dashboard-packaging-execution-plan.md) — runs **ahead of T2.1**. Appendix A is unchanged; the packaging plan carries its own order.
 
 ---
