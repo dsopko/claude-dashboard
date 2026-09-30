@@ -471,6 +471,27 @@ Tasks landing after T1.20. Each one puts the acceptance document out of date in 
   - **The header's Mute all is wired** to the tray's Mute all / Unmute all command, with its label following the muted state. The stale T1.13 tooltip goes.
   - **The mute and pause labels change at the click (ruled 2026-09-30, after the second review).** The command still travels the Channel and the label still reads the engine's real state, so nothing optimistic is shown. What was missing is a refresh: after the consumer applies a `SoundCommand`, it drives the UI tick at once, so the tray and the header re-read the mode within milliseconds instead of at the next 15-second tick. The reviewer measured the old delay live at 7 to 11 s. It covers Mute all, Unmute all, Mute for 30 minutes, Pause and Resume.
 
+**T1.48 — The token travels with the port**
+- **Goal:** a running Claude Code session keeps reporting through any number of dashboard restarts, and the ingress token protects every user without setup. Closes issue #57.
+- **Depends:** T1.28 (the command hook and `listening.txt`), T1.46 (`/state`), T1.47 (merged first; one checkout)
+- **Realizes:** the design the operator chose on 2026-09-30, recorded in issue #57. It replaces Impl §3.4's optional environment-variable token.
+- **Deliverables:**
+  - **A new token at every start**, 32 random bytes as base64url (43 characters), held in memory for the life of the process. `IngressToken` reads it from there and never from the environment, so a token is always configured.
+  - **`listening.txt` holds two lines, the port then the token**, written temp-then-rename as today and deleted on quit. `set /p` reads only the first line, so the port logic is unchanged.
+  - **The hook script reads the token from the file at every event**, validates it — exactly 43 characters, each from `A–Z a–z 0–9 - _` — and always sends the header. On a missing or invalid token it sends nothing and exits 0. The environment branch goes.
+  - **The second-launch `/show` reads the running dashboard's token from `listening.txt`**, not from the environment.
+  - **`CLAUDE_DASHBOARD_TOKEN` is retired.** When set, it is ignored, with one Information line at start. `DashboardTokenSetup.Ensure` and its user-scope write are removed.
+  - **`/state`'s "404 when no token is configured" branch is removed**, because a token always exists.
+  - **The script is written before `listening.txt` is announced**, so an old script never meets a dashboard that requires the token.
+  - Docs: README, the hook reference, Impl §3.4, §9 and §10.2, the screenshot guide, and the `HookRegistration` remark on environment inheritance. The "restart every session after setting a token" warning goes.
+- **Acceptance:** a hook run with an environment from before a dashboard restart keeps reporting after it; two starts produce two different tokens, and the old one is refused; `listening.txt` holds the port and the token and is deleted on quit; the script sends nothing and prints nothing, and exits 0, when the token line is missing, short, long, or holds any character outside base64url, including a quote, `&`, `%` and `!`; `CLAUDE_DASHBOARD_TOKEN` is ignored with one log line; a second launch still surfaces the running window; `/state` refuses a request without the current token; the token appears in no log line and on no screen; the cost per hook is measured before and after; both suite counts.
+- **Guardrails:**
+  - **`findstr` character ranges are not ASCII ranges** (`[a-z]` matches some capitals and accented letters). The script's check must not rely on them.
+  - The script still prints nothing on every path and always exits 0. Its output reaches Claude's context on two events.
+  - `/health` stays unauthenticated.
+  - The token is never logged, displayed or committed.
+  - A hook refused once during a restart, when it read the old file just before the swap, is accepted.
+
 **Ordering ruled 2026-09-02:** the packaging workstream — `PKG.1` → `PKG.2` → `PKG.3` → T1.33 → `PKG.4` in the [Packaging Execution Plan](claude-dashboard-packaging-execution-plan.md) — runs **ahead of T2.1**. Appendix A is unchanged; the packaging plan carries its own order.
 
 ---
