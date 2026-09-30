@@ -1042,7 +1042,7 @@ public sealed class MainWindowTests(StaHarness harness, Xunit.Abstractions.ITest
     // ---- The expanded row ------------------------------------------------------------------------
 
     [Fact]
-    public void An_expanded_row_shows_the_whole_exchange_and_a_reserved_terminal_slot()
+    public void An_expanded_row_shows_the_whole_exchange_and_no_phase_placeholder()
     {
         var found = WithWindow(
             registry =>
@@ -1061,14 +1061,13 @@ public sealed class MainWindowTests(StaHarness harness, Xunit.Abstractions.ITest
                     .Select(TextOf)
                     .ToList();
 
+                // By name: a collapsed button is never measured, so its template — and the "Open
+                // terminal" text inside it — is never built, and a search by text finds nothing.
                 var terminal = StaHarness.FindAll<Button>(RowFor(window, "finished"))
-                    .SelectMany(button => StaHarness.FindAll<TextBlock>(button)
-                        .Where(block => TextOf(block) == "Open terminal")
-                        .Select(_ => button))
-                    .SingleOrDefault();
+                    .SingleOrDefault(button => button.Name == "OpenTerminalButton");
 
-                return (Texts: texts, TerminalEnabled: terminal?.IsEnabled, HasTerminal: terminal is not null,
-                    Asked: $"YOU ASKED · {row.AskedAtText} · {row.AskedAgoText}");
+                return (Texts: texts, TerminalVisible: terminal?.IsVisible, HasTerminal: terminal is not null,
+                    ShortId: row.ShortId, Asked: $"YOU ASKED · {row.AskedAtText} · {row.AskedAgoText}");
             });
 
         Assert.Contains("write the tests", found.Texts);
@@ -1080,10 +1079,71 @@ public sealed class MainWindowTests(StaHarness harness, Xunit.Abstractions.ITest
         Assert.Contains("Added 23 tests.", found.Texts);
         Assert.Contains("CLAUDE ANSWERED", found.Texts);
 
-        // Reserved for Phase 2 navigation, and inert: a slot that silently did nothing would be a
-        // worse lie than one that says it is not ready.
-        Assert.True(found.HasTerminal);
-        Assert.False(found.TerminalEnabled);
+        // T1.47, issue #60: the reserved "Open terminal · PHASE 2" button is hidden, because a user
+        // does not know the plan's phases and a dead button reads as unfinished. It is kept in the
+        // markup, collapsed, for Phase 2 navigation to bring back — so it is found, and not shown.
+        // No visible text in the expanded row names a phase, and the short id stays.
+        Assert.True(found.HasTerminal, "the terminal slot should stay in the markup for Phase 2");
+        Assert.False(found.TerminalVisible);
+        Assert.DoesNotContain(found.Texts, text => text.Contains("PHASE", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain("Open terminal", found.Texts);
+        Assert.Contains(found.ShortId, found.Texts);
+    }
+
+    /// <summary>
+    /// With the terminal slot hidden (T1.47, issue #60), the expanded row's action line still lays
+    /// out: the session id sits beside the Acknowledge button with the button's own gap, inside
+    /// the row, at every width from the window's minimum up — whole widths and the fractional ones
+    /// a 150% scale produces.
+    /// </summary>
+    /// <remarks>
+    /// This machine runs at 100%, and the DPI cannot be changed inside a test process (see the
+    /// fractional-scale notes on <c>FittingStrip</c>'s tests). The fractional widths are the
+    /// part of that hazard that can be reproduced here: widths of k / 1.5 device pixels.
+    /// </remarks>
+    [Fact]
+    public void The_expanded_action_line_lays_out_without_the_terminal_slot()
+    {
+        var failures = WithWindow(
+            registry =>
+            {
+                var promptId = registry.Working("finished", At, prompt: "write the tests");
+                registry.Finished("finished", At.AddMinutes(1), promptId, answer: "Added 23 tests.");
+            },
+            (window, viewModel) =>
+            {
+                var row = viewModel.Rows.OfType<SessionViewModel>().Single();
+                row.IsExpanded = true;
+                window.UpdateLayout();
+
+                var presenter = RowFor(window, "finished");
+                var buttons = StaHarness.FindAll<Button>(presenter).ToList();
+                var ack = buttons.Single(button => Equals(button.Content, "✓ Acknowledge"));
+                var id = buttons.Single(button => button.Command == row.CopyIdCommand);
+                var bad = new List<string>();
+
+                var widths = Enumerable.Range(0, 300).Select(step => window.MinWidth + (step / 1.5)).ToList();
+
+                foreach (var width in widths)
+                {
+                    window.Width = width;
+                    window.UpdateLayout();
+
+                    var ackRight = ack.TranslatePoint(new Point(ack.ActualWidth, 0), presenter).X + ack.Margin.Right;
+                    var idLeft = id.TranslatePoint(new Point(0, 0), presenter).X;
+                    var idRight = id.TranslatePoint(new Point(id.ActualWidth, 0), presenter).X;
+
+                    if (!ack.IsVisible || !id.IsVisible || id.ActualWidth <= 0 ||
+                        Math.Abs(idLeft - ackRight) > 0.01 || idRight > presenter.ActualWidth + 0.01)
+                    {
+                        bad.Add($"{width:F2}: ack ends {ackRight:F2}, id {idLeft:F2}–{idRight:F2}, row {presenter.ActualWidth:F2}");
+                    }
+                }
+
+                return bad;
+            });
+
+        Assert.Empty(failures);
     }
 
     /// <summary>

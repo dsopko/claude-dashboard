@@ -843,7 +843,20 @@
                                     Command="{Binding AcknowledgeCommand}"
                                     Visibility="{Binding ShowsOwnAck, Converter={StaticResource BoolToVisible}}"
                                     ToolTip="Mark this result seen." />
-                            <Button Style="{StaticResource ReservedButtonStyle}"
+                            <!--
+                                HIDDEN, NOT DELETED (T1.47, issue #60). "Phase 2" is the plan's
+                                name for a stage of work; an operator does not know it, and a dead
+                                button reads as unfinished. Collapsed rather than removed, because
+                                Phase 2 navigation (T2.3, "Open terminal" wired to the navigator)
+                                needs this same place in the row: that task brings it back by
+                                deleting the Visibility line below and replacing the style,
+                                tooltip and "PHASE 2" label with a live command. Collapsed, not
+                                Hidden, so it takes no width and the session id moves up beside
+                                the Acknowledge button instead of after an empty gap.
+                            -->
+                            <Button x:Name="OpenTerminalButton"
+                                    Visibility="Collapsed"
+                                    Style="{StaticResource ReservedButtonStyle}"
                                     ToolTip="Opening the terminal arrives with Phase 2 navigation.">
                                 <StackPanel Orientation="Horizontal">
                                     <TextBlock Text="Open terminal" />

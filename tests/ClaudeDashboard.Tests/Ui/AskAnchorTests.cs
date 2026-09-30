@@ -266,32 +266,7 @@ public sealed class AskAnchorTests
         NewAnchor(second);
     }
 
-    // ---- Finished states keep today's clock (acceptance 5) -------------------------------------
-
-    /// <summary>
-    /// <strong>Unread, Acked and Ended still read time in state</strong> — "2 min ago" is how long
-    /// the result has gone unseen, not how long the work took.
-    /// </summary>
-    [Fact]
-    public void Finished_states_keep_counting_time_in_state()
-    {
-        Apply(Prompt(Asked, "p-1"));
-
-        _clock.AdvanceMinutes(20);
-        Apply(Finished("p-1"));
-        Assert.Equal(SessionState.Unread, Current.State);
-        TimeInState();
-
-        _clock.AdvanceMinutes(5);
-        Apply(new Ack { SessionId = Id, Timestamp = _clock.Now, Cwd = Cwd, Source = AckSource.Manual });
-        Assert.Equal(SessionState.Acked, Current.State);
-        TimeInState();
-
-        _clock.AdvanceMinutes(5);
-        Apply(new SessionEnd { SessionId = Id, Timestamp = _clock.Now, Cwd = Cwd, Reason = "clear" });
-        Assert.Equal(SessionState.Ended, Current.State);
-        TimeInState();
-    }
+    // Finished states count from the finish since T1.47 (issue #59); FinishClockTests holds that.
 
     // ---- "You asked · 23 min ago" ticks (acceptance 1) -----------------------------------------
 
@@ -392,22 +367,5 @@ public sealed class AskAnchorTests
 
         Assert.Equal(_clock.Now - startedAt, row.Age);
         Assert.Equal($"{RowVisuals.Duration(_clock.Now - startedAt)} ago", row.AskedAgoText);
-    }
-
-    /// <summary>The collapsed row counts from entering the state; "You asked" still from the ask.</summary>
-    private void TimeInState()
-    {
-        var entered = Current.EnteredAt;
-        var asked = Current.Latest.StartedAt;
-
-        Assert.NotEqual(entered, asked);
-
-        var at = _clock.Now + TimeSpan.FromMinutes(2);
-        var row = new SessionViewModel(Current);
-        row.RefreshAge(at);
-
-        Assert.Equal(at - entered, row.Age);
-        Assert.Equal(RowVisuals.Age(Current.State, at - entered), row.AgeText);
-        Assert.Equal($"{RowVisuals.Duration(at - asked)} ago", row.AskedAgoText);
     }
 }

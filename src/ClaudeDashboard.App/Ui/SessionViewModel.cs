@@ -759,11 +759,12 @@ public sealed partial class SessionViewModel : DashboardRow
     /// <summary>
     /// The collapsed row's clock, as of the last <see cref="RefreshAge"/>: how long the work has
     /// been going while it is <see cref="SessionState.Working"/> or <see cref="SessionState.Waiting"/>,
-    /// and how long the state has held in every other state.
+    /// how long ago Claude finished once the turn is over, and how long the state has held in every
+    /// other state.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <strong>Two clocks, chosen by state (T1.40, issue #51).</strong>
+    /// <strong>Three clocks, chosen by state</strong> (T1.40, issue #51; T1.47, issue #59).
     /// </para>
     /// <para>
     /// <strong>Working counts from the ask</strong>, <see cref="Exchange.StartedAt"/>: the prompt
@@ -774,8 +775,15 @@ public sealed partial class SessionViewModel : DashboardRow
     /// reads the original ask again, and the collapsed row agrees with the expanded one.
     /// </para>
     /// <para>
-    /// <strong>Every other state keeps time in state</strong>, <see cref="Session.EnteredAt"/>, as
-    /// before, because its label already says what that clock means and the operator reads it so:
+    /// <strong>A finished turn counts from the finish</strong>, <see cref="Exchange.AnsweredAt"/> (issue
+    /// #59). Time in state restarted at the click on Ack and at the close, so a row that finished
+    /// four hours ago read "0 s ago" the moment the operator acknowledged it or the session ended.
+    /// The operator ruled that the time that matters is when Claude finished; the click and the close
+    /// say nothing about the work.
+    /// </para>
+    /// <para>
+    /// <strong>Every other state keeps time in state</strong>, <see cref="Session.EnteredAt"/>, because
+    /// its label already says what that clock means and the operator reads it so:
     /// </para>
     /// <list type="table">
     /// <listheader><term>State</term><description>Clock, and what the label means</description></listheader>
@@ -798,7 +806,11 @@ public sealed partial class SessionViewModel : DashboardRow
     /// </item>
     /// <item>
     /// <term>Unread, Acked, Ended</term>
-    /// <description>Time in state: "2 min ago" is how long the result has gone unseen.</description>
+    /// <description>The finish: "2 min ago" is how long ago Claude answered. For Unread this is the
+    /// same instant as time in state, because the Stop that answers is the one that enters Unread
+    /// (<c>SessionRegistry.Moved</c> sets <c>EnteredAt</c> from the event that changes the state). With
+    /// no answer — acknowledged or closed mid-turn — it falls back to <see cref="Session.EnteredAt"/>,
+    /// so the clock counts from the ack or the close.</description>
     /// </item>
     /// </list>
     /// <para>
@@ -808,8 +820,9 @@ public sealed partial class SessionViewModel : DashboardRow
     /// expanded row's "You asked · 23 min ago" reads the ask in every state.
     /// </para>
     /// <para>
-    /// Only this display reads the anchor. The sort order, the nudge ladder and the roster settle
+    /// Only this display reads these anchors. The sort order, the nudge ladder and the roster settle
     /// all still read <see cref="Session.EnteredAt"/>, and none of them changed.
+    /// <c>DisplayOnlyAnchorTests</c> holds that line.
     /// </para>
     /// <para>
     /// Derived from a supplied instant rather than read from a clock, so it advances only when
@@ -817,7 +830,7 @@ public sealed partial class SessionViewModel : DashboardRow
     /// loop in the process, deliberately (T1.9).
     /// </para>
     /// </remarks>
-    public TimeSpan Age => _now - (ReadsTheAsk(_session.State) ? _session.Latest.StartedAt : _session.EnteredAt);
+    public TimeSpan Age => _now - AnchorOf(_session);
 
     /// <summary>
     /// How long ago the work was asked for, for the expanded row's "YOU ASKED · 14:32 · 23 min ago"
@@ -830,8 +843,13 @@ public sealed partial class SessionViewModel : DashboardRow
     public string AskedAgoText =>
         string.Create(CultureInfo.CurrentCulture, $"{RowVisuals.Duration(_now - _session.Latest.StartedAt)} ago");
 
-    /// <summary>Whether the collapsed row's clock counts from the ask in this state. See <see cref="Age"/>.</summary>
-    private static bool ReadsTheAsk(SessionState state) => state is SessionState.Working or SessionState.Waiting;
+    /// <summary>The instant the collapsed row's clock counts from. See <see cref="Age"/> for the table.</summary>
+    private static DateTimeOffset AnchorOf(Session session) => session.State switch
+    {
+        SessionState.Working or SessionState.Waiting => session.Latest.StartedAt,
+        SessionState.Unread or SessionState.Acked or SessionState.Ended => session.Latest.AnsweredAt ?? session.EnteredAt,
+        _ => session.EnteredAt,
+    };
 
     /// <summary>Recomputes <see cref="Age"/> against <paramref name="now"/>.</summary>
     /// <remarks>Call on the UI thread; it raises a property change.</remarks>
