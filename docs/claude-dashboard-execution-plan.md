@@ -465,6 +465,10 @@ Tasks landing after T1.20. Each one puts the acceptance document out of date in 
   - Only the display reads the new anchor. The sort order, the nudge ladder and the roster settle keep reading `Session.EnteredAt` (the line T1.40 drew).
   - The short session id in the expanded row stays.
   - Hide the button; do not delete it.
+- **Amended 2026-09-29, after the first review (operator's rulings):**
+  - **An acknowledgment or a close never restarts the clock.** Acked and Ended keep the moment that mattered in the state they came from: from Unread, the finish; from NeedsPermission, NeedsQuestion or Error, when the session became blocked; from Interrupted, when it went silent. Only a session acknowledged or closed while Working or Waiting counts from the acknowledgment or the close. The rule is transitive: Unread, then Acked, then Ended still reads the finish.
+  - **An Interrupted row counts from `Session.LastHeardAt`**, the last event heard, not from the sweep that moved it. The sweep's own threshold (#49) is unchanged.
+  - **The header's Mute all is wired** to the tray's Mute all / Unmute all command, with its label following the muted state. The stale T1.13 tooltip goes.
 
 **Ordering ruled 2026-09-02:** the packaging workstream — `PKG.1` → `PKG.2` → `PKG.3` → T1.33 → `PKG.4` in the [Packaging Execution Plan](claude-dashboard-packaging-execution-plan.md) — runs **ahead of T2.1**. Appendix A is unchanged; the packaging plan carries its own order.
 
