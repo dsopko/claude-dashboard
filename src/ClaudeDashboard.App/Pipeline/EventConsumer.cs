@@ -287,6 +287,17 @@ public sealed class EventConsumer : BackgroundService
         while (_pipeline.Reader.TryRead(out var inboundEvent))
         {
             Apply(inboundEvent);
+
+            // A global sound mode changes what the tray and the header say, and nothing else tells
+            // the UI: it is not a session change. So the UI hears at once, through the same echo the
+            // tick makes, instead of relabelling up to fifteen seconds later (T1.47, the operator's
+            // ruling of 2026-09-30). The label still reads the engine's real state, which this Apply
+            // has just set; nothing on the UI side changes optimistically. The echo only posts a
+            // refresh to the dispatcher: no nudge, sweep or settle runs, and the tick keeps its time.
+            if (inboundEvent is SoundCommand)
+            {
+                EchoToUi(_clock.Now);
+            }
         }
     }
 
@@ -713,6 +724,16 @@ public sealed class EventConsumer : BackgroundService
             _logger.Error(ex, "Evaluating the nudge schedule failed. The pipeline continues.");
         }
 
+        EchoToUi(now);
+    }
+
+    /// <summary>
+    /// Tells the UI what time it is, so the row ages, the tray and the header refresh on the
+    /// dispatcher. Outside the single-writer region and separately guarded, because it touches
+    /// nothing this thread owns and a UI that throws must not stop the pipeline.
+    /// </summary>
+    private void EchoToUi(DateTimeOffset now)
+    {
         try
         {
             _uiTick.Tick(now);

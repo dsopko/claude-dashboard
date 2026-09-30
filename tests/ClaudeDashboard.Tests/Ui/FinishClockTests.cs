@@ -353,6 +353,52 @@ public sealed class FinishClockTests
         Assert.Equal(_clock.Now - finished, AgeNow());
     }
 
+    /// <summary>
+    /// A session that ends and is resumed counts from the resume: a revived session is a fresh
+    /// start, and nothing from before the end carries into it (today's behaviour, kept).
+    /// </summary>
+    [Fact]
+    public void A_resumed_session_counts_from_the_resume()
+    {
+        Apply(Prompt("p-1"));
+        _clock.AdvanceMinutes(20);
+        Apply(Stop("p-1"));
+        _clock.AdvanceMinutes(10);
+        Apply(End());
+
+        _clock.AdvanceMinutes(60);
+        var resumed = _clock.Now;
+        Apply(new SessionStart { SessionId = Id, Timestamp = _clock.Now, Cwd = Cwd, Source = "resume" });
+
+        Assert.Equal(SessionState.Acked, Current.State);
+
+        _clock.AdvanceMinutes(3);
+        Assert.Equal(_clock.Now - resumed, AgeNow());
+    }
+
+    /// <summary>
+    /// A change within a state keeps the clock. A second failure of a different kind updates the
+    /// error in place — the state does not change — so the row still counts from the first failure.
+    /// </summary>
+    [Fact]
+    public void A_second_failure_of_another_kind_keeps_the_first_failures_clock()
+    {
+        Apply(Prompt("p-1"));
+        _clock.AdvanceMinutes(5);
+        var failed = _clock.Now;
+        Apply(new StopFailure { SessionId = Id, Timestamp = _clock.Now, Cwd = Cwd, PromptId = "p-1", ErrorKind = "rate_limit" });
+
+        _clock.AdvanceMinutes(7);
+        Apply(new StopFailure { SessionId = Id, Timestamp = _clock.Now, Cwd = Cwd, PromptId = "p-1", ErrorKind = "server_error" });
+
+        Assert.Equal(SessionState.Error, Current.State);
+        Assert.Equal("server_error", Current.ErrorKind);
+        Assert.Equal(failed, Current.EnteredAt);
+
+        _clock.AdvanceMinutes(3);
+        Assert.Equal(_clock.Now - failed, AgeNow());
+    }
+
     /// <summary>The states outside the ruling keep the clock they had.</summary>
     [Fact]
     public void Blocked_states_still_count_time_in_state()
