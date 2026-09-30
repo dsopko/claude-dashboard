@@ -455,7 +455,7 @@ public static class Program
         var identity = UserIdentity.Resolve(out isSid);
 
         return PortSelection.Choose(
-            DashboardSettings.DefaultPort,
+            DashboardSettings.IngressPortBase,
             identity,
             recorded,
             port => HealthProbe.Probe(port, gateName).Occupant,
@@ -506,7 +506,7 @@ public static class Program
                 "Ingress port {Port}, chosen from {Source} (base {Base}). Candidates: {Trail}",
                 choice.Port,
                 choice.Source,
-                DashboardSettings.DefaultPort,
+                DashboardSettings.IngressPortBase,
                 choice.Trail);
         }
         else if (choice.PinRefused)
@@ -532,7 +532,7 @@ public static class Program
                 "No free loopback port after {Attempts} attempts from base {Base}. The dashboard will " +
                 "start and will not hear anything. Candidates: {Trail}",
                 choice.Attempts.Count,
-                DashboardSettings.DefaultPort,
+                DashboardSettings.IngressPortBase,
                 choice.Trail);
         }
     }

@@ -53,7 +53,7 @@ public sealed class InstantModeLabelTests : IAsyncLifetime
         _registry.SessionChanged += (_, e) => _sound.OnSessionChanged(e.Session, e.Session.WorkspaceGroup);
         _projection = new SessionProjection(_registry, _dispatcher);
         _tray = new TrayViewModel(
-            _projection, _sound, _pipeline.Sink, _clock, IngressStatus.Healthy(DashboardSettings.DefaultPort), Logger.None);
+            _projection, _sound, _pipeline.Sink, _clock, IngressStatus.Healthy(DashboardSettings.IngressPortBase), Logger.None);
 
         var uiTick = new UiTick(_dispatcher);
         uiTick.Attach(_tray);

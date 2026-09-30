@@ -19,7 +19,7 @@ namespace ClaudeDashboard.Tests.Hosting;
 /// of the parts, only by the composition.
 /// </para>
 /// <para>
-/// <strong>Every port here is deliberately not <c>DefaultPort</c>.</strong> A test on the default
+/// <strong>Every port here is deliberately not <c>IngressPortBase</c>.</strong> A test on the base
 /// port cannot tell "the bound port" from "the compiled-in constant", which is precisely the defect
 /// that would announce a port nothing answers.
 /// </para>
@@ -142,10 +142,10 @@ public sealed class IngressAnnouncementTests : IDisposable
     [Fact]
     public void The_announcement_carries_the_bound_port()
     {
-        Assert.NotEqual(DashboardSettings.DefaultPort, BoundPort);
+        Assert.NotEqual(DashboardSettings.IngressPortBase, BoundPort);
         Assert.False(
-            BoundPort >= DashboardSettings.DefaultPort
-            && BoundPort < DashboardSettings.DefaultPort + PortSelection.DefaultRange,
+            BoundPort >= DashboardSettings.IngressPortBase
+            && BoundPort < DashboardSettings.IngressPortBase + PortSelection.DefaultRange,
             $"port {BoundPort} is inside the derivation range, so this test could not tell a bound " +
             "port from a re-derived one");
 

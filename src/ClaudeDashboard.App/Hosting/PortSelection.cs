@@ -286,7 +286,7 @@ public static class PortSelection
         ArgumentNullException.ThrowIfNull(settings);
 
         return Choose(
-            Configuration.DashboardSettings.DefaultPort,
+            Configuration.DashboardSettings.IngressPortBase,
             identity ?? UserIdentity.Current,
             Configuration.PortFile.Read(paths),
             probe ?? (port => HealthProbe.Probe(port, SingleInstanceGate.NameFor(paths.Root)).Occupant),

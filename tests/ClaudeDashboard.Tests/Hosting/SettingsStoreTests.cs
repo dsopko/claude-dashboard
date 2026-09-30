@@ -190,7 +190,7 @@ public sealed class SettingsStoreTests : IDisposable
     /// <remarks>
     /// <para>
     /// This asserted the opposite until T1.21, and the old behaviour is now the worst outcome
-    /// available: with a per-user port, coercing a typo to <see cref="DashboardSettings.DefaultPort"/>
+    /// available: with a per-user port, coercing a typo to <see cref="DashboardSettings.IngressPortBase"/>
     /// turns a mistake into a hard pin on the single port most likely to be contended — the
     /// operator pinned by accident to the one port the feature exists to stop everybody sharing.
     /// </para>
@@ -232,10 +232,10 @@ public sealed class SettingsStoreTests : IDisposable
     {
         var settings = new DashboardSettings();
 
-        // Impl §3.1 as amended: the port is UNSET until an operator pins one. DefaultPort is the
+        // Impl §3.1 as amended: the port is UNSET until an operator pins one. IngressPortBase is the
         // base the derivation counts from, not a value anything defaults to — see DashboardSettings.
         Assert.Null(settings.Port);
-        Assert.Equal(52789, DashboardSettings.DefaultPort);
+        Assert.Equal(52789, DashboardSettings.IngressPortBase);
     }
 
     [Fact]
@@ -249,7 +249,7 @@ public sealed class SettingsStoreTests : IDisposable
     /// <summary>A settings file with no port leaves the port unset, not defaulted.</summary>
     /// <remarks>
     /// The distinction the per-user port rests on. If an absent key produced
-    /// <see cref="DashboardSettings.DefaultPort"/>, every operator who has never opened the file
+    /// <see cref="DashboardSettings.IngressPortBase"/>, every operator who has never opened the file
     /// would look pinned to it, and honouring that would put every user back on one shared port.
     /// </remarks>
     [Fact]
@@ -276,7 +276,7 @@ public sealed class SettingsStoreTests : IDisposable
     /// <strong>A port that is not a port becomes unset, and never becomes the default.</strong>
     /// </summary>
     /// <remarks>
-    /// The old behaviour coerced an out-of-range value to <see cref="DashboardSettings.DefaultPort"/>.
+    /// The old behaviour coerced an out-of-range value to <see cref="DashboardSettings.IngressPortBase"/>.
     /// Under a per-user port that is the worst available outcome: a typo would become a hard pin on
     /// the single port most likely to be contended — the operator would be pinned by accident to
     /// the one port the whole feature exists to stop everybody sharing. Falling through to the
@@ -293,7 +293,7 @@ public sealed class SettingsStoreTests : IDisposable
         var loaded = _store.Load();
 
         Assert.Null(loaded.Settings.Port);
-        Assert.NotEqual(DashboardSettings.DefaultPort, loaded.Settings.Port);
+        Assert.NotEqual(DashboardSettings.IngressPortBase, loaded.Settings.Port);
     }
 
     /// <summary>And a mistyped port says so, because it is a person who meant something.</summary>
