@@ -101,7 +101,11 @@ public sealed class ShowSignalTests
     [Fact]
     public void A_signal_to_a_port_nobody_holds_is_unreachable()
     {
-        var result = ShowSignal.Send(UnusedPort(), Token, TimeSpan.FromMilliseconds(500));
+        // Held, not released: a released port can be handed to another class's listener, and this
+        // signal would land there as a stranger's request (the T1.48 review).
+        using var nobody = new ReservedPort();
+
+        var result = ShowSignal.Send(nobody.Port, Token, TimeSpan.FromMilliseconds(500));
 
         Assert.Equal(ShowSignalOutcome.Unreachable, result.Outcome);
         Assert.False(string.IsNullOrWhiteSpace(result.Problem));

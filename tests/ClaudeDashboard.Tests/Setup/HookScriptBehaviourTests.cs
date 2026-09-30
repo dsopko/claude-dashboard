@@ -6,6 +6,7 @@ using System.Text;
 using ClaudeDashboard.App.Configuration;
 using ClaudeDashboard.App.Ingress;
 using ClaudeDashboard.App.Setup;
+using ClaudeDashboard.Tests.Fakes;
 using Serilog.Core;
 
 namespace ClaudeDashboard.Tests.Setup;
@@ -89,7 +90,7 @@ public sealed class HookScriptBehaviourTests : IDisposable
         var run = Run();
 
         AssertSilent(run);
-        Assert.Empty(FromTheScript(listener));
+        AssertNothingArrived(listener);
     }
 
     /// <summary>
@@ -102,7 +103,8 @@ public sealed class HookScriptBehaviourTests : IDisposable
     [Fact]
     public void With_nothing_listening_on_the_announced_port_it_says_nothing()
     {
-        Announce(FreePort());
+        using var nobody = new ReservedPort();
+        Announce(nobody.Port);
 
         AssertSilent(Run());
     }
@@ -147,7 +149,7 @@ public sealed class HookScriptBehaviourTests : IDisposable
         AssertSilent(run);
         Assert.DoesNotContain("INJECTED", run.Out, StringComparison.Ordinal);
         Assert.DoesNotContain("INJECTED", run.Error, StringComparison.Ordinal);
-        Assert.Empty(FromTheScript(listener));
+        AssertNothingArrived(listener);
     }
 
     /// <summary>
@@ -174,7 +176,8 @@ public sealed class HookScriptBehaviourTests : IDisposable
     [Fact]
     public void With_no_curl_it_says_nothing_and_still_exits_zero()
     {
-        Announce(FreePort());
+        using var nobody = new ReservedPort();
+        Announce(nobody.Port);
 
         AssertSilent(Run(environment: psi =>
             psi.Environment["SystemRoot"] = Path.Combine(_root, "no-windows-here")));
@@ -343,7 +346,7 @@ public sealed class HookScriptBehaviourTests : IDisposable
 
         AssertSilent(Run());
 
-        Assert.Empty(FromTheScript(listener));
+        AssertNothingArrived(listener);
     }
 
     /// <summary>
@@ -368,7 +371,7 @@ public sealed class HookScriptBehaviourTests : IDisposable
             AssertSilent(Run());
         }
 
-        Assert.Empty(FromTheScript(listener));
+        AssertNothingArrived(listener);
     }
 
     /// <summary>
@@ -403,37 +406,28 @@ public sealed class HookScriptBehaviourTests : IDisposable
     private void Announce(int port) => ListeningFile.Write(_paths, port, _token);
 
     /// <summary>
-    /// The requests this test's own script run made: those carrying its payload.
+    /// Nothing arrived at <paramref name="listener"/> — no connection at all, whatever it sent.
     /// </summary>
     /// <remarks>
-    /// A "sends nothing" assertion counts only these. The recorder's port is assigned by the
-    /// operating system, and other test classes connect to ports they believe are unused — a
-    /// health probe, a <c>/show</c> — so a stranger's request can land here under full-suite load.
-    /// A refusal case failed once under full-suite load in the T1.48 fix round and did not recur in
-    /// twelve further full runs; its message was not captured, so a stranger's request is the likely
-    /// cause and not a proven one. The script's own post always carries <see cref="Payload"/>.
+    /// Strict on purpose (the T1.48 review): any connection counts as a send, including one that
+    /// carried an empty or partial body. A narrower check that looked for the payload let a real
+    /// send with an empty body pass. On failure the message quotes every recorded request, escaped,
+    /// so the next failure says what arrived instead of only that something did.
     /// </remarks>
-    private static List<string> FromTheScript(Recorder listener) =>
-        [.. listener.Requests.Where(request => request.Contains(Payload, StringComparison.Ordinal))];
+    private static void AssertNothingArrived(Recorder listener)
+    {
+        var requests = listener.Requests;
+
+        Assert.True(
+            requests.Count == 0,
+            $"{requests.Count} connection(s) arrived where none should: " +
+            string.Join(" || ", requests.Select(request =>
+                $"[{request.Replace("\r", "\r", StringComparison.Ordinal).Replace("\n", "\n", StringComparison.Ordinal)}]")));
+    }
 
     /// <summary>Writes <paramref name="content"/> as the announcement, byte for byte, with no BOM.</summary>
     private void WriteAnnouncement(string content) =>
         File.WriteAllText(_paths.ListeningFile, content, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
-
-    /// <summary>A loopback port nothing is bound to.</summary>
-    /// <remarks>
-    /// Taken by binding and releasing rather than by picking a number, so the test cannot collide
-    /// with whatever else is running on the machine — including the operator's own dashboard.
-    /// </remarks>
-    private static int FreePort()
-    {
-        var probe = new TcpListener(IPAddress.Loopback, 0);
-        probe.Start();
-        var port = ((IPEndPoint)probe.LocalEndpoint).Port;
-        probe.Stop();
-
-        return port;
-    }
 
     /// <summary>Runs the script the way Claude Code's exec form runs it.</summary>
     /// <remarks>
@@ -495,16 +489,28 @@ public sealed class HookScriptBehaviourTests : IDisposable
     /// </para>
     /// <para>
     /// Bound on port 0, so the port is assigned by the operating system and the test cannot
-    /// collide with anything on the machine — the operator's own dashboard included.
+    /// collide with anything on the machine — the operator's own dashboard included. Other test
+    /// classes hold the ports they connect to (see <c>ReservedPort</c>), so nothing of theirs can
+    /// be handed this one.
+    /// </para>
+    /// <para>
+    /// <strong>Every accepted connection is recorded, even one that sends nothing</strong> (the
+    /// T1.48 review). A request is read until its headers and its <c>Content-Length</c> body have
+    /// arrived, or the peer closes, with a ten-second bound — not for a fixed few passes, which
+    /// could record a real send empty or half-read under load. <see cref="Requests"/> waits for
+    /// connections still pending or being read before it answers.
     /// </para>
     /// </remarks>
     private sealed class Recorder : IDisposable
     {
+        private static readonly TimeSpan Bound = TimeSpan.FromSeconds(10);
+
         private readonly TcpListener _listener;
         private readonly CancellationTokenSource _stopping = new();
         private readonly List<string> _requests = [];
         private readonly Lock _guard = new();
         private readonly Task _loop;
+        private int _inFlight;
 
         public Recorder(int status)
         {
@@ -517,15 +523,24 @@ public sealed class HookScriptBehaviourTests : IDisposable
         /// <summary>The port it is listening on.</summary>
         public int Port { get; }
 
-        /// <summary>What arrived, in order.</summary>
+        /// <summary>
+        /// What arrived, in order — one entry per connection, whatever it sent, once nothing is
+        /// still pending or being read.
+        /// </summary>
         public IReadOnlyList<string> Requests
         {
             get
             {
-                // Give a request that is in flight a moment to land. Every assertion on this is
-                // made after the script has exited, so the wait is bounded by the socket rather
-                // than by the script.
+                // Every assertion on this is made after the script has exited. A connection it made
+                // is by then in the backlog or being read; this waits for both to drain.
                 Thread.Sleep(150);
+
+                var deadline = DateTime.UtcNow + Bound;
+
+                while (DateTime.UtcNow < deadline && (Volatile.Read(ref _inFlight) > 0 || _listener.Pending()))
+                {
+                    Thread.Sleep(20);
+                }
 
                 lock (_guard)
                 {
@@ -569,51 +584,93 @@ public sealed class HookScriptBehaviourTests : IDisposable
                     return;
                 }
 
-                using (client)
+                Interlocked.Increment(ref _inFlight);
+
+                var text = new StringBuilder();
+
+                try
                 {
-                    var stream = client.GetStream();
-                    var buffer = new byte[64 * 1024];
-                    var text = new StringBuilder();
-
-                    stream.ReadTimeout = 2000;
-
-                    try
+                    using (client)
                     {
-                        // Read until the peer stops sending. curl sends headers and body together
-                        // and then waits, so one short read is enough in practice; the loop is
-                        // here so a split write does not truncate what is recorded.
-                        for (var pass = 0; pass < 4; pass++)
+                        var stream = client.GetStream();
+
+                        try
                         {
-                            if (!stream.DataAvailable)
-                            {
-                                await Task.Delay(60, CancellationToken.None).ConfigureAwait(false);
-                                continue;
-                            }
-
-                            var read = await stream.ReadAsync(buffer, CancellationToken.None).ConfigureAwait(false);
-
-                            if (read == 0)
-                            {
-                                break;
-                            }
-
-                            text.Append(Encoding.UTF8.GetString(buffer, 0, read));
+                            await ReadRequestAsync(stream, text).ConfigureAwait(false);
+                            await stream.WriteAsync(response, CancellationToken.None).ConfigureAwait(false);
+                            await stream.FlushAsync(CancellationToken.None).ConfigureAwait(false);
                         }
-
-                        await stream.WriteAsync(response, CancellationToken.None).ConfigureAwait(false);
-                        await stream.FlushAsync(CancellationToken.None).ConfigureAwait(false);
+                        catch (Exception ex) when (ex is IOException or SocketException or ObjectDisposedException or OperationCanceledException)
+                        {
+                            // The client gave up, or the bound ran out. What was read still counts
+                            // as having arrived, and so does the connection itself.
+                        }
                     }
-                    catch (Exception ex) when (ex is IOException or SocketException or ObjectDisposedException)
-                    {
-                        // The client gave up. What was read still counts as having arrived.
-                    }
-
+                }
+                finally
+                {
                     lock (_guard)
                     {
                         _requests.Add(text.ToString());
                     }
+
+                    Interlocked.Decrement(ref _inFlight);
                 }
             }
+        }
+
+        /// <summary>
+        /// Reads one request: to the end of the headers, then <c>Content-Length</c> bytes of body,
+        /// or until the peer closes — whichever comes first, within <see cref="Bound"/>.
+        /// </summary>
+        private static async Task ReadRequestAsync(NetworkStream stream, StringBuilder text)
+        {
+            using var bound = new CancellationTokenSource(Bound);
+            var buffer = new byte[64 * 1024];
+            var received = new List<byte>();
+
+            while (true)
+            {
+                var read = await stream.ReadAsync(buffer, bound.Token).ConfigureAwait(false);
+
+                if (read == 0)
+                {
+                    break;
+                }
+
+                received.AddRange(buffer.AsSpan(0, read).ToArray());
+                text.Clear().Append(Encoding.UTF8.GetString([.. received]));
+
+                var all = text.ToString();
+                var headersEnd = all.IndexOf("\r\n\r\n", StringComparison.Ordinal);
+
+                if (headersEnd < 0)
+                {
+                    continue;
+                }
+
+                var length = ContentLength(all[..headersEnd]);
+                var bodyBytes = received.Count - Encoding.UTF8.GetByteCount(all[..(headersEnd + 4)]);
+
+                if (bodyBytes >= length)
+                {
+                    break;
+                }
+            }
+        }
+
+        private static int ContentLength(string headers)
+        {
+            foreach (var line in headers.Split("\r\n"))
+            {
+                if (line.StartsWith("Content-Length:", StringComparison.OrdinalIgnoreCase)
+                    && int.TryParse(line["Content-Length:".Length..].Trim(), System.Globalization.CultureInfo.InvariantCulture, out var length))
+                {
+                    return length;
+                }
+            }
+
+            return 0;
         }
     }
 }
