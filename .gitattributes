@@ -8,10 +8,12 @@
 *.props  text eol=crlf
 *.targets text eol=crlf
 *.ps1    text eol=crlf
+*.manifest text eol=crlf
 
 # Keep these LF.
 *.sh   text eol=lf
 *.cs   text eol=lf diff=csharp
+*.xaml text eol=lf
 *.md   text eol=lf
 *.json text eol=lf
 *.html text eol=lf
