@@ -475,8 +475,8 @@ public static class HookRegistration
     /// and this hook's exit code is always zero by design.
     /// </para>
     /// <para>
-    /// No <c>headers</c> and no <c>allowedEnvVars</c>. A command hook inherits the whole
-    /// environment, so the script reads <c>CLAUDE_DASHBOARD_TOKEN</c> for itself.
+    /// No <c>headers</c> and no <c>allowedEnvVars</c>. The script reads the token from
+    /// <c>listening.txt</c> at every event (T1.48), so nothing about it is in the environment.
     /// </para>
     /// </remarks>
     private static JsonObject Handler(string interpreter, string scriptPath) => new()

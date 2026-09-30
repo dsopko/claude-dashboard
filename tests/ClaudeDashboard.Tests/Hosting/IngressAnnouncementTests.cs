@@ -2,6 +2,7 @@ using System.Globalization;
 using System.IO;
 using ClaudeDashboard.App.Configuration;
 using ClaudeDashboard.App.Hosting;
+using ClaudeDashboard.App.Ingress;
 using Serilog.Core;
 
 namespace ClaudeDashboard.Tests.Hosting;
@@ -49,8 +50,10 @@ public sealed class IngressAnnouncementTests : IDisposable
         }
     }
 
+    private readonly IngressToken _token = new();
+
     private IngressAnnouncement Announcement(IngressStatus ingress) =>
-        new(_paths, ingress, Logger.None);
+        new(_paths, ingress, Logger.None, _token);
 
     // ---- Whether to announce at all -----------------------------------------------------------------
 
@@ -267,8 +270,9 @@ public sealed class IngressAnnouncementTests : IDisposable
     {
         var ingress = IngressStatus.Healthy(BoundPort);
 
-        Assert.Throws<ArgumentNullException>(() => new IngressAnnouncement(null!, ingress, Logger.None));
-        Assert.Throws<ArgumentNullException>(() => new IngressAnnouncement(_paths, null!, Logger.None));
-        Assert.Throws<ArgumentNullException>(() => new IngressAnnouncement(_paths, ingress, null!));
+        Assert.Throws<ArgumentNullException>(() => new IngressAnnouncement(null!, ingress, Logger.None, _token));
+        Assert.Throws<ArgumentNullException>(() => new IngressAnnouncement(_paths, null!, Logger.None, _token));
+        Assert.Throws<ArgumentNullException>(() => new IngressAnnouncement(_paths, ingress, null!, _token));
+        Assert.Throws<ArgumentNullException>(() => new IngressAnnouncement(_paths, ingress, Logger.None, null!));
     }
 }

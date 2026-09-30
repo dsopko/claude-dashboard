@@ -36,8 +36,7 @@ namespace ClaudeDashboard.App.Ingress;
 /// </para>
 /// <para>
 /// <c>/state</c> is the exception to the paragraphs above, because it emits rather than ingests:
-/// it answers <c>404</c> when no token is configured, and a body when one is. Its remarks say
-/// why. Claude Code never calls it.
+/// it answers a body. Claude Code never calls it.
 /// </para>
 /// </remarks>
 public static class IngressEndpoints
@@ -113,15 +112,11 @@ public static class IngressEndpoints
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <strong>The token is required here, and only here.</strong> <see cref="IngressToken.Accepts"/>
-    /// passes everything when no token is configured. That default is right for <c>/hook</c>,
-    /// which swallows data and answers empty. This is the first endpoint that <em>emits</em>: it
-    /// sends session titles and task descriptions to whoever asks. So with no token configured it
-    /// answers <c>404</c> — not <c>401</c>, because the endpoint is not usable at all, and a
-    /// <c>401</c> would invite a caller to find the token. It does not hide that the route exists: a
-    /// <c>POST /state</c> answers <c>405</c>, as <c>POST /health</c> does. The claim is only that a
-    /// <c>404</c> does not advertise a usable endpoint. With a token configured, a missing or wrong one
-    /// gets <c>401</c> through <see cref="Authorized"/>, like the other endpoints.
+    /// <strong>The token is required, as it is on every endpoint but <c>/health</c>.</strong> Since
+    /// T1.48 the dashboard makes a token at every start and always checks it, so a missing or wrong
+    /// one gets <c>401</c> through <see cref="Authorized"/>. The <c>404</c> this endpoint once gave when
+    /// no token was configured is gone with the state it answered: there is no longer a run without
+    /// one. A local caller reads the token from <c>listening.txt</c> after each start.
     /// </para>
     /// <para>
     /// <strong>The request thread reads one published reference and nothing else.</strong> It
@@ -137,18 +132,19 @@ public static class IngressEndpoints
     {
         var services = context.RequestServices;
         var logger = services.GetService(typeof(ILogger)) as ILogger ?? Log.Logger;
-        var token = services.GetService(typeof(IngressToken)) as IngressToken;
         var board = services.GetService(typeof(StateBoard)) as StateBoard;
-
-        if (token is null || !token.IsConfigured || board is null)
-        {
-            return Results.NotFound();
-        }
 
         if (!Authorized(context, services))
         {
             logger.Warning("Rejected a /state request with a missing or incorrect token.");
             return Results.Unauthorized();
+        }
+
+        // Only a harness registers no board. Nothing to report is not found, and it is asked
+        // after the token, so an unauthorised caller learns nothing either way.
+        if (board is null)
+        {
+            return Results.NotFound();
         }
 
         var report = board.Current;

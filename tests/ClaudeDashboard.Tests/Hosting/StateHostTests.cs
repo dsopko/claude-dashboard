@@ -137,18 +137,13 @@ public sealed class StateHostTests : IAsyncLifetime
 
     private async Task Post(string json)
     {
-        // The token comes from the environment, as HookToDatabaseTests reads it.
-        var token = Environment.GetEnvironmentVariable(IngressToken.EnvironmentVariable);
-
+        // The token this host made at its start (T1.48), as the hook reads it from listening.txt.
         using var request = new HttpRequestMessage(HttpMethod.Post, "/hook")
         {
             Content = new StringContent(json, Encoding.UTF8, "application/json"),
         };
 
-        if (!string.IsNullOrEmpty(token))
-        {
-            request.Headers.Add(IngressToken.HeaderName, token);
-        }
+        request.Headers.Add(IngressToken.HeaderName, _app.Services.GetRequiredService<IngressToken>().Reveal());
 
         using var response = await _client.SendAsync(request);
         response.EnsureSuccessStatusCode();

@@ -400,15 +400,14 @@ public sealed class IngressEndpointTests : IAsyncLifetime
     }
 }
 
-/// <summary>The token check itself (Impl §3.4).</summary>
+/// <summary>The token check itself (Impl §3.4; T1.48).</summary>
 public sealed class IngressTokenTests
 {
     [Fact]
-    public void A_configured_token_must_match_exactly()
+    public void A_token_must_match_exactly()
     {
         var token = new IngressToken("secret");
 
-        Assert.True(token.IsConfigured);
         Assert.True(token.Accepts("secret"));
         Assert.False(token.Accepts("Secret"));
         Assert.False(token.Accepts("secret "));
@@ -418,28 +417,51 @@ public sealed class IngressTokenTests
     }
 
     /// <summary>
-    /// Impl §3.4 calls the shared secret optional. With none set, ingress accepts — the
-    /// endpoint is still loopback-bound, which is the boundary the token narrows rather than
-    /// creates.
+    /// There is no unauthenticated mode any more (T1.48): a token without a value is refused at
+    /// construction rather than turning into "accept everything".
     /// </summary>
     [Theory]
     [InlineData(null)]
     [InlineData("")]
     [InlineData("   ")]
-    public void An_unconfigured_token_accepts_anything(string? configured)
-    {
-        var token = new IngressToken(configured);
+    public void A_token_without_a_value_cannot_be_made(string? configured) =>
+        Assert.Throws<ArgumentException>(() => new IngressToken(configured!));
 
-        Assert.False(token.IsConfigured);
-        Assert.True(token.Accepts(null));
-        Assert.True(token.Accepts("anything"));
+    /// <summary>
+    /// Each start makes a new token, of 43 characters of base64url, and one start's token is
+    /// refused by the next.
+    /// </summary>
+    [Fact]
+    public void Each_new_token_is_fresh_43_characters_of_base64url_and_refuses_the_last()
+    {
+        var tokens = Enumerable.Range(0, 50).Select(_ => new IngressToken()).ToList();
+        var values = tokens.Select(token => token.Reveal()).ToList();
+
+        Assert.Equal(values.Count, values.Distinct(StringComparer.Ordinal).Count());
+        Assert.All(values, value =>
+        {
+            Assert.Equal(IngressToken.Length, value.Length);
+            Assert.All(value, c => Assert.True(ClaudeDashboard.App.Configuration.ListeningFile.IsTokenCharacter(c)));
+        });
+
+        Assert.False(tokens[1].Accepts(values[0]));
+        Assert.True(tokens[1].Accepts(values[1]));
     }
 
-    /// <summary>Impl §3.4, §9.2: the token comes from the environment, never a committed file.</summary>
+    /// <summary>The token is never what a log line or a string shows.</summary>
     [Fact]
-    public void The_token_is_named_by_the_environment_variable_the_specs_use()
+    public void A_token_prints_as_a_placeholder()
     {
-        Assert.Equal("CLAUDE_DASHBOARD_TOKEN", IngressToken.EnvironmentVariable);
+        var token = new IngressToken();
+
+        Assert.DoesNotContain(token.Reveal(), token.ToString(), StringComparison.Ordinal);
+    }
+
+    /// <summary>The header the hook sends, and the retired variable's name, which is only ever named.</summary>
+    [Fact]
+    public void The_header_and_the_retired_variable_keep_their_names()
+    {
         Assert.Equal("X-Dashboard-Token", IngressToken.HeaderName);
+        Assert.Equal("CLAUDE_DASHBOARD_TOKEN", IngressToken.RetiredEnvironmentVariable);
     }
 }

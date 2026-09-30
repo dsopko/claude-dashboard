@@ -292,12 +292,25 @@ public static class AppHost
             onShow?.Invoke();
         });
 
+        // The retired variable (T1.48). Said once, at Information, because an operator who set it on
+        // T1.46's instructions deserves to know it now does nothing. The NAME is logged and never
+        // the value: the value is a secret they chose, whatever it once protected.
+        if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable(IngressToken.RetiredEnvironmentVariable)))
+        {
+            logger.Information(
+                "{Variable} is set and is ignored. The dashboard makes a new token at every start and " +
+                "hands it to the hook in {ListeningFile}; the variable can be removed.",
+                IngressToken.RetiredEnvironmentVariable,
+                resolved.ListeningFile);
+        }
+
         if (ingress.CanReceiveHooks)
         {
             logger.Information(
-                "Ingress will listen on http://127.0.0.1:{Port} (loopback only). Token check {TokenState}.",
+                "Ingress will listen on http://127.0.0.1:{Port} (loopback only), with a new token for " +
+                "this run in {ListeningFile}.",
                 ingress.Port,
-                app.Services.GetRequiredService<IngressToken>().IsConfigured ? "enabled" : "disabled");
+                resolved.ListeningFile);
         }
         else
         {

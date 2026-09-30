@@ -54,6 +54,8 @@ public static class HookScript
     /// </remarks>
     private const string Body = """"
         @echo off
+        call :post >nul 2>nul
+        exit /b 0
         rem ===========================================================================
         rem  Claude Dashboard - hook forwarder (issue #29).
         rem
@@ -65,10 +67,18 @@ public static class HookScript
         rem
         rem  WHAT IT DOES. Claude Code runs this once per hook event and puts the
         rem  event's JSON on our stdin. If listening.txt is beside this file, a
-        rem  dashboard is bound to the port it names, and the payload goes there. If
-        rem  it is not, there is no dashboard and this exits having opened nothing.
-        rem  That second case is the whole point: the hook stays installed while the
-        rem  dashboard is closed, instead of printing an error on every turn.
+        rem  dashboard is bound to the port on its first line and accepts the token on
+        rem  its second, and the payload goes there with that token. If it is not,
+        rem  there is no dashboard and this exits having opened nothing. That second
+        rem  case is the whole point: the hook stays installed while the dashboard is
+        rem  closed, instead of printing an error on every turn.
+        rem
+        rem  THE TOKEN COMES FROM THE FILE, NEVER FROM THE ENVIRONMENT (T1.48, issue
+        rem  #57). A Claude Code session gets its environment once, at launch, so a
+        rem  token held there cut off every session started before it was set or
+        rem  changed. The dashboard makes a new token at every start and this reads it
+        rem  fresh at every event, so a session keeps reporting through any number of
+        rem  dashboard restarts. CLAUDE_DASHBOARD_TOKEN is retired and not read.
         rem
         rem  IT PRINTS NOTHING, ON EVERY PATH, AND THAT IS A REQUIREMENT.
         rem  On UserPromptSubmit and SessionStart - two of the eight events we
@@ -77,7 +87,7 @@ public static class HookScript
         rem  in every session, and NOTHING IN THE TRANSCRIPT SHOWS IT. It is not a
         rem  crash and it cannot be seen from the session.
         rem
-        rem  The redirect is on the "call" below and not on the individual lines. One
+        rem  The redirect is on the "call" above and not on the individual lines. One
         rem  redirect covers every branch, including the branches that only run when
         rem  something has already gone wrong - which are exactly the branches a
         rem  per-line redirect gets wrong, because they are the ones nobody remembers.
@@ -95,6 +105,18 @@ public static class HookScript
         rem  zeros as the safety, and do not delete the outer line on the grounds
         rem  that every branch already exits 0.
         rem
+        rem  THE FIRST THREE LINES NEVER CHANGE, AND THEY ARE FIRST ON PURPOSE (T1.48).
+        rem  cmd reads a batch file from disk as it runs, by byte offset. When a new
+        rem  build rewrites this file while a hook is inside :post, that hook returns
+        rem  from the call and reads its next line from the NEW file at the OLD offset.
+        rem  With these three lines first and identical in every build, that offset
+        rem  lands on "exit /b 0" in both. RESIDUAL: the running hook may also read
+        rem  a fragment of the new :post at an old offset before it returns. Its output
+        rem  is still under the call's redirect, and its exit code is still the line
+        rem  above, so the worst case is one lost event, once, at an upgrade. The
+        rem  rewrite from a build older than T1.48 has no fixed prologue to land on and
+        rem  carries the same residual once. Nothing heavier is built for it.
+        rem
         rem  TIMEOUTS: --connect-timeout 1 --max-time 2. Measured on this machine on
         rem  2026-08-30: a post to a free loopback port cost 1.09 s per invocation,
         rem  and 0.34 s with --connect-timeout 0.25 - so the time is the connect
@@ -107,18 +129,24 @@ public static class HookScript
         rem  --connect-timeout, or a slow connect leaves no budget to send the body.
         rem ===========================================================================
 
-        call :post >nul 2>nul
-        exit /b 0
-
         :post
         setlocal EnableExtensions EnableDelayedExpansion
 
         rem  No announcement means no dashboard. Nothing is opened and nothing is said.
         if not exist "%~dp0listening.txt" exit /b 0
 
+        rem  Line 1 is the port, line 2 the token: two set /p calls from ONE redirected
+        rem  block read consecutive lines, and set /p splits at CRLF, which is what the
+        rem  dashboard writes. set /p assigns the text as data - nothing in it is
+        rem  parsed - and a variable read later with !...! is not expanded again.
         set "PORT="
-        set /p PORT=<"%~dp0listening.txt"
+        set "TOKEN="
+        < "%~dp0listening.txt" (
+            set /p "PORT="
+            set /p "TOKEN="
+        )
         if not defined PORT exit /b 0
+        if not defined TOKEN exit /b 0
 
         rem  THE URL IS BUILT FROM AN INTEGER, NEVER FROM THE FILE'S TEXT. set /a reads
         rem  PORT by name and can execute nothing, and a value that does not survive
@@ -131,19 +159,29 @@ public static class HookScript
         if !BOUND! LSS 1 exit /b 0
         if !BOUND! GTR 65535 exit /b 0
 
+        rem  THE TOKEN IS SENT ONLY IF IT IS EXACTLY 43 CHARACTERS OF A-Z a-z 0-9 - _.
+        rem  Anything running as the operator can edit listening.txt, and the token
+        rem  goes into a request header. Length: character 43 must exist and 44 must
+        rem  not. Characters: a for /f whose delimiters are exactly those 64 leaves
+        rem  nothing to iterate over a valid token, so any other character runs the
+        rem  body, and the body refuses. eol is "_", itself a delimiter, so no token
+        rem  can start with it; the default eol ";" would skip a line whose first
+        rem  bad character is ";" and let it through. NOT findstr: its [a-z] is not
+        rem  an ASCII range, and it would start a process on every hook. Measured
+        rem  with every printable ASCII character outside the set, a tab, and every
+        rem  byte 0x80-0xFF, each at three positions: all refused, nothing printed.
+        if "!TOKEN:~42,1!"=="" exit /b 0
+        if not "!TOKEN:~43,1!"=="" exit /b 0
+        for /f "eol=_ delims=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_" %%R in ("-!TOKEN!") do exit /b 0
+
         rem  curl.exe by absolute path and not by name: an unqualified curl.exe is
         rem  shadowed by anything earlier on PATH, and this one is handed the
-        rem  operator's prompts. Two calls rather than one with an assembled argument
-        rem  string - a header built up in a variable is re-parsed when it expands,
-        rem  and the token would be the text doing the parsing. Keep the flags equal.
-        if defined CLAUDE_DASHBOARD_TOKEN (
-            "%SystemRoot%\System32\curl.exe" -s -o nul --connect-timeout 1 --max-time 2 -H "Content-Type: application/json" -H "X-Dashboard-Token: !CLAUDE_DASHBOARD_TOKEN!" --data-binary @- "http://127.0.0.1:!BOUND!/hook"
-        ) else (
-            "%SystemRoot%\System32\curl.exe" -s -o nul --connect-timeout 1 --max-time 2 -H "Content-Type: application/json" --data-binary @- "http://127.0.0.1:!BOUND!/hook"
-        )
+        rem  operator's prompts.
+        "%SystemRoot%\System32\curl.exe" -s -o nul --connect-timeout 1 --max-time 2 -H "Content-Type: application/json" -H "X-Dashboard-Token: !TOKEN!" --data-binary @- "http://127.0.0.1:!BOUND!/hook"
 
         exit /b 0
         """";
+
 
     /// <summary>The script exactly as it belongs on disk, with CRLF line endings.</summary>
     public static string Text { get; } = Body.ReplaceLineEndings("\r\n");

@@ -1,4 +1,5 @@
 using ClaudeDashboard.App.Configuration;
+using ClaudeDashboard.App.Ingress;
 using Serilog;
 
 namespace ClaudeDashboard.App.Hosting;
@@ -36,11 +37,13 @@ public sealed class IngressAnnouncement
     private readonly DashboardPaths _paths;
     private readonly IngressStatus _ingress;
     private readonly ILogger _logger;
+    private readonly IngressToken _token;
 
-    /// <summary>Announces the port <paramref name="ingress"/> describes.</summary>
+    /// <summary>Announces the port <paramref name="ingress"/> describes, and this run's token (T1.48).</summary>
     /// <exception cref="ArgumentNullException">Any argument is null.</exception>
-    public IngressAnnouncement(DashboardPaths paths, IngressStatus ingress, ILogger logger)
+    public IngressAnnouncement(DashboardPaths paths, IngressStatus ingress, ILogger logger, IngressToken token)
     {
+        ArgumentNullException.ThrowIfNull(token);
         ArgumentNullException.ThrowIfNull(paths);
         ArgumentNullException.ThrowIfNull(ingress);
         ArgumentNullException.ThrowIfNull(logger);
@@ -48,6 +51,7 @@ public sealed class IngressAnnouncement
         _paths = paths;
         _ingress = ingress;
         _logger = logger;
+        _token = token;
     }
 
     /// <summary>
@@ -90,7 +94,7 @@ public sealed class IngressAnnouncement
             _logger.Warning("Could not write {PortFile}.", _paths.PortFile);
         }
 
-        if (!ListeningFile.Write(_paths, _ingress.Port))
+        if (!ListeningFile.Write(_paths, _ingress.Port, _token))
         {
             _logger.Warning(
                 "Could not write {ListeningFile}, so Claude Code's hook will find no dashboard and this " +

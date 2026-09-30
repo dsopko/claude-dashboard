@@ -86,20 +86,15 @@ public sealed class HookToDatabaseTests : IAsyncLifetime, IDisposable
 
     private async Task Post(string body)
     {
-        // The token comes from the environment (Impl §3.2), so read it the way the app does
-        // rather than adding a way to ask the app what its secret is.
-        var token = Environment.GetEnvironmentVariable(
-            ClaudeDashboard.App.Ingress.IngressToken.EnvironmentVariable);
-
+        // The token this host made at its start (T1.48), as the hook reads it from listening.txt.
         using var request = new HttpRequestMessage(HttpMethod.Post, "/hook")
         {
             Content = new StringContent(body, Encoding.UTF8, "application/json"),
         };
 
-        if (!string.IsNullOrEmpty(token))
-        {
-            request.Headers.Add(ClaudeDashboard.App.Ingress.IngressToken.HeaderName, token);
-        }
+        request.Headers.Add(
+            ClaudeDashboard.App.Ingress.IngressToken.HeaderName,
+            _app.Services.GetRequiredService<ClaudeDashboard.App.Ingress.IngressToken>().Reveal());
 
         using var response = await _client.SendAsync(request);
 

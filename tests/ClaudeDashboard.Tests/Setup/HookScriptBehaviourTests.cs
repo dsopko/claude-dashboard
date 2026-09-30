@@ -4,6 +4,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using ClaudeDashboard.App.Configuration;
+using ClaudeDashboard.App.Ingress;
 using ClaudeDashboard.App.Setup;
 using Serilog.Core;
 
@@ -224,55 +225,161 @@ public sealed class HookScriptBehaviourTests : IDisposable
         Assert.EndsWith(Payload, request.TrimEnd('\r', '\n'), StringComparison.Ordinal);
     }
 
-    /// <summary>The token travels as a header when the variable is set, and not otherwise.</summary>
-    /// <remarks>
-    /// <para>
-    /// Both halves, because they fail apart. A header that was always sent would interpolate an
-    /// unset variable and arrive empty, which ingress cannot tell from no header at all — so the
-    /// hook would claim a protection it did not have.
-    /// </para>
-    /// <para>
-    /// <strong>Measured residual, and it is a constraint on T10.2 rather than a defect here:</strong>
-    /// a token containing a double quote does not survive <c>cmd</c>'s argument quoting. The
-    /// generated token is to use <c>[A-Za-z0-9_-]</c> only. An <c>&amp;</c> does survive, which is
-    /// the character that would matter for injection, and that is asserted.
-    /// </para>
-    /// </remarks>
+    // ---- The token, from listening.txt (T1.48, issue #57) --------------------------------------------
+
+    /// <summary>The token on line 2 travels as the header, on every post.</summary>
     [Fact]
-    public void The_token_travels_only_when_the_variable_is_set()
+    public void The_token_in_the_file_travels_on_every_post()
     {
         using var listener = new Recorder(200);
         Announce(listener.Port);
 
         AssertSilent(Run());
-        Assert.DoesNotContain("X-Dashboard-Token", listener.Requests[0], StringComparison.Ordinal);
+        AssertSilent(Run());
 
-        AssertSilent(Run(environment: psi =>
-            psi.Environment["CLAUDE_DASHBOARD_TOKEN"] = "t0ken-A_b & c"));
+        Assert.Equal(2, listener.Requests.Count);
+        Assert.All(listener.Requests, request =>
+            Assert.Contains($"X-Dashboard-Token: {_token.Reveal()}\r\n", request, StringComparison.Ordinal));
+    }
 
-        Assert.Contains("X-Dashboard-Token: t0ken-A_b & c", listener.Requests[1], StringComparison.Ordinal);
+    /// <summary>
+    /// The environment is not read. A session launched with the retired variable sends the file's
+    /// token, not its own copy — which is the whole of issue #57: a session's environment is fixed at
+    /// launch, and the file is read fresh.
+    /// </summary>
+    [Fact]
+    public void The_retired_variable_is_not_read()
+    {
+        using var listener = new Recorder(200);
+        Announce(listener.Port);
+
+        AssertSilent(Run(environment: psi => psi.Environment["CLAUDE_DASHBOARD_TOKEN"] = "stale-token-from-the-environment"));
+
+        var request = Assert.Single(listener.Requests);
+
+        Assert.Contains($"X-Dashboard-Token: {_token.Reveal()}\r\n", request, StringComparison.Ordinal);
+        Assert.DoesNotContain("stale-token-from-the-environment", request, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A token made of every one of the 64 characters, in two halves, and tokens that start with the
+    /// two punctuation characters, all travel. The control for the refusals below: a check that
+    /// refused everything would pass every one of them.
+    /// </summary>
+    [Theory]
+    [InlineData("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopq")]
+    [InlineData("rstuvwxyz0123456789-_ABCDEFGHIJKLMNOPQRSTUV")]
+    [InlineData("_bCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCdE")]
+    [InlineData("-bCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCdE")]
+    public void Every_base64url_character_is_accepted(string token)
+    {
+        using var listener = new Recorder(200);
+        WriteAnnouncement($"{listener.Port}\r\n{token}");
+
+        AssertSilent(Run());
+
+        var request = Assert.Single(listener.Requests);
+        Assert.Contains($"X-Dashboard-Token: {token}\r\n", request, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A line 2 that is not exactly 43 characters of <c>A–Z a–z 0–9 - _</c> sends nothing, prints
+    /// nothing, and exits 0 (brief §3).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Every case the brief names — line 2 missing, empty, 42 and 44 characters, and 43 characters
+    /// containing each of <c>" &amp; % ! ^ &lt; &gt; |</c> and a space — and the cases that broke the
+    /// first prototype or could: a <c>;</c> first or mid-token, which the default <c>for /f</c> eol
+    /// would have let through; <c>!PATH!</c> and <c>%PATH%</c>, which must not expand; a tab; a
+    /// lone <c>!</c> pair that delayed expansion would strip back to 43; a non-ASCII letter; and an
+    /// LF-only file, which reads as one line and fails the port check.
+    /// </para>
+    /// <para>
+    /// "Sends nothing" is asserted as no connection at all: the recorder saw no request.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [InlineData("{0}")]
+    [InlineData("{0}\r\n")]
+    [InlineData("{0}\r\n\r\nAbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCdE")]
+    [InlineData("{0}\r\nAbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCd")]
+    [InlineData("{0}\r\nAbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCdEF")]
+    [InlineData("{0}\r\nAbCdEfGhIjKlMnOpQrSt\"vWxYz0123456789-_AbCdE")]
+    [InlineData("{0}\r\nAbCdEfGhIjKlMnOpQrSt&vWxYz0123456789-_AbCdE")]
+    [InlineData("{0}\r\nAbCdEfGhIjKlMnOpQrSt%vWxYz0123456789-_AbCdE")]
+    [InlineData("{0}\r\nAbCdEfGhIjKlMnOpQrSt!vWxYz0123456789-_AbCdE")]
+    [InlineData("{0}\r\nAbCdEfGhIjKlMnOpQrSt^vWxYz0123456789-_AbCdE")]
+    [InlineData("{0}\r\nAbCdEfGhIjKlMnOpQrSt<vWxYz0123456789-_AbCdE")]
+    [InlineData("{0}\r\nAbCdEfGhIjKlMnOpQrSt>vWxYz0123456789-_AbCdE")]
+    [InlineData("{0}\r\nAbCdEfGhIjKlMnOpQrSt|vWxYz0123456789-_AbCdE")]
+    [InlineData("{0}\r\nAbCdEfGhIjKlMnOpQrSt vWxYz0123456789-_AbCdE")]
+    [InlineData("{0}\r\n\"bCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCdE")]
+    [InlineData("{0}\r\nAbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCd\"")]
+    [InlineData("{0}\r\n;bCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCdE")]
+    [InlineData("{0}\r\nAbCdEfGhIjKlMnOpQrSt;vWxYz0123456789-_AbCdE")]
+    [InlineData("{0}\r\nAbCdEfGhIjKlMnOpQrSt\tvWxYz0123456789-_AbCdE")]
+    [InlineData("{0}\r\nAbCdEfGhIjKlMnOpQrSt=vWxYz0123456789-_AbCdE")]
+    [InlineData("{0}\r\nAbCdEfGhIjKlMnOpQrSt.vWxYz0123456789-_AbCdE")]
+    [InlineData("{0}\r\n!PATH!GhIjKlMnOpQrStUvWxYz0123456789-_AbCdE")]
+    [InlineData("{0}\r\n%PATH%GhIjKlMnOpQrStUvWxYz0123456789-_AbCdE")]
+    [InlineData("{0}\r\nAbCdEfGhIj!!KlMnOpQrStUvWxYz0123456789-_AbCdE")]
+    [InlineData("{0}\r\nAbCdEfGhIjKlMnOpQrStéWxYz0123456789-_AbCdE")]
+    [InlineData("{0}\nAbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCdE")]
+    public void A_line_2_that_is_not_a_token_sends_nothing_and_says_nothing(string format)
+    {
+        using var listener = new Recorder(200);
+        WriteAnnouncement(string.Format(System.Globalization.CultureInfo.InvariantCulture, format, listener.Port));
+
+        AssertSilent(Run());
+
+        Assert.Empty(listener.Requests);
+    }
+
+    /// <summary>
+    /// Every byte from 0x80 to 0xFF, and every control byte but the two line ends, inside an
+    /// otherwise valid token: none of them travels. Written as raw bytes, because what cmd reads is
+    /// bytes in the console code page, and a UTF-8 string would test only the multi-byte case.
+    /// </summary>
+    [Fact]
+    public void No_high_or_control_byte_passes_the_check()
+    {
+        using var listener = new Recorder(200);
+        var head = Encoding.ASCII.GetBytes($"{listener.Port}\r\n");
+        var token = Encoding.ASCII.GetBytes("AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCdE");
+        var bytes = Enumerable.Range(1, 31).Where(b => b is not 10 and not 13).Append(127).Concat(Enumerable.Range(128, 128));
+
+        foreach (var value in bytes)
+        {
+            var hostile = (byte[])token.Clone();
+            hostile[20] = (byte)value;
+            File.WriteAllBytes(_paths.ListeningFile, [.. head, .. hostile]);
+
+            AssertSilent(Run());
+        }
+
+        Assert.Empty(listener.Requests);
     }
 
     /// <summary>
     /// A trailing line ending in the announcement is tolerated; leading whitespace is not.
     /// </summary>
     /// <remarks>
-    /// Measured rather than assumed: <c>set /p</c> strips a trailing LF or CRLF and does not strip
-    /// a leading space. We write the file without a newline, so this is about a hand-edit — and
-    /// being strict about the one number in it is what keeps a malformed value out of a URL.
+    /// Measured rather than assumed: <c>set /p</c> strips a trailing CRLF and does not strip a
+    /// leading space. We write the file without a trailing newline, so this is about a hand-edit —
+    /// and being strict about the number in it is what keeps a malformed value out of a URL. Since
+    /// T1.48 the file has two lines; an LF-only file reads as one line and is refused, which the
+    /// not-a-token cases assert.
     /// </remarks>
     [Theory]
-    [InlineData("{0}", true)]
-    [InlineData("{0}\n", true)]
-    [InlineData("{0}\r\n", true)]
-    [InlineData(" {0}", false)]
+    [InlineData("{0}\r\n{1}", true)]
+    [InlineData("{0}\r\n{1}\r\n", true)]
+    [InlineData(" {0}\r\n{1}", false)]
     public void A_line_ending_is_tolerated_and_leading_space_is_not(string format, bool arrives)
     {
         using var listener = new Recorder(200);
 
-        File.WriteAllText(
-            _paths.ListeningFile,
-            string.Format(System.Globalization.CultureInfo.InvariantCulture, format, listener.Port));
+        WriteAnnouncement(string.Format(System.Globalization.CultureInfo.InvariantCulture, format, listener.Port, _token.Reveal()));
 
         AssertSilent(Run());
 
@@ -281,7 +388,13 @@ public sealed class HookScriptBehaviourTests : IDisposable
 
     // ---- Running it --------------------------------------------------------------------------------
 
-    private void Announce(int port) => ListeningFile.Write(_paths, port);
+    private readonly IngressToken _token = new();
+
+    private void Announce(int port) => ListeningFile.Write(_paths, port, _token);
+
+    /// <summary>Writes <paramref name="content"/> as the announcement, byte for byte, with no BOM.</summary>
+    private void WriteAnnouncement(string content) =>
+        File.WriteAllText(_paths.ListeningFile, content, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
 
     /// <summary>A loopback port nothing is bound to.</summary>
     /// <remarks>

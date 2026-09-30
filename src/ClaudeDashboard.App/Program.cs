@@ -211,14 +211,18 @@ public static class Program
                 // — it puts the handler back when it has gone missing, because until T1.32 nothing
                 // called the install step at all and a new user received no events for ever.
                 //
+                // The script FIRST, then the announcement (T1.48). Rewritten at every start when it
+                // differs, so a fix in the build reaches an install that already exists (see
+                // HookScript) — and since T1.48 the dashboard refuses a hook without this run's
+                // token, which only the new script sends. Announced first, as it was until T1.48,
+                // an old script would meet a dashboard that requires a token it never sends, for
+                // as long as the rewrite took, and every hook in that window would be refused.
+                HookScript.EnsureWritten(paths, host.Services.GetRequiredService<Serilog.ILogger>());
+
                 // AFTER Start, never before — between announcing and binding there would be a
                 // window in which the script posts to a port nothing answers.
                 announcement = host.Services.GetRequiredService<IngressAnnouncement>();
                 announcement.Announce();
-
-                // Rewritten at every start when it differs, so a fix in the build reaches an
-                // install that already exists. See HookScript.
-                HookScript.EnsureWritten(paths, host.Services.GetRequiredService<Serilog.ILogger>());
 
                 // Reads the settings, and repairs the handler when it is missing and the operator
                 // has not opted out (issue #39). Read-only in every other case, and it never
@@ -545,7 +549,8 @@ public static class Program
     /// </para>
     /// <para>
     /// <strong>A refused <c>/show</c> is an Error, not a shrug.</strong> The same gate name means
-    /// the same data folder means the same token, so it should have been authorised. If it was
+    /// the same data folder, whose <c>listening.txt</c> holds the running dashboard's token (T1.48), so
+    /// it should have been authorised. If it was
     /// not, something is wrong with the token or the settings, and the operator's symptom is a
     /// shortcut that does nothing at all. Exiting is still right — two dashboards on one data
     /// folder is what the gate exists to prevent — but exiting quietly is not.
@@ -583,9 +588,9 @@ public static class Program
             return 1;
         }
 
-        var result = ShowSignal.Send(
-            target,
-            Environment.GetEnvironmentVariable(IngressToken.EnvironmentVariable));
+        // The running dashboard's token, from the file it announced (T1.48). It made the token at
+        // its own start and this process cannot know it any other way; the environment is retired.
+        var result = ShowSignal.Send(target, ListeningFile.ReadToken(paths));
 
         switch (result.Outcome)
         {
@@ -597,11 +602,11 @@ public static class Program
             case ShowSignalOutcome.Rejected:
                 logger.Error(
                     "Claude Dashboard is already running on port {Port}, but it refused this process's " +
-                    "/show with {Status}. The token in {Variable} does not match the one it started with. " +
-                    "No window will appear. Correct the variable and restart the dashboard.",
+                    "/show with {Status}. The token in {ListeningFile} is missing or does not match the " +
+                    "one it started with. No window will appear. Open the running dashboard from its tray icon.",
                     port,
                     (int)result.StatusCode!.Value,
-                    IngressToken.EnvironmentVariable);
+                    paths.ListeningFile);
                 return 1;
 
             case ShowSignalOutcome.Failed:

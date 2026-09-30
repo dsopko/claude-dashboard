@@ -12,8 +12,7 @@ work. Every capture runs against an **isolated instance** with its own data fold
 the fictional workspaces below, which are the same ones the design documents use.
 
 ```powershell
-$env:CLAUDE_DASHBOARD_HOME  = "<a temp folder>"   # its own database, port, settings and logs
-$env:CLAUDE_DASHBOARD_TOKEN = "readme-shot"
+$env:CLAUDE_DASHBOARD_HOME = "<a temp folder>"   # its own database, port, settings and logs
 ```
 
 `CLAUDE_DASHBOARD_HOME` also keys the single-instance gate, so the isolated copy runs happily
@@ -22,7 +21,8 @@ beside a real one and cannot touch its database or its port.
 ## Seeding
 
 Sessions arrive the way they always do — over `POST /hook`, with `X-Dashboard-Token`. The port
-is in `port.txt` under the data folder.
+and the token are the two lines of `listening.txt` under the data folder; the token is new at every
+start (T1.48), so read it after the instance is up.
 
 **The wire spellings have to be exact**, and this is the trap: an unrecognised value parses to
 `Unknown` rather than failing, so a typo produces a panel with the wrong counts and no error

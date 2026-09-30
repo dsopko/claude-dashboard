@@ -295,7 +295,7 @@ public sealed class UnprotectedTextInventory
         "SettingsFileWriter.LockPath", "SettingsLoadResult.Problem",
         "SettingsWriteResult.BackupPath", "SettingsWriteResult.Problem",
         "ShowSignalResult.Problem", "SingleInstanceGate.Name", "SqliteEventStore.Path",
-        "TaskCommandResult.Output", "TokenSetupResult.Problem",
+        "TaskCommandResult.Output",
     };
 
     /// <summary>Both of our assemblies. App as much as Core: App is where the logger lives.</summary>

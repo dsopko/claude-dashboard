@@ -127,6 +127,7 @@ public sealed class PhaseOneAcceptanceTests(StaHarness harness) : IDisposable
             var consumer = built.Host.Services.GetRequiredService<ClaudeDashboard.App.Pipeline.EventConsumer>();
 
             using var client = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}") };
+            client.DefaultRequestHeaders.Add(ClaudeDashboard.App.Ingress.IngressToken.HeaderName, built.Host.Services.GetRequiredService<ClaudeDashboard.App.Ingress.IngressToken>().Reveal());
 
             var posted = 0;
 
@@ -278,6 +279,7 @@ public sealed class PhaseOneAcceptanceTests(StaHarness harness) : IDisposable
             var consumer = built.Host.Services.GetRequiredService<ClaudeDashboard.App.Pipeline.EventConsumer>();
             var registry = built.Host.Services.GetRequiredService<SessionRegistry>();
             using var client = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}") };
+            client.DefaultRequestHeaders.Add(ClaudeDashboard.App.Ingress.IngressToken.HeaderName, built.Host.Services.GetRequiredService<ClaudeDashboard.App.Ingress.IngressToken>().Reveal());
             var posted = 0;
 
             void Post(string json)

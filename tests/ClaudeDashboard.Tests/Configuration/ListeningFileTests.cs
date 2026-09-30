@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.IO;
 using ClaudeDashboard.App.Configuration;
+using ClaudeDashboard.App.Ingress;
 
 namespace ClaudeDashboard.Tests.Configuration;
 
@@ -21,6 +22,8 @@ namespace ClaudeDashboard.Tests.Configuration;
 public sealed class ListeningFileTests : IDisposable
 {
     private const int Port = 61345;
+    private const string TokenText = "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCdE";
+    private static readonly IngressToken Token = new(TokenText);
 
     private readonly string _root =
         Path.Combine(Path.GetTempPath(), "claude-dashboard-tests", Guid.NewGuid().ToString("N"));
@@ -44,32 +47,78 @@ public sealed class ListeningFileTests : IDisposable
         }
     }
 
-    /// <summary>It writes the port, and nothing else, into the data folder.</summary>
+    /// <summary>It writes the port and the token, as two lines and nothing else, into the data folder.</summary>
     /// <remarks>
-    /// No trailing newline and no BOM. The reader is <c>set /p</c> in a batch file, and while that
-    /// strips a line ending it does not strip a byte-order mark — a BOM would make the first
-    /// character of the number unparseable and the hook would silently stop working.
+    /// <para>
+    /// CRLF between the lines, no trailing newline and no BOM (T1.48). The reader is two
+    /// <c>set /p</c> calls in a batch file. <c>set /p</c> splits at CRLF, so an LF-only file would
+    /// read both lines as the port; and it does not strip a byte-order mark, which would make the
+    /// first character of the number unparseable and the hook would silently stop working.
+    /// </para>
+    /// <para>The byte count pins it: port, two bytes of CRLF, 43 of token, and nothing more.</para>
     /// </remarks>
     [Fact]
-    public void Writing_puts_the_bare_port_in_the_data_folder()
+    public void Writing_puts_the_port_and_the_token_in_the_data_folder()
     {
-        Assert.True(ListeningFile.Write(_paths, Port));
+        Assert.True(ListeningFile.Write(_paths, Port, Token));
+
+        var port = Port.ToString(CultureInfo.InvariantCulture);
 
         Assert.Equal(_root, Path.GetDirectoryName(_paths.ListeningFile));
         Assert.Equal("listening.txt", Path.GetFileName(_paths.ListeningFile));
-        Assert.Equal(
-            Port.ToString(CultureInfo.InvariantCulture),
-            File.ReadAllText(_paths.ListeningFile, System.Text.Encoding.UTF8));
-        Assert.Equal(
-            Port.ToString(CultureInfo.InvariantCulture).Length,
-            new FileInfo(_paths.ListeningFile).Length);
+        Assert.Equal($"{port}\r\n{TokenText}", File.ReadAllText(_paths.ListeningFile, System.Text.Encoding.UTF8));
+        Assert.Equal(port.Length + 2 + IngressToken.Length, new FileInfo(_paths.ListeningFile).Length);
+    }
+
+    /// <summary>The token a second launch reads is the one that was written (T1.48).</summary>
+    [Fact]
+    public void The_token_written_is_the_token_read()
+    {
+        ListeningFile.Write(_paths, Port, Token);
+
+        Assert.Equal(TokenText, ListeningFile.ReadToken(_paths));
+        Assert.Equal(Port, ListeningFile.Read(_paths));
+    }
+
+    /// <summary>
+    /// Line 2 that is not a token reads as none, by the script's own rule: exactly 43 characters,
+    /// each from <c>A–Z a–z 0–9 - _</c>.
+    /// </summary>
+    [Theory]
+    [InlineData("61345")]
+    [InlineData("61345\r\n")]
+    [InlineData("61345\r\nAbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCd")]
+    [InlineData("61345\r\nAbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCdEF")]
+    [InlineData("61345\r\nAbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbC&E")]
+    [InlineData("61345\r\nAbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbC E")]
+    [InlineData("61345\r\nAbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCéE")]
+    [InlineData("61345\nAbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCdE")]
+    public void A_second_line_that_is_not_a_token_reads_as_none(string content)
+    {
+        File.WriteAllText(_paths.ListeningFile, content);
+
+        Assert.Null(ListeningFile.ReadToken(_paths));
+    }
+
+    /// <summary>
+    /// The C# check and the script agree on the alphabet: exactly the 64 characters of unpadded
+    /// base64url, compared as ASCII ranges, and nothing else in the first 65,536 code points.
+    /// </summary>
+    [Fact]
+    public void The_token_alphabet_is_exactly_base64url()
+    {
+        const string Alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+
+        var accepted = Enumerable.Range(0, 0x10000).Select(code => (char)code).Where(ListeningFile.IsTokenCharacter);
+
+        Assert.Equal(Alphabet.OrderBy(c => c), accepted.OrderBy(c => c));
     }
 
     /// <summary>Round trip, so the two ends of the format cannot drift apart.</summary>
     [Fact]
     public void What_is_written_is_what_is_read()
     {
-        ListeningFile.Write(_paths, Port);
+        ListeningFile.Write(_paths, Port, Token);
 
         Assert.Equal(Port, ListeningFile.Read(_paths));
     }
@@ -87,7 +136,7 @@ public sealed class ListeningFileTests : IDisposable
     {
         File.WriteAllText(_paths.ListeningFile, "52789");
 
-        ListeningFile.Write(_paths, Port);
+        ListeningFile.Write(_paths, Port, Token);
 
         Assert.Equal(Port, ListeningFile.Read(_paths));
     }
@@ -101,8 +150,8 @@ public sealed class ListeningFileTests : IDisposable
     [Fact]
     public void Writing_leaves_no_temporary_behind()
     {
-        ListeningFile.Write(_paths, Port);
-        ListeningFile.Write(_paths, Port + 1);
+        ListeningFile.Write(_paths, Port, Token);
+        ListeningFile.Write(_paths, Port + 1, Token);
 
         Assert.Equal([_paths.ListeningFile], Directory.EnumerateFiles(_root));
     }
@@ -111,7 +160,7 @@ public sealed class ListeningFileTests : IDisposable
     [Fact]
     public void Deleting_removes_the_file()
     {
-        ListeningFile.Write(_paths, Port);
+        ListeningFile.Write(_paths, Port, Token);
 
         Assert.True(ListeningFile.Delete(_paths));
         Assert.False(File.Exists(_paths.ListeningFile));
@@ -145,7 +194,7 @@ public sealed class ListeningFileTests : IDisposable
     public void Deleting_the_announcement_does_not_touch_the_port_file()
     {
         PortFile.Write(_paths, Port);
-        ListeningFile.Write(_paths, Port);
+        ListeningFile.Write(_paths, Port, Token);
 
         ListeningFile.Delete(_paths);
 
@@ -186,7 +235,7 @@ public sealed class ListeningFileTests : IDisposable
     public void It_needs_its_paths()
     {
         Assert.Throws<ArgumentNullException>(() => ListeningFile.Read(null!));
-        Assert.Throws<ArgumentNullException>(() => ListeningFile.Write(null!, Port));
+        Assert.Throws<ArgumentNullException>(() => ListeningFile.Write(null!, Port, Token));
         Assert.Throws<ArgumentNullException>(() => ListeningFile.Delete(null!));
     }
 }

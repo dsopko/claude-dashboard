@@ -76,23 +76,23 @@ public sealed class ShowSignalTests
         await app.StopAsync();
     }
 
-    /// <summary>A dashboard with no token configured accepts a signal that presents none.</summary>
+    /// <summary>A signal that presents no token is refused.</summary>
     /// <remarks>
-    /// The token is optional (Impl §3.4), so the handover has to work without one. Paired with
-    /// the test above so that neither "always accepts" nor "always refuses" satisfies both.
+    /// Every dashboard has a token since T1.48, so a signal without one is refused, and the window
+    /// is not raised. That is what a second launch that could not read <c>listening.txt</c> sends.
     /// </remarks>
     [Fact]
-    public async Task A_signal_needs_no_token_when_the_resident_instance_has_none()
+    public async Task A_signal_without_a_token_is_refused_because_every_dashboard_has_one()
     {
         var shown = 0;
         var port = UnusedPort();
-        await using var app = Ingress(port, new IngressToken(expected: null), () => Interlocked.Increment(ref shown));
+        await using var app = Ingress(port, new IngressToken(), () => Interlocked.Increment(ref shown));
         await app.StartAsync();
 
         var result = ShowSignal.Send(port, token: null, TimeSpan.FromSeconds(10));
 
-        Assert.Equal(ShowSignalOutcome.Shown, result.Outcome);
-        Assert.Equal(1, Volatile.Read(ref shown));
+        Assert.Equal(ShowSignalOutcome.Rejected, result.Outcome);
+        Assert.Equal(0, Volatile.Read(ref shown));
 
         await app.StopAsync();
     }

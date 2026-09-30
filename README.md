@@ -43,14 +43,13 @@ A scheduled job, such as a watchdog that checks every 30 minutes, can end its tu
 
 `GET http://127.0.0.1:<port>/state` answers with what the dashboard believes now: every session with its state, band, title, waiting tasks and next nudge time, then the band counts and the tray light. It is for tests, diagnosis and a future phone view. It never carries a prompt or an answer.
 
-It needs a token. Set `CLAUDE_DASHBOARD_TOKEN` for your user, restart the dashboard, and send the same value in an `X-Dashboard-Token` header. With no token set, `/state` answers `404`; with a wrong or missing one, `401`. The port is in `%LocalAppData%\ClaudeDashboard\listening.txt` while the dashboard runs.
-
-**Setting a token also requires restarting every Claude Code session, and the terminal that launches them.** Once a token is set, the dashboard refuses any hook that does not carry it. A session started before you set the variable does not have it, so its hooks do not send it, and the dashboard refuses every one of them. The symptom is a session that never appears in the dashboard, or that stops changing. Nothing tells you on screen. The dashboard log records each refusal as `Rejected a /hook post with a missing or incorrect token.` Close each terminal, open a new one, and start the session again.
+It needs the dashboard's token, in an `X-Dashboard-Token` header; without it, or with a wrong one, `/state` answers `401`. **You set nothing.** The dashboard makes a new token every time it starts and writes it, with the port, to `%LocalAppData%\ClaudeDashboard\listening.txt`: the port on the first line, the token on the second. The file exists only while a dashboard runs. The hook reads the same file at every event, so a Claude Code session keeps reporting through any number of dashboard restarts, and no session or terminal ever needs restarting for the token. Read the token again after each start. The old `CLAUDE_DASHBOARD_TOKEN` variable is no longer used; if it is set, the dashboard says so once in its log and ignores it.
 
 `nextNudgeAt` is the schedule, not what you will hear: a muted session still shows a time. When it is `null`, either no nudge is coming or the session is a finished member of a roster group, and the group owns the notice.
 
 ```powershell
-Invoke-RestMethod "http://127.0.0.1:$(Get-Content $env:LOCALAPPDATA\ClaudeDashboard\listening.txt)/state" -Headers @{ 'X-Dashboard-Token' = $env:CLAUDE_DASHBOARD_TOKEN }
+$port, $token = Get-Content "$env:LOCALAPPDATA\ClaudeDashboard\listening.txt"
+Invoke-RestMethod "http://127.0.0.1:$port/state" -Headers @{ 'X-Dashboard-Token' = $token }
 ```
 
 ## Documents

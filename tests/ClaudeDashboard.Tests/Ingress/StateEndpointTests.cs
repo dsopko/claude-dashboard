@@ -19,49 +19,31 @@ using Serilog.Core;
 namespace ClaudeDashboard.Tests.Ingress;
 
 /// <summary>
-/// <c>GET /state</c> over a real socket (T1.46): a token is required here and only here.
+/// <c>GET /state</c> over a real socket (T1.46): the current token is required.
 /// </summary>
 /// <remarks>
-/// <para>
-/// <strong>404 with no token configured, not 401.</strong> <see cref="IngressToken.Accepts"/>
-/// passes everything when no token is set, which is right for <c>/hook</c> and wrong for the first
-/// endpoint that emits. With none configured the endpoint is not usable, and a <c>404</c> does not
-/// advertise it as usable the way a <c>401</c> would. It does not hide the route: a
-/// <c>POST /state</c> answers <c>405</c>.
-/// </para>
-/// <para>
-/// Each test builds its own host, because the token is a host-wide choice and the two cases need
-/// opposite ones.
-/// </para>
+/// Since T1.48 every dashboard makes a token at its start, so there is no longer a run without one,
+/// and the <c>404</c> this endpoint gave in that case went with it. <c>/health</c> still answers
+/// without a token.
 /// </remarks>
 public sealed class StateEndpointTests
 {
     private const string Token = "state-test-token";
 
+    /// <summary>
+    /// <c>/health</c> answers without a token, and <c>/hook</c> refuses a post without one (T1.48).
+    /// </summary>
     [Fact]
-    public async Task With_no_token_configured_state_is_not_found()
+    public async Task Health_answers_without_a_token_and_hook_refuses_a_post_without_one()
     {
-        await using var host = await StateHost.Start(token: null);
-
-        using var bare = await host.Client.GetAsync("/state");
-        using var presented = await host.Client.SendAsync(Get("/state", "anything"));
-
-        Assert.Equal(HttpStatusCode.NotFound, bare.StatusCode);
-        Assert.Equal(HttpStatusCode.NotFound, presented.StatusCode);
-    }
-
-    /// <summary>The same host still answers <c>/health</c> and swallows <c>/hook</c> as before.</summary>
-    [Fact]
-    public async Task With_no_token_configured_health_and_hook_are_unchanged()
-    {
-        await using var host = await StateHost.Start(token: null);
+        await using var host = await StateHost.Start(Token);
 
         using var health = await host.Client.GetAsync("/health");
         using var content = new StringContent("""{"hook_event_name":"Stop","session_id":"s-1"}""", Encoding.UTF8, "application/json");
         using var hook = await host.Client.PostAsync("/hook", content);
 
         Assert.Equal(HttpStatusCode.OK, health.StatusCode);
-        Assert.Equal(HttpStatusCode.OK, hook.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, hook.StatusCode);
         Assert.Empty(await hook.Content.ReadAsStringAsync());
     }
 
@@ -322,7 +304,7 @@ public sealed class StateEndpointTests
 
         public StateBoard Board { get; }
 
-        public static async Task<StateHost> Start(string? token)
+        public static async Task<StateHost> Start(string token)
         {
             var root = Path.Combine(Path.GetTempPath(), "claude-dashboard-tests", Guid.NewGuid().ToString("N"));
             var port = AppHostTests.FreePort();

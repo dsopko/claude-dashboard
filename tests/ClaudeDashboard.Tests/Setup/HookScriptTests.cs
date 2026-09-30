@@ -212,35 +212,35 @@ public sealed class HookScriptTests : IDisposable
     }
 
     /// <summary>
-    /// <strong>Both curl invocations carry the same flags, and only the token header differs.</strong>
+    /// <strong>One curl call, and it always carries the file's token</strong> (T1.48, issue #57).
     /// </summary>
     /// <remarks>
-    /// There are two calls because a header assembled in a variable is re-parsed when it expands,
-    /// and the token would be the text doing the parsing. The cost of that decision is two lines
-    /// that must stay in step, and a timeout changed in one of them would leave the other quietly
-    /// wrong on whichever half of the machines has a token set.
+    /// The second, token-less call went with the environment variable: every dashboard now has a
+    /// token, so a post without one could only be refused. The script names the retired variable in
+    /// its header comment and nowhere in its code.
     /// </remarks>
     [Fact]
-    public void The_two_curl_calls_differ_only_by_the_token_header()
+    public void The_one_curl_call_always_sends_the_token_from_the_file()
     {
-        var calls = HookScript.Text
+        var code = HookScript.Text
             .Split("\r\n", StringSplitOptions.None)
             .Select(line => line.Trim())
-            .Where(line => line.Contains("curl.exe", StringComparison.Ordinal)
-                && !line.StartsWith("rem", StringComparison.Ordinal))
+            .Where(line => !line.StartsWith("rem", StringComparison.Ordinal))
             .ToList();
 
-        Assert.Equal(2, calls.Count);
+        var call = Assert.Single(code, line => line.Contains("curl.exe", StringComparison.Ordinal));
 
-        var withToken = calls.Single(line => line.Contains("X-Dashboard-Token", StringComparison.Ordinal));
-        var without = calls.Single(line => !line.Contains("X-Dashboard-Token", StringComparison.Ordinal));
-
-        const string TokenHeader = """ -H "X-Dashboard-Token: !CLAUDE_DASHBOARD_TOKEN!" """;
-
-        Assert.Equal(
-            without,
-            withToken.Replace(TokenHeader.TrimEnd(), string.Empty, StringComparison.Ordinal));
+        Assert.Contains(""" -H "X-Dashboard-Token: !TOKEN!" """.Trim(), call, StringComparison.Ordinal);
+        Assert.DoesNotContain(code, line => line.Contains("CLAUDE_DASHBOARD_TOKEN", StringComparison.Ordinal));
     }
+
+    /// <summary>
+    /// The first three lines are the same in every build, so a hook running while a new build
+    /// rewrites the script returns from its call onto <c>exit /b 0</c> in the new file too (T1.48).
+    /// </summary>
+    [Fact]
+    public void The_script_opens_with_the_fixed_three_line_prologue() =>
+        Assert.StartsWith("@echo off\r\ncall :post >nul 2>nul\r\nexit /b 0\r\n", HookScript.Text, StringComparison.Ordinal);
 
     [Fact]
     public void It_needs_its_arguments()

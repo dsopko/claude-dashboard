@@ -6,7 +6,7 @@ namespace ClaudeDashboard.App.Configuration;
 
 /// <summary>
 /// Reads, writes and deletes <c>listening.txt</c> — the port a dashboard is bound to
-/// <strong>right now</strong> (issue #29).
+/// <strong>right now</strong> (issue #29), and the token it accepts on that port (T1.48, issue #57).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -40,7 +40,9 @@ namespace ClaudeDashboard.App.Configuration;
 /// <strong>Residual, and it is issue #29's.</strong> A hard kill leaves the file behind naming the
 /// last bound port. Until the next start the script posts to whatever holds that port, and hook
 /// payloads carry the operator's prompts — the same exposure Impl §9.3 already records for a hard
-/// kill. <see cref="Write"/> overwrites unconditionally on every start, which is what closes it.
+/// kill. <see cref="Write"/> overwrites unconditionally on every start, which is what closes it. The token on
+/// its second line is already dead by then: each start makes a new one, and the next start
+/// overwrites the file (T1.48).
 /// </para>
 /// </remarks>
 public static class ListeningFile
@@ -72,14 +74,51 @@ public static class ListeningFile
     {
         ArgumentNullException.ThrowIfNull(paths);
 
+        var text = LineOf(paths, 0)?.Trim();
+
+        return int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var port)
+            && port is > 0 and <= 65535
+                ? port
+                : null;
+    }
+
+    /// <summary>
+    /// The token the running dashboard announced on line 2, or null when there is none or it is not
+    /// a token (T1.48).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The reader is a second launch handing over with <c>POST /show</c>: the running dashboard made
+    /// this token at its own start, and this is the one place a second process can learn it.
+    /// </para>
+    /// <para>
+    /// <strong>Held to the script's rule</strong>: exactly <see cref="Ingress.IngressToken.Length"/>
+    /// characters, each from <c>A–Z a–z 0–9 - _</c>. Anything else is not a token this dashboard
+    /// wrote, and it is not sent in a header.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="ArgumentNullException"><paramref name="paths"/> is null.</exception>
+    public static string? ReadToken(DashboardPaths paths)
+    {
+        ArgumentNullException.ThrowIfNull(paths);
+
+        var line = LineOf(paths, 1);
+
+        return line is { Length: Ingress.IngressToken.Length } && line.All(IsTokenCharacter) ? line : null;
+    }
+
+    /// <summary>One of the 64 characters of unpadded base64url, checked as ASCII ranges.</summary>
+    internal static bool IsTokenCharacter(char c) =>
+        c is (>= 'A' and <= 'Z') or (>= 'a' and <= 'z') or (>= '0' and <= '9') or '-' or '_';
+
+    /// <summary>Line <paramref name="index"/> of the file, or null when it is not there.</summary>
+    private static string? LineOf(DashboardPaths paths, int index)
+    {
         try
         {
-            var text = File.ReadAllText(paths.ListeningFile).Trim();
+            var lines = File.ReadAllText(paths.ListeningFile).Split("\r\n");
 
-            return int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var port)
-                && port is > 0 and <= 65535
-                    ? port
-                    : null;
+            return index < lines.Length ? lines[index] : null;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
         {
@@ -87,10 +126,13 @@ public static class ListeningFile
         }
     }
 
-    /// <summary>Announces <paramref name="port"/>. Returns false if it could not be written.</summary>
+    /// <summary>
+    /// Announces <paramref name="port"/> and <paramref name="token"/>. Returns false if the file could
+    /// not be written.
+    /// </summary>
     /// <remarks>
     /// <para>
-    /// <strong>No trailing newline, and the script does not need one either.</strong> Measured:
+    /// <strong>No trailing newline after the token, and the script does not need one.</strong> Measured:
     /// <c>set /p</c> strips a trailing LF or CRLF, so a hand-edited file with a line ending still
     /// works. It does not strip a leading space, and that case is rejected rather than repaired —
     /// this is a file we write, and being strict about the one number in it is what keeps a
@@ -98,18 +140,23 @@ public static class ListeningFile
     /// </para>
     /// <para>Overwrites unconditionally, which is what corrects a file a crash left behind.</para>
     /// </remarks>
-    /// <exception cref="ArgumentNullException"><paramref name="paths"/> is null.</exception>
-    public static bool Write(DashboardPaths paths, int port)
+    /// <exception cref="ArgumentNullException">Any argument is null.</exception>
+    public static bool Write(DashboardPaths paths, int port, Ingress.IngressToken token)
     {
         ArgumentNullException.ThrowIfNull(paths);
+        ArgumentNullException.ThrowIfNull(token);
 
         var temporary = $"{paths.ListeningFile}{TemporarySuffix}{Guid.NewGuid():N}";
 
         try
         {
+            // Two lines, CRLF between them and nothing after (T1.48). The script reads them with two
+            // set /p calls from one redirected block, and set /p splits at CRLF: an LF-only file
+            // would read both lines as the port, fail the port check, and send nothing. One write
+            // and one move, so the port and the token a reader sees always belong to the same start.
             File.WriteAllText(
                 temporary,
-                port.ToString(CultureInfo.InvariantCulture),
+                string.Create(CultureInfo.InvariantCulture, $"{port}\r\n{token.Reveal()}"),
                 new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
 
             File.Move(temporary, paths.ListeningFile, overwrite: true);

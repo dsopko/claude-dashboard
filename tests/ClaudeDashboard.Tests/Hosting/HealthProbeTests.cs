@@ -253,7 +253,7 @@ public sealed class HealthProbeTests
         builder.Services.AddSingleton<Serilog.ILogger>(Logger.None);
         builder.Services.AddSingleton(new DashboardPaths(root));
         builder.Services.AddSingleton<IClock>(new FakeClock());
-        builder.Services.AddSingleton(new IngressToken(expected: null));
+        builder.Services.AddSingleton(new IngressToken());
         builder.Services.AddSingleton(sp => new HookEventMapper(sp.GetRequiredService<IClock>()));
         builder.Services.AddSingleton<IEventSink>(new RecordingEventSink());
 

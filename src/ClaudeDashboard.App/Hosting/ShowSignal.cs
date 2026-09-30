@@ -35,8 +35,8 @@ public readonly record struct ShowSignalResult(
 /// <para>
 /// <strong>Ingress, not a second channel.</strong> Impl §5.3 requires the signal to reuse
 /// <c>/show</c> — no pipe, no memory-mapped file, no second socket. So this presents the token
-/// exactly the way Claude Code does, in the <c>X-Dashboard-Token</c> header from
-/// <c>CLAUDE_DASHBOARD_TOKEN</c>: to the resident instance a second instance is just another
+/// exactly the way the hook does, in the <c>X-Dashboard-Token</c> header, read from the resident
+/// instance's <c>listening.txt</c> (T1.48): to the resident instance a second instance is just another
 /// client, and there is no privileged path for one to take.
 /// </para>
 /// <para>
@@ -58,7 +58,10 @@ public static class ShowSignal
 
     /// <summary>Posts <c>/show</c> to the resident instance on <paramref name="port"/>.</summary>
     /// <param name="port">The loopback port from the same settings file the first instance read.</param>
-    /// <param name="token">The ingress token, or null when none is configured.</param>
+    /// <param name="token">
+    /// The running dashboard's token, read from its <c>listening.txt</c> (T1.48), or null when that
+    /// could not be read — in which case the signal is sent without one and is refused.
+    /// </param>
     /// <param name="timeout">How long to wait; <see cref="DefaultTimeout"/> when null.</param>
     /// <remarks>Never throws. Every failure is an outcome, because the caller's next act is to exit.</remarks>
     public static ShowSignalResult Send(int port, string? token, TimeSpan? timeout = null)
