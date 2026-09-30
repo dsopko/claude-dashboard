@@ -253,6 +253,10 @@ public sealed class SessionRegistry(SingleWriterGuard guard)
             {
                 State = SessionState.Interrupted,
                 EnteredAt = now,
+
+                // The row counts from the silence, not from this sweep a threshold later (T1.47,
+                // the ruling of 2026-09-29). Only the row reads it; EnteredAt stays the sweep.
+                ClockAnchor = session.LastHeardAt,
                 Transitions = session.Transitions.Append(
                     new StateTransition(session.State, SessionState.Interrupted, now, SilenceWatch.Cause)),
             };
@@ -410,6 +414,7 @@ public sealed class SessionRegistry(SingleWriterGuard guard)
             EnteredAt = inboundEvent.Timestamp,
             LastActivity = inboundEvent.Timestamp,
             LastHeardAt = inboundEvent.Timestamp,
+            ClockAnchor = inboundEvent.Timestamp,
             ErrorKind = (inboundEvent as StopFailure)?.ErrorKind,
 
             // A session first seen on a Stop that still lists running work is Waiting on it (T1.41).
@@ -615,7 +620,7 @@ public sealed class SessionRegistry(SingleWriterGuard guard)
 
     /// <summary>What the row shows now, for a tick to put back if it turns out quiet (T1.44).</summary>
     private static TickSnapshot SnapshotOf(Session current) =>
-        new(current.State, current.Latest, current.EnteredAt, current.ErrorKind, current.WaitingOn);
+        new(current.State, current.Latest, current.EnteredAt, current.ErrorKind, current.WaitingOn, current.ClockAnchor);
 
     /// <summary>
     /// The row after a quiet tick: back to what it showed before the tick began (T1.44, issue #56).
@@ -640,6 +645,7 @@ public sealed class SessionRegistry(SingleWriterGuard guard)
         State = pre.State,
         Latest = pre.Latest,
         EnteredAt = pre.EnteredAt,
+        ClockAnchor = pre.ClockAnchor,
         ErrorKind = pre.ErrorKind,
         WaitingOn = pre.WaitingOn,
         ScheduledPrompts = stop.ScheduledPrompts,
@@ -863,11 +869,36 @@ public sealed class SessionRegistry(SingleWriterGuard guard)
             // Only a real state change restarts the age clock the Needs-You and Unread bands
             // sort on; enriching the exchange in place must not make a session look newer.
             EnteredAt = stateChanged ? inboundEvent.Timestamp : current.EnteredAt,
+            ClockAnchor = stateChanged ? AnchorEntering(current, to, exchange, inboundEvent.Timestamp) : current.ClockAnchor,
             LastActivity = inboundEvent.Timestamp,
             Transitions = current.Transitions.Append(
                 new StateTransition(current.State, to, inboundEvent.Timestamp, cause ?? inboundEvent.HookEventName)),
         };
     }
+
+    /// <summary>
+    /// The row clock's anchor for a session moving from its current state to
+    /// <paramref name="to"/> at <paramref name="at"/>. See <see cref="Session.ClockAnchor"/>.
+    /// </summary>
+    /// <remarks>
+    /// <strong>An acknowledgment or a close never restarts the clock</strong> (the operator's ruling
+    /// of 2026-09-29). Acked and Ended carry the anchor of the state they leave, so the rule is
+    /// transitive: Unread, Acked, Ended still reads the finish, and a block, then Acked, then Ended
+    /// still reads the block. Only a session left mid-turn — Working or Waiting — has no moment to
+    /// carry, and counts from the ack or the close.
+    /// </remarks>
+    private static DateTimeOffset AnchorEntering(Session current, SessionState to, Exchange latest, DateTimeOffset at) =>
+        to switch
+        {
+            SessionState.Acked or SessionState.Ended =>
+                current.State is SessionState.Working or SessionState.Waiting
+                    ? at
+                    : current.ClockAnchor ?? current.EnteredAt,
+
+            SessionState.Unread => latest.AnsweredAt ?? at,
+
+            _ => at,
+        };
 
     /// <summary>Updates <c>cwd</c> and the derived group if the directory actually moved.</summary>
     private static Session? RelocatedIfMoved(Session current, InboundEvent inboundEvent)
@@ -903,6 +934,7 @@ public sealed class SessionRegistry(SingleWriterGuard guard)
             ErrorKind = null,
             EnteredAt = start.Timestamp,
             LastActivity = start.Timestamp,
+            ClockAnchor = start.Timestamp,
             Transitions = current.Transitions.Append(
                 new StateTransition(current.State, SessionState.Acked, start.Timestamp, start.HookEventName)),
         };

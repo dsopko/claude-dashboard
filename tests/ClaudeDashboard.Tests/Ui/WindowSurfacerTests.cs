@@ -156,7 +156,8 @@ public sealed class WindowSurfacerTests(StaHarness harness)
             registry.Projection,
             new MotionPolicy(() => false, observeChanges: false),
             new StubAckPublisher(),
-            new FakeClipboard(), new RosterStore(new RecordingEventSink()), new RecordingRosterPersistence()))
+            new FakeClipboard(), new RosterStore(new RecordingEventSink()), new RecordingRosterPersistence()),
+            TestTrays.For(registry.Projection))
         {
             WindowStartupLocation = WindowStartupLocation.Manual,
             Left = -32000,

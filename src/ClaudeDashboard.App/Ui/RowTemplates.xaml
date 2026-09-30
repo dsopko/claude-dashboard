@@ -525,15 +525,6 @@
         </Setter>
     </Style>
 
-    <!--
-        And the same button for a slot whose phase has not arrived. 2c draws "Mute all" at full
-        strength, and it is drawn dimmed anyway: the design shows the row it is going to be, and
-        a control that cannot act must not look like one that can.
-    -->
-    <Style x:Key="HeaderReservedButtonStyle" TargetType="Button" BasedOn="{StaticResource HeaderButtonStyle}">
-        <Setter Property="IsEnabled" Value="False" />
-        <Setter Property="ToolTipService.ShowOnDisabled" Value="True" />
-    </Style>
 
     <!--
         The lit action chip (issues #43 and #45; the rule is Design Document §9's). An action

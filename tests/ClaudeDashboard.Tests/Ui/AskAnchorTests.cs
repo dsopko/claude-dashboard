@@ -78,7 +78,7 @@ public sealed class AskAnchorTests
         _clock.AdvanceMinutes(11);
         Assert.Single(_registry.SweepSilent(_clock.Now, SilenceWatch.DefaultThreshold));
         Assert.Equal(SessionState.Interrupted, Current.State);
-        TimeInStateLeg(asked, askedAt);
+        SilenceLeg(asked, askedAt);
 
         _clock.AdvanceMinutes(1);
         Apply(Batch());
@@ -339,6 +339,24 @@ public sealed class AskAnchorTests
     /// A leg that is not Working: the collapsed row counts time in state, from the instant the
     /// leg began, while "You asked" still counts from <paramref name="asked"/>.
     /// </summary>
+    /// <summary>
+    /// Interrupted counts from the last event heard, not from the sweep that came a threshold later
+    /// (T1.47, the ruling of 2026-09-29). "You asked" still reads the ask.
+    /// </summary>
+    private void SilenceLeg(DateTimeOffset asked, string askedAt)
+    {
+        var heard = Current.LastHeardAt;
+
+        Assert.True(Current.EnteredAt - heard > SilenceWatch.DefaultThreshold, "the sweep comes a threshold after the silence began");
+
+        var row = new SessionViewModel(Current);
+        row.RefreshAge(_clock.Now);
+
+        Assert.Equal(_clock.Now - heard, row.Age);
+        Assert.Equal($"{RowVisuals.Duration(_clock.Now - asked)} ago", row.AskedAgoText);
+        Assert.Equal(askedAt, row.AskedAtText);
+    }
+
     private void TimeInStateLeg(DateTimeOffset asked, string askedAt)
     {
         var entered = Current.EnteredAt;

@@ -126,12 +126,47 @@ public sealed record Session
     /// name stays true for whoever reads it next.
     /// </para>
     /// <para>
-    /// <strong>Read by nothing but the silence sweep.</strong> It is not an ordering key, it is
-    /// not rendered, and it must not become either: both of those jobs belong to
-    /// <c>LastActivity</c>, whose meaning is narrower on purpose.
+    /// <strong>Read by the silence sweep, and by the clock of the row it sweeps.</strong> The sweep
+    /// judges silence against it. Since T1.47 (the operator's ruling of 2026-09-29) the sweep also
+    /// copies it into <see cref="ClockAnchor"/>, so an Interrupted row counts from the last event
+    /// heard rather than from the sweep, which came a threshold later. The state endpoint reports
+    /// it as a value. <strong>It is not an ordering key and must not become one</strong>: ordering
+    /// belongs to <c>LastActivity</c>, whose meaning is narrower on purpose, and to
+    /// <see cref="EnteredAt"/>.
     /// </para>
     /// </remarks>
     public required DateTimeOffset LastHeardAt { get; init; }
+
+    /// <summary>
+    /// The moment that mattered in the current state, for the row's clock only, or null where the
+    /// row reads <see cref="EnteredAt"/> (T1.47, issues #59 and the rulings of 2026-09-29).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>Set by the Registry on every state change, and read by the row's clock and by
+    /// nothing else.</strong> The sort order, the nudge ladder and the roster settle read
+    /// <see cref="EnteredAt"/>, as T1.40 ruled, and <c>DisplayOnlyAnchorTests</c> holds them to it.
+    /// </para>
+    /// <list type="table">
+    /// <listheader><term>Entering</term><description>The anchor</description></listheader>
+    /// <item><term>Unread</term><description>The finish, <see cref="Exchange.AnsweredAt"/> — the same
+    /// instant as <see cref="EnteredAt"/>, because the Stop that answers is the one that enters.</description></item>
+    /// <item><term>Interrupted</term><description>The last event heard, <see cref="LastHeardAt"/>,
+    /// copied by the sweep. The sweep itself comes a threshold later.</description></item>
+    /// <item><term>Acked, Ended</term><description>An acknowledgment or a close never restarts the
+    /// clock: the anchor of the state left, carried over, so Unread → Acked → Ended still reads the
+    /// finish. From Working or Waiting, mid-turn, there is nothing to carry, and it is the ack or
+    /// the close.</description></item>
+    /// <item><term>Every other state</term><description>The instant it was entered.</description></item>
+    /// </list>
+    /// <para>
+    /// <strong>Stored, not derived, because one case cannot be derived.</strong> Interrupted, then
+    /// Ended, must still read the silence. <c>SessionEnd</c> advances <see cref="LastHeardAt"/>, and
+    /// the transition log records only the sweep's instant, so the time of the last event heard
+    /// would be gone by then. Carrying the anchor across the move keeps it.
+    /// </para>
+    /// </remarks>
+    public DateTimeOffset? ClockAnchor { get; init; }
 
     /// <summary>
     /// The failure that put the session in <see cref="SessionState.Error"/>, as the raw

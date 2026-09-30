@@ -403,12 +403,18 @@
                     </StackPanel>
 
                     <!--
-                        Mute all belongs to the tray's menu (Impl §5.2) and per-session mute to the
-                        sound engine (T1.5). The row keeps §9's slot for it, inert until then.
+                        Mute all (T1.47, the operator's ruling of 2026-09-29). ONE SOURCE WITH THE
+                        TRAY: this button's DataContext is the TrayViewModel itself, set in the
+                        window's constructor, so its label and its command are the tray menu's own
+                        MuteAllLabel and MuteAllCommand. The two cannot disagree, because there is
+                        nothing to keep in step: muting from either place publishes the same
+                        SoundCommand and shows on both at the tray's next refresh.
                     -->
-                    <Button Grid.Column="3" Content="Mute all"
-                            Style="{StaticResource HeaderReservedButtonStyle}"
-                            ToolTip="Muting arrives with the tray menu (T1.13)." />
+                    <Button x:Name="MuteAllButton" Grid.Column="3"
+                            Content="{Binding MuteAllLabel}"
+                            Command="{Binding MuteAllCommand}"
+                            Style="{StaticResource HeaderButtonStyle}"
+                            ToolTip="Silence every sound, or let them be heard again. The tray menu has the same switch." />
 
                     <!--
                         Rightmost on purpose (issue #43, ruled 2026-09-24), and OUTSIDE the

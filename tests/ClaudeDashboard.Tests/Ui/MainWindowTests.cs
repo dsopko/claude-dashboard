@@ -14,6 +14,7 @@ using System.Windows.Threading;
 using Ellipse = System.Windows.Shapes.Ellipse;
 using ClaudeDashboard.App.Ui;
 using ClaudeDashboard.Core;
+using ClaudeDashboard.Core.Events;
 using ClaudeDashboard.Tests.Architecture;
 using ClaudeDashboard.Tests.Fakes;
 
@@ -86,7 +87,7 @@ public sealed class MainWindowTests(StaHarness harness, Xunit.Abstractions.ITest
             // nothing about the markup under test.
             prepare?.Invoke(viewModel);
 
-            var window = new MainWindow(viewModel);
+            var window = new MainWindow(viewModel, TestTrays.For(registry.Projection));
             using var bindings = new BindingErrorWatch();
 
             try
@@ -1524,7 +1525,7 @@ public sealed class MainWindowTests(StaHarness harness, Xunit.Abstractions.ITest
             var promptId = registry.Working("finished", FakeClock.DefaultStart);
             registry.Finished("finished", FakeClock.DefaultStart.AddMinutes(1), promptId);
 
-            var window = new MainWindow(viewModel);
+            var window = new MainWindow(viewModel, TestTrays.For(registry.Projection));
 
             try
             {
@@ -1555,6 +1556,81 @@ public sealed class MainWindowTests(StaHarness harness, Xunit.Abstractions.ITest
         var published = Assert.Single(sink.Published);
         var ack = Assert.IsType<ClaudeDashboard.Core.Events.Ack>(published);
         Assert.Equal(new SessionId("finished"), ack.SessionId);
+    }
+
+    /// <summary>
+    /// The header's Mute all is the tray's switch (T1.47, the ruling of 2026-09-29): it publishes
+    /// the tray's command, and its label follows the one muted state the tray menu reads.
+    /// </summary>
+    /// <remarks>
+    /// "Muting from either place shows on both" is asserted as one source: the header's label is
+    /// read beside the tray's own <see cref="TrayViewModel.MuteAllLabel"/> after each change of the
+    /// mode, and the two must be equal each time — muted by the header, then unmuted as if from the
+    /// tray. The mode is set on the fake reader the way the engine sets it when a command lands.
+    /// </remarks>
+    [Fact]
+    public void The_header_mute_all_is_the_trays_switch_and_reads_its_state()
+    {
+        var sink = new RecordingEventSink();
+        var modes = new SettableSoundModes();
+        var clock = new FakeClock();
+
+        var seen = _harness.Invoke(() =>
+        {
+            using var registry = new RegistryHarness();
+            using var policy = new MotionPolicy(() => false, observeChanges: false);
+            using var viewModel = new MainViewModel(
+                registry.Projection, policy, new StubAckPublisher(),
+                new FakeClipboard(), new RosterStore(new RecordingEventSink()), new RecordingRosterPersistence());
+            using var tray = TestTrays.For(registry.Projection, modes, sink, clock);
+
+            var window = new MainWindow(viewModel, tray);
+            using var bindings = new BindingErrorWatch();
+
+            try
+            {
+                Realize(window);
+
+                var header = window.MuteAllButton;
+                var labels = new List<(string Header, string Tray)> { ((string)header.Content, tray.MuteAllLabel) };
+                var enabled = header.IsEnabled;
+
+                ((IInvokeProvider)new ButtonAutomationPeer(header).GetPattern(PatternInterface.Invoke)).Invoke();
+                _harness.Pump(DispatcherPriority.Background);
+
+                // The command landed: the engine would now report the mute.
+                modes.AllMutedUntil = DateTimeOffset.MaxValue;
+                tray.Tick(clock.Now);
+                _harness.Pump(DispatcherPriority.Background);
+                labels.Add(((string)header.Content, tray.MuteAllLabel));
+
+                // Unmuted from the tray's menu: the same command, and the header follows.
+                tray.MuteAllCommand.Execute(null);
+                modes.AllMutedUntil = null;
+                tray.Tick(clock.Now);
+                _harness.Pump(DispatcherPriority.Background);
+                labels.Add(((string)header.Content, tray.MuteAllLabel));
+
+                Assert.Empty(bindings.Problems);
+
+                return (labels, enabled, SameCommand: ReferenceEquals(header.Command, tray.MuteAllCommand), Tooltip: header.ToolTip as string);
+            }
+            finally
+            {
+                window.Hide();
+            }
+        });
+
+        Assert.True(seen.enabled, "the header's Mute all must be a working control");
+        Assert.True(seen.SameCommand, "the header must publish the tray's own command");
+        Assert.Equal(
+            [("Mute all", "Mute all"), ("Unmute all", "Unmute all"), ("Mute all", "Mute all")],
+            seen.labels);
+        Assert.DoesNotContain("T1.13", seen.Tooltip ?? string.Empty, StringComparison.Ordinal);
+
+        Assert.Equal(
+            [SoundCommandKind.MuteAll, SoundCommandKind.UnmuteAll],
+            sink.Published.OfType<SoundCommand>().Select(command => command.Kind));
     }
 
     /// <summary>
@@ -1631,7 +1707,7 @@ public sealed class MainWindowTests(StaHarness harness, Xunit.Abstractions.ITest
                 registry.Projection,
                 new MotionPolicy(() => false, observeChanges: false),
                 new StubAckPublisher(), new FakeClipboard(), new RosterStore(new RecordingEventSink()), new RecordingRosterPersistence());
-            var window = new MainWindow(viewModel);
+            var window = new MainWindow(viewModel, TestTrays.For(registry.Projection));
 
             window.Close();
             var afterClose = window.IsVisible;
@@ -1666,7 +1742,7 @@ public sealed class MainWindowTests(StaHarness harness, Xunit.Abstractions.ITest
                 registry.Projection,
                 new MotionPolicy(() => false, observeChanges: false),
                 new StubAckPublisher(), new FakeClipboard(), new RosterStore(new RecordingEventSink()), new RecordingRosterPersistence());
-            var window = new MainWindow(viewModel);
+            var window = new MainWindow(viewModel, TestTrays.For(registry.Projection));
             window.Left = -32000;
             window.Top = -32000;
             window.ShowActivated = false;
@@ -1708,7 +1784,7 @@ public sealed class MainWindowTests(StaHarness harness, Xunit.Abstractions.ITest
                 registry.Projection,
                 new MotionPolicy(() => false, observeChanges: false),
                 new StubAckPublisher(), new FakeClipboard(), new RosterStore(new RecordingEventSink()), new RecordingRosterPersistence());
-            var window = new MainWindow(viewModel);
+            var window = new MainWindow(viewModel, TestTrays.For(registry.Projection));
             window.Left = -32000;
             window.Top = -32000;
             window.ShowActivated = false;

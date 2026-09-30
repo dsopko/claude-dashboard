@@ -759,12 +759,13 @@ public sealed partial class SessionViewModel : DashboardRow
     /// <summary>
     /// The collapsed row's clock, as of the last <see cref="RefreshAge"/>: how long the work has
     /// been going while it is <see cref="SessionState.Working"/> or <see cref="SessionState.Waiting"/>,
-    /// how long ago Claude finished once the turn is over, and how long the state has held in every
-    /// other state.
+    /// and, in every other state, the moment that mattered: the finish, the block, or the silence.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <strong>Three clocks, chosen by state</strong> (T1.40, issue #51; T1.47, issue #59).
+    /// <strong>Two sources, chosen by state</strong> (T1.40, issue #51; T1.47, issue #59 and the
+    /// operator's rulings of 2026-09-29): the ask while the work runs, and
+    /// <see cref="Session.ClockAnchor"/> once it does not.
     /// </para>
     /// <para>
     /// <strong>Working counts from the ask</strong>, <see cref="Exchange.StartedAt"/>: the prompt
@@ -775,43 +776,30 @@ public sealed partial class SessionViewModel : DashboardRow
     /// reads the original ask again, and the collapsed row agrees with the expanded one.
     /// </para>
     /// <para>
-    /// <strong>A finished turn counts from the finish</strong>, <see cref="Exchange.AnsweredAt"/> (issue
-    /// #59). Time in state restarted at the click on Ack and at the close, so a row that finished
-    /// four hours ago read "0 s ago" the moment the operator acknowledged it or the session ended.
-    /// The operator ruled that the time that matters is when Claude finished; the click and the close
-    /// say nothing about the work.
-    /// </para>
-    /// <para>
-    /// <strong>Every other state keeps time in state</strong>, <see cref="Session.EnteredAt"/>, because
-    /// its label already says what that clock means and the operator reads it so:
+    /// <strong>Every other state reads <see cref="Session.ClockAnchor"/></strong>, the moment that
+    /// mattered, which the Registry sets on each state change. Time in state restarted at the click on
+    /// Ack and at the close, so a row that finished four hours ago read "0 s ago" the moment the
+    /// operator acknowledged it or the session ended, and an Interrupted row understated its silence
+    /// by the sweep's ten-minute threshold. The operator ruled that an acknowledgment or a close never
+    /// restarts the clock, and that silence counts from the last event heard. Where the anchor is null
+    /// — a session built without the Registry — the row reads <see cref="Session.EnteredAt"/>.
     /// </para>
     /// <list type="table">
     /// <listheader><term>State</term><description>Clock, and what the label means</description></listheader>
-    /// <item>
-    /// <term>Working, Waiting</term>
-    /// <description>The ask: how long this piece of work has run. Waiting joined in T1.41, so a
-    /// Working/Waiting flip never restarts it.</description>
-    /// </item>
-    /// <item>
-    /// <term>NeedsPermission, NeedsQuestion</term>
-    /// <description>Time in state: "waiting 4 min" is time blocked on the operator.</description>
-    /// </item>
-    /// <item>
-    /// <term>Error</term>
-    /// <description>Time in state: how long the turn has been dead.</description>
-    /// </item>
-    /// <item>
-    /// <term>Interrupted</term>
-    /// <description>Time in state: "4 min ago" is time gone silent.</description>
-    /// </item>
-    /// <item>
-    /// <term>Unread, Acked, Ended</term>
-    /// <description>The finish: "2 min ago" is how long ago Claude answered. For Unread this is the
-    /// same instant as time in state, because the Stop that answers is the one that enters Unread
-    /// (<c>SessionRegistry.Moved</c> sets <c>EnteredAt</c> from the event that changes the state). With
-    /// no answer — acknowledged or closed mid-turn — it falls back to <see cref="Session.EnteredAt"/>,
-    /// so the clock counts from the ack or the close.</description>
-    /// </item>
+    /// <item><term>Working, Waiting</term><description>The ask: how long this piece of work has run.
+    /// Waiting joined in T1.41, so a Working/Waiting flip never restarts it.</description></item>
+    /// <item><term>NeedsPermission, NeedsQuestion</term><description>When it became blocked:
+    /// "waiting 4 min" is time blocked on the operator.</description></item>
+    /// <item><term>Error</term><description>When the turn died.</description></item>
+    /// <item><term>Interrupted</term><description>The last event heard,
+    /// <see cref="Session.LastHeardAt"/>: "20 min ago" is time gone silent, not time since the
+    /// sweep noticed.</description></item>
+    /// <item><term>Unread</term><description>The finish, <see cref="Exchange.AnsweredAt"/>: the same
+    /// instant as time in state, because the Stop that answers is the one that enters Unread.</description></item>
+    /// <item><term>Acked, Ended</term><description>The moment that mattered in the state it came
+    /// from, carried over: from Unread the finish, from a block the block, from Interrupted the
+    /// silence. Transitive, so Unread, Acked, Ended still reads the finish. From Working or Waiting,
+    /// mid-turn, the ack or the close.</description></item>
     /// </list>
     /// <para>
     /// The operator's ruling (issue #51) was that the WORKING time must not restart on a flip. It
@@ -820,7 +808,7 @@ public sealed partial class SessionViewModel : DashboardRow
     /// expanded row's "You asked · 23 min ago" reads the ask in every state.
     /// </para>
     /// <para>
-    /// Only this display reads these anchors. The sort order, the nudge ladder and the roster settle
+    /// Only this display reads the anchor. The sort order, the nudge ladder and the roster settle
     /// all still read <see cref="Session.EnteredAt"/>, and none of them changed.
     /// <c>DisplayOnlyAnchorTests</c> holds that line.
     /// </para>
@@ -847,8 +835,7 @@ public sealed partial class SessionViewModel : DashboardRow
     private static DateTimeOffset AnchorOf(Session session) => session.State switch
     {
         SessionState.Working or SessionState.Waiting => session.Latest.StartedAt,
-        SessionState.Unread or SessionState.Acked or SessionState.Ended => session.Latest.AnsweredAt ?? session.EnteredAt,
-        _ => session.EnteredAt,
+        _ => session.ClockAnchor ?? session.EnteredAt,
     };
 
     /// <summary>Recomputes <see cref="Age"/> against <paramref name="now"/>.</summary>

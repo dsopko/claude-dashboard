@@ -126,9 +126,11 @@ public sealed class ScheduledPrompts : IEquatable<ScheduledPrompts>
 /// <param name="EnteredAt">When that state was entered; restored, so the nudge ladder is not reset.</param>
 /// <param name="ErrorKind">The error kind before the tick, if any.</param>
 /// <param name="WaitingOn">What the session was waiting on before the tick, if it was Waiting.</param>
+/// <param name="ClockAnchor">The row clock's anchor before the tick (T1.47); restored, so the row reads the same age.</param>
 public sealed record TickSnapshot(
     SessionState State,
     Exchange Latest,
     DateTimeOffset EnteredAt,
     string? ErrorKind,
-    WaitingTasks WaitingOn);
+    WaitingTasks WaitingOn,
+    DateTimeOffset? ClockAnchor = null);

@@ -25,19 +25,36 @@ namespace ClaudeDashboard.App.Ui;
 public partial class MainWindow : Window
 {
     /// <summary>Creates the window over <paramref name="viewModel"/>.</summary>
-    /// <exception cref="ArgumentNullException"><paramref name="viewModel"/> is null.</exception>
-    public MainWindow(MainViewModel viewModel)
+    /// <param name="viewModel">What the window shows.</param>
+    /// <param name="tray">
+    /// The tray's view model, which the header's Mute all binds to (T1.47). Required, so a lost
+    /// registration fails the container instead of leaving a button that does nothing.
+    /// </param>
+    /// <exception cref="ArgumentNullException">Any argument is null.</exception>
+    public MainWindow(MainViewModel viewModel, TrayViewModel tray)
     {
         ArgumentNullException.ThrowIfNull(viewModel);
+        ArgumentNullException.ThrowIfNull(tray);
 
         ViewModel = viewModel;
+        Tray = tray;
         InitializeComponent();
+
+        // Before the window's own DataContext, so the header's Mute all never binds against the
+        // wrong object on the way: its label and command are the tray's, from one source (T1.47).
+        MuteAllButton.DataContext = tray;
         DataContext = viewModel;
         ApplyCaptionIcon();
     }
 
     /// <summary>What the window is showing.</summary>
     public MainViewModel ViewModel { get; }
+
+    /// <summary>
+    /// The tray's view model. The header's Mute all binds to it, so the header and the tray menu
+    /// read one muted state and publish one command.
+    /// </summary>
+    public TrayViewModel Tray { get; }
 
     /// <summary>
     /// Whether the pointer is over the maximize or restore button.
