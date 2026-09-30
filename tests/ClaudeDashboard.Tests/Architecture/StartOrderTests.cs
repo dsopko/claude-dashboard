@@ -27,10 +27,10 @@ public sealed class StartOrderTests
         var code = GuardScan.CodeOnly(File.ReadAllText(
             Path.Combine(RepoLayout.Root.FullName, "src", "ClaudeDashboard.App", "Program.cs")));
 
-        Assert.Equal(1, GuardScan.Occurrences(code, "HookScript.EnsureWritten("));
+        Assert.Equal(1, GuardScan.Occurrences(code, "HookScript.EnsureWrittenAtStart("));
         Assert.Equal(1, GuardScan.Occurrences(code, "announcement.Announce()"));
         Assert.True(
-            code.IndexOf("HookScript.EnsureWritten(", StringComparison.Ordinal)
+            code.IndexOf("HookScript.EnsureWrittenAtStart(", StringComparison.Ordinal)
                 < code.IndexOf("announcement.Announce()", StringComparison.Ordinal),
             "Program must write the hook script before it announces listening.txt: the dashboard refuses a hook " +
             "without this run's token, and only the new script sends one.");

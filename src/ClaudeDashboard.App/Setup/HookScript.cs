@@ -170,9 +170,19 @@ public static class HookScript
         rem  an ASCII range, and it would start a process on every hook. Measured
         rem  with every printable ASCII character outside the set, a tab, and every
         rem  byte 0x80-0xFF, each at three positions: all refused, nothing printed.
+        rem
+        rem  ONE BYTE GETS PAST THAT CHECK: A BARE LF (T1.48 review). set /p ends a
+        rem  line only at CRLF, so an LF inside line 2 stays in TOKEN and counts toward
+        rem  the 43; for /f splits its string at the LF, both halves are pure
+        rem  delimiters, and the body never runs. The line after it closes that: the
+        rem  first line for /f sees of "-TOKEN" must be the whole of it. Measured on
+        rem  every byte 0x01-0xFF at one position: LF is the only one for /f treats as
+        rem  a line break - a lone CR is an ordinary non-delimiter and is refused
+        rem  above, and a NUL cuts the value short and fails the length test.
         if "!TOKEN:~42,1!"=="" exit /b 0
         if not "!TOKEN:~43,1!"=="" exit /b 0
         for /f "eol=_ delims=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_" %%R in ("-!TOKEN!") do exit /b 0
+        for /f "delims=" %%L in ("-!TOKEN!") do if not "%%L"=="-!TOKEN!" exit /b 0
 
         rem  curl.exe by absolute path and not by name: an unqualified curl.exe is
         rem  shadowed by anything earlier on PATH, and this one is handed the
@@ -198,10 +208,13 @@ public static class HookScript
     /// A torn <c>.cmd</c> is a torn <em>executable</em>.
     /// </para>
     /// <para>
-    /// <strong>It will genuinely fail sometimes, which is why nothing here throws.</strong> While
-    /// <c>cmd</c> is running the script it holds the file open, so the rename can lose to a sharing
-    /// violation on a busy machine. The next start tries again, and in the meantime the script
-    /// already on disk is the one that runs — which is the old version, not a broken one.
+    /// <strong>It can fail, which is why nothing here throws.</strong> Not because of <c>cmd</c>:
+    /// the T1.48 review measured <c>MoveFileEx(REPLACE_EXISTING)</c> over a <c>.cmd</c> that
+    /// <c>cmd</c> was running, and it succeeded three times in three, because <c>cmd</c> does not
+    /// hold the file open between lines. What can hold it is anything else with a handle that does
+    /// not share delete — a scanner, an indexer, an editor — or a folder the process cannot write.
+    /// The copy already on disk is then the one that runs, which is the old version, not a broken
+    /// one. <see cref="EnsureWrittenAtStart"/> retries at start and says so if it cannot.
     /// </para>
     /// </remarks>
     /// <returns>Whether the file now holds <see cref="Text"/>.</returns>
@@ -239,6 +252,66 @@ public static class HookScript
 
             return false;
         }
+    }
+
+    /// <summary>How many times a start tries to put the script in place before it says so.</summary>
+    public const int StartAttempts = 3;
+
+    /// <summary>The pause between those attempts.</summary>
+    public static readonly TimeSpan StartPause = TimeSpan.FromMilliseconds(250);
+
+    /// <summary>
+    /// <see cref="EnsureWritten"/> as a start runs it: a few tries, then one Error line if the script
+    /// on disk is still not this build's (the T1.48 review).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>Why a start cares more than the installer does.</strong> Since T1.48 the dashboard
+    /// refuses a hook without this run's token, and only this build's script sends one. A start
+    /// whose rewrite failed would still announce the port, and every hook from the old script
+    /// would be refused for the whole run — issue #57's symptom, silently, for one run. So a
+    /// failure here is retried briefly, and if it persists it is an Error that names the effect.
+    /// </para>
+    /// <para>
+    /// It never refuses to start. The window still shows what the Registry holds, and the next
+    /// start tries again.
+    /// </para>
+    /// </remarks>
+    /// <param name="paths">The data folder.</param>
+    /// <param name="logger">Where each failed try (Warning) and the final failure (Error) go.</param>
+    /// <param name="attempts">How many tries; <see cref="StartAttempts"/> in the product.</param>
+    /// <param name="wait">How to pause between tries; a thread sleep of <see cref="StartPause"/> in the product.</param>
+    /// <returns>Whether the file now holds <see cref="Text"/>.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="paths"/> or <paramref name="logger"/> is null.</exception>
+    public static bool EnsureWrittenAtStart(
+        DashboardPaths paths,
+        ILogger logger,
+        int attempts = StartAttempts,
+        Action? wait = null)
+    {
+        ArgumentNullException.ThrowIfNull(paths);
+        ArgumentNullException.ThrowIfNull(logger);
+
+        for (var attempt = 1; attempt <= attempts; attempt++)
+        {
+            if (EnsureWritten(paths, logger))
+            {
+                return true;
+            }
+
+            if (attempt < attempts)
+            {
+                (wait ?? (() => Thread.Sleep(StartPause)))();
+            }
+        }
+
+        logger.Error(
+            "Could not replace {Script} after {Attempts} attempts. Hooks from the old script are refused " +
+            "until the next start: it sends no token, and this dashboard requires one.",
+            paths.HookScriptFile,
+            attempts);
+
+        return false;
     }
 
     /// <summary>Whether the file on disk already holds exactly <see cref="Text"/>.</summary>

@@ -89,7 +89,7 @@ public sealed class HookScriptBehaviourTests : IDisposable
         var run = Run();
 
         AssertSilent(run);
-        Assert.Empty(listener.Requests);
+        Assert.Empty(FromTheScript(listener));
     }
 
     /// <summary>
@@ -147,7 +147,7 @@ public sealed class HookScriptBehaviourTests : IDisposable
         AssertSilent(run);
         Assert.DoesNotContain("INJECTED", run.Out, StringComparison.Ordinal);
         Assert.DoesNotContain("INJECTED", run.Error, StringComparison.Ordinal);
-        Assert.Empty(listener.Requests);
+        Assert.Empty(FromTheScript(listener));
     }
 
     /// <summary>
@@ -326,6 +326,16 @@ public sealed class HookScriptBehaviourTests : IDisposable
     [InlineData("{0}\r\nAbCdEfGhIj!!KlMnOpQrStUvWxYz0123456789-_AbCdE")]
     [InlineData("{0}\r\nAbCdEfGhIjKlMnOpQrStéWxYz0123456789-_AbCdE")]
     [InlineData("{0}\nAbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCdE")]
+    // A bare LF inside line 2 (the T1.48 review): set /p keeps it, the length test counts it, and
+    // for /f splits at it, so both halves passed the character check. Middle, first, last, doubled.
+    [InlineData("{0}\r\nAbCdEfGhIjKlMnOpQrSt\nvWxYz0123456789-_AbCdE")]
+    [InlineData("{0}\r\nA\nCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCdE")]
+    [InlineData("{0}\r\nAbCdEfGhIjKlMnOpQrStUvWxYz0123\n56789-_AbCdE")]
+    [InlineData("{0}\r\n\nbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCdE")]
+    [InlineData("{0}\r\nAbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCd\n")]
+    [InlineData("{0}\r\nAbCdEfGhIjKlMnOpQrSt\n\nWxYz0123456789-_AbCdE")]
+    // A lone CR is not a line break to for /f; it is an ordinary character and is refused.
+    [InlineData("{0}\r\nAbCdEfGhIjKlMnOpQrSt\rvWxYz0123456789-_AbCdE")]
     public void A_line_2_that_is_not_a_token_sends_nothing_and_says_nothing(string format)
     {
         using var listener = new Recorder(200);
@@ -333,11 +343,11 @@ public sealed class HookScriptBehaviourTests : IDisposable
 
         AssertSilent(Run());
 
-        Assert.Empty(listener.Requests);
+        Assert.Empty(FromTheScript(listener));
     }
 
     /// <summary>
-    /// Every byte from 0x80 to 0xFF, and every control byte but the two line ends, inside an
+    /// Every byte from 0x80 to 0xFF, and every control byte, LF and CR included, inside an
     /// otherwise valid token: none of them travels. Written as raw bytes, because what cmd reads is
     /// bytes in the console code page, and a UTF-8 string would test only the multi-byte case.
     /// </summary>
@@ -347,7 +357,7 @@ public sealed class HookScriptBehaviourTests : IDisposable
         using var listener = new Recorder(200);
         var head = Encoding.ASCII.GetBytes($"{listener.Port}\r\n");
         var token = Encoding.ASCII.GetBytes("AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCdE");
-        var bytes = Enumerable.Range(1, 31).Where(b => b is not 10 and not 13).Append(127).Concat(Enumerable.Range(128, 128));
+        var bytes = Enumerable.Range(1, 31).Append(127).Concat(Enumerable.Range(128, 128));
 
         foreach (var value in bytes)
         {
@@ -358,7 +368,7 @@ public sealed class HookScriptBehaviourTests : IDisposable
             AssertSilent(Run());
         }
 
-        Assert.Empty(listener.Requests);
+        Assert.Empty(FromTheScript(listener));
     }
 
     /// <summary>
@@ -391,6 +401,20 @@ public sealed class HookScriptBehaviourTests : IDisposable
     private readonly IngressToken _token = new();
 
     private void Announce(int port) => ListeningFile.Write(_paths, port, _token);
+
+    /// <summary>
+    /// The requests this test's own script run made: those carrying its payload.
+    /// </summary>
+    /// <remarks>
+    /// A "sends nothing" assertion counts only these. The recorder's port is assigned by the
+    /// operating system, and other test classes connect to ports they believe are unused — a
+    /// health probe, a <c>/show</c> — so a stranger's request can land here under full-suite load.
+    /// A refusal case failed once under full-suite load in the T1.48 fix round and did not recur in
+    /// twelve further full runs; its message was not captured, so a stranger's request is the likely
+    /// cause and not a proven one. The script's own post always carries <see cref="Payload"/>.
+    /// </remarks>
+    private static List<string> FromTheScript(Recorder listener) =>
+        [.. listener.Requests.Where(request => request.Contains(Payload, StringComparison.Ordinal))];
 
     /// <summary>Writes <paramref name="content"/> as the announcement, byte for byte, with no BOM.</summary>
     private void WriteAnnouncement(string content) =>

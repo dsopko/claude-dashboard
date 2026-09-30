@@ -217,7 +217,7 @@ public static class Program
                 // token, which only the new script sends. Announced first, as it was until T1.48,
                 // an old script would meet a dashboard that requires a token it never sends, for
                 // as long as the rewrite took, and every hook in that window would be refused.
-                HookScript.EnsureWritten(paths, host.Services.GetRequiredService<Serilog.ILogger>());
+                HookScript.EnsureWrittenAtStart(paths, host.Services.GetRequiredService<Serilog.ILogger>());
 
                 // AFTER Start, never before — between announcing and binding there would be a
                 // window in which the script posts to a port nothing answers.

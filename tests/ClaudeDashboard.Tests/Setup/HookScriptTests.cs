@@ -196,6 +196,60 @@ public sealed class HookScriptTests : IDisposable
     }
 
     /// <summary>
+    /// A start retries a script it could not replace, and succeeds once the file is free (the T1.48
+    /// review).
+    /// </summary>
+    /// <remarks>
+    /// The lock is a handle that does not share delete — the kind a scanner or an editor holds, and
+    /// the kind <c>cmd</c> does not — released by the pause between attempts.
+    /// </remarks>
+    [Fact]
+    public void A_start_retries_a_script_it_could_not_replace_and_succeeds_when_it_is_free()
+    {
+        File.WriteAllText(_paths.HookScriptFile, "@echo off\r\nrem an older build\r\n");
+        var sink = new ClaudeDashboard.Tests.Fakes.RecordingLogSink();
+        using var logger = new Serilog.LoggerConfiguration().MinimumLevel.Verbose().WriteTo.Sink(sink).CreateLogger();
+        var held = new FileStream(_paths.HookScriptFile, FileMode.Open, FileAccess.Read, FileShare.Read);
+        var waits = 0;
+
+        var written = HookScript.EnsureWrittenAtStart(_paths, logger, wait: () =>
+        {
+            waits++;
+            held.Dispose();
+        });
+
+        Assert.True(written);
+        Assert.Equal(1, waits);
+        Assert.Equal(HookScript.Text, File.ReadAllText(_paths.HookScriptFile));
+        Assert.DoesNotContain(sink.Events, e => e.Level == Serilog.Events.LogEventLevel.Error);
+    }
+
+    /// <summary>
+    /// A start that cannot put the script in place tries <see cref="HookScript.StartAttempts"/> times,
+    /// then says once, at Error, what that costs — and does not throw.
+    /// </summary>
+    [Fact]
+    public void A_start_that_cannot_write_the_script_says_so_once_at_error_and_carries_on()
+    {
+        var missing = new DashboardPaths(Path.Combine(_root, "gone", "deeper"));
+        var sink = new ClaudeDashboard.Tests.Fakes.RecordingLogSink();
+        using var logger = new Serilog.LoggerConfiguration().MinimumLevel.Verbose().WriteTo.Sink(sink).CreateLogger();
+        var waits = 0;
+
+        var written = HookScript.EnsureWrittenAtStart(missing, logger, wait: () => waits++);
+
+        Assert.False(written);
+        Assert.Equal(HookScript.StartAttempts - 1, waits);
+        Assert.Equal(HookScript.StartAttempts, sink.Events.Count(e => e.Level == Serilog.Events.LogEventLevel.Warning));
+
+        var error = Assert.Single(sink.Events, e => e.Level == Serilog.Events.LogEventLevel.Error);
+        Assert.Contains(
+            "Hooks from the old script are refused until the next start",
+            ClaudeDashboard.Tests.Fakes.RecordingLogSink.Render(error),
+            StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// <strong>The script says, in itself, that it is generated and will be replaced.</strong>
     /// </summary>
     /// <remarks>
