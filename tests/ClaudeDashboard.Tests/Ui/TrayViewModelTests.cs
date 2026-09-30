@@ -25,7 +25,7 @@ public sealed class TrayViewModelTests : IDisposable
     private static readonly DateTimeOffset At = FakeClock.DefaultStart;
 
     /// <summary>Ingress bound and listening, which is what all but the fault tests assume.</summary>
-    private static readonly IngressStatus Healthy = IngressStatus.Healthy(DashboardSettings.DefaultPort);
+    private static readonly IngressStatus Healthy = IngressStatus.Healthy(DashboardSettings.IngressPortBase);
 
     private readonly RegistryHarness _harness = new();
     private readonly RecordingEventSink _sink = new();

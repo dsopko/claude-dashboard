@@ -507,12 +507,12 @@ public sealed class AppHostTests : IDisposable
     /// <para>
     /// <strong>THE START IS BACK, AND THE REASON IT WAS EVER REMOVED WAS FALSE.</strong> This
     /// test was split in two, and the paragraph justifying the split said: "a malformed file
-    /// always yields <c>DefaultPort</c> — that is the fallback this very test asserts — so the
+    /// always yields <c>IngressPortBase</c> — that is the fallback this very test asserts — so the
     /// settings can never name a free port, and a host started from them always binds the fixed
     /// one." Three claims, all wrong.
     /// </para>
     /// <para>
-    /// <strong>A malformed file yields an <em>unset</em> port, not <c>DefaultPort</c></strong> —
+    /// <strong>A malformed file yields an <em>unset</em> port, not <c>IngressPortBase</c></strong> —
     /// <see cref="DashboardSettings.Port"/> is <c>int?</c> and its own remark says in bold that an
     /// out-of-range value becomes unset rather than defaulted. That nullability is T1.21's whole
     /// mechanism. The assertion below never said otherwise: it compares against a fresh

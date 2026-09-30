@@ -23,7 +23,7 @@ internal static class TestTrays
             modes ?? new SettableSoundModes(),
             sink ?? new RecordingEventSink(),
             clock ?? new FakeClock(),
-            IngressStatus.Healthy(DashboardSettings.DefaultPort),
+            IngressStatus.Healthy(DashboardSettings.IngressPortBase),
             Logger.None);
 }
 

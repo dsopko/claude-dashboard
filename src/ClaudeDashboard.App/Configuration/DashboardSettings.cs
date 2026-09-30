@@ -28,6 +28,13 @@ public sealed record DashboardSettings
     /// </summary>
     /// <remarks>
     /// <para>
+    /// <strong>Renamed from <c>DefaultPort</c> (issue #31).</strong> The old name promised a
+    /// default, and since T1.21 the code has none: a start with no pin derives a per-user port from
+    /// this base and walks upward. The two paragraphs below corrected that promise in prose; an
+    /// identifier is read at every call site where the prose is not, so the name now says what the
+    /// value is. The history stays, for the reason the last paragraph gives.
+    /// </para>
+    /// <para>
     /// <strong>No longer the port anything binds, and the old reason for it being fixed was
     /// false.</strong> This said "fixed rather than dynamic because the hook URL registered in
     /// Claude Code's settings must stay stable". That was true while first-run setup wrote the
@@ -50,7 +57,7 @@ public sealed record DashboardSettings
     /// the change that falsified it (T1.21).
     /// </para>
     /// </remarks>
-    public const int DefaultPort = 52789;
+    public const int IngressPortBase = 52789;
 
     private readonly int? _port;
 
@@ -63,7 +70,7 @@ public sealed record DashboardSettings
     /// it.</strong> A pinned port is honoured ahead of everything else — attempt 0, before
     /// <c>port.txt</c> and before the derivation. That is only implementable if a pin can be told
     /// apart from a default: were this a plain <see langword="int"/>, every operator who has never
-    /// opened <c>settings.json</c> would carry <see cref="DefaultPort"/> and be indistinguishable
+    /// opened <c>settings.json</c> would carry <see cref="IngressPortBase"/> and be indistinguishable
     /// from someone who typed it, and honouring that as a pin would put <em>every</em> user back on
     /// one machine-wide port — reinstating the collision T1.21 exists to remove, for exactly the
     /// people it exists to help.
@@ -75,7 +82,7 @@ public sealed record DashboardSettings
     /// "unset" for free.
     /// </para>
     /// <para>
-    /// <strong>An out-of-range value becomes unset, NOT <see cref="DefaultPort"/>.</strong> The
+    /// <strong>An out-of-range value becomes unset, NOT <see cref="IngressPortBase"/>.</strong> The
     /// old coercion would turn a typo into a hard pin on the one port most likely to be contended,
     /// which is the worst outcome available: the operator would be pinned by accident to the port
     /// the whole feature exists to stop everyone sharing. Falling through to the derivation is

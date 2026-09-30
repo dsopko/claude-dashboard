@@ -42,7 +42,7 @@
 2. Explicitly do **not** set `PublishSingleFile` or any trimming property, in the script or the csproj (Design D2). If either is present in the csproj today, remove it.
 3. Add `artifacts/` to `.gitignore`.
 4. **Log the version once at start.** Nothing in the app names its version today. One Information line, first thing after the logger exists, carrying the informational version (`Version+sha`) — the line PKG.4 and every later support question reads.
-5. **Amend the two authoritative documents this contradicts, in the same commit** (ruled 2026-09-02): Impl **§1** and **§10.2** say single-file; the main plan's **T1.19** block is titled "self-contained single-file". Correct them to the directory shape with the reason (Design D2: Velopack diffs at the file level), and record the old reason beside the change rather than deleting it — `DashboardSettings.DefaultPort`'s remark is the pattern. The csproj comment saying "one file" goes the same way.
+5. **Amend the two authoritative documents this contradicts, in the same commit** (ruled 2026-09-02): Impl **§1** and **§10.2** say single-file; the main plan's **T1.19** block is titled "self-contained single-file". Correct them to the directory shape with the reason (Design D2: Velopack diffs at the file level), and record the old reason beside the change rather than deleting it — `DashboardSettings.IngressPortBase`'s remark is the pattern. The csproj comment saying "one file" goes the same way.
 
 **Acceptance:**
 

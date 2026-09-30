@@ -14,7 +14,7 @@ namespace ClaudeDashboard.Tests.Hosting;
 /// </remarks>
 public sealed class PortSelectionTests
 {
-    private const int Base = DashboardSettings.DefaultPort;
+    private const int Base = DashboardSettings.IngressPortBase;
 
     private const string Sid = "S-1-5-21-3953501118-1735086671-3633542688-1001";
     private const string OtherSid = "S-1-5-21-3953501118-1735086671-3633542688-1002";
