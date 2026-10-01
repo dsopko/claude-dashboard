@@ -27,11 +27,24 @@ internal static class GuardScan
     /// string contents while keeping the quotes closes both directions at once.
     /// </para>
     /// <para>
-    /// <strong>A pragmatic scanner, not a C# lexer, and its failures are closed.</strong> It
-    /// tracks line comments, block comments, ordinary string and char literals with backslash
-    /// escapes — the shapes the scanned files contain. A verbatim or raw string introduced later
-    /// would be mis-scanned, and what that produces is mangled text in which a positive search
-    /// finds nothing — a guard that fails and gets read, not one that quietly passes.
+    /// <strong>A pragmatic scanner, not a C# lexer.</strong> It tracks line comments, block
+    /// comments, ordinary string and char literals with backslash escapes, verbatim strings, and
+    /// raw string literals.
+    /// </para>
+    /// <para>
+    /// <strong>Raw and verbatim strings were added in the PR #66 review, because a mis-scan does not
+    /// always fail closed.</strong> An earlier remark here said a mis-scanned file gives mangled text
+    /// in which a positive search finds nothing, so the guard fails and gets read. That holds for a
+    /// search that must find something. It is false for one that must find nothing: the raw JSON
+    /// strings in <c>HookPlugin.cs</c> made the scanner swallow the code after them, and the file's
+    /// real <c>File.WriteAllText</c> was invisible to every "holds no write" check.
+    /// </para>
+    /// <para>
+    /// <strong>Still mis-scanned: a string inside an interpolation hole</strong>, as in
+    /// <c>$"{(n &gt; 0 ? " " : "")}"</c>. Four product lines have one (in <c>HealthProbe</c>,
+    /// <c>ClaudeCli</c>, <c>HookSwitches</c> and <c>HeaderViewModels</c>). The scanner pairs those
+    /// quotes in order, so the mistake stays inside that one statement — part of the literal reads
+    /// as code and part of the hole as a literal — and the rest of the file scans correctly.
     /// </para>
     /// </remarks>
     public static string CodeOnly(string text)
@@ -70,6 +83,41 @@ internal static class GuardScan
                 i++;
                 kept.Append(' ');
                 continue;
+            }
+
+            if (c == '"')
+            {
+                var run = 0;
+
+                while (i + run < text.Length && text[i + run] == '"')
+                {
+                    run++;
+                }
+
+                // A raw string literal: three or more quotes open it, and the same number close
+                // it. Its contents may hold any quote run shorter than that, and no escapes.
+                if (run >= 3)
+                {
+                    var close = text.IndexOf(new string('"', run), i + run, StringComparison.Ordinal);
+                    i = close < 0 ? text.Length : close + run - 1;
+                    kept.Append("\"\"");
+                    continue;
+                }
+
+                // A verbatim string literal, @"…", $@"…" or @$"…": a doubled quote is a quote, and
+                // a backslash is only a backslash.
+                if (i > 0 && (text[i - 1] == '@' || (text[i - 1] == '$' && i > 1 && text[i - 2] == '@')))
+                {
+                    i++;
+
+                    while (i < text.Length && !(text[i] == '"' && (i + 1 >= text.Length || text[i + 1] != '"')))
+                    {
+                        i += text[i] == '"' ? 2 : 1;
+                    }
+
+                    kept.Append("\"\"");
+                    continue;
+                }
             }
 
             if (c is '"' or '\'')

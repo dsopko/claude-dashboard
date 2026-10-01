@@ -1,4 +1,5 @@
 using ClaudeDashboard.App.Setup;
+using ClaudeDashboard.Tests.Fakes;
 
 namespace ClaudeDashboard.Tests.Setup;
 
@@ -98,9 +99,13 @@ public sealed class HookNoticeTests
         Assert.DoesNotContain("settings.json", Shown(how).Text, StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>The two notices an event clears only once Claude Code has the plugin enabled again.</summary>
+    private static readonly HookNoticeKind[] ConfirmedByTheSettings = [HookNoticeKind.PluginDisabled, HookNoticeKind.PluginRemoved];
+
     /// <summary>
     /// <strong>An arriving event clears a notice that said nothing was reporting, and leaves the
-    /// one that is about an old hook.</strong>
+    /// one that is about an old hook.</strong> With nothing to read Claude Code's settings, it also
+    /// leaves the turned-off and removed notices: an event alone does not disprove those.
     /// </summary>
     [Theory]
     [MemberData(nameof(Shows))]
@@ -112,9 +117,12 @@ public sealed class HookNoticeTests
 
         notice.EventArrived();
 
-        Assert.Equal(!clearsOnEvent, notice.IsShown);
+        var clears = clearsOnEvent && !ConfirmedByTheSettings.Contains(kind);
 
-        if (clearsOnEvent)
+        Assert.Equal(!clears, notice.IsShown);
+        Assert.Equal(ConfirmedByTheSettings.Contains(kind), notice.ClearsOncePluginEnabled && clearsOnEvent);
+
+        if (clears)
         {
             Assert.Null(notice.Text);
             Assert.Null(notice.TrayText);
@@ -295,5 +303,134 @@ public sealed class HookNoticeTests
         Assert.ThrowsAny<ArgumentException>(() => notice.ShowClaudeRefused(folder!, "x"));
         Assert.ThrowsAny<ArgumentException>(() => notice.ShowOtherDataFolder(folder!));
         Assert.False(notice.IsShown);
+    }
+
+    // ---- A plugin that is turned off or removed (PR #66 review, M1) ---------------------------------
+
+    /// <summary>The two ways a notice says the plugin is off or gone.</summary>
+    public static TheoryData<string> PluginOffOrGone => new()
+    {
+        nameof(HookNotice.ShowPluginDisabled),
+        nameof(HookNotice.ShowPluginRemoved),
+    };
+
+    /// <summary>A notice whose re-read of Claude Code's settings is counted and answered by the test.</summary>
+    private static (HookNotice Notice, FakeClock Clock, Func<int> Reads, Action<bool> SetEnabled) Confirmed(string how)
+    {
+        var notice = Shown(how);
+        var clock = new FakeClock();
+        var reads = 0;
+        var enabled = false;
+        notice.ConfirmPluginWith(() => { reads++; return enabled; }, clock);
+
+        return (notice, clock, () => reads, value => enabled = value);
+    }
+
+    /// <summary>
+    /// <strong>An event while the plugin is still off keeps the notice.</strong> A session opened
+    /// before the plugin went off keeps reporting until it restarts; once it does, nothing reports,
+    /// and a notice that cleared at its last event would leave the operator with no warning.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(PluginOffOrGone))]
+    public void An_event_while_the_plugin_is_still_off_keeps_the_notice(string how)
+    {
+        var (notice, _, reads, _) = Confirmed(how);
+        var kind = notice.Kind;
+        var raised = 0;
+        notice.PropertyChanged += (_, _) => raised++;
+
+        notice.EventArrived();
+
+        Assert.Equal(1, reads());
+        Assert.True(notice.IsShown);
+        Assert.Equal(kind, notice.Kind);
+        Assert.Equal(0, raised);
+    }
+
+    /// <summary>
+    /// <strong>An event after the plugin is turned on clears the notice</strong>, at the first event
+    /// once a read is due.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(PluginOffOrGone))]
+    public void An_event_after_the_plugin_is_enabled_clears_the_notice(string how)
+    {
+        var (notice, clock, reads, setEnabled) = Confirmed(how);
+
+        notice.EventArrived();
+        Assert.True(notice.IsShown);
+
+        setEnabled(true);
+        clock.Advance(HookNotice.RecheckInterval);
+        notice.EventArrived();
+
+        Assert.Equal(2, reads());
+        Assert.False(notice.IsShown);
+        Assert.Equal(HookNoticeKind.None, notice.Kind);
+    }
+
+    /// <summary>
+    /// <strong>The first event reads at once; later ones at most once per interval.</strong> No
+    /// event, no read: the notice never reads on a timer.
+    /// </summary>
+    [Fact]
+    public void The_settings_are_read_at_the_first_event_and_then_at_most_once_per_interval()
+    {
+        var (notice, clock, reads, _) = Confirmed(nameof(HookNotice.ShowPluginDisabled));
+
+        Assert.Equal(0, reads());
+
+        notice.EventArrived();
+        notice.EventArrived();
+        clock.Advance(HookNotice.RecheckInterval - TimeSpan.FromSeconds(1));
+        notice.EventArrived();
+
+        Assert.Equal(1, reads());
+
+        clock.Advance(TimeSpan.FromSeconds(1));
+        notice.EventArrived();
+
+        Assert.Equal(2, reads());
+    }
+
+    /// <summary>A notice shown afresh reads at its first event, whatever the last notice read.</summary>
+    [Fact]
+    public void A_notice_shown_again_reads_at_its_first_event()
+    {
+        var (notice, _, reads, _) = Confirmed(nameof(HookNotice.ShowPluginDisabled));
+
+        notice.EventArrived();
+        notice.ShowPluginRemoved();
+        notice.EventArrived();
+
+        Assert.Equal(2, reads());
+    }
+
+    /// <summary>
+    /// <strong>The other notices do not read Claude Code's settings.</strong> An event proves the
+    /// route works for them, so it clears them at once; the old-hook notice is not cleared even by
+    /// a read that finds the plugin enabled, because the old hook is still there.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Shows))]
+    public void Only_the_turned_off_and_removed_notices_read_the_settings(string how, HookNoticeKind kind, bool clearsOnEvent)
+    {
+        var (notice, _, reads, setEnabled) = Confirmed(how);
+        setEnabled(true);
+
+        notice.EventArrived();
+
+        Assert.Equal(ConfirmedByTheSettings.Contains(kind) ? 1 : 0, reads());
+        Assert.Equal(!clearsOnEvent, notice.IsShown);
+    }
+
+    [Fact]
+    public void Confirming_needs_a_reader_and_a_clock()
+    {
+        var notice = new HookNotice();
+
+        Assert.Throws<ArgumentNullException>(() => notice.ConfirmPluginWith(null!, new FakeClock()));
+        Assert.Throws<ArgumentNullException>(() => notice.ConfirmPluginWith(() => true, null!));
     }
 }
