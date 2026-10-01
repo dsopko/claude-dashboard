@@ -88,6 +88,25 @@ public sealed class StartWithWindowsTests
         Assert.Empty(_registry.Writes);
     }
 
+    /// <summary>
+    /// A start that writes the value back still leaves Windows' off switch as it was. Windows keeps
+    /// the mark after the value is gone: switched off in Task Manager, then unticked, then
+    /// <c>startWithWindows</c> back on. The start must not quietly undo the operator's choice.
+    /// </summary>
+    [Fact]
+    public void A_start_that_writes_the_value_back_leaves_Windows_off_mark_alone()
+    {
+        byte[] off = [.. SettingsOff];
+        _registry.Approval[Name] = off;
+
+        Assert.Equal(StartupReconcileOutcome.Written, Installed().Reconcile(wanted: true));
+
+        Assert.Equal(Data, _registry.Run[Name]);
+        Assert.Same(off, _registry.Approval[Name]);
+        Assert.Equal(SettingsOff, _registry.Approval[Name]);
+        Assert.DoesNotContain("DeleteApproval " + Name, _registry.Calls);
+    }
+
     /// <summary>The checkbox shows the entry off when Windows has it off.</summary>
     [Fact]
     public void Windows_off_mark_reads_as_not_starting()

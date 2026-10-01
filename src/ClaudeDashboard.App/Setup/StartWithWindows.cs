@@ -207,6 +207,11 @@ public sealed class StartWithWindows
     /// Makes the <c>Run</c> value match <paramref name="wanted"/>, at a start. Leaves Windows' mark
     /// alone. Never throws.
     /// </summary>
+    /// <remarks>
+    /// With the setting off, it removes the value even when the value names another program, such
+    /// as a second install of the dashboard under another pack ID; that is accepted, because only
+    /// a test install makes two.
+    /// </remarks>
     public StartupReconcileOutcome Reconcile(bool wanted)
     {
         if (RunData is null)

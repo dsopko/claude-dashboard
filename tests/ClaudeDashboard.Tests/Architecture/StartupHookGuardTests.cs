@@ -397,6 +397,92 @@ public sealed class StartupHookGuardTests
             "launched while the dashboard runs would be handed over and shot down.");
     }
 
+    /// <summary>
+    /// <strong>Every start makes Windows' <c>Run</c> value match <c>startWithWindows</c>, after the
+    /// hook install (issue #36).</strong>
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Without this one call a fresh install never registers to start at sign-in, which is the
+    /// whole of issue #36, and every test of <c>StartWithWindows</c> stays green: they drive the
+    /// type, not the start. The review's plant Y3 removed it and the suite passed.
+    /// </para>
+    /// <para>
+    /// The statement is asserted whole, after comments and string contents are stripped: the
+    /// setting it passes is the point, and a call that passed <c>true</c> would undo the operator's
+    /// checkbox at every start. It runs once, and after <c>StartupHookInstall.Run</c>, where the
+    /// settings it reads are already loaded and a registry failure cannot hold up the hook repair.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void The_start_makes_Windows_startup_match_the_setting_after_the_hook_install()
+    {
+        var code = GuardScan.CodeOnly(Program());
+
+        const string Expected = "host.Services.GetRequiredService<StartWithWindows>().Reconcile(settings.StartWithWindows);";
+
+        Assert.Equal(1, GuardScan.Occurrences(code, ".Reconcile("));
+        Assert.Equal(Expected, StatementAt(code, ".Reconcile("));
+
+        var hooks = code.IndexOf("StartupHookInstall.Run(", StringComparison.Ordinal);
+        var reconcile = code.IndexOf(Expected, StringComparison.Ordinal);
+
+        Assert.True(hooks >= 0, "Program.cs no longer calls StartupHookInstall.Run.");
+        Assert.True(
+            reconcile > hooks,
+            "Program.cs makes the Run value match the setting before the hook install. It belongs " +
+            "after: a refusing registry must not hold up the hook repair.");
+    }
+
+    /// <summary>
+    /// <strong>The tray's "Settings…" reaches the Settings window (issue #36).</strong>
+    /// </summary>
+    /// <remarks>
+    /// The tray item only raises <c>SettingsRequested</c>; the one line in <c>Program</c> that
+    /// subscribes to it is what opens the window. The review's plant Y4 left it unsubscribed and the
+    /// suite passed, because every test of the tray and the window drives one side alone. The
+    /// subscription must also come before <c>app.Run</c>, which does not return until the dashboard
+    /// quits.
+    /// </remarks>
+    [Fact]
+    public void The_tray_settings_item_opens_the_settings_window()
+    {
+        var code = GuardScan.CodeOnly(Program());
+
+        const string Host = "var settingsWindows = host.Services.GetRequiredService<SettingsWindowHost>();";
+        const string Subscription = "tray.ViewModel.SettingsRequested += (_, _) => settingsWindows.Show();";
+
+        Assert.Equal(1, GuardScan.Occurrences(code, "SettingsRequested"));
+        Assert.Equal(Subscription, StatementAt(code, "SettingsRequested"));
+
+        Assert.Equal(1, GuardScan.Occurrences(code, "settingsWindows ="));
+        Assert.Equal(Host, StatementAt(code, "settingsWindows ="));
+
+        var subscription = code.IndexOf(Subscription, StringComparison.Ordinal);
+        var run = code.IndexOf("app.Run(window)", StringComparison.Ordinal);
+
+        Assert.True(run >= 0, "Program.cs no longer runs the application with the window.");
+        Assert.True(
+            subscription < run,
+            "Program.cs subscribes to SettingsRequested after app.Run, which only returns at quit.");
+    }
+
+    /// <summary>
+    /// The whole statement that contains <paramref name="token"/>: from the end of the statement or
+    /// block before it to its own semicolon, with whitespace runs folded to one space.
+    /// </summary>
+    private static string StatementAt(string code, string token)
+    {
+        var at = code.IndexOf(token, StringComparison.Ordinal);
+
+        Assert.True(at >= 0, $"Program.cs no longer contains '{token}'.");
+
+        var start = code.LastIndexOfAny([';', '{', '}'], at) + 1;
+        var end = code.IndexOf(';', at) + 1;
+
+        return string.Join(' ', code[start..end].Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+    }
+
     /// <summary>The call's arguments, split on the commas at its own depth and trimmed.</summary>
     /// <remarks>
     /// Depth is tracked on parentheses and brackets, which is enough for this call and fails
