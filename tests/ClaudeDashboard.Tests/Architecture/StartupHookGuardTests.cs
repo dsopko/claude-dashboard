@@ -232,10 +232,14 @@ public sealed class StartupHookGuardTests
 
         Assert.True(closed, "The StartupHookInstall.Run call is never closed, which cannot compile.");
         Assert.True(
-            arguments.Count == 5,
+            arguments.Count == 6,
             $"The StartupHookInstall.Run call has {arguments.Count} argument(s); the plugin installer " +
-            "is expected as the fifth.");
+            "is expected as the fifth and the notice as the sixth.");
         Assert.Equal("host.Services.GetRequiredService<PluginInstaller>()", arguments[4]);
+
+        // The notice (the ruling of 2026-10-01): without it a start that finds the plugin turned off
+        // says so only in the log, and the window shows a quiet day.
+        Assert.Equal("host.Services.GetRequiredService<HookNotice>()", arguments[5]);
 
         const string Switch = "HookSwitches.Run(";
 

@@ -1,4 +1,5 @@
 using System.Collections.Specialized;
+using System.ComponentModel;
 
 using ClaudeDashboard.App.Hosting;
 using ClaudeDashboard.Core;
@@ -47,6 +48,7 @@ public sealed partial class TrayViewModel : ObservableObject, IUiTickTarget, IDi
     private readonly IngressStatus _ingress;
     private readonly ILogger _logger;
     private readonly Pipeline.IDecisionLog? _decisions;
+    private readonly Setup.HookNotice? _notice;
 
     private DateTimeOffset _now;
     private bool _disposed;
@@ -82,6 +84,11 @@ public sealed partial class TrayViewModel : ObservableObject, IUiTickTarget, IDi
     /// place that says otherwise must not be able to go missing.
     /// </param>
     /// <param name="logger">Where a refused publish is recorded.</param>
+    /// <param name="notice">
+    /// What a start found about the hook route that the operator must see (the ruling of
+    /// 2026-10-01): its short form leads the tooltip, and the window shows its text through
+    /// <see cref="NoticeText"/>. The host passes it; a test that is not about it may omit it.
+    /// </param>
     /// <exception cref="ArgumentNullException">Any argument is null.</exception>
     public TrayViewModel(
         SessionProjection projection,
@@ -90,7 +97,8 @@ public sealed partial class TrayViewModel : ObservableObject, IUiTickTarget, IDi
         IClock clock,
         IngressStatus ingress,
         ILogger logger,
-        Pipeline.IDecisionLog? decisions = null)
+        Pipeline.IDecisionLog? decisions = null,
+        Setup.HookNotice? notice = null)
     {
         ArgumentNullException.ThrowIfNull(projection);
         ArgumentNullException.ThrowIfNull(modes);
@@ -106,6 +114,12 @@ public sealed partial class TrayViewModel : ObservableObject, IUiTickTarget, IDi
         _ingress = ingress;
         _logger = logger;
         _decisions = decisions;
+        _notice = notice;
+
+        if (_notice is not null)
+        {
+            _notice.PropertyChanged += OnNoticeChanged;
+        }
         _now = clock.Now;
 
         _projection.Sessions.CollectionChanged += OnSessionsChanged;
@@ -126,6 +140,15 @@ public sealed partial class TrayViewModel : ObservableObject, IUiTickTarget, IDi
 
     /// <summary>What the mute menu item reads (Impl §5.2: the item toggles).</summary>
     public string MuteAllLabel => IsMuted ? "Unmute all" : "Mute all";
+
+    /// <summary>
+    /// What the window shows about the hook route, or null when there is nothing to say (the ruling
+    /// of 2026-10-01). The window binds its notice row to this.
+    /// </summary>
+    public string? NoticeText => _notice?.Text;
+
+    /// <summary>Whether the window shows its notice row.</summary>
+    public bool HasNotice => _notice?.IsShown == true;
 
     /// <summary>What the pause menu item reads. It toggles rather than adding a second item.</summary>
     public string PauseLabel => IsPaused ? "Resume monitoring" : "Pause monitoring";
@@ -196,9 +219,21 @@ public sealed partial class TrayViewModel : ObservableObject, IUiTickTarget, IDi
 
         _disposed = true;
         _projection.Sessions.CollectionChanged -= OnSessionsChanged;
+
+        if (_notice is not null)
+        {
+            _notice.PropertyChanged -= OnNoticeChanged;
+        }
     }
 
     private void OnSessionsChanged(object? sender, NotifyCollectionChangedEventArgs e) => Refresh();
+
+    private void OnNoticeChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        OnPropertyChanged(nameof(NoticeText));
+        OnPropertyChanged(nameof(HasNotice));
+        Refresh();
+    }
 
     /// <summary>Recomputes the glyph and the tooltip from the sessions and the modes.</summary>
     private void Refresh()
@@ -232,7 +267,11 @@ public sealed partial class TrayViewModel : ObservableObject, IUiTickTarget, IDi
         IsPaused = paused;
         IsMuted = muted;
         Icon = TrayIcons.For(Colour, paused);
-        Tooltip = TrayTooltip.For(summary, paused, muted ? mutedUntil : null, _now, _ingress.Fault);
+        // A dead ingress and a plugin that is off both mean "receiving nothing", and either may
+        // be true alone, so both lead the tooltip when both are.
+        var fault = string.Join(" · ", new[] { _ingress.Fault, _notice?.TrayText }.Where(text => !string.IsNullOrEmpty(text)));
+
+        Tooltip = TrayTooltip.For(summary, paused, muted ? mutedUntil : null, _now, fault.Length == 0 ? null : fault);
 
         OnPropertyChanged(nameof(MuteAllLabel));
         OnPropertyChanged(nameof(PauseLabel));

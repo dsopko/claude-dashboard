@@ -238,7 +238,8 @@ public static class Program
                     settings.InstallHooksAtStart,
                     loaded.Outcome,
                     host.Services.GetRequiredService<Serilog.ILogger>(),
-                    host.Services.GetRequiredService<PluginInstaller>());
+                    host.Services.GetRequiredService<PluginInstaller>(),
+                    host.Services.GetRequiredService<HookNotice>());
 
                 var policy = host.Services.GetRequiredService<UnhandledExceptionPolicy>();
 

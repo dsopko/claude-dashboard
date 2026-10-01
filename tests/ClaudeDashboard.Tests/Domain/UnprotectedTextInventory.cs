@@ -263,6 +263,10 @@ public sealed class UnprotectedTextInventory
         "SessionViewModel.SelectionRefusal",
         "TrayViewModel.MuteAllLabel", "TrayViewModel.PauseLabel", "TrayViewModel.Tooltip",
 
+        // The hook-route notice (the ruling of 2026-10-01): two fixed texts, built from constants and
+        // the plugin's id, never from a payload; and the tray's copy of the window's one.
+        "HookNotice.Text", "HookNotice.TrayText", "TrayViewModel.NoticeText",
+
         // Configuration, paths and operational results.
         "ClaudeCodePaths.ConfigDirectory", "ClaudeCodePaths.UserSettingsFile",
         "DashboardPaths.DatabaseFile", "DashboardPaths.LogFile", "DashboardPaths.LogFolder",

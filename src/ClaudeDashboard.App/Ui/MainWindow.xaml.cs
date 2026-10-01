@@ -43,6 +43,10 @@ public partial class MainWindow : Window
         // Before the window's own DataContext, so the header's Mute all never binds against the
         // wrong object on the way: its label and command are the tray's, from one source (T1.47).
         MuteAllButton.DataContext = tray;
+
+        // The notice row too (the ruling of 2026-10-01): the tray carries the notice, so the window
+        // and the tooltip cannot disagree about it.
+        NoticeRow.DataContext = tray;
         DataContext = viewModel;
         ApplyCaptionIcon();
     }

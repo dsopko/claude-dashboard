@@ -510,6 +510,13 @@ Tasks landing after T1.20. Each one puts the acceptance document out of date in 
   - The plugin folder is never the install folder: Claude Code loads the plugin in place, and a hook whose folder is gone stops in silence.
   - An open session does not see a new plugin. Nothing automatic may trade a working settings handler for one.
   - The dashboard reads `enabledPlugins` and `extraKnownMarketplaces` and writes neither.
+- **Ruled 2026-10-01 (operator):**
+  - **The PR's five decisions stand:** a start never moves an existing settings entry to the plugin; the restart notice for `--install-hooks` is text only; a data folder whose plugin name is held by another data folder stays on the settings file; the settings file is the fallback when `claude` is missing or refuses; a `claude.cmd` shim is treated as not found.
+  - **R1 — a plugin the operator turned off stays off.** When Claude Code has the dashboard's plugin registered and set to `false` in `enabledPlugins` (as `claude plugin disable` leaves it), a start does **not** run `claude plugin install` (which turns it back on — measured on 2.1.286), does **not** enable it, and does **not** write the settings handler round it. It shows the operator instead: a notice in the window, and the tray tooltip leading with `plugin off · not receiving hooks`. The notice gives the command `claude plugin enable claude-dashboard@claude-dashboard` (run before it was written), says to restart open sessions (measured: a session open across the enable reported nothing; one started after reported), and says it clears at the next start. A complete settings handler beside a disabled plugin still carries every event, and then there is nothing to show. `--install-hooks` is an explicit request and turns the plugin back on, saying so.
+- **Review fixes (2026-10-01):**
+  - **A run of `claude` is bounded from start to its last byte.** A child that `claude` starts can hold the output pipe open after `claude` exits; the run now waits for the output only within the same budget, then stops the whole tree through a job object and returns with the exit code.
+  - **A `claude` that records the plugin and then fails is registered.** After a failed run, the installer reads Claude Code's settings again; if the plugin is now enabled, no settings handler goes in beside it.
+  - **A relative `PATH` entry is not searched** for `claude.exe`.
 
 **Ordering ruled 2026-09-02:** the packaging workstream — `PKG.1` → `PKG.2` → `PKG.3` → T1.33 → `PKG.4` in the [Packaging Execution Plan](claude-dashboard-packaging-execution-plan.md) — runs **ahead of T2.1**. Appendix A is unchanged; the packaging plan carries its own order.
 

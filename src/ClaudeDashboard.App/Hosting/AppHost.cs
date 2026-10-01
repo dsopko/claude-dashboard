@@ -145,6 +145,10 @@ public static class AppHost
         // does not write Claude Code's settings. Nothing is started by resolving these.
         builder.Services.AddSingleton<IClaudeCli, ClaudeCli>();
         builder.Services.AddSingleton<PluginInstaller>();
+
+        // What a start found about the hook route that the operator must see (the ruling of 2026-10-01).
+        // Set by StartupHookInstall, read by the tray and, through it, the window.
+        builder.Services.AddSingleton<HookNotice>();
         builder.Services.AddSingleton<IngressAnnouncement>();
         builder.Services.AddSingleton(settingsStore);
         builder.Services.AddSingleton(loaded.Settings);
@@ -223,7 +227,8 @@ public static class AppHost
             sp.GetRequiredService<Core.Ports.IClock>(),
             sp.GetRequiredService<IngressStatus>(),
             sp.GetRequiredService<ILogger>(),
-            sp.GetRequiredService<DecisionRecorder>()));
+            sp.GetRequiredService<DecisionRecorder>(),
+            sp.GetRequiredService<HookNotice>()));
         builder.Services.AddSingleton<TrayIcon>();
         builder.Services.AddSingleton<StateBoard>();
         // The durable event log (T1.17). The archive is the channel the consumer hands records

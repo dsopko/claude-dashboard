@@ -41,6 +41,13 @@ public sealed class FakeClaudeCli(ClaudeCodePaths? claude = null) : IClaudeCli
     /// <summary>An answer for some runs; null means "answer as usual".</summary>
     public Func<IReadOnlyList<string>, ClaudeCliResult?>? Answer { get; set; }
 
+    /// <summary>
+    /// For some runs, record as Claude Code would and then report this failure anyway: the run that
+    /// writes <c>enabledPlugins</c> and then exits non-zero, or is stopped at the budget after the
+    /// write (the issue #30 review, M2). Null, or a null answer, means "succeed as usual".
+    /// </summary>
+    public Func<IReadOnlyList<string>, ClaudeCliResult?>? FailAfterRecording { get; set; }
+
     /// <inheritdoc/>
     public ClaudeCliResult Run(IReadOnlyList<string> arguments)
     {
@@ -61,6 +68,11 @@ public sealed class FakeClaudeCli(ClaudeCodePaths? claude = null) : IClaudeCli
         if (claude is not null)
         {
             Record(claude, arguments);
+        }
+
+        if (FailAfterRecording?.Invoke(arguments) is { } failure)
+        {
+            return failure;
         }
 
         return new ClaudeCliResult(true, 0, "ok");
