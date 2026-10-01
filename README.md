@@ -33,6 +33,8 @@ That is all. On its first start the dashboard registers one small plugin with Cl
 
 Two cases still use `~/.claude/settings.json`. When the `claude` program cannot be found, the dashboard adds the same hook to that file instead, so that it is never left hearing nothing. And an install from before the plugin keeps its entry there, because moving it would stop every open session from reporting until it restarts. To move it yourself, run `ClaudeDashboard.App.exe --install-hooks` from the install folder, then restart your open Claude Code sessions.
 
+**If you turn the plugin off** (for example with `claude plugin disable claude-dashboard@claude-dashboard`), the dashboard leaves it off and does not work round it. It hears nothing while the plugin is off, and says so in its window and its tray tooltip. To turn it back on, run `claude plugin enable claude-dashboard@claude-dashboard`, then restart any Claude Code session that is open. The notice clears the next time the dashboard starts.
+
 **Uninstall.** *Settings → Apps → Claude Dashboard → Uninstall* removes the program and leaves your data folder in place. To take the hook out of Claude Code first, run `ClaudeDashboard.App.exe --remove-hooks` from the install folder: it removes the plugin, and any entry of the dashboard's in your Claude Code settings. Without that, the hook stays and is harmless — it finds no dashboard and exits.
 
 **Portable.** The release also carries `dsopko.ClaudeDashboard-win-Portable.zip`: extract it anywhere and run `current\ClaudeDashboard.App.exe`. No Start Menu entry, no Apps entry.

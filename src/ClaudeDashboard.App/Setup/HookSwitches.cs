@@ -159,7 +159,9 @@ public static class HookSwitches
             return InstallIntoSettings(installer, report);
         }
 
-        if (installer.Check().ForeignPlugin is { } foreign)
+        var before = installer.Check();
+
+        if (before.ForeignPlugin is { } foreign)
         {
             report($"Claude Code already has a plugin named {HookPlugin.Name} from another data folder: {foreign}");
             report("Two data folders cannot both register it, so this one uses Claude Code's settings file.");
@@ -167,7 +169,16 @@ public static class HookSwitches
             return InstallIntoSettings(installer, report);
         }
 
-        var registered = plugin.Install();
+        // An explicit request, so it may turn back on a plugin the operator turned off (the ruling of
+        // 2026-10-01): `claude plugin install` does that, measured on 2.1.286. A start never does.
+        if (before.PluginDisabled)
+        {
+            report($"The plugin {HookPlugin.Id} is turned off in Claude Code. --install-hooks turns it back on.");
+        }
+
+        // Read again after a failure: a claude that recorded the plugin and then failed has still
+        // registered it, and the settings handler must not go in beside it (the issue #30 review, M2).
+        var registered = plugin.Install(() => installer.Check().PluginEnabled);
 
         if (registered.Outcome != PluginOutcome.Registered)
         {

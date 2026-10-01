@@ -23,6 +23,13 @@ namespace ClaudeDashboard.App.Setup;
 /// plugin as enabled, and give this data folder's plugin folder as its source. When it is, Claude
 /// Code runs our script through the plugin and the settings need no handler of ours.
 /// </param>
+/// <param name="PluginDisabled">
+/// Whether Claude Code has this data folder's plugin registered and <strong>turned off</strong>: the
+/// settings name it, and set it to <see langword="false"/> — what <c>claude plugin disable</c>
+/// leaves. That is the operator's choice, and the operator's ruling of 2026-10-01 is that a start
+/// honours it: it neither re-enables the plugin nor writes the settings
+/// handler around it, and shows the operator how to turn it back on.
+/// </param>
 /// <param name="ForeignPlugin">
 /// The folder of a <see cref="HookPlugin.Name"/> plugin that belongs to another data folder, or
 /// null. Two data folders cannot both register a plugin of one name, so this one must keep to the
@@ -35,7 +42,8 @@ public readonly record struct HookPresence(
     string? Problem = null,
     bool ClaudeCodeInstalled = true,
     bool PluginEnabled = false,
-    string? ForeignPlugin = null)
+    string? ForeignPlugin = null,
+    bool PluginDisabled = false)
 {
     /// <summary>Whether every accepted event carries our handler in the settings file.</summary>
     /// <remarks>
@@ -294,7 +302,8 @@ public sealed class HookInstaller
                 HookRegistration.ForeignScriptPaths(settings, script),
                 ClaudeCodeInstalled: claudeCodeInstalled,
                 PluginEnabled: pluginIsOurs && HookPlugin.IsEnabled(settings),
-                ForeignPlugin: pluginFolder is not null && !pluginIsOurs ? pluginFolder : null);
+                ForeignPlugin: pluginFolder is not null && !pluginIsOurs ? pluginFolder : null,
+                PluginDisabled: pluginIsOurs && HookPlugin.IsDisabled(settings));
         }
         catch (System.Text.Json.JsonException ex)
         {
@@ -396,8 +405,11 @@ public sealed class HookInstaller
         {
             if (presence.Events > 0)
             {
-                // Both routes at once. Nothing in the product produces this state by itself: it
-                // takes a plugin registered by hand beside an install from before issue #30.
+                // Both routes at once. A plugin registered by hand beside an install from before
+                // issue #30 produces it; so could the product itself, until the issue #30 review: a
+                // claude that recorded the plugin and then failed sent a start or --install-hooks on
+                // to write the settings handler as well. PluginInstaller now reads the record again
+                // after a failure, so the product no longer adds the second route.
                 _logger.Warning(
                     "Claude Code has the dashboard's plugin {Plugin} enabled, and its settings also " +
                     "carry the dashboard's hook on {Events} of {Expected} events for {Script}. Each of " +
@@ -416,6 +428,23 @@ public sealed class HookInstaller
             }
 
             return;
+        }
+
+        if (presence.PluginDisabled)
+        {
+            _logger.Warning(
+                "Claude Code has the dashboard's plugin {Plugin} turned off. The dashboard leaves it " +
+                "off, as it was set, and receives no events through it. Turn it on with: claude plugin " +
+                "enable {Plugin}, then restart the Claude Code sessions that are open.",
+                HookPlugin.Id,
+                HookPlugin.Id);
+
+            // The generic "hook missing" line below would read as if a start were about to put it
+            // back, and since the 2026-10-01 ruling none will. The line above is the whole story.
+            if (!presence.Complete)
+            {
+                return;
+            }
         }
 
         if (presence.Complete)

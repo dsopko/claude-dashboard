@@ -70,6 +70,7 @@
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
             </Grid.RowDefinitions>
 
@@ -430,8 +431,29 @@
                 </Grid>
             </Border>
 
+            <!--
+                ==== Notice: what a start found about the hook route (the ruling of 2026-10-01) ====
+                Collapsed unless there is something to say. Today that is one case: Claude Code has
+                the dashboard's plugin turned off, the dashboard leaves it off, and so receives
+                nothing — which must not look like a quiet day. The DataContext is the tray's view
+                model, set in the constructor, so the window and the tray tooltip read one notice.
+                Amber, the colour of a state that needs the operator but is not an error.
+            -->
+            <Border x:Name="NoticeRow"
+                    Grid.Row="3"
+                    Padding="14,8"
+                    Background="{StaticResource AmberWashBrush}"
+                    BorderBrush="{StaticResource HairlineBrush}"
+                    BorderThickness="0,0,0,1"
+                    Visibility="{Binding HasNotice, Converter={StaticResource BoolToVisible}}">
+                <TextBlock x:Name="NoticeText"
+                           Text="{Binding NoticeText}"
+                           Foreground="{StaticResource AmberBrush}"
+                           TextWrapping="Wrap" />
+            </Border>
+
             <!-- ==== Body: the rows, in the order T1.10 assembled them ========================= -->
-            <ScrollViewer Grid.Row="3"
+            <ScrollViewer Grid.Row="4"
                           VerticalScrollBarVisibility="Auto"
                           HorizontalScrollBarVisibility="Disabled"
                           Focusable="False">

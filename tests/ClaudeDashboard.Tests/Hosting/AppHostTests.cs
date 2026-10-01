@@ -6,6 +6,7 @@ using ClaudeDashboard.App.Adapters;
 using ClaudeDashboard.App.Configuration;
 using ClaudeDashboard.App.Hosting;
 using ClaudeDashboard.App.Pipeline;
+using ClaudeDashboard.App.Setup;
 using ClaudeDashboard.App.Storage;
 using ClaudeDashboard.App.Ui;
 using ClaudeDashboard.Core;
@@ -1013,5 +1014,25 @@ public sealed class AppHostTests : IDisposable
         // rather than the mapping being skipped.
         Assert.Equal(SoundPolicyOptions.DefaultMasterVolume, options.MasterVolume);
         Assert.Equal(SoundPolicyOptions.DefaultNoticeGain, options.NoticeGain);
+    }
+
+    /// <summary>
+    /// The host gives its tray the one hook notice it registers (the ruling of 2026-10-01), so a
+    /// notice a start shows reaches the tray and, through it, the window.
+    /// </summary>
+    [Fact]
+    public void The_host_tray_carries_the_registered_hook_notice()
+    {
+        using var host = Build();
+
+        var notice = host.Services.GetRequiredService<HookNotice>();
+        var tray = host.Services.GetRequiredService<TrayViewModel>();
+
+        Assert.False(tray.HasNotice);
+
+        notice.ShowPluginDisabled();
+
+        Assert.True(tray.HasNotice);
+        Assert.Equal(HookNotice.PluginDisabledText, tray.NoticeText);
     }
 }

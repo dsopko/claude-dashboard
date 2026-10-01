@@ -86,12 +86,46 @@ public sealed class PluginInstaller
     /// install the plugin from it.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// The files first. A plugin whose hook names a script that is not there would make Claude
     /// Code run <c>cmd</c> against a missing path on every event, which is the noise issue #29
     /// exists to remove.
+    /// </para>
+    /// <para>
+    /// <strong>A failure after claude ran is checked against what claude recorded</strong> (the
+    /// issue #30 review, M2). <c>claude plugin install</c> can write <c>enabledPlugins</c> and then
+    /// fail — a non-zero exit after the write, or a stop at the budget after it — and a caller that
+    /// trusted the exit code went on to write the settings handler too: both routes, every event
+    /// posted twice. So when a run of claude ends in a failure, <paramref name="recordedEnabled"/>
+    /// is asked whether the plugin is now enabled, and if it is, the plugin <em>is</em> registered
+    /// and the result says so, before any fallback.
+    /// </para>
     /// </remarks>
-    public PluginResult Install()
+    /// <param name="recordedEnabled">
+    /// Reads Claude Code's settings again and answers whether this data folder's plugin is enabled
+    /// there. Null skips the check.
+    /// </param>
+    public PluginResult Install(Func<bool>? recordedEnabled = null)
     {
+        var result = InstallOnce(out var claudeRan);
+
+        if (result.Outcome != PluginOutcome.Failed || !claudeRan || recordedEnabled?.Invoke() != true)
+        {
+            return result;
+        }
+
+        _logger.Warning(
+            "claude reported a failure registering {Plugin} ({Problem}), but Claude Code's settings now " +
+            "have it enabled. It is registered, so nothing else is installed beside it.",
+            HookPlugin.Id,
+            result.Problem);
+
+        return new PluginResult(PluginOutcome.Registered);
+    }
+
+    private PluginResult InstallOnce(out bool claudeRan)
+    {
+        claudeRan = false;
         _paths.TryEnsureCreated(out _);
         HookScript.EnsureWritten(_paths, _logger);
 
@@ -106,6 +140,7 @@ public sealed class PluginInstaller
         }
 
         var added = _cli.Run(["plugin", "marketplace", "add", PluginFolder]);
+        claudeRan = added.Found;
 
         if (!added.Found)
         {

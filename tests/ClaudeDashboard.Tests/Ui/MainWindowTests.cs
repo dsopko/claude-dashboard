@@ -1559,6 +1559,59 @@ public sealed class MainWindowTests(StaHarness harness, Xunit.Abstractions.ITest
     }
 
     /// <summary>
+    /// The hook-route notice is on screen (the operator's ruling of 2026-10-01): hidden while there
+    /// is nothing to say, then shown in the realized window with its whole text when a start finds
+    /// the plugin turned off — with no binding errors — and leading the tray's tooltip as well.
+    /// </summary>
+    [Fact]
+    public void The_hook_notice_shows_in_the_window_and_leads_the_tray_tooltip()
+    {
+        var notice = new ClaudeDashboard.App.Setup.HookNotice();
+
+        var seen = _harness.Invoke(() =>
+        {
+            using var registry = new RegistryHarness();
+            using var policy = new MotionPolicy(() => false, observeChanges: false);
+            using var viewModel = new MainViewModel(
+                registry.Projection, policy, new StubAckPublisher(),
+                new FakeClipboard(), new RosterStore(new RecordingEventSink()), new RecordingRosterPersistence());
+            using var tray = TestTrays.For(registry.Projection, notice: notice);
+
+            var window = new MainWindow(viewModel, tray);
+            using var bindings = new BindingErrorWatch();
+
+            try
+            {
+                Realize(window);
+                var hiddenBefore = !window.NoticeRow.IsVisible;
+
+                notice.ShowPluginDisabled();
+                _harness.Pump(DispatcherPriority.Background);
+                window.UpdateLayout();
+
+                Assert.Empty(bindings.Problems);
+
+                return (
+                    HiddenBefore: hiddenBefore,
+                    VisibleAfter: window.NoticeRow.IsVisible,
+                    Height: window.NoticeRow.ActualHeight,
+                    Text: window.NoticeText.Text,
+                    Tooltip: tray.Tooltip);
+            }
+            finally
+            {
+                window.Hide();
+            }
+        });
+
+        Assert.True(seen.HiddenBefore, "the notice row must be hidden while there is nothing to say");
+        Assert.True(seen.VisibleAfter, "the notice row must be visible once a start finds the plugin turned off");
+        Assert.True(seen.Height > 0, "the visible notice row must take room in the window");
+        Assert.Equal(ClaudeDashboard.App.Setup.HookNotice.PluginDisabledText, seen.Text);
+        Assert.StartsWith(ClaudeDashboard.App.Setup.HookNotice.PluginDisabledShort, seen.Tooltip, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// The header's Mute all is the tray's switch (T1.47, the ruling of 2026-09-29): it publishes
     /// the tray's command, and its label follows the one muted state the tray menu reads.
     /// </summary>

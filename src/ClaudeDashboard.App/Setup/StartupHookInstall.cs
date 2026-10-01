@@ -111,7 +111,8 @@ public static class StartupHookInstall
         && installAtStart
         && presence.Problem is null
         && !presence.Complete
-        && !presence.PluginEnabled;
+        && !presence.PluginEnabled
+        && !presence.PluginDisabled;
 
     /// <summary>
     /// Reads Claude Code's settings and installs the hook if it is missing and wanted.
@@ -140,7 +141,12 @@ public static class StartupHookInstall
     /// every session that is open, because an open session does not see a new plugin, and that is
     /// a step for the operator to take with <c>--install-hooks</c>. When the plugin cannot be
     /// registered — no <c>claude</c> program, or Claude Code refused — the settings file is
-    /// written as before, because a dashboard that receives nothing is the worse failure.
+    /// written as before, because a dashboard that receives nothing is the worse failure. A claude
+    /// that fails after it recorded the plugin is counted as registered (the issue #30 review, M2).
+    /// </param>
+    /// <param name="notice">
+    /// Where a start shows the operator that the dashboard's plugin is turned off (the ruling of
+    /// 2026-10-01). Null shows nothing, which only a test that is not about it should pass.
     /// </param>
     /// <returns>
     /// The outcome of a settings write, or <see langword="null"/> when the settings were not
@@ -152,7 +158,8 @@ public static class StartupHookInstall
         bool installAtStart,
         SettingsLoadOutcome settingsOutcome,
         ILogger logger,
-        PluginInstaller? plugin = null)
+        PluginInstaller? plugin = null,
+        HookNotice? notice = null)
     {
         ArgumentNullException.ThrowIfNull(installer);
         ArgumentNullException.ThrowIfNull(logger);
@@ -161,9 +168,23 @@ public static class StartupHookInstall
 
         // A registered plugin is loaded in place, so its files are how a new build's event set
         // reaches Claude Code. Kept current at every start, like the script.
-        if (plugin is not null && presence.PluginEnabled)
+        if (plugin is not null && (presence.PluginEnabled || presence.PluginDisabled))
         {
             plugin.EnsureFiles();
+        }
+
+        // THE OPERATOR TURNED THE PLUGIN OFF, AND IT STAYS OFF (the operator's ruling of 2026-10-01).
+        // A start used to run `claude plugin install` here, and Claude Code turns a disabled plugin
+        // back on when it is installed again — measured on 2.1.286. Writing the settings handler
+        // instead would get around the same choice by another door. So neither happens: the
+        // dashboard says so on screen, with the command that turns the plugin on. A settings
+        // handler that is already complete still carries every event, and then there is nothing to
+        // say.
+        if (presence.PluginDisabled && !presence.Complete)
+        {
+            notice?.ShowPluginDisabled();
+
+            return null;
         }
 
         if (!Wanted(presence, installAtStart, settingsOutcome))
@@ -216,7 +237,7 @@ public static class StartupHookInstall
         // some of the settings handler is an existing install and is topped up below, as before.
         if (plugin is not null && presence.Events == 0 && presence.ForeignPlugin is null)
         {
-            var registered = plugin.Install();
+            var registered = plugin.Install(() => installer.Check().PluginEnabled);
 
             if (registered.Outcome == PluginOutcome.Registered)
             {

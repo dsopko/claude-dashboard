@@ -77,19 +77,40 @@ public sealed class ClaudeCli : IClaudeCli
         _claude = claude;
     }
 
-    /// <summary>How long one run may take before it is stopped.</summary>
+    /// <summary>
+    /// How long one run may take, from its start to its last byte of output, before it is stopped.
+    /// </summary>
     public TimeSpan Timeout { get; init; } = DefaultTimeout;
+
+    /// <summary>
+    /// After a run is stopped, how long to wait for the pipes to close so whatever was printed can
+    /// still be read. Outside <see cref="Timeout"/>, and short.
+    /// </summary>
+    internal static readonly TimeSpan DrainGrace = TimeSpan.FromSeconds(2);
+
+    /// <summary>
+    /// The program to run in place of the located <c>claude.exe</c>. For tests, which need a real
+    /// child process that hangs or leaves a pipe open, without changing this process's <c>PATH</c>.
+    /// </summary>
+    internal string? ProgramPath { get; init; }
 
     /// <summary>
     /// Finds <c>claude.exe</c>: each folder of <paramref name="pathVariable"/> in order, then the
     /// native installer's folder under <paramref name="userProfile"/>.
     /// </summary>
+    /// <remarks>
+    /// <strong>Only fully qualified folders are searched</strong> (the issue #30 review). A
+    /// relative <c>PATH</c> entry such as <c>.</c> resolves against whatever the current directory
+    /// happens to be, which for a program started from Explorer or a scheduled task is nothing the
+    /// operator chose — a <c>claude.exe</c> found there is not one they meant to run.
+    /// </remarks>
     /// <returns>The full path, or null when there is none.</returns>
     public static string? Locate(string? pathVariable, string? userProfile)
     {
         var folders = (pathVariable ?? string.Empty)
             .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Select(folder => folder.Trim('"'));
+            .Select(folder => folder.Trim('"'))
+            .Where(Path.IsPathFullyQualified);
 
         if (!string.IsNullOrWhiteSpace(userProfile))
         {
@@ -122,7 +143,7 @@ public sealed class ClaudeCli : IClaudeCli
     {
         ArgumentNullException.ThrowIfNull(arguments);
 
-        var program = Locate(
+        var program = ProgramPath ?? Locate(
             Environment.GetEnvironmentVariable("PATH"),
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
 
@@ -154,6 +175,16 @@ public sealed class ClaudeCli : IClaudeCli
             start.Environment[ClaudeCodePaths.ConfigDirectoryVariable] = _claude.ConfigDirectory;
         }
 
+        // ONE BUDGET, FROM START TO THE LAST BYTE (the issue #30 review, M1). The wait for the
+        // process and the wait for its output share it. Waiting for the output without a bound —
+        // the parameterless WaitForExit, or reading .Result — hung a start for as long as a child
+        // that claude started kept the pipe open after claude itself had exited: 157 seconds with
+        // a child that lived 75, for ever with one that never exits. When the budget runs out the
+        // whole tree is stopped, the child included: measured, Kill(entireProcessTree) still finds
+        // a child of claude after claude has exited (a job object was tried as well, and taking it
+        // out failed no test, so it is not here).
+        var budget = Stopwatch.StartNew();
+
         try
         {
             using var process = Process.Start(start);
@@ -169,10 +200,12 @@ public sealed class ClaudeCli : IClaudeCli
             // parent waits on the other never exits.
             var output = process.StandardOutput.ReadToEndAsync();
             var error = process.StandardError.ReadToEndAsync();
+            var drained = Task.WhenAll(output, error);
 
             if (!process.WaitForExit(Timeout))
             {
-                TryStop(process);
+                Stop(process);
+                Wait(drained, DrainGrace);
 
                 return new ClaudeCliResult(
                     true,
@@ -180,9 +213,25 @@ public sealed class ClaudeCli : IClaudeCli
                     $"claude did not finish within {Timeout.TotalSeconds:0} seconds and was stopped.");
             }
 
-            process.WaitForExit();
+            var exitCode = process.ExitCode;
 
-            return new ClaudeCliResult(true, process.ExitCode, $"{output.Result}{error.Result}".Trim());
+            if (!Wait(drained, Remaining(budget)))
+            {
+                // claude exited, and something it started still holds the output open. The run is
+                // over — its exit code is the answer — so the holder is stopped and the run returns
+                // with what was printed, inside the same budget.
+                Stop(process);
+
+                var printed = Wait(drained, DrainGrace) ? $"{output.Result}{error.Result}".Trim() : string.Empty;
+
+                return new ClaudeCliResult(
+                    true,
+                    exitCode,
+                    $"{printed}{(printed.Length > 0 ? " " : string.Empty)}(claude exited {exitCode}, but a process " +
+                    $"it started kept its output open past {Timeout.TotalSeconds:0} seconds and was stopped.)");
+            }
+
+            return new ClaudeCliResult(true, exitCode, $"{output.Result}{error.Result}".Trim());
         }
         catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or IOException)
         {
@@ -190,7 +239,32 @@ public sealed class ClaudeCli : IClaudeCli
         }
     }
 
-    private static void TryStop(Process process)
+    private TimeSpan Remaining(Stopwatch budget)
+    {
+        var left = Timeout - budget.Elapsed;
+
+        return left > TimeSpan.Zero ? left : TimeSpan.Zero;
+    }
+
+    /// <summary>Waits for <paramref name="task"/> up to <paramref name="limit"/>, never throwing.</summary>
+    private static bool Wait(Task task, TimeSpan limit)
+    {
+        try
+        {
+            return task.Wait(limit);
+        }
+        catch (AggregateException)
+        {
+            // A read that failed has finished, which is all this asks.
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// Stops claude and everything it started — a child that holds the output open included, even
+    /// after claude itself has exited.
+    /// </summary>
+    private static void Stop(Process process)
     {
         try
         {

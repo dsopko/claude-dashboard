@@ -220,6 +220,27 @@ public static class HookPlugin
     }
 
     /// <summary>
+    /// Whether Claude Code's settings say this plugin is <strong>turned off</strong>: named, and set
+    /// to <see langword="false"/>, which is what <c>claude plugin disable</c> writes (measured on
+    /// Claude Code 2.1.286).
+    /// </summary>
+    /// <remarks>
+    /// An absent entry is not "turned off": it is a plugin that was never installed, or was
+    /// uninstalled, and installing it is not overriding anyone. Only an explicit
+    /// <see langword="false"/> records a choice.
+    /// </remarks>
+    /// <exception cref="ArgumentNullException"><paramref name="settings"/> is null.</exception>
+    public static bool IsDisabled(JsonObject settings)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+
+        return settings[EnabledKey] is JsonObject enabled
+            && enabled[Id] is JsonValue value
+            && value.TryGetValue<bool>(out var on)
+            && !on;
+    }
+
+    /// <summary>
     /// The folder Claude Code's settings give for the <see cref="Name"/> marketplace, or null when
     /// they name none.
     /// </summary>

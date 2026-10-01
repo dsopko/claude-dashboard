@@ -17,14 +17,16 @@ internal static class TestTrays
         SessionProjection projection,
         SettableSoundModes? modes = null,
         RecordingEventSink? sink = null,
-        FakeClock? clock = null) =>
+        FakeClock? clock = null,
+        ClaudeDashboard.App.Setup.HookNotice? notice = null) =>
         new(
             projection,
             modes ?? new SettableSoundModes(),
             sink ?? new RecordingEventSink(),
             clock ?? new FakeClock(),
             IngressStatus.Healthy(DashboardSettings.IngressPortBase),
-            Logger.None);
+            Logger.None,
+            notice: notice);
 }
 
 /// <summary>The global sound modes, set by the test rather than by the engine.</summary>

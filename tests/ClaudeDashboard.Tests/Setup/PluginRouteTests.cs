@@ -527,4 +527,137 @@ public sealed class PluginRouteTests : IDisposable
         Assert.False(HookPlugin.IsEnabled(Settings()));
         Assert.Equal(0, InSettings());
     }
+
+    // ---- A claude that records the plugin and then fails (the issue #30 review, M2) -------------
+
+    /// <summary>
+    /// <c>claude plugin install</c> writes the plugin as enabled, then fails — a non-zero exit, or
+    /// a stop at the budget after the write. The start reads the record again, finds the plugin
+    /// enabled, and writes no settings handler beside it: one route, not two.
+    /// </summary>
+    [Theory]
+    [InlineData(1)]
+    [InlineData(-1)]
+    public void A_start_whose_claude_records_the_plugin_and_then_fails_adds_no_second_route(int exitCode)
+    {
+        var cli = Recording();
+        cli.FailAfterRecording = arguments => arguments is ["plugin", "install", _]
+            ? new ClaudeCliResult(true, exitCode, "wrote it, then failed")
+            : null;
+
+        var result = Start(cli);
+
+        Assert.Null(result);
+        Assert.True(HookPlugin.IsEnabled(Settings()));
+        Assert.Equal(0, InSettings());
+    }
+
+    /// <summary>The same for the install switch, which says the plugin is registered.</summary>
+    [Theory]
+    [InlineData(1)]
+    [InlineData(-1)]
+    public void The_install_switch_whose_claude_records_the_plugin_and_then_fails_adds_no_second_route(int exitCode)
+    {
+        var cli = Recording();
+        cli.FailAfterRecording = arguments => arguments is ["plugin", "install", _]
+            ? new ClaudeCliResult(true, exitCode, "wrote it, then failed")
+            : null;
+
+        var code = Switch(HookSwitches.Install, cli);
+
+        Assert.Equal(0, code);
+        Assert.True(HookPlugin.IsEnabled(Settings()));
+        Assert.Equal(0, InSettings());
+        Assert.Contains("Registered with Claude Code", Report(), StringComparison.Ordinal);
+        Assert.DoesNotContain("settings file instead", Report(), StringComparison.Ordinal);
+    }
+
+    // ---- A plugin the operator turned off stays off (the operator's ruling of 2026-10-01, R1) -----
+
+    /// <summary>
+    /// The plugin is registered and turned off. A start asks Claude Code nothing — installing it
+    /// again would turn it back on — writes no settings handler round it, leaves it off, and shows
+    /// the notice with the command that turns it on.
+    /// </summary>
+    [Fact]
+    public void A_plugin_the_operator_turned_off_stays_off_and_the_notice_shows()
+    {
+        WriteOurPlugin(enabled: false);
+        var before = SettingsText();
+        var cli = Recording();
+        var notice = new HookNotice();
+
+        var result = StartupHookInstall.Run(Installer(), installAtStart: true, SettingsLoadOutcome.Loaded, _logger, Plugin(cli), notice);
+
+        Assert.Null(result);
+        Assert.Empty(cli.Calls);
+        Assert.Equal(before, SettingsText());
+        Assert.True(HookPlugin.IsDisabled(Settings()));
+        Assert.Equal(0, InSettings());
+
+        Assert.True(notice.IsShown);
+        Assert.Contains("claude plugin enable claude-dashboard@claude-dashboard", notice.Text, StringComparison.Ordinal);
+        Assert.Contains("restart", notice.Text, StringComparison.Ordinal);
+        Assert.Contains("next time the dashboard starts", notice.Text, StringComparison.Ordinal);
+        Assert.Equal(HookNotice.PluginDisabledShort, notice.TrayText);
+    }
+
+    /// <summary>
+    /// A complete settings handler still carries every event, so a plugin that is off beside it
+    /// costs nothing and there is nothing to show. Nothing is asked or written either.
+    /// </summary>
+    [Fact]
+    public void A_plugin_turned_off_beside_a_complete_settings_handler_shows_nothing()
+    {
+        Installer().Install();
+        var settings = Settings();
+        settings[HookPlugin.MarketplacesKey] = new JsonObject
+        {
+            [HookPlugin.Name] = new JsonObject { ["source"] = new JsonObject { ["source"] = "directory", ["path"] = _paths.PluginFolder } },
+        };
+        settings[HookPlugin.EnabledKey] = new JsonObject { [HookPlugin.Id] = false };
+        File.WriteAllText(_claude.UserSettingsFile, HookRegistration.Render(settings));
+
+        var cli = Recording();
+        var notice = new HookNotice();
+
+        StartupHookInstall.Run(Installer(), installAtStart: true, SettingsLoadOutcome.Loaded, _logger, Plugin(cli), notice);
+
+        Assert.Empty(cli.Calls);
+        Assert.False(notice.IsShown);
+        Assert.True(HookPlugin.IsDisabled(Settings()));
+    }
+
+    /// <summary>
+    /// The install switch is an explicit request, so it may turn the plugin back on — and says so.
+    /// </summary>
+    [Fact]
+    public void The_install_switch_turns_a_plugin_that_was_off_back_on_and_says_so()
+    {
+        WriteOurPlugin(enabled: false);
+        var cli = Recording();
+
+        var code = Switch(HookSwitches.Install, cli);
+
+        Assert.Equal(0, code);
+        Assert.True(HookPlugin.IsEnabled(Settings()));
+        Assert.Contains("is turned off in Claude Code. --install-hooks turns it back on", Report(), StringComparison.Ordinal);
+        Assert.Equal(0, InSettings());
+    }
+
+    /// <summary>This data folder's plugin, registered, on or off — as Claude Code records it.</summary>
+    private void WriteOurPlugin(bool enabled)
+    {
+        var settings = new JsonObject
+        {
+            [HookPlugin.MarketplacesKey] = new JsonObject
+            {
+                [HookPlugin.Name] = new JsonObject { ["source"] = new JsonObject { ["source"] = "directory", ["path"] = _paths.PluginFolder } },
+            },
+            [HookPlugin.EnabledKey] = new JsonObject { [HookPlugin.Id] = enabled },
+        };
+
+        Directory.CreateDirectory(_claude.ConfigDirectory);
+        File.WriteAllText(_claude.UserSettingsFile, HookRegistration.Render(settings));
+    }
 }
