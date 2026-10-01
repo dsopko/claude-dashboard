@@ -492,6 +492,25 @@ Tasks landing after T1.20. Each one puts the acceptance document out of date in 
   - The token is never logged, displayed or committed.
   - A hook refused once during a restart, when it read the old file just before the swap, is accepted.
 
+**T1.49 — The hook as a Claude Code plugin**
+- **Goal:** the dashboard stops being a second writer of `~/.claude/settings.json`. Claude Code registers the hook itself. Closes issue #30.
+- **Depends:** T1.28 (the command hook), T1.32 and T1.33 (the start-time install and its bounds), T1.48 (the script and `listening.txt`, which do not change)
+- **Realizes:** Impl §9.4. The design and the measurements behind it are in issue #30.
+- **Deliverables:**
+  - **The plugin's three files in the data folder**, `%LocalAppData%\ClaudeDashboard\plugin`, rewritten when they differ. `hooks.json` holds the same handler as the settings entry, on the same events, naming `post-status.cmd` by absolute path.
+  - **Registration through the `claude` program**: `claude plugin marketplace add <folder>`, then `claude plugin install claude-dashboard@claude-dashboard`, with input closed.
+  - **A start with no handler of the dashboard's registers the plugin**, under every bound T1.32 and T1.33 set. A start that finds the plugin enabled asks nothing and writes nothing.
+  - **A start never moves an existing settings handler.** `--install-hooks` does: it registers the plugin, takes the old entries out, and tells the operator to restart the open sessions.
+  - **`--remove-hooks` removes both routes.**
+  - **The settings file is the fallback** when `claude.exe` is not found, when Claude Code refuses, or when another data folder holds the plugin name.
+  - Docs: README, Impl §9.4 and §10.2.
+- **Acceptance:** with no hook, a start leaves a hand-formatted `settings.json` byte for byte and asks Claude Code for the plugin; a second start asks nothing; an existing settings handler is left alone and a partial one is topped up where it is; the opt-out, the unreadable file and the machine without Claude Code each ask nothing; both switches work through `Main` against redirected roots with the real `claude` program; a guard holds that `Program.cs` hands the plugin route to both calls; both suite counts.
+- **Guardrails:**
+  - A dashboard that receives nothing is the worse failure. No path may end with no hook because the plugin could not be registered.
+  - The plugin folder is never the install folder: Claude Code loads the plugin in place, and a hook whose folder is gone stops in silence.
+  - An open session does not see a new plugin. Nothing automatic may trade a working settings handler for one.
+  - The dashboard reads `enabledPlugins` and `extraKnownMarketplaces` and writes neither.
+
 **Ordering ruled 2026-09-02:** the packaging workstream — `PKG.1` → `PKG.2` → `PKG.3` → T1.33 → `PKG.4` in the [Packaging Execution Plan](claude-dashboard-packaging-execution-plan.md) — runs **ahead of T2.1**. Appendix A is unchanged; the packaging plan carries its own order.
 
 ---

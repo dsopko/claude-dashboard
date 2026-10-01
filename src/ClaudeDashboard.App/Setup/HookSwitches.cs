@@ -104,10 +104,17 @@ public static class HookSwitches
     /// asked; anything else means it could not, and T10.2 will read that rather than the text.
     /// </para>
     /// </remarks>
+    /// <param name="plugin">
+    /// The plugin route (issue #30), or <see langword="null"/> to keep to the settings file.
+    /// </param>
     /// <returns>The process exit code.</returns>
-    /// <exception cref="ArgumentNullException">Any argument is null.</exception>
+    /// <exception cref="ArgumentNullException"><paramref name="requested"/>, <paramref name="installer"/> or <paramref name="report"/> is null.</exception>
     /// <exception cref="ArgumentException"><paramref name="requested"/> is not one of the two switches.</exception>
-    public static int Run(string requested, HookInstaller installer, Action<string> report)
+    public static int Run(
+        string requested,
+        HookInstaller installer,
+        Action<string> report,
+        PluginInstaller? plugin = null)
     {
         ArgumentNullException.ThrowIfNull(requested);
         ArgumentNullException.ThrowIfNull(installer);
@@ -115,18 +122,94 @@ public static class HookSwitches
 
         if (string.Equals(requested, Install, StringComparison.OrdinalIgnoreCase))
         {
-            return RunInstall(installer, report);
+            return RunInstall(installer, report, plugin);
         }
 
         if (string.Equals(requested, Remove, StringComparison.OrdinalIgnoreCase))
         {
-            return RunRemove(installer, report);
+            return RunRemove(installer, report, plugin);
         }
 
         throw new ArgumentException($"Not a hook switch: {requested}", nameof(requested));
     }
 
-    private static int RunInstall(HookInstaller installer, Action<string> report)
+    /// <summary>
+    /// Installs by the plugin route when it can, and by the settings file when it cannot.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>This switch is also the migration (issue #30).</strong> A start never moves an
+    /// existing settings handler to the plugin, because a session that is already open does not
+    /// see a new plugin and would stop reporting. An operator who runs this is asking, and is
+    /// told to restart the open sessions. So once Claude Code has registered the plugin, the old
+    /// settings entries are taken out here — the one write to that file the plugin route makes,
+    /// and only when there is something of ours in it.
+    /// </para>
+    /// <para>
+    /// <strong>The settings file is the fallback, never a refusal.</strong> No <c>claude</c>
+    /// program, a refusal from Claude Code, or a plugin of the same name that belongs to another
+    /// data folder each end in the settings handler, with the reason printed. The operator asked
+    /// for hooks; they get hooks.
+    /// </para>
+    /// </remarks>
+    private static int RunInstall(HookInstaller installer, Action<string> report, PluginInstaller? plugin)
+    {
+        if (plugin is null)
+        {
+            return InstallIntoSettings(installer, report);
+        }
+
+        if (installer.Check().ForeignPlugin is { } foreign)
+        {
+            report($"Claude Code already has a plugin named {HookPlugin.Name} from another data folder: {foreign}");
+            report("Two data folders cannot both register it, so this one uses Claude Code's settings file.");
+
+            return InstallIntoSettings(installer, report);
+        }
+
+        var registered = plugin.Install();
+
+        if (registered.Outcome != PluginOutcome.Registered)
+        {
+            report(registered.Outcome == PluginOutcome.CliNotFound
+                ? "The claude program was not found, so the plugin could not be registered."
+                : $"The plugin could not be registered: {registered.Problem}");
+            report("Writing the hook into Claude Code's settings file instead.");
+
+            return InstallIntoSettings(installer, report);
+        }
+
+        report($"Plugin:   {HookPlugin.Id}");
+        report($"Folder:   {plugin.PluginFolder}");
+        report($"Script:   {installer.ScriptPath}");
+        report($"Events:   {string.Join(", ", HookEventNames.Accepted.Order(StringComparer.Ordinal))}");
+        report("Registered with Claude Code. Claude Code recorded it; the dashboard did not write its settings.");
+
+        var (result, removed) = installer.Remove();
+
+        ReportRemoved(removed, report);
+
+        switch (result.Outcome)
+        {
+            case SettingsWriteOutcome.Written:
+                report($"Took {removed.Total} old entr{(removed.Total == 1 ? "y" : "ies")} out of Claude Code's settings. Backup: {result.BackupPath ?? "(none needed)"}");
+                break;
+
+            case SettingsWriteOutcome.NothingToDo:
+                break;
+
+            default:
+                report($"FAILED to take the old entries out of Claude Code's settings: {result.Problem}.");
+                report("Until they are out, each event is posted twice.");
+                return 1;
+        }
+
+        report("Restart every Claude Code session that is open now. A session that is already open does not see a new plugin.");
+
+        return 0;
+    }
+
+    private static int InstallIntoSettings(HookInstaller installer, Action<string> report)
     {
         var result = installer.Install();
 
@@ -152,10 +235,52 @@ public static class HookSwitches
         }
     }
 
-    private static int RunRemove(HookInstaller installer, Action<string> report)
+    /// <summary>Takes out the plugin when Claude Code has it, then the settings entries.</summary>
+    /// <remarks>
+    /// Both, always, so that one switch leaves nothing of the dashboard's behind whichever route
+    /// put it there. A plugin that could not be removed makes the switch fail even when the
+    /// settings half succeeded: Claude Code would go on running the script, and exit code zero
+    /// would say it does not.
+    /// </remarks>
+    private static int RunRemove(HookInstaller installer, Action<string> report, PluginInstaller? plugin)
     {
-        var (result, removed) = installer.Remove();
+        var pluginGone = plugin is null || RemovePlugin(installer, plugin, report);
+        var code = RemoveFromSettings(installer, report);
 
+        return pluginGone ? code : 1;
+    }
+
+    private static bool RemovePlugin(HookInstaller installer, PluginInstaller plugin, Action<string> report)
+    {
+        // Asked of the settings first: Claude Code's removal commands fail for a plugin that is
+        // not there, and that failure would be reported as ours.
+        if (!installer.Check().PluginEnabled)
+        {
+            return true;
+        }
+
+        var removed = plugin.Remove();
+
+        switch (removed.Outcome)
+        {
+            case PluginOutcome.Removed:
+                report($"Removed plugin:    {HookPlugin.Id}");
+                report($"The plugin files are left at {plugin.PluginFolder}; nothing loads them now.");
+                return true;
+
+            case PluginOutcome.CliNotFound:
+                report("FAILED: the claude program was not found, so the plugin was not removed.");
+                report($"Run: claude plugin uninstall {HookPlugin.Id}");
+                return false;
+
+            default:
+                report($"FAILED: the plugin was not removed: {removed.Problem}");
+                return false;
+        }
+    }
+
+    private static void ReportRemoved(HookRemoval removed, Action<string> report)
+    {
         foreach (var path in removed.ScriptPaths)
         {
             report($"Removed hook:      {path}");
@@ -170,6 +295,13 @@ public static class HookSwitches
         {
             report($"Removed allowlist: {url}");
         }
+    }
+
+    private static int RemoveFromSettings(HookInstaller installer, Action<string> report)
+    {
+        var (result, removed) = installer.Remove();
+
+        ReportRemoved(removed, report);
 
         switch (result.Outcome)
         {

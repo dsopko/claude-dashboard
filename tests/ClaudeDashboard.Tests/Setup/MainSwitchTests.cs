@@ -88,30 +88,51 @@ public sealed class MainSwitchTests : IDisposable
 
             Assert.Equal(0, installed);
 
-            var scriptPath = new DashboardPaths(_dashboardRoot).HookScriptFile;
+            var paths = new DashboardPaths(_dashboardRoot);
+            var scriptPath = paths.HookScriptFile;
             var settingsFile = Path.Combine(_claudeRoot, "settings.json");
 
             Assert.True(File.Exists(scriptPath), "The install switch did not write the script.");
-            Assert.Equal(
-                HookEventNames.Accepted.Count,
-                HookRegistration.CountInstalled(
-                    HookRegistration.Parse(File.ReadAllText(settingsFile)),
-                    scriptPath));
+
+            // EXACTLY ONE ROUTE, WHICHEVER THIS MACHINE HAS (issue #30). Main is given the real
+            // claude program. Where it exists, Claude Code registers the plugin in the redirected
+            // configuration and the settings carry no handler; where it does not, the settings
+            // carry the handler on every event. Both are the switch doing what it was asked, and
+            // both at once would post every event twice — so the assertion is that one holds and
+            // the other does not, rather than a count that only one machine can produce.
+            var (byPlugin, bySettings) = Routes(settingsFile, paths);
+
+            Assert.True(
+                byPlugin ^ (bySettings == HookEventNames.Accepted.Count),
+                $"After --install-hooks: plugin enabled = {byPlugin}, settings handler on {bySettings} " +
+                $"of {HookEventNames.Accepted.Count} events. Exactly one route must carry the hook.");
+
+            if (byPlugin)
+            {
+                Assert.Equal(0, bySettings);
+                Assert.True(HookPlugin.Matches(paths), "The plugin was registered without its files.");
+            }
 
             var removed = Program.Main(["--remove-hooks"]);
 
             Assert.Equal(0, removed);
-            Assert.Equal(
-                0,
-                HookRegistration.CountInstalled(
-                    HookRegistration.Parse(File.ReadAllText(settingsFile)),
-                    scriptPath));
+            Assert.Equal((false, 0), Routes(settingsFile, paths));
 
             // The removal recorded the opt-out in the dashboard's own settings (T1.32), which is
             // the part of the switch contract that outlives the process.
             Assert.False(
                 new SettingsStore(new DashboardPaths(_dashboardRoot)).Load().Settings.InstallHooksAtStart);
         }
+    }
+
+    /// <summary>Which route carries the hook: the plugin, and how many events the settings handler is on.</summary>
+    private static (bool ByPlugin, int BySettings) Routes(string settingsFile, DashboardPaths paths)
+    {
+        var settings = HookRegistration.Parse(File.ReadAllText(settingsFile));
+
+        return (
+            HookPlugin.IsEnabled(settings) && HookPlugin.IsFolderOf(paths, HookPlugin.MarketplaceFolder(settings)),
+            HookRegistration.CountInstalled(settings, paths.HookScriptFile));
     }
 
     private static Restore Set(string name, string? value)

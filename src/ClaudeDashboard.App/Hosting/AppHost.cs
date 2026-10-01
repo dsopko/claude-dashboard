@@ -140,6 +140,11 @@ public static class AppHost
         builder.Services.AddSingleton<IVirtualDesktopService, VirtualDesktopService>();
         builder.Services.AddSingleton<WindowPresence>();
         builder.Services.AddSingleton<HookInstaller>();
+
+        // The plugin route (issue #30): the claude program registers the hook, so the dashboard
+        // does not write Claude Code's settings. Nothing is started by resolving these.
+        builder.Services.AddSingleton<IClaudeCli, ClaudeCli>();
+        builder.Services.AddSingleton<PluginInstaller>();
         builder.Services.AddSingleton<IngressAnnouncement>();
         builder.Services.AddSingleton(settingsStore);
         builder.Services.AddSingleton(loaded.Settings);
