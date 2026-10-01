@@ -10,10 +10,14 @@ namespace ClaudeDashboard.App.Configuration;
 /// <strong>A separate type on purpose, and it must stay separate.</strong> There are two files
 /// called <c>settings.json</c> in this system: the dashboard's own, at
 /// <see cref="DashboardPaths.SettingsFile"/>, and Claude Code's, here. Reaching for the former
-/// while writing the hook merge is the obvious move and the property name confirms it — nothing
-/// throws, every test passes, the dashboard never receives another hook, and the symptom reads as
-/// a quiet day. <see cref="DashboardPaths.Root"/> also moves under <c>CLAUDE_DASHBOARD_HOME</c>,
-/// so the wrong file is a moving target as well as the wrong one.
+/// while reading Claude Code's is the obvious move and the property name confirms it — nothing
+/// throws, every test passes, the dashboard looks for its plugin in the wrong file, and the
+/// symptom reads as a quiet day. <see cref="DashboardPaths.Root"/> also moves under
+/// <c>CLAUDE_DASHBOARD_HOME</c>, so the wrong file is a moving target as well as the wrong one.
+/// </para>
+/// <para>
+/// <strong>The dashboard reads Claude Code's settings and never writes them</strong> (the
+/// operator's ruling of 2026-10-01). The file is Claude Code's, which writes it too.
 /// </para>
 /// <para>
 /// Hence the naming: nothing here is called <c>SettingsFile</c>, and nothing in
@@ -59,13 +63,12 @@ public sealed class ClaudeCodePaths
     public string ConfigDirectory { get; }
 
     /// <summary>
-    /// Claude Code's <em>user</em> settings file — the one the dashboard's hooks are merged into.
+    /// Claude Code's <em>user</em> settings file — where Claude Code records the dashboard's plugin.
     /// </summary>
     /// <remarks>
     /// Named for whose it is. Claude Code reads settings from several scopes (managed, command
-    /// line, project, project-local, user); this is the user scope, which is the only one the
-    /// dashboard writes, because a machine-wide dashboard belongs to the person rather than to a
-    /// repository.
+    /// line, project, project-local, user); this is the user scope, which is where a plugin
+    /// installed for the person rather than for a repository is recorded. Read, never written.
     /// </remarks>
     public string UserSettingsFile => Path.Combine(ConfigDirectory, "settings.json");
 
@@ -81,7 +84,7 @@ public sealed class ClaudeCodePaths
     /// Never throws, and never creates anything. Unlike the dashboard's own folder, this one
     /// belongs to Claude Code: a value that does not resolve is a reason to fall back to the
     /// documented location, not a reason to make a directory somewhere the operator did not ask
-    /// for. If the fallback turns out not to exist either, that surfaces when the merge reads it.
+    /// for. If that location turns out not to exist either, the start check finds it so.
     /// </remarks>
     internal static string ResolveConfigDirectory(string? overrideValue)
     {

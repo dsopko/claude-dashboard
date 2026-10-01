@@ -208,10 +208,8 @@ public static class Program
                 }
 
                 // Issue #29 made the hook an install step rather than a lifecycle: it names a
-                // script, so one entry is right whether a dashboard is running or not, and nothing
-                // is written on the way out. Issue #39 added the one thing a start still does write
-                // — it puts the handler back when it has gone missing, because until T1.32 nothing
-                // called the install step at all and a new user received no events for ever.
+                // script, so it is right whether a dashboard is running or not, and nothing is
+                // done about it on the way out.
                 //
                 // The script FIRST, then the announcement (T1.48). Rewritten at every start when it
                 // differs, so a fix in the build reaches an install that already exists (see
@@ -226,17 +224,13 @@ public static class Program
                 announcement = host.Services.GetRequiredService<IngressAnnouncement>();
                 announcement.Announce();
 
-                // Reads the settings, and repairs the handler when it is missing and the operator
-                // has not opted out (issue #39). Read-only in every other case, and it never
-                // writes a file it could not read. Without the check a hook removed by anything at
-                // all is undetectable: the dashboard receives nothing, which looks exactly like a
+                // Reads Claude Code's settings and never writes them. When the dashboard's plugin
+                // is missing and the operator has not opted out, it asks Claude Code to register
+                // it (issues #39 and #30). In every case where the dashboard is left unconnected,
+                // it says so on screen: a dashboard that receives nothing looks exactly like a
                 // quiet day.
-                //
-                // With the plugin installer (issue #30), a machine with no handler at all gets a
-                // Claude Code plugin, which Claude Code records itself, and the settings file is
-                // not written.
                 StartupHookInstall.Run(
-                    host.Services.GetRequiredService<HookInstaller>(),
+                    host.Services.GetRequiredService<HookCheck>(),
                     settings.InstallHooksAtStart,
                     loaded.Outcome,
                     host.Services.GetRequiredService<Serilog.ILogger>(),
@@ -419,7 +413,7 @@ public static class Program
         // One ClaudeCodePaths for both, so the settings that are read and the configuration the
         // claude program is pointed at are the same directory (issue #30).
         var claude = new ClaudeCodePaths();
-        var installer = new HookInstaller(claude, paths, new Adapters.SystemClock(), logger);
+        var check = new HookCheck(claude, paths, logger);
         var plugin = new PluginInstaller(new ClaudeCli(claude), paths, logger);
 
         void Report(string line)
@@ -432,7 +426,7 @@ public static class Program
             }
         }
 
-        var code = HookSwitches.Run(requested, installer, Report, plugin);
+        var code = HookSwitches.Run(requested, check, Report, plugin);
 
         // The switch's decision outlives the switch (issue #39). Without this, --remove-hooks would
         // be undone by the next start and would therefore mean nothing. Re-read inside rather than

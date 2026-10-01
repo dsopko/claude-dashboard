@@ -114,7 +114,7 @@ The choice is made in three attempts, and **binding is the only question ever as
 
 If all three fail, the dashboard **starts anyway**, logs at Error, and says so in the tray tooltip (§5.3). It never exits for want of a port.
 
-Whatever is finally bound is written to `port.txt`, and announced in `listening.txt` for as long as it stays bound (§9.3). **No port appears anywhere in Claude Code's settings** — the hook names a script, and the script reads the announcement at the moment it runs. So a port that moves costs the operator nothing: they restart, and nothing in their hook configuration needs touching.
+Whatever is finally bound is written to `port.txt`, and announced in `listening.txt` for as long as it stays bound (§9.4). **No port appears anywhere in Claude Code's settings** — the hook names a script, and the script reads the announcement at the moment it runs. So a port that moves costs the operator nothing: they restart, and nothing in their hook configuration needs touching.
 
 Two users therefore do not queue from a base port; they derive different candidates because their SIDs differ, and never contend. The walk exists only for a hash collision or a stranger.
 
@@ -384,7 +384,9 @@ Notes:
 - `transcript_path` is **fallback only**: it is written asynchronously and may lag the live turn, which is precisely why `prompt` and `last_assistant_message` are read inline instead.
 - `UserPromptSubmit`, `Stop`, and `CwdChanged` take **no matcher** (they always fire); `SessionStart`, `Notification`, `StopFailure`, `SessionEnd` filter by the matcher values above.
 
-### 9.2 Example `settings.json` block (command hook)
+### 9.2 The hook handler (command hook)
+
+This is what the plugin's `hooks\hooks.json` holds (§9.4). The dashboard writes it in its own data folder, and nowhere else.
 
 ```json
 {
@@ -403,54 +405,64 @@ One entry of that shape per accepted event, taken from `HookEventNames.Accepted`
 
 - **The exec form — `command` plus `args` — so no shell runs.** On Windows the `shell` field defaults to `bash`, or to `powershell` when Git Bash is not installed, so it varies by machine and cannot be chosen by us; the two disagree about backslash paths and quoting. Both paths are absolute and resolved at install time, because nothing expands `%SystemRoot%` or `%LOCALAPPDATA%` in this form.
 - **`async: true`**, so the hook never delays a turn. **No `asyncRewake`**: it acts on an exit code, and the script exits 0 on every path by design.
-- **No allowlists and no `headers`.** `post-status.cmd` reads the token from `listening.txt` itself and always sends `X-Dashboard-Token` (§3.4). `allowedHttpHookUrls`, `allowedEnvVars` and `httpHookAllowedEnvVars` are all unnecessary and none is written.
+- **No allowlists and no `headers`.** `post-status.cmd` reads the token from `listening.txt` itself and always sends `X-Dashboard-Token` (§3.4). `allowedHttpHookUrls`, `allowedEnvVars` and `httpHookAllowedEnvVars` are all unnecessary.
 - The dashboard verifies `X-Dashboard-Token` at `/hook` and drops mismatches (§3.4).
 
-### 9.3 Merge, don't clobber — and install once rather than at every start
+### 9.3 The dashboard never writes Claude Code's settings
 
-Hook entries merge across settings scopes, but *within* `~/.claude/settings.json` the dashboard must **append** its handler to the relevant arrays without overwriting the user's existing hooks. Parse, merge, write back — never replace the file wholesale.
+`~/.claude/settings.json` belongs to Claude Code, which writes it too. **The dashboard reads that file and never writes it** (the operator's ruling of 2026-10-01). The hook reaches Claude Code as a plugin, which Claude Code registers itself (§9.4).
 
-**Registration is an install step, not a process lifecycle** (issue #29, revising this section's own 2026-08-26 ruling). A running dashboard reads the operator's settings, and **writes them only to put back a handler that is missing, and only while the operator has not opted out** (issue #39, T1.32). The explicit switches `--install-hooks` and `--remove-hooks` remain the operator's own controls, and **removal is theirs alone**: nothing but `--remove-hooks` takes a handler out, and nothing is written on the way down.
+*Until that ruling this section was "Merge, don't clobber". The dashboard merged its handler into that file: at every start and quit until issue #29, once at install after it, at any start that found the handler missing from issue #39 (T1.32), and from issue #30 only as a fallback behind the plugin. Each step bounded the damage a second writer can do, and none removed it. A second writer rewrites the whole file. It can lose a change Claude Code made in the same moment, and it reformats what it did not mean to touch: `JsonNode` carries neither comments nor spacing. Its mistakes break Claude Code, not the dashboard. The ruling removes the writer, and `SettingsFileWriter` and the merge with it.*
 
-*The sentence this replaces read: "The dashboard writes the operator's settings **only** from the explicit switches `--install-hooks` and `--remove-hooks`. A running dashboard reads that file and never writes it." It was recorded on 2026-08-30 and was false when it was written: the defect it describes as a design predates the sentence, since T1.28 had already made registration an install step with nothing left running the install step — `HookInstaller.Install()` was reachable from `--install-hooks` and from nowhere else, and nothing called that — so a user who had never opened a terminal started the app and received no events for ever, with one warning line in a log they will not open. §10.2 had required a first run to call that path once since before either sentence was written; T1.32 is the thing that calls it. (An earlier version of this paragraph dated the sentence 2026-08-31 and said it "was false within the day"; `git log -S` places it in commit `6b598a1` on 2026-08-30, and a wrong date recorded as history is a statement more confident than the thing beneath it.)*
+What the dashboard reads there, at every start:
 
-The repair is narrow, and each bound is load-bearing:
+- **`enabledPlugins` and `extraKnownMarketplaces`**, to learn whether its plugin is enabled, turned off, or held by another data folder. "Ours" is decided by the folder the settings give for the marketplace, never by the name alone.
+- **`hooks`**, for a handler that a build before the plugin left there. It is identified by the script path in `args`, compared after `Path.GetFullPath`, ordinal-ignore-case, and by nothing else. *Accepted limit: an 8.3 short path does not match.*
 
-- **Never a file that would not read.** An I/O failure and text that will not parse — the duplicate key included — both warn and write nothing. A settings file rewritten from a partial parse costs the operator every hook, permission and preference in it, which is a worse failure than the one being fixed.
-- **Top up on partial, not only install at zero.** Some of the accepted events present means an interrupted write, a hand edit, or a build that added an event; installing the missing ones is right for all three. Deliberate removal is not one of the three — that is what the opt-out is for.
-- **A complete handler writes nothing at all**, short-circuiting before the merge. `SettingsFileWriter` renders from `JsonNode`, which carries neither comments nor formatting, so even a merge that changed no content would strip every comment in a hand-formatted file.
-- **The opt-out is `installHooksAtStart` in the dashboard's own `settings.json`**, default `true`, cleared by `--remove-hooks` and set by `--install-hooks`. Without it, removing the hooks and restarting would put them straight back, and a supported switch would mean nothing.
-- **An unreadable opt-out is unknown, not consent.** When the dashboard's own settings file cannot be read, the load hands back defaults and the default says install — but a recorded `--remove-hooks` lives in exactly the file that could not be read. So an `Unreadable` load refuses the install and says why, while a *missing* file is a first run whose default stands in for nothing, and installs.
+The read is defensive, because the file is hand-editable and the read is on the startup path:
 
-The accepted cost is real and is not solved: the install that repairs a missing handler also flattens a hand-formatted file. The rules above keep the bill to the starts that actually repair something, which for most installs is one. A second accepted residual — a hand edit that parses but has a shape the merge replaces outright is now replaced at a start rather than at a switch — is recorded with its measured boundary in the acceptance document's §5k.
+- Comments and trailing commas are tolerated.
+- A file that will not parse — a duplicate key included, which `JsonNode` would otherwise raise late and as a different exception — is "cannot be read". Nothing is then claimed about it, nothing is asked of Claude Code, and the operator is shown a notice.
+- A value of the wrong type is "not ours", never an exception.
+- **Nothing out of the file is logged or shown.** The settings are the operator's, and one of their hooks may carry their prompt text.
 
-### 9.4 The plugin route — Claude Code writes its own settings (issue #30)
+A source guard holds the ruling: only the type that reads the file may name it, and that type holds no call that writes, moves, copies, creates or deletes anything.
 
-§9.3 bounds the damage a second writer can do to `~/.claude/settings.json`. This section removes the second writer where it can. The file belongs to Claude Code, which writes it too; a plugin is the door Claude Code provides for another program's hooks.
+### 9.4 The plugin — the only route (issue #30)
+
+A plugin is the door Claude Code provides for another program's hooks. It is the only way the dashboard connects itself to Claude Code. **Where the plugin cannot be registered, the dashboard works round nothing: it tells the operator, on screen, what is wrong and what to do.**
 
 - **The plugin lives in the data folder**, at `%LocalAppData%\ClaudeDashboard\plugin`: `.claude-plugin\marketplace.json`, `.claude-plugin\plugin.json` and `hooks\hooks.json`. Never in the install folder. Claude Code loads a plugin added from a folder **in place**, and the install folder is replaced at every update.
-- **The plugin is a pointer.** `hooks.json` carries the same handler as §9.2 on the same events, built by the same code, and names `post-status.cmd` by absolute path. The script does not move, so it still finds `listening.txt` beside itself. `${CLAUDE_PLUGIN_ROOT}` is not used, so nothing depends on where Claude Code runs the plugin from.
-- **Claude Code registers it.** The dashboard runs `claude plugin marketplace add <folder>` and `claude plugin install claude-dashboard@claude-dashboard`, with input closed. Claude Code records the result under `extraKnownMarketplaces` and `enabledPlugins`. The dashboard reads those two keys to learn whether the plugin is there; it writes neither.
-- **When.** Under every bound of §9.3 — the opt-out, the unreadable file, the machine with no Claude Code — a start that finds **no** handler of the dashboard's registers the plugin. `--install-hooks` registers it and then takes any old settings entries out; `--remove-hooks` removes the plugin and any settings entries.
-- **A machine that already has the settings handler keeps it at a start.** A session that is already open does not see a newly installed plugin, so moving the handler would stop every open session from reporting until it restarted, in silence. The move is the operator's step, with `--install-hooks`, which says so.
-- **The settings file is the fallback, never a refusal.** No `claude.exe` on `PATH` or in `%USERPROFILE%\.local\bin`, a refusal from Claude Code, or a plugin of the same name that belongs to another data folder each end in §9.3's write, with the reason logged. A dashboard that receives nothing is the worse failure.
+- **The plugin is a pointer.** `hooks.json` carries the handler of §9.2 on every accepted event and names `post-status.cmd` by absolute path. The script does not move, so it still finds `listening.txt` beside itself. `${CLAUDE_PLUGIN_ROOT}` is not used, so nothing depends on where Claude Code runs the plugin from. The files are rewritten at every start when they differ, which is how a build that changes the event set reaches a machine that is already registered.
+- **Claude Code registers it.** The dashboard runs `claude plugin marketplace add <folder>` and `claude plugin install claude-dashboard@claude-dashboard`, with input closed and a time limit. Claude Code records the result in its own settings. A `claude` that records the plugin and then reports a failure has still registered it; the settings are read again to see.
+- **`--install-hooks` registers the plugin and `--remove-hooks` removes it.** Neither does anything else. `--remove-hooks` clears `installHooksAtStart` in the dashboard's own `settings.json`, default `true`, so that the next start does not put the plugin back; `--install-hooks` sets it again, and turns a turned-off plugin back on, saying so.
 
-Measured on 2026-09-30 against Claude Code 2.1.286, with a throwaway plugin: both install commands ran with no person present and exited 0, and exited 0 again when repeated; the two removal commands exit 1 for a thing that is not there; a hook fired in a new session; a hook whose folder had been moved away did not fire, with no error; a session open before the install never ran the hook, while a new session did. Not measured: `claude plugin update`, the reload command inside an open session, and a Claude Code installed as a `claude.cmd` shim, which this build reports as not found.
+**What a start does**, in this order, because several findings can hold at once and the operator is shown one notice:
 
-The lifecycle it replaces added handlers at start and removed them at quit, because a hook naming a dead port makes Claude Code print an error on every turn and there is no per-hook suppression. That closed the error and left two holes it could not close: **a Claude Code session already open keeps the settings it started with**, so it kept posting to a port nothing answered until it restarted; and **a dashboard that was killed left the handlers behind**. Both are structural to a design that edits the file at every start.
+| A start finds | It does | The notice |
+|---|---|---|
+| No Claude Code configuration directory | Nothing. Nothing is created (T1.33). | No Claude Code install was detected. |
+| Claude Code's settings will not read | Nothing. | The file could not be read; nothing was changed. |
+| An old hook in Claude Code's settings | **Does not register the plugin**, because both together would post every event twice. Does not touch the file. | Remove the old hook, then restart the dashboard: ask Claude, or use `/hooks`. Says "every event arrives twice" when the plugin is enabled as well. |
+| The plugin enabled | Nothing. | None. |
+| The plugin turned off | Nothing: `claude plugin install` would turn it back on. | The command that turns it on. |
+| A plugin of the same name from another data folder | Nothing. | Names the other folder. |
+| The dashboard's own settings will not read | Nothing: the opt-out is unknown, and unknown is not consent. | Fix or delete that file, or run `--install-hooks`. |
+| `installHooksAtStart` is `false` | Nothing. | The plugin was removed; `--install-hooks` puts it back. |
+| None of the above | Registers the plugin. | Registered: restart the open sessions. |
+| …and `claude.exe` is not found | Nothing more. | The two commands to run by hand. |
+| …and Claude Code refuses | Nothing more. | What it said, and the two commands. |
 
-The command hook removes the question. `post-status.cmd` reads `listening.txt` and does nothing, silently, when no dashboard is bound — so one entry is correct whether the dashboard is running or not, and neither hole exists.
+- **The notice is a row in the window and the first line of the tray tooltip.** A dashboard that receives nothing must not look like a quiet day.
+- **A notice that says nothing is reporting clears when a session reports.** An arriving event is proof of the opposite. **The old-hook notice does not**: events arrive normally in that state, through the old hook itself. It stays until a start finds the hook gone.
+- **`claude.exe` is looked for on `PATH`, then in `%USERPROFILE%\.local\bin`.** A `claude.cmd` shim is reported as not found: running it needs `cmd.exe` quoting around a path that may hold spaces, and that branch was not measured. Such a machine gets the notice with the two commands.
 
-The rules that follow:
+Measured on 2026-09-30 and 2026-10-01 against Claude Code 2.1.286: both install commands ran with no person present and exited 0, and exited 0 again when repeated; the two removal commands exit 1 for a thing that is not there; `claude plugin enable` exits 0, and `claude plugin install` turns a disabled plugin back on; a hook fired in a new session; a hook whose folder had been moved away did not fire, with no error; a session open before an install or an enable never ran the hook, while a new session did. Not measured: `claude plugin update`, and the reload command inside an open session.
 
-- **Ours is identified by the script path in `args`**, compared after `Path.GetFullPath`, ordinal-ignore-case. Never by an added marker key: the settings schema is not ours to extend, and an unknown key a future version rejects would leave handlers that can never be removed. The path does not move, which is what the URL did. *Accepted limit: an 8.3 short path does not match, and cannot arise from our own writing.*
+The rules that follow from a hook that names a script and not a port:
+
 - **The two files are not one file.** `port.txt` records the port last bound and is an **input** — §3.1's first attempt, and how a second launch finds the running instance for `POST /show` (§5.3). `listening.txt` says a dashboard is bound **now**: written after a successful bind, overwritten at every start, deleted on a clean exit, and written temp-then-rename so the script cannot read half a number. Merging them breaks §3.1 and §5.3 in silence.
 - **Nothing is announced unless ingress is bound.** A port held by a stranger means no `listening.txt`, because hook payloads carry the operator's prompts.
-- **An array emptied by removal is deleted**, and so is `hooks` if it empties.
-- **Installing is idempotent.** Running the switch twice produces one handler.
-- **Write atomically and back up first.** Every Claude Code session on the machine reads this file, and a half-written one is worse than a wrong one. The backup is a plain copy at a stated path, restorable by hand with the dashboard uninstalled, deleted, or refusing to start.
-- **`--remove-hooks` removes both shapes and prints every entry by name.** The command handler, the legacy `http://127.0.0.1:<port>/hook` handlers of the old design, and the matching `allowedHttpHookUrls` entries. Both rules match a *shape*, so an entry the operator wrote themselves can match — printing what left their file is the safeguard. `httpHookAllowedEnvVars` is left alone. **Nothing removes an `http` handler automatically.**
-- **The dashboard checks at start and says nothing else.** It reads the file, logs a warning when its handler is absent or partial, and names both the path it expects and any `post-status.cmd` installed under another data folder — `CLAUDE_DASHBOARD_HOME` makes that a real configuration. Without this, a hook removed by anything at all is undetectable: the dashboard receives nothing, which looks exactly like a quiet day.
 - **Residual, stated plainly.** A hard kill leaves `listening.txt` naming the last bound port. Until the next start the script posts there, and if something else has taken the port it receives the operator's prompts. Overwriting at every start is what bounds it. `TerminateProcess`, a CLR fast-fail and power loss reach none of the four withdrawal points; every exit the application initiates or observes reaches one.
 
 ---
@@ -469,12 +481,12 @@ Realizes the "logon tray app, not a service" decision (TS integration constraint
 
 ### 10.2 Packaging and first-run setup
 
-- **Publish:** `build\package.ps1 -Version <semver>`, which runs `dotnet publish -c Release -r win-x64 --self-contained` to a **directory of files** under `artifacts\publish` (PKG.2). *(This said "a single-file exe" until PKG.2; Packaging Design D2 records why the shape changed — Velopack's delta updates diff at the file level, and a single-file bundle collapses every release into one opaque blob.)* **Not MSIX** — its sandboxing fights writing the scheduled task and merging Claude Code's settings, both of which this tool must do.
+- **Publish:** `build\package.ps1 -Version <semver>`, which runs `dotnet publish -c Release -r win-x64 --self-contained` to a **directory of files** under `artifacts\publish` (PKG.2). *(This said "a single-file exe" until PKG.2; Packaging Design D2 records why the shape changed — Velopack's delta updates diff at the file level, and a single-file bundle collapses every release into one opaque blob.)* **Not MSIX.** *(The reason given here was that its sandboxing fights writing the scheduled task and merging Claude Code's settings. The dashboard does neither now — T1.50 and T1.51 — so that reason has gone, and the choice of packager stands on the Packaging Design.)*
 - **First-run setup** (the step that realizes everything above):
   1. *(Replaced by T1.50, issue #36.)* This step registered a logon scheduled task. Starting with Windows is now the app's own concern (§10.1): the first start of an installed copy writes the `Run` value, because `startWithWindows` defaults to on, and every later start keeps it matching the setting. So no installer step is needed, and Velopack's uninstall hook removes the value.
   2. *(Removed by T1.48, issue #57.)* This step set `CLAUDE_DASHBOARD_TOKEN` at User scope. The dashboard now makes its own token at every start and hands it to the hook in `listening.txt` (§3.4), so there is nothing to set, and a session started before a token existed can no longer be cut off by one.
-  3. Merge the hook configuration into `~/.claude/settings.json` **once**, by calling the same path `--install-hooks` calls (§9.3). It is an install step again, as it was before 2026-08-26 and for a better reason: the handler names a script rather than a port, so it does not need renewing. `port.txt` is written by the dashboard at every bind and is not a setup step. **The app itself now satisfies this step, so a packaged installer does not have to** (issue #39, T1.32): a start that finds the handler missing installs it, under §9.3's bounds. That is what closed the gap between this requirement standing here and nothing anywhere calling it. First-run setup keeps the step for the machine that never starts the app before packaging finishes, and for the step that was then step 1, which no start performed. **Since issue #30 the step is a plugin registration where it can be** (§9.4): Claude Code records the hook itself, and the settings file is merged only as the fallback.
-- The **Settings window** opened in T1.50 with one setting, start with Windows (§10.1). Phase 6 grows it: it repairs the hook config, and edits thresholds and sounds.
+  3. *(Replaced by T1.49 and T1.51, issue #30.)* This step merged the hook configuration into `~/.claude/settings.json`. The dashboard never writes that file now (§9.3). The app registers its plugin with Claude Code at its first start, and at any later start that finds the plugin missing (§9.4; issue #39, T1.32), so no installer step is needed. `port.txt` is written by the dashboard at every bind and is not a setup step.
+- The **Settings window** opened in T1.50 with one setting, start with Windows (§10.1). Phase 6 grows it: it repairs the plugin registration, and edits thresholds and sounds.
 
 ---
 

@@ -20,10 +20,9 @@ namespace ClaudeDashboard.App.Setup;
 /// (<see cref="PluginInstaller"/>) and writes nothing outside its own folder.
 /// </para>
 /// <para>
-/// <strong>The plugin is a pointer and nothing else.</strong> Its <c>hooks.json</c> holds the
-/// same handler <see cref="HookRegistration.Register"/> writes into the settings file — built by
-/// that very method, so the two shapes cannot drift — and the handler names
-/// <c>post-status.cmd</c> by absolute path. The script does not move and does not change, so it
+/// <strong>The plugin is a pointer and nothing else.</strong> Its <c>hooks.json</c> holds one
+/// handler on every accepted event (<see cref="HookHandlers.ForEveryEvent"/>), and the handler
+/// names <c>post-status.cmd</c> by absolute path. The script does not move and does not change, so it
 /// still finds <c>listening.txt</c> beside itself and T1.48's token logic is untouched.
 /// <c>${CLAUDE_PLUGIN_ROOT}</c> is deliberately not used: with an absolute path it does not
 /// matter where Claude Code runs the plugin from.
@@ -114,26 +113,16 @@ public static class HookPlugin
     /// <exception cref="ArgumentException">Either path is null, empty, or whitespace.</exception>
     public static string HooksText(string interpreter, string scriptPath)
     {
-        // Built by the method that writes the settings entry, so the event set and the handler
-        // shape are the same thing in both places rather than two descriptions of it.
-        var hooks = new JsonObject();
-        HookRegistration.Register(hooks, interpreter, scriptPath);
-
         var file = new JsonObject
         {
             ["description"] =
                 "Written by Claude Dashboard at every start; an edit here is reverted. Each event runs " +
                 "the dashboard's forwarder, which posts the event to the dashboard when it is running " +
                 "and does nothing when it is not.",
+            [HookHandlers.HooksKey] = HookHandlers.ForEveryEvent(interpreter, scriptPath),
         };
 
-        foreach (var pair in hooks.ToList())
-        {
-            hooks.Remove(pair.Key);
-            file[pair.Key] = pair.Value;
-        }
-
-        return HookRegistration.Render(file).ReplaceLineEndings("\n") + "\n";
+        return HookHandlers.Render(file).ReplaceLineEndings("\n") + "\n";
     }
 
     /// <summary>
@@ -298,6 +287,6 @@ public static class HookPlugin
     [
         (MarketplaceFile(paths), MarketplaceText),
         (ManifestFile(paths), ManifestText),
-        (HooksFile(paths), HooksText(HookInstaller.Interpreter, paths.HookScriptFile)),
+        (HooksFile(paths), HooksText(HookHandlers.Interpreter, paths.HookScriptFile)),
     ];
 }

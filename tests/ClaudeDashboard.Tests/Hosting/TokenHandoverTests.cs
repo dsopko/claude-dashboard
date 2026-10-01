@@ -218,7 +218,7 @@ public sealed class TokenHandoverTests : IDisposable
     /// </summary>
     private void RunHook(Dictionary<string, string?>? environment, string sessionId)
     {
-        var start = new ProcessStartInfo(HookInstaller.Interpreter)
+        var start = new ProcessStartInfo(HookHandlers.Interpreter)
         {
             RedirectStandardInput = true,
             RedirectStandardOutput = true,

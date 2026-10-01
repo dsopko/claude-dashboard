@@ -82,13 +82,13 @@ public sealed class HookScriptTests : IDisposable
     /// <summary>The name in the file matches the name the registration writes.</summary>
     /// <remarks>
     /// Two places name this file: the path property, and the constant
-    /// <see cref="HookRegistration.ScriptFileName"/> that the foreign-path diagnosis matches on. A
+    /// <see cref="HookHandlers.ScriptFileName"/> that the foreign-path diagnosis matches on. A
     /// rename that touched one would leave the start check unable to explain a data-folder
     /// mismatch, which is the one case it exists to explain.
     /// </remarks>
     [Fact]
     public void The_registration_and_the_path_agree_on_the_file_name() =>
-        Assert.Equal(HookRegistration.ScriptFileName, Path.GetFileName(_paths.HookScriptFile));
+        Assert.Equal(HookHandlers.ScriptFileName, Path.GetFileName(_paths.HookScriptFile));
 
     /// <summary>Writing it twice writes it once.</summary>
     /// <remarks>

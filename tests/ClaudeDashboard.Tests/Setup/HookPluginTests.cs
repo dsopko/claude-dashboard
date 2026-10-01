@@ -53,26 +53,37 @@ public sealed class HookPluginTests : IDisposable
     // ---- The files -------------------------------------------------------------------------------
 
     /// <summary>
-    /// <strong>The plugin's handler is the settings handler, on the same events.</strong> Compared
-    /// against what <c>HookRegistration.Register</c> writes rather than against a shape typed out
-    /// here, because the claim is that the two routes run one identical command.
+    /// <strong>One handler on every accepted event, in the exec form.</strong> The shape is typed
+    /// out here, field by field, because it is what Claude Code runs: a wrong field fails the way a
+    /// missing hook fails, as a dashboard that receives nothing.
     /// </summary>
     [Fact]
-    public void The_hooks_file_carries_the_settings_handler_on_every_accepted_event()
+    public void The_hooks_file_carries_one_handler_on_every_accepted_event()
     {
         var script = _paths.HookScriptFile;
 
         var plugin = (JsonObject)JsonNode.Parse(HookPlugin.HooksText(Interpreter, script))!;
-        var settings = new JsonObject();
-        HookRegistration.Register(settings, Interpreter, script);
-
         var hooks = Assert.IsType<JsonObject>(plugin["hooks"]);
 
         Assert.Equal(
             HookEventNames.Accepted.Order(StringComparer.Ordinal),
             hooks.Select(pair => pair.Key).Order(StringComparer.Ordinal));
-        Assert.Equal(settings["hooks"]!.ToJsonString(), hooks.ToJsonString());
-        Assert.Equal(HookEventNames.Accepted.Count, HookRegistration.CountInstalled(plugin, script));
+
+        foreach (var pair in hooks)
+        {
+            var group = Assert.IsType<JsonObject>(Assert.Single(Assert.IsType<JsonArray>(pair.Value)));
+            var handler = Assert.IsType<JsonObject>(Assert.Single(Assert.IsType<JsonArray>(group["hooks"])));
+
+            // No matcher: the dashboard hears every occurrence of the event.
+            Assert.Null(group["matcher"]);
+            Assert.Equal("command", (string?)handler["type"]);
+            Assert.Equal(Interpreter, (string?)handler["command"]);
+            Assert.Equal(["/c", script], Assert.IsType<JsonArray>(handler["args"]).Select(argument => (string?)argument));
+            Assert.True((bool?)handler["async"]);
+        }
+
+        // The same handler the old-hook read recognises, so the build and the read cannot drift.
+        Assert.Equal(HookEventNames.Accepted.Count, HookHandlers.CountInSettings(plugin, script));
     }
 
     /// <summary>
@@ -119,7 +130,7 @@ public sealed class HookPluginTests : IDisposable
         Assert.Equal(HookPlugin.MarketplaceText, File.ReadAllText(HookPlugin.MarketplaceFile(_paths)));
         Assert.Equal(HookPlugin.ManifestText, File.ReadAllText(HookPlugin.ManifestFile(_paths)));
         Assert.Equal(
-            HookPlugin.HooksText(HookInstaller.Interpreter, _paths.HookScriptFile),
+            HookPlugin.HooksText(HookHandlers.Interpreter, _paths.HookScriptFile),
             File.ReadAllText(HookPlugin.HooksFile(_paths)));
 
         Assert.True(HookPlugin.EnsureWritten(_paths, _logger));
@@ -151,7 +162,7 @@ public sealed class HookPluginTests : IDisposable
     [Fact]
     public void The_settings_Claude_Code_wrote_read_as_enabled_from_that_folder()
     {
-        var settings = HookRegistration.Parse(
+        var settings = HookHandlers.Parse(
             """
             {
               "extraKnownMarketplaces": {
@@ -183,7 +194,7 @@ public sealed class HookPluginTests : IDisposable
     [InlineData("""{ "enabledPlugins": [ "claude-dashboard@claude-dashboard" ] }""")]
     [InlineData("""{ "enabledPlugins": true }""")]
     public void Anything_but_a_true_under_our_name_is_not_enabled(string json) =>
-        Assert.False(HookPlugin.IsEnabled(HookRegistration.Parse(json)));
+        Assert.False(HookPlugin.IsEnabled(HookHandlers.Parse(json)));
 
     [Theory]
     [InlineData("""{}""")]
@@ -195,7 +206,7 @@ public sealed class HookPluginTests : IDisposable
     [InlineData("""{ "extraKnownMarketplaces": { "claude-dashboard": { "source": { "path": 7 } } } }""")]
     [InlineData("""{ "extraKnownMarketplaces": { "claude-dashboard": { "source": { "path": "  " } } } }""")]
     public void A_marketplace_with_no_folder_reads_as_none(string json) =>
-        Assert.Null(HookPlugin.MarketplaceFolder(HookRegistration.Parse(json)));
+        Assert.Null(HookPlugin.MarketplaceFolder(HookHandlers.Parse(json)));
 
     [Fact]
     public void A_folder_is_ours_as_Windows_compares_paths()
