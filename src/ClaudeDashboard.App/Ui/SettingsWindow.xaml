@@ -1,0 +1,55 @@
+<Window x:Class="ClaudeDashboard.App.Ui.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Claude Dashboard — Settings"
+        Width="420"
+        SizeToContent="Height"
+        ResizeMode="NoResize"
+        WindowStartupLocation="CenterScreen"
+        ShowInTaskbar="True"
+        UseLayoutRounding="True"
+        TextOptions.TextFormattingMode="Display">
+
+    <!--
+        The Settings window (issue #36). Small, and in the main window's colours and font. Its first
+        setting, and today its only one: start with Windows. A change applies at once, so there is no
+        Save button; Phase 6's settings (T6.1) grow this same window.
+    -->
+
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="/ClaudeDashboard.App;component/Ui/RowTemplates.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </Window.Resources>
+
+    <Border Background="{StaticResource SurfaceBrush}" Padding="18,16">
+        <StackPanel>
+            <TextBlock Text="Settings"
+                       FontFamily="{StaticResource TitleFont}"
+                       FontSize="20"
+                       Foreground="{StaticResource InkBrush}"
+                       Margin="0,0,0,12" />
+
+            <CheckBox x:Name="StartWithWindowsBox"
+                      IsChecked="{Binding StartsWithWindows, Mode=TwoWay}"
+                      IsEnabled="{Binding CanChange}"
+                      FontFamily="{StaticResource UiFont}"
+                      FontSize="13"
+                      Foreground="{StaticResource InkBrush}"
+                      VerticalContentAlignment="Center">
+                <TextBlock x:Name="StartWithWindowsLabel" TextWrapping="Wrap" />
+            </CheckBox>
+
+            <TextBlock x:Name="NoteText"
+                       Text="{Binding Note}"
+                       Visibility="{Binding HasNote, Converter={StaticResource BoolToVisible}}"
+                       FontFamily="{StaticResource UiFont}"
+                       FontSize="12"
+                       Foreground="{StaticResource Ink2Brush}"
+                       TextWrapping="Wrap"
+                       Margin="22,6,0,0" />
+        </StackPanel>
+    </Border>
+</Window>

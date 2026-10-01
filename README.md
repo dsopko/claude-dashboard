@@ -35,9 +35,11 @@ Two cases still use `~/.claude/settings.json`. When the `claude` program cannot 
 
 **If you turn the plugin off** (for example with `claude plugin disable claude-dashboard@claude-dashboard`), the dashboard leaves it off and does not work round it. It hears nothing while the plugin is off, and says so in its window and its tray tooltip. To turn it back on, run `claude plugin enable claude-dashboard@claude-dashboard`, then restart any Claude Code session that is open. The notice clears the next time the dashboard starts.
 
-**Uninstall.** *Settings → Apps → Claude Dashboard → Uninstall* removes the program and leaves your data folder in place. To take the hook out of Claude Code first, run `ClaudeDashboard.App.exe --remove-hooks` from the install folder: it removes the plugin, and any entry of the dashboard's in your Claude Code settings. Without that, the hook stays and is harmless — it finds no dashboard and exits.
+**It starts when Windows starts.** An installed dashboard adds itself to the programs Windows starts when you sign in, so it is there before your first Claude Code session. To stop that, untick *Start Claude Dashboard when Windows starts* in the dashboard's **Settings…** (right-click the tray icon). You can also turn it off in Settings → Apps → Startup or in Task Manager's Startup tab; the dashboard respects that, and its Settings window shows it. If the dashboard crashes, Windows does not restart it; start it again from the Start Menu.
 
-**Portable.** The release also carries `dsopko.ClaudeDashboard-win-Portable.zip`: extract it anywhere and run `current\ClaudeDashboard.App.exe`. No Start Menu entry, no Apps entry.
+**Uninstall.** *Settings → Apps → Claude Dashboard → Uninstall* removes the program and its entry in the programs Windows starts, and leaves your data folder in place. To take the hook out of Claude Code first, run `ClaudeDashboard.App.exe --remove-hooks` from the install folder: it removes the plugin, and any entry of the dashboard's in your Claude Code settings. Without that, the hook stays and is harmless — it finds no dashboard and exits.
+
+**Portable.** The release also carries `dsopko.ClaudeDashboard-win-Portable.zip`: extract it anywhere and run `current\ClaudeDashboard.App.exe`. No Start Menu entry, no Apps entry, and it never starts with Windows: a portable copy has no fixed path for Windows to start, so its Settings window says so and keeps the box unticked.
 
 ## Quiet scheduled jobs
 

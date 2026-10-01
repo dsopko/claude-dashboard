@@ -73,7 +73,9 @@ public static class Program
         // start, and the single-instance gate would hand it over to the running instance —
         // which would raise a window and leave the install half-done. On an ordinary launch,
         // with no lifecycle argument, Run() returns and nothing here changes.
-        VelopackApp.Build().Run();
+        // The uninstall hook removes the start-with-Windows entry (issue #36). Velopack runs it, then
+        // exits; it must be fast and must never fail the uninstall — see StartWithWindows.
+        VelopackApp.Build().OnBeforeUninstallFastCallback(_ => StartWithWindows.RemoveOnUninstall(new WindowsStartupRegistry(), InstalledCopy.CurrentExe(Serilog.Core.Logger.None))).Run();
 
         IHost? host = null;
 
@@ -241,6 +243,11 @@ public static class Program
                     host.Services.GetRequiredService<PluginInstaller>(),
                     host.Services.GetRequiredService<HookNotice>());
 
+                // Start with Windows (issue #36): make the Run value match "startWithWindows". An
+                // installed copy only; Windows' own off switch is left alone; a refusal is one
+                // Warning and the start goes on.
+                host.Services.GetRequiredService<StartWithWindows>().Reconcile(settings.StartWithWindows);
+
                 var policy = host.Services.GetRequiredService<UnhandledExceptionPolicy>();
 
                 // Best effort on the way down. A terminating fault runs managed code once more,
@@ -286,6 +293,9 @@ public static class Program
                 using var tray = host.Services.GetRequiredService<TrayIcon>();
                 tray.ViewModel.OpenRequested += (_, _) => window.ToggleDashboard();
                 tray.ViewModel.QuitRequested += (_, _) => app.Shutdown();
+
+                var settingsWindows = host.Services.GetRequiredService<SettingsWindowHost>();
+                tray.ViewModel.SettingsRequested += (_, _) => settingsWindows.Show();
 
                 var exitCode = app.Run(window);
 

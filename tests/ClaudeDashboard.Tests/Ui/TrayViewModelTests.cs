@@ -451,11 +451,18 @@ public sealed class TrayViewModelTests : IDisposable
         Assert.Equal(1, quit);
     }
 
-    /// <summary>Settings is present and visibly inert until Phase 6.</summary>
+    /// <summary>Settings opens the Settings window (issue #36): the item asks the host for it.</summary>
     [Fact]
-    public void Settings_is_a_disabled_stub()
+    public void Settings_asks_for_the_settings_window()
     {
-        Assert.False(_tray.OpenSettingsCommand.CanExecute(null));
+        var asked = 0;
+        _tray.SettingsRequested += (_, _) => asked++;
+
+        Assert.True(_tray.OpenSettingsCommand.CanExecute(null));
+
+        _tray.OpenSettingsCommand.Execute(null);
+
+        Assert.Equal(1, asked);
     }
 
     /// <summary>

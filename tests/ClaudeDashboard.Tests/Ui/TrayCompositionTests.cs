@@ -240,9 +240,9 @@ public sealed class TrayCompositionTests : IDisposable
         Assert.Equal(expected, bound);
     }
 
-    /// <summary>Settings is present and visibly inert, rather than absent or silently dead.</summary>
+    /// <summary>Settings is present and enabled since issue #36 gave it a window.</summary>
     [Fact]
-    public void Settings_is_present_and_disabled()
+    public void Settings_is_present_and_enabled()
     {
         var enabled = _harness.Invoke(() =>
         {
@@ -256,6 +256,6 @@ public sealed class TrayCompositionTests : IDisposable
             return settings.IsEnabled;
         });
 
-        Assert.False(enabled);
+        Assert.True(enabled);
     }
 }

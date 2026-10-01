@@ -343,13 +343,16 @@ public sealed class StartupHookGuardTests
     {
         var code = GuardScan.CodeOnly(Program());
 
-        const string Call = "VelopackApp.Build().Run();";
+        // The builder chain grew in issue #36: the uninstall hook that removes the start-with-Windows
+        // entry sits between Build() and Run(). The guard reads the chain's start, and asserts the
+        // statement still ends in Run() and still carries the hook.
+        const string Call = "VelopackApp.Build()";
 
         var occurrences = GuardScan.Occurrences(code, Call);
 
         Assert.True(
             occurrences > 0,
-            "Program.cs no longer contains the exact text 'VelopackApp.Build().Run();'. If the " +
+            "Program.cs no longer contains the text 'VelopackApp.Build()'. If the " +
             "builder chain grew — .OnFirstRun, .SetArgs — the call has moved, not gone: update " +
             "this guard's Call constant to the new text and keep the first-statement assertion.");
 
@@ -364,6 +367,11 @@ public sealed class StartupHookGuardTests
 
         var body = code.IndexOf('{', signature);
         var velopack = code.IndexOf(Call, StringComparison.Ordinal);
+        var statement = code[velopack..(code.IndexOf(';', velopack) + 1)];
+
+        Assert.EndsWith(".Run();", statement, StringComparison.Ordinal);
+        Assert.Contains(".OnBeforeUninstallFastCallback(", statement, StringComparison.Ordinal);
+        Assert.Contains("StartWithWindows.RemoveOnUninstall(", statement, StringComparison.Ordinal);
 
         Assert.True(
             velopack > body,

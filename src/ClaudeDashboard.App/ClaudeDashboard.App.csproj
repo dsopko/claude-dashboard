@@ -10,6 +10,21 @@
     <OutputType>WinExe</OutputType>
     <RootNamespace>ClaudeDashboard.App</RootNamespace>
     <AssemblyName>ClaudeDashboard.App</AssemblyName>
+    <!--
+      What Windows shows for the exe (issue #36). Windows Settings > Apps > Startup lists a Run entry
+      by its exe's file description, not by the value's name - measured: a cmd.exe entry showed as
+      "Windows Command Processor". Without these the entry read "ClaudeDashboard.App". Only the title
+      and the product: the AssemblyName stays, because the Run data, Velopack's mainExe and the
+      shortcut all name ClaudeDashboard.App.exe.
+    -->
+    <AssemblyTitle>Claude Dashboard</AssemblyTitle>
+    <Product>Claude Dashboard</Product>
+    <!--
+      The same Startup page shows the company under each entry's name (Claude reads "Anthropic, PBC"),
+      and without this ours read "ClaudeDashboard.App". It matches the publisher build\package.ps1
+      gives vpk as packAuthors, which is what Settings > Apps shows for the install.
+    -->
+    <Company>David Sopko</Company>
     <ApplicationManifest>app.manifest</ApplicationManifest>
 
     <!--

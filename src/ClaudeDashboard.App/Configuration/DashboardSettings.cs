@@ -123,6 +123,25 @@ public sealed record DashboardSettings
     [JsonPropertyName("installHooksAtStart")]
     public bool InstallHooksAtStart { get; init; } = true;
 
+    /// <summary>
+    /// Whether the dashboard starts when the operator signs in to Windows (issue #36). On by default.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>The truth that each start makes Windows match.</strong> An installed copy writes its
+    /// <c>Run</c> value when this is on and removes it when this is off; see
+    /// <c>StartWithWindows</c>. Only the Settings window's checkbox changes it, so closing the dashboard
+    /// or ending it in Task Manager leaves it as it was, and the next sign-in starts it again.
+    /// </para>
+    /// <para>
+    /// <strong>On by default, as the operator asked</strong>: a dashboard that is not running when the
+    /// sessions are is no help, and after a reboot nobody remembers to start it. A portable copy never
+    /// registers whatever this says, because it has no path that will still be there tomorrow.
+    /// </para>
+    /// </remarks>
+    [JsonPropertyName("startWithWindows")]
+    public bool StartWithWindows { get; init; } = true;
+
     /// <summary>How the rolling log files are kept (Impl Part 8).</summary>
     [JsonPropertyName("logging")]
     public LoggingSettings Logging { get; init; } = new();
@@ -171,6 +190,7 @@ public sealed record DashboardSettings
         other is not null &&
         Port == other.Port &&
         InstallHooksAtStart == other.InstallHooksAtStart &&
+        StartWithWindows == other.StartWithWindows &&
         Logging == other.Logging &&
         Sound == other.Sound &&
         Window == other.Window &&
@@ -182,6 +202,7 @@ public sealed record DashboardSettings
         var hash = default(HashCode);
         hash.Add(Port);
         hash.Add(InstallHooksAtStart);
+        hash.Add(StartWithWindows);
         hash.Add(Logging);
         hash.Add(Sound);
         hash.Add(Window);

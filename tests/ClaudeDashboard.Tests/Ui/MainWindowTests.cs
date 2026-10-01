@@ -2457,4 +2457,256 @@ public sealed class MainWindowTests(StaHarness harness, Xunit.Abstractions.ITest
                 throw new ArgumentOutOfRangeException(nameof(state), state, "No pipeline path to this state.");
         }
     }
+
+    // ---- The Settings window (issue #36) ------------------------------------------------------------
+
+    private const string SettingsExe = @"C:\Users\someone\AppData\Local\dsopko.ClaudeDashboard\current\ClaudeDashboard.App.exe";
+
+    /// <summary>A Settings view model over a fake registry and a settings file in a temp folder.</summary>
+    private static (SettingsViewModel ViewModel, FakeStartupRegistry Registry, ClaudeDashboard.App.Configuration.SettingsStore Store) SettingsOver(
+        string? exe, Action<FakeStartupRegistry>? arrange = null)
+    {
+        var registry = new FakeStartupRegistry();
+        arrange?.Invoke(registry);
+
+        var root = Path.Combine(Path.GetTempPath(), "claude-dashboard-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var store = new ClaudeDashboard.App.Configuration.SettingsStore(new ClaudeDashboard.App.Configuration.DashboardPaths(root));
+
+        var startup = new ClaudeDashboard.App.Setup.StartWithWindows(registry, exe, Serilog.Core.Logger.None);
+
+        return (new SettingsViewModel(startup, store, Serilog.Core.Logger.None), registry, store);
+    }
+
+    /// <summary>
+    /// The checkbox shows what Windows has, and a click applies at once: ticking writes the Run value
+    /// and the setting, unticking removes the value and records the setting off. No binding errors.
+    /// </summary>
+    [Fact]
+    public void The_settings_checkbox_applies_at_once_both_ways()
+    {
+        var (viewModel, registry, store) = SettingsOver(SettingsExe);
+        const string Name = ClaudeDashboard.App.Setup.StartWithWindows.ValueName;
+
+        var seen = _harness.Invoke(() =>
+        {
+            var window = new SettingsWindow(viewModel);
+            using var bindings = new BindingErrorWatch();
+
+            try
+            {
+                Realize(window);
+
+                var box = window.StartWithWindowsBox;
+                var before = box.IsChecked;
+                var toggle = (IToggleProvider)new CheckBoxAutomationPeer(box).GetPattern(PatternInterface.Toggle);
+
+                toggle.Toggle();
+                _harness.Pump(DispatcherPriority.Background);
+                var tickChecked = box.IsChecked;
+                var tickValue = registry.Run.GetValueOrDefault(Name);
+                var tickSetting = store.Load().Settings.StartWithWindows;
+
+                toggle.Toggle();
+                _harness.Pump(DispatcherPriority.Background);
+                var untickChecked = box.IsChecked;
+                var untickPresent = registry.Run.ContainsKey(Name);
+                var untickSetting = store.Load().Settings.StartWithWindows;
+
+                Assert.Empty(bindings.Problems);
+
+                return (before, Label: window.StartWithWindowsLabel.Text, Enabled: box.IsEnabled, NoteShown: window.NoteText.IsVisible,
+                    tickChecked, tickValue, tickSetting, untickChecked, untickPresent, untickSetting);
+            }
+            finally
+            {
+                window.Close();
+            }
+        });
+
+        Assert.Equal(SettingsViewModel.StartWithWindowsLabel, seen.Label);
+        Assert.True(seen.Enabled);
+        Assert.False(seen.NoteShown);
+        Assert.False(seen.before);
+
+        Assert.True(seen.tickChecked);
+        Assert.Equal($"\"{SettingsExe}\"", seen.tickValue);
+        Assert.True(seen.tickSetting);
+
+        Assert.False(seen.untickChecked);
+        Assert.False(seen.untickPresent);
+        Assert.False(seen.untickSetting);
+    }
+
+    /// <summary>
+    /// With the Windows off switch set, the checkbox shows unticked with a line saying so; ticking it
+    /// clears the Windows mark.
+    /// </summary>
+    [Fact]
+    public void The_settings_window_shows_the_Windows_off_switch_and_ticking_clears_it()
+    {
+        const string Name = ClaudeDashboard.App.Setup.StartWithWindows.ValueName;
+        var (viewModel, registry, _) = SettingsOver(SettingsExe, registry =>
+        {
+            registry.Run[Name] = $"\"{SettingsExe}\"";
+            registry.Approval[Name] = [0x01, 0, 0, 0, 0x50, 0xBF, 0x70, 0xE2, 0x68, 0x51, 0xDD, 0x01];
+        });
+
+        var seen = _harness.Invoke(() =>
+        {
+            var window = new SettingsWindow(viewModel);
+            using var bindings = new BindingErrorWatch();
+
+            try
+            {
+                Realize(window);
+
+                var beforeChecked = window.StartWithWindowsBox.IsChecked;
+                var beforeNote = window.NoteText.Text;
+                var beforeShown = window.NoteText.IsVisible;
+
+                ((IToggleProvider)new CheckBoxAutomationPeer(window.StartWithWindowsBox).GetPattern(PatternInterface.Toggle)).Toggle();
+                _harness.Pump(DispatcherPriority.Background);
+
+                Assert.Empty(bindings.Problems);
+
+                return (beforeChecked, beforeNote, beforeShown, AfterChecked: window.StartWithWindowsBox.IsChecked, AfterShown: window.NoteText.IsVisible);
+            }
+            finally
+            {
+                window.Close();
+            }
+        });
+
+        Assert.False(seen.beforeChecked);
+        Assert.True(seen.beforeShown);
+        Assert.Equal(SettingsViewModel.WindowsDisabledNote, seen.beforeNote);
+
+        Assert.True(seen.AfterChecked);
+        Assert.False(seen.AfterShown);
+        Assert.False(registry.Approval.ContainsKey(Name));
+    }
+
+    /// <summary>A copy that is not installed shows the checkbox disabled, says why, and touches nothing.</summary>
+    [Fact]
+    public void The_settings_window_for_a_copy_that_is_not_installed_says_why_and_changes_nothing()
+    {
+        var (viewModel, registry, _) = SettingsOver(exe: null);
+
+        var seen = _harness.Invoke(() =>
+        {
+            var window = new SettingsWindow(viewModel);
+            using var bindings = new BindingErrorWatch();
+
+            try
+            {
+                Realize(window);
+                Assert.Empty(bindings.Problems);
+
+                return (Enabled: window.StartWithWindowsBox.IsEnabled, Checked: window.StartWithWindowsBox.IsChecked, Note: window.NoteText.Text, NoteShown: window.NoteText.IsVisible);
+            }
+            finally
+            {
+                window.Close();
+            }
+        });
+
+        Assert.False(seen.Enabled);
+        Assert.False(seen.Checked);
+        Assert.True(seen.NoteShown);
+        Assert.Equal(SettingsViewModel.NotInstalledNote, seen.Note);
+        Assert.Empty(registry.Calls);
+    }
+
+    /// <summary>
+    /// The window lays out at every width from narrow to its own, in whole and fractional steps: the
+    /// label and the note wrap inside it rather than running past its edge.
+    /// </summary>
+    [Fact]
+    public void The_settings_window_lays_out_at_whole_and_fractional_widths()
+    {
+        var (viewModel, _, _) = SettingsOver(exe: null);
+
+        var bad = _harness.Invoke(() =>
+        {
+            var window = new SettingsWindow(viewModel);
+            var failures = new List<string>();
+
+            try
+            {
+                Realize(window);
+
+                for (var step = 0; step <= 180; step++)
+                {
+                    window.Width = 300 + (step / 1.5);
+                    window.UpdateLayout();
+
+                    var content = (FrameworkElement)window.Content;
+
+                    foreach (var element in new FrameworkElement[] { window.StartWithWindowsBox, window.NoteText })
+                    {
+                        var right = element.TranslatePoint(new Point(element.ActualWidth, 0), content).X;
+
+                        if (element.ActualWidth <= 0 || right > content.ActualWidth + 0.01)
+                        {
+                            failures.Add($"{window.Width:F2}: {element.Name} ends at {right:F2} of {content.ActualWidth:F2}");
+                        }
+                    }
+                }
+
+                return failures;
+            }
+            finally
+            {
+                window.Close();
+            }
+        });
+
+        Assert.Empty(bad);
+    }
+
+    /// <summary>A second Settings request brings the open window forward and never opens another.</summary>
+    [Fact]
+    public void A_second_settings_request_brings_the_same_window_forward()
+    {
+        var (viewModel, _, _) = SettingsOver(exe: null);
+
+        var same = _harness.Invoke(() =>
+        {
+            var made = new List<SettingsWindow>();
+            var host = new SettingsWindowHost(viewModel, model =>
+            {
+                var window = new SettingsWindow(model)
+                {
+                    WindowStartupLocation = WindowStartupLocation.Manual,
+                    Left = -32000,
+                    Top = -32000,
+                    ShowActivated = false,
+                    ShowInTaskbar = false,
+                };
+
+                made.Add(window);
+
+                return window;
+            });
+
+            try
+            {
+                var first = host.Show();
+                var second = host.Show();
+
+                return (Same: ReferenceEquals(first, second), Made: made.Count);
+            }
+            finally
+            {
+                foreach (var window in made)
+                {
+                    window.Close();
+                }
+            }
+        });
+
+        Assert.True(same.Same);
+        Assert.Equal(1, same.Made);
+    }
 }

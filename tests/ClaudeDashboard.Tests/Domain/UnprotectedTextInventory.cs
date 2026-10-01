@@ -267,6 +267,10 @@ public sealed class UnprotectedTextInventory
         // the plugin's id, never from a payload; and the tray's copy of the window's one.
         "HookNotice.Text", "HookNotice.TrayText", "TrayViewModel.NoticeText",
 
+        // Start with Windows (issue #36): the installed exe's path and its quoted Run data; a line of
+        // fixed text, or the registry's own refusal message; and that refusal message itself.
+        "StartWithWindows.ExePath", "StartWithWindows.RunData", "SettingsViewModel.Note", "StartupState.Problem",
+
         // Configuration, paths and operational results.
         "ClaudeCodePaths.ConfigDirectory", "ClaudeCodePaths.UserSettingsFile",
         "DashboardPaths.DatabaseFile", "DashboardPaths.LogFile", "DashboardPaths.LogFolder",
@@ -304,11 +308,9 @@ public sealed class UnprotectedTextInventory
         "ClaudeCliResult.Output", "DashboardPaths.PluginFolder", "HookPresence.ForeignPlugin",
         "PluginInstaller.PluginFolder", "PluginResult.Problem",
         "IngressStatus.Fault",
-        "LogonTaskFacts.Command", "LogonTaskFacts.RestartInterval", "LogonTaskFacts.RunLevel",
         "SettingsFileWriter.LockPath", "SettingsLoadResult.Problem",
         "SettingsWriteResult.BackupPath", "SettingsWriteResult.Problem",
         "ShowSignalResult.Problem", "SingleInstanceGate.Name", "SqliteEventStore.Path",
-        "TaskCommandResult.Output",
     };
 
     /// <summary>Both of our assemblies. App as much as Core: App is where the logger lives.</summary>

@@ -138,6 +138,12 @@ public sealed partial class TrayViewModel : ObservableObject, IUiTickTarget, IDi
     /// <summary>Raised when the operator chooses Quit. The host shuts the application down.</summary>
     public event EventHandler? QuitRequested;
 
+    /// <summary>
+    /// Raised when the operator chooses Settings (issue #36). The host opens the Settings window, or
+    /// brings the open one forward. An event for the reason <see cref="OpenRequested"/> is one.
+    /// </summary>
+    public event EventHandler? SettingsRequested;
+
     /// <summary>What the mute menu item reads (Impl §5.2: the item toggles).</summary>
     public string MuteAllLabel => IsMuted ? "Unmute all" : "Mute all";
 
@@ -180,19 +186,13 @@ public sealed partial class TrayViewModel : ObservableObject, IUiTickTarget, IDi
     private void TogglePause() =>
         Publish(IsPaused ? SoundCommandKind.ResumeMonitoring : SoundCommandKind.PauseMonitoring);
 
-    /// <summary>Settings — a stub until Phase 6, and disabled so it says so.</summary>
+    /// <summary>Opens the Settings window (issue #36).</summary>
     /// <remarks>
-    /// Present because Impl §5.2 names it in the menu, and visibly inert because there is
-    /// nothing behind it yet. A menu item that silently did nothing would be indistinguishable
-    /// from one that was wired and broken.
+    /// Enabled since issue #36 gave the window its first setting: start with Windows. Phase 6's
+    /// settings (T6.1) grow the same window.
     /// </remarks>
-    [RelayCommand(CanExecute = nameof(CanOpenSettings))]
-    private static void OpenSettings()
-    {
-    }
-
-    /// <summary>Settings arrives in Phase 6.</summary>
-    private static bool CanOpenSettings() => false;
+    [RelayCommand]
+    private void OpenSettings() => SettingsRequested?.Invoke(this, EventArgs.Empty);
 
     /// <summary>Ends the process.</summary>
     [RelayCommand]

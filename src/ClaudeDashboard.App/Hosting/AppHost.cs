@@ -149,6 +149,17 @@ public static class AppHost
         // What a start found about the hook route that the operator must see (the ruling of 2026-10-01).
         // Set by StartupHookInstall, read by the tray and, through it, the window.
         builder.Services.AddSingleton<HookNotice>();
+
+        // Start with Windows and the Settings window (issue #36). The registry seam is the real HKCU
+        // here; the exe comes from Velopack, and is null for a copy that is not installed, which then
+        // never reads or writes the registry at all.
+        builder.Services.AddSingleton<IStartupRegistry, WindowsStartupRegistry>();
+        builder.Services.AddSingleton(sp => new StartWithWindows(
+            sp.GetRequiredService<IStartupRegistry>(),
+            InstalledCopy.CurrentExe(sp.GetRequiredService<ILogger>()),
+            sp.GetRequiredService<ILogger>()));
+        builder.Services.AddSingleton<SettingsViewModel>();
+        builder.Services.AddSingleton<SettingsWindowHost>();
         builder.Services.AddSingleton<IngressAnnouncement>();
         builder.Services.AddSingleton(settingsStore);
         builder.Services.AddSingleton(loaded.Settings);

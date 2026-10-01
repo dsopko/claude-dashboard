@@ -263,6 +263,22 @@ public sealed class SettingsStoreTests : IDisposable
         Assert.Null(loaded.Settings.Port);
     }
 
+    /// <summary>
+    /// Start with Windows is on unless the file says otherwise, and the file's key is
+    /// <c>startWithWindows</c> (issue #36).
+    /// </summary>
+    [Fact]
+    public void Start_with_Windows_is_on_by_default_and_the_file_can_turn_it_off()
+    {
+        Assert.True(new DashboardSettings().StartWithWindows);
+
+        WriteSettingsFile("""{"logging":{"retainedFileCount":3}}""");
+        Assert.True(_store.Load().Settings.StartWithWindows);
+
+        WriteSettingsFile("""{"startWithWindows": false}""");
+        Assert.False(_store.Load().Settings.StartWithWindows);
+    }
+
     /// <summary>A pinned port survives the round trip as a pin.</summary>
     [Fact]
     public void A_pinned_port_round_trips()

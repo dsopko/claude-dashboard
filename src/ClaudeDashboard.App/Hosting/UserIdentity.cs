@@ -1,5 +1,4 @@
 using System.Security.Principal;
-using ClaudeDashboard.App.Setup;
 
 namespace ClaudeDashboard.App.Hosting;
 
@@ -9,8 +8,9 @@ namespace ClaudeDashboard.App.Hosting;
 /// <remarks>
 /// <para>
 /// <strong>The SID, not the account name, and the difference is not pedantry.</strong> §3.1 asks
-/// for a hash of the user's SID. <c>LogonTask.CurrentUserId</c> — which the task named as already
-/// resolving this — returns <c>DOMAIN\user</c>, which is an identity but not that one. A SID
+/// for a hash of the user's SID. <see cref="CurrentUserId"/> — which the task named as already
+/// resolving this, back when it lived on the removed <c>LogonTask</c> — returns <c>DOMAIN\user</c>,
+/// which is an identity but not that one. A SID
 /// survives a rename, and two accounts called <c>daves</c> in different domains have different
 /// SIDs and the same <c>DOMAIN\user</c> tail. Both are stable enough for the common case; only one
 /// is the thing the specification names.
@@ -70,6 +70,13 @@ public static class UserIdentity
 
         isSid = false;
 
-        return LogonTask.CurrentUserId;
+        return CurrentUserId;
     }
+
+    /// <summary>The account the current process is running as, as <c>DOMAIN\user</c>: the fallback.</summary>
+    /// <remarks>Moved here from <c>LogonTask</c>, which issue #36 removed.</remarks>
+    public static string CurrentUserId =>
+        string.IsNullOrEmpty(Environment.UserDomainName)
+            ? Environment.UserName
+            : $"{Environment.UserDomainName}\\{Environment.UserName}";
 }
