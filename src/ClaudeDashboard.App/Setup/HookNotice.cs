@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using ClaudeDashboard.App.Configuration;
+using ClaudeDashboard.Core.Ports;
 
 namespace ClaudeDashboard.App.Setup;
 
@@ -62,6 +63,18 @@ public enum HookNoticeKind
 /// finds the hook gone.
 /// </para>
 /// <para>
+/// <strong>A plugin that is turned off or removed is not disproved by an event either</strong>
+/// (PR #66 review, M1). A session that was open before the plugin went off keeps it loaded, and
+/// goes on reporting until it restarts. Once those sessions restart, nothing reports, so an event
+/// from one of them proves nothing about tomorrow. For those two notices an event is only the
+/// moment to look again: <see cref="EventArrived"/> reads Claude Code's settings, read-only, and
+/// clears the notice only when the dashboard's plugin is enabled there. The first event after the
+/// notice appears reads at once; later events read again at most once per
+/// <see cref="RecheckInterval"/>. So a plugin turned on later still clears the notice when its
+/// sessions report, and an old session that reports all day costs one small read per interval.
+/// Nothing reads on a timer: no event, no read.
+/// </para>
+/// <para>
 /// <strong>Every command in a text here was run before it was written</strong>, on Claude Code
 /// 2.1.286: <c>claude plugin enable</c>, <c>claude plugin marketplace add</c> with a folder, and
 /// <c>claude plugin install</c> each exit 0. A session that was open before any of them reported
@@ -92,17 +105,29 @@ public sealed class HookNotice : INotifyPropertyChanged
 
     private const string ClearsOnEventText = "This notice clears when a session reports.";
 
+    private const string ClearsOncePluginOnText =
+        "This notice clears when a session reports and Claude Code has the plugin turned on.";
+
+    /// <summary>
+    /// The least time between two reads of Claude Code's settings for one notice. See the remarks.
+    /// </summary>
+    public static readonly TimeSpan RecheckInterval = TimeSpan.FromSeconds(30);
+
+    private Func<bool>? _pluginEnabled;
+    private IClock? _clock;
+    private DateTimeOffset? _lastRecheck;
+
     /// <summary>The window's text for a turned-off plugin.</summary>
     public static readonly string PluginDisabledText =
         "Claude Code's plugin for this dashboard is turned off, so the dashboard receives nothing from " +
         $"Claude Code. To turn it on, run this in a terminal: claude plugin enable {HookPlugin.Id}. " +
-        $"{Restart} {ClearsOnEventText}";
+        $"{Restart} {ClearsOncePluginOnText}";
 
     /// <summary>The window's text for a plugin the operator removed.</summary>
     public static readonly string PluginRemovedText =
         "This dashboard is not connected to Claude Code, because its plugin was removed with " +
         "--remove-hooks. To connect it again, run ClaudeDashboard.App.exe --install-hooks from the " +
-        $"install folder. {Restart} {ClearsOnEventText}";
+        $"install folder. {Restart} {ClearsOncePluginOnText}";
 
     /// <summary>The window's text when no Claude Code is installed.</summary>
     public static readonly string ClaudeCodeNotInstalledText =
@@ -148,8 +173,33 @@ public sealed class HookNotice : INotifyPropertyChanged
     /// <summary>Whether there is anything to show.</summary>
     public bool IsShown => Text is not null;
 
-    /// <summary>Whether an arriving event clears what is shown.</summary>
+    /// <summary>Whether an arriving event can clear what is shown.</summary>
     public bool ClearsOnEvent { get; private set; }
+
+    /// <summary>
+    /// Whether an arriving event clears what is shown only after Claude Code's settings, read again,
+    /// show the dashboard's plugin enabled: the turned-off and removed notices.
+    /// </summary>
+    public bool ClearsOncePluginEnabled { get; private set; }
+
+    /// <summary>
+    /// Gives the notice its way to look again at Claude Code's settings when an event arrives
+    /// under a turned-off or removed notice. Without it those two notices never clear on an event.
+    /// </summary>
+    /// <param name="pluginEnabled">
+    /// Reads Claude Code's settings, read-only and quietly, and says whether the dashboard's plugin
+    /// is enabled there. Called on the thread that calls <see cref="EventArrived"/>.
+    /// </param>
+    /// <param name="clock">The clock that spaces the reads.</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    public void ConfirmPluginWith(Func<bool> pluginEnabled, IClock clock)
+    {
+        ArgumentNullException.ThrowIfNull(pluginEnabled);
+        ArgumentNullException.ThrowIfNull(clock);
+
+        _pluginEnabled = pluginEnabled;
+        _clock = clock;
+    }
 
     /// <summary>The two commands that register the plugin by hand, for <paramref name="pluginFolder"/>.</summary>
     public static string ManualCommands(string pluginFolder) =>
@@ -157,11 +207,11 @@ public sealed class HookNotice : INotifyPropertyChanged
 
     /// <summary>Shows that the dashboard's plugin is turned off.</summary>
     public void ShowPluginDisabled() =>
-        Show(HookNoticeKind.PluginDisabled, PluginDisabledText, PluginDisabledShort, clearsOnEvent: true);
+        Show(HookNoticeKind.PluginDisabled, PluginDisabledText, PluginDisabledShort, clearsOnEvent: true, oncePluginEnabled: true);
 
     /// <summary>Shows that the operator removed the plugin and no start puts it back.</summary>
     public void ShowPluginRemoved() =>
-        Show(HookNoticeKind.PluginRemoved, PluginRemovedText, NotConnectedShort, clearsOnEvent: true);
+        Show(HookNoticeKind.PluginRemoved, PluginRemovedText, NotConnectedShort, clearsOnEvent: true, oncePluginEnabled: true);
 
     /// <summary>Shows that no Claude Code install was detected.</summary>
     public void ShowClaudeCodeNotInstalled() =>
@@ -252,26 +302,60 @@ public sealed class HookNotice : INotifyPropertyChanged
         Show(HookNoticeKind.JustRegistered, JustRegisteredText, trayText: null, clearsOnEvent: true);
 
     /// <summary>
-    /// A hook event reached the dashboard. Clears a notice that said nothing was reporting.
+    /// A hook event reached the dashboard. Clears a notice that said nothing was reporting; for a
+    /// turned-off or removed plugin, only once Claude Code's settings show the plugin enabled.
     /// </summary>
     public void EventArrived()
     {
-        if (IsShown && ClearsOnEvent)
+        if (!IsShown || !ClearsOnEvent)
         {
-            Kind = HookNoticeKind.None;
-            Text = null;
-            TrayText = null;
-            ClearsOnEvent = false;
-            Raise();
+            return;
         }
+
+        if (ClearsOncePluginEnabled && !PluginEnabledNow())
+        {
+            return;
+        }
+
+        Kind = HookNoticeKind.None;
+        Text = null;
+        TrayText = null;
+        ClearsOnEvent = false;
+        ClearsOncePluginEnabled = false;
+        Raise();
     }
 
-    private void Show(HookNoticeKind kind, string text, string? trayText, bool clearsOnEvent)
+    /// <summary>
+    /// Reads Claude Code's settings again, unless the last read for this notice was less than
+    /// <see cref="RecheckInterval"/> ago. False when there is no way to read, or no read is due.
+    /// </summary>
+    private bool PluginEnabledNow()
+    {
+        if (_pluginEnabled is null || _clock is null)
+        {
+            return false;
+        }
+
+        var now = _clock.Now;
+
+        if (_lastRecheck is { } last && now - last < RecheckInterval)
+        {
+            return false;
+        }
+
+        _lastRecheck = now;
+
+        return _pluginEnabled();
+    }
+
+    private void Show(HookNoticeKind kind, string text, string? trayText, bool clearsOnEvent, bool oncePluginEnabled = false)
     {
         Kind = kind;
         Text = text;
         TrayText = trayText;
         ClearsOnEvent = clearsOnEvent;
+        ClearsOncePluginEnabled = oncePluginEnabled;
+        _lastRecheck = null;
         Raise();
     }
 

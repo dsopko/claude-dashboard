@@ -1,4 +1,5 @@
 using System.IO;
+using System.Text.RegularExpressions;
 
 namespace ClaudeDashboard.Tests.Architecture;
 
@@ -31,6 +32,14 @@ public sealed class ClaudeSettingsReadOnlyGuardTests
         "File.Delete", "File.Open", "FileStream", "StreamWriter", "Directory.CreateDirectory",
         "Directory.Delete",
     ];
+
+    /// <summary>
+    /// The writing calls in <paramref name="code"/>, each matched where a name starts: <c>File.Write</c>
+    /// and <c>System.IO.File.Write</c> count, while <c>PortFile.Write</c> — a call to one of the seven
+    /// writers, not a write of its own — does not.
+    /// </summary>
+    private static IReadOnlyList<string> WritesIn(string code) =>
+        [.. Writes.Where(write => Regex.IsMatch(code, @"(?<!\w)" + Regex.Escape(write)))];
 
     /// <summary>Every product source file, with comments and string contents removed.</summary>
     private static IReadOnlyList<(string Name, string Code)> ProductSources() =>
@@ -67,10 +76,7 @@ public sealed class ClaudeSettingsReadOnlyGuardTests
 
         Assert.Equal(1, GuardScan.Occurrences(check, "File.ReadAllText(_claude.UserSettingsFile)"));
 
-        foreach (var write in Writes)
-        {
-            Assert.DoesNotContain(write, check, StringComparison.Ordinal);
-        }
+        Assert.Empty(WritesIn(check));
     }
 
     /// <summary>
@@ -86,10 +92,61 @@ public sealed class ClaudeSettingsReadOnlyGuardTests
 
         var cli = Assert.Single(ProductSources(), source => source.Name == "ClaudeCli.cs").Code;
 
-        foreach (var write in Writes)
-        {
-            Assert.DoesNotContain(write, cli, StringComparison.Ordinal);
-        }
+        Assert.Empty(WritesIn(cli));
+    }
+
+    /// <summary>
+    /// <strong>The product files that write anything at all are exactly these seven</strong> (PR #66
+    /// review, M2).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The two guards above follow the names the settings file is reached by, and names can be
+    /// walked around: the review wrote the file from inside <c>ClaudeCodePaths.cs</c>, and from a
+    /// new file that built the path from <c>ClaudeCodePaths.DefaultConfigDirectory</c> and a
+    /// <c>"settings.json"</c> literal, and both passed. So this pins the writers instead, wherever
+    /// their paths come from. Each of the seven writes only in the dashboard's own data folder or to
+    /// the console.
+    /// </para>
+    /// <para>
+    /// A seventh file that writes fails here until a person looks at what it writes and where, and
+    /// adds it with a reason. That is the point: the next writer is the one nobody has checked
+    /// against the ruling.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void Exactly_the_known_files_hold_a_call_that_writes()
+    {
+        string[] writers =
+        [
+            .. ProductSources()
+                .Where(source => WritesIn(source.Code).Count > 0)
+                .Select(source => source.Name),
+        ];
+
+        Assert.Equal(
+            [
+                "ConsoleReport.cs",   // the switches' report, to the console it was started from
+                "DashboardPaths.cs",  // creates the dashboard's own data and log folders
+                "HookPlugin.cs",      // the plugin's files, in the dashboard's data folder
+                "HookScript.cs",      // post-status.cmd, in the dashboard's data folder
+                "ListeningFile.cs",   // listening.txt, in the dashboard's data folder
+                "PortFile.cs",        // port.txt, in the dashboard's data folder
+                "SettingsStore.cs",   // the dashboard's own settings.json
+            ],
+            writers);
+    }
+
+    /// <summary>
+    /// <strong>The file that says where Claude Code's settings are writes nothing.</strong> It holds
+    /// the path, so a write there needs no other name to reach the file.
+    /// </summary>
+    [Fact]
+    public void The_paths_of_Claude_Code_hold_no_call_that_writes()
+    {
+        var paths = Assert.Single(ProductSources(), source => source.Name == "ClaudeCodePaths.cs").Code;
+
+        Assert.Empty(WritesIn(paths));
     }
 
     /// <summary>The settings writer is gone, and nothing by its names has come back.</summary>

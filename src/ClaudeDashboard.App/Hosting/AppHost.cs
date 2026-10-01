@@ -55,11 +55,16 @@ public static class AppHost
     /// test builds a host that way, having already put a free port in its settings file, and making
     /// them derive instead would change what they are testing without saying so.
     /// </param>
+    /// <param name="claude">
+    /// Claude Code's configuration folder. Null resolves it the way Claude Code does. Tests pass a
+    /// scratch folder, so a host never reads the operator's real Claude Code settings.
+    /// </param>
     public static WebApplication Build(
         DashboardPaths? paths = null,
         Action? onShow = null,
         bool ingressAvailable = true,
-        IngressStatus? ingress = null)
+        IngressStatus? ingress = null,
+        ClaudeCodePaths? claude = null)
     {
         var resolved = paths ?? new DashboardPaths();
         var foldersReady = resolved.TryEnsureCreated(out var folderFailure);
@@ -136,7 +141,7 @@ public static class AppHost
 
         // Claude Code's own configuration directory, resolved the way Claude Code resolves it.
         // A separate registration from DashboardPaths, and deliberately so — see ClaudeCodePaths.
-        builder.Services.AddSingleton<ClaudeCodePaths>();
+        builder.Services.AddSingleton(claude ?? new ClaudeCodePaths());
         builder.Services.AddSingleton<IVirtualDesktopService, VirtualDesktopService>();
         builder.Services.AddSingleton<WindowPresence>();
         builder.Services.AddSingleton<HookCheck>();
@@ -288,7 +293,13 @@ public static class AppHost
         // are updating would be contradicted by the screen it is on. The projection's collection
         // is touched on the UI thread only, which is the thread the notice is bound on. A start
         // has no sessions until a hook brings one: nothing is restored from the archive.
+        //
+        // Except a plugin that is turned off or removed (PR #66 review, M1): a session opened before
+        // that keeps reporting until it restarts, so for those two the notice reads Claude Code's
+        // settings again, quietly, and clears only if the plugin is enabled there. See HookNotice.
         var hookNotice = app.Services.GetRequiredService<HookNotice>();
+        var hookCheck = app.Services.GetRequiredService<HookCheck>();
+        hookNotice.ConfirmPluginWith(() => hookCheck.Read().PluginEnabled, app.Services.GetRequiredService<IClock>());
         projection.Sessions.CollectionChanged += (_, _) => hookNotice.EventArrived();
 
         // AFTER the sound engine's subscription, and the order is a correctness constraint: events

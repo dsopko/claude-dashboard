@@ -91,8 +91,19 @@ public sealed class HookCheck
     /// </summary>
     public string ClaudeConfigDirectory => _claude.ConfigDirectory;
 
-    /// <summary>Reads Claude Code's settings and says what is there.</summary>
-    public HookPresence Check()
+    /// <summary>Reads Claude Code's settings, says what is there, and logs what it found.</summary>
+    public HookPresence Check() => Reported(Read());
+
+    /// <summary>
+    /// Reads Claude Code's settings and says what is there, logging nothing. Never throws for a
+    /// file that is locked or malformed: that is in <see cref="HookPresence.Problem"/>.
+    /// </summary>
+    /// <remarks>
+    /// For the notice's re-read when a session reports (<see cref="HookNotice.ConfirmPluginWith"/>).
+    /// That runs again and again while the plugin stays off, and a Warning each time would bury the
+    /// one that <see cref="Check"/> wrote at the start.
+    /// </remarks>
+    public HookPresence Read()
     {
         // The one existence check that says whether this machine has Claude Code at all (T1.33).
         // Measured once and threaded through every arm, though only the absent-file arm can
@@ -106,14 +117,14 @@ public sealed class HookCheck
         {
             if (!File.Exists(_claude.UserSettingsFile))
             {
-                return Reported(new HookPresence(0, ClaudeCodeInstalled: claudeCodeInstalled));
+                return new HookPresence(0, ClaudeCodeInstalled: claudeCodeInstalled);
             }
 
             text = File.ReadAllText(_claude.UserSettingsFile);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            return Reported(new HookPresence(0, Problem: ex.Message, ClaudeCodeInstalled: claudeCodeInstalled));
+            return new HookPresence(0, Problem: ex.Message, ClaudeCodeInstalled: claudeCodeInstalled);
         }
 
         try
@@ -126,16 +137,16 @@ public sealed class HookCheck
             var pluginFolder = HookPlugin.MarketplaceFolder(settings);
             var pluginIsOurs = HookPlugin.IsFolderOf(_paths, pluginFolder);
 
-            return Reported(new HookPresence(
+            return new HookPresence(
                 HookHandlers.CountInSettings(settings, ScriptPath),
                 ClaudeCodeInstalled: claudeCodeInstalled,
                 PluginEnabled: pluginIsOurs && HookPlugin.IsEnabled(settings),
                 PluginDisabled: pluginIsOurs && HookPlugin.IsDisabled(settings),
-                ForeignPlugin: pluginFolder is not null && !pluginIsOurs ? pluginFolder : null));
+                ForeignPlugin: pluginFolder is not null && !pluginIsOurs ? pluginFolder : null);
         }
         catch (System.Text.Json.JsonException ex)
         {
-            return Reported(new HookPresence(0, Problem: ex.Message, ClaudeCodeInstalled: claudeCodeInstalled));
+            return new HookPresence(0, Problem: ex.Message, ClaudeCodeInstalled: claudeCodeInstalled);
         }
     }
 

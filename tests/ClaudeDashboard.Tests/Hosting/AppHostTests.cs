@@ -36,9 +36,16 @@ public sealed class AppHostTests : IDisposable
 
     private readonly DashboardPaths _paths;
 
+    /// <summary>
+    /// A scratch Claude Code folder for every host here, so no host reads the operator's real
+    /// Claude Code settings (PR #66 review: a notice now reads them when a session reports).
+    /// </summary>
+    private readonly ClaudeCodePaths _claude;
+
     public AppHostTests()
     {
         _paths = new DashboardPaths(_root);
+        _claude = new ClaudeCodePaths(Path.Combine(_root, "claude-config"));
 
         // Every host now binds Kestrel (T1.8). Tests take a free ephemeral port so they neither
         // collide with each other nor with a dashboard actually running on the fixed 52789.
@@ -90,7 +97,7 @@ public sealed class AppHostTests : IDisposable
     /// </remarks>
     private WebApplication Build(DashboardPaths? paths = null, bool ingressAvailable = true)
     {
-        var host = AppHost.Build(paths ?? _paths, ingressAvailable: ingressAvailable);
+        var host = AppHost.Build(paths ?? _paths, ingressAvailable: ingressAvailable, claude: _claude);
 
         if (host.Services.GetService<Serilog.ILogger>() is IDisposable disposable)
         {
@@ -1038,7 +1045,9 @@ public sealed class AppHostTests : IDisposable
 
     /// <summary>
     /// <strong>A session that reports clears a notice that said nothing was reporting, and leaves
-    /// the one about an old hook</strong> (the ruling of 2026-10-01).
+    /// the one about an old hook</strong> (the ruling of 2026-10-01). A turned-off or removed
+    /// plugin is cleared only once Claude Code's settings, read again, have it enabled (PR #66
+    /// review, M1).
     /// </summary>
     /// <remarks>
     /// <para>
@@ -1073,7 +1082,7 @@ public sealed class AppHostTests : IDisposable
         });
         var session = registry.Sessions[id];
 
-        notice.ShowPluginDisabled();
+        notice.ShowClaudeCodeNotInstalled();
         Assert.True(tray.HasNotice);
 
         projection.Sessions.Add(session);
@@ -1082,6 +1091,26 @@ public sealed class AppHostTests : IDisposable
         Assert.False(tray.HasNotice);
         Assert.Null(tray.NoticeText);
 
+        // A plugin that is turned off is not disproved by an event (PR #66 review, M1): a session
+        // opened before it went off keeps reporting. The host reads Claude Code's settings again —
+        // the scratch folder here — and the notice stays while they still say off.
+        Directory.CreateDirectory(_claude.ConfigDirectory);
+        File.WriteAllText(_claude.UserSettingsFile, PluginSettings(enabled: false));
+        notice.ShowPluginDisabled();
+        projection.Sessions[0] = session;
+
+        Assert.True(tray.HasNotice);
+        Assert.Equal(HookNotice.PluginDisabledText, tray.NoticeText);
+
+        // With the plugin enabled there, the next event clears it. Shown afresh, because a notice
+        // reads at most once per RecheckInterval and this host runs on the real clock.
+        File.WriteAllText(_claude.UserSettingsFile, PluginSettings(enabled: true));
+        notice.ShowPluginRemoved();
+        projection.Sessions[0] = session;
+
+        Assert.False(notice.IsShown);
+        Assert.False(tray.HasNotice);
+
         // The old-hook notice is about a file, and events arrive normally while it is true.
         notice.ShowOldHooks(pluginEnabled: false);
         projection.Sessions[0] = session;
@@ -1089,4 +1118,15 @@ public sealed class AppHostTests : IDisposable
         Assert.True(tray.HasNotice);
         Assert.Equal(HookNotice.OldHooksText, tray.NoticeText);
     }
+
+    /// <summary>Claude Code's settings with this data folder's plugin registered, on or off.</summary>
+    private string PluginSettings(bool enabled) =>
+        $$"""
+        {
+          "extraKnownMarketplaces": {
+            "claude-dashboard": { "source": { "source": "directory", "path": {{System.Text.Json.JsonSerializer.Serialize(_paths.PluginFolder)}} } }
+          },
+          "enabledPlugins": { "{{HookPlugin.Id}}": {{(enabled ? "true" : "false")}} }
+        }
+        """;
 }
