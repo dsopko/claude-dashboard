@@ -229,11 +229,16 @@ public static class Program
                 // writes a file it could not read. Without the check a hook removed by anything at
                 // all is undetectable: the dashboard receives nothing, which looks exactly like a
                 // quiet day.
+                //
+                // With the plugin installer (issue #30), a machine with no handler at all gets a
+                // Claude Code plugin, which Claude Code records itself, and the settings file is
+                // not written.
                 StartupHookInstall.Run(
                     host.Services.GetRequiredService<HookInstaller>(),
                     settings.InstallHooksAtStart,
                     loaded.Outcome,
-                    host.Services.GetRequiredService<Serilog.ILogger>());
+                    host.Services.GetRequiredService<Serilog.ILogger>(),
+                    host.Services.GetRequiredService<PluginInstaller>());
 
                 var policy = host.Services.GetRequiredService<UnhandledExceptionPolicy>();
 
@@ -400,7 +405,11 @@ public static class Program
         var settings = store.Load().Settings;
         using var logger = AppHost.CreateLogger(paths, settings.Logging, foldersReady);
 
-        var installer = new HookInstaller(new ClaudeCodePaths(), paths, new Adapters.SystemClock(), logger);
+        // One ClaudeCodePaths for both, so the settings that are read and the configuration the
+        // claude program is pointed at are the same directory (issue #30).
+        var claude = new ClaudeCodePaths();
+        var installer = new HookInstaller(claude, paths, new Adapters.SystemClock(), logger);
+        var plugin = new PluginInstaller(new ClaudeCli(claude), paths, logger);
 
         void Report(string line)
         {
@@ -412,7 +421,7 @@ public static class Program
             }
         }
 
-        var code = HookSwitches.Run(requested, installer, Report);
+        var code = HookSwitches.Run(requested, installer, Report, plugin);
 
         // The switch's decision outlives the switch (issue #39). Without this, --remove-hooks would
         // be undone by the next start and would therefore mean nothing. Re-read inside rather than

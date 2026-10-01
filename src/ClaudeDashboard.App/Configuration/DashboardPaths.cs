@@ -170,6 +170,18 @@ public sealed class DashboardPaths
     /// </remarks>
     public string HookScriptFile => Path.Combine(Root, "post-status.cmd");
 
+    /// <summary>The Claude Code plugin that registers the forwarder (issue #30).</summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>In the data folder, for the same reason as <see cref="HookScriptFile"/>, and with
+    /// more at stake.</strong> Claude Code loads a plugin added from a folder <em>in place</em>:
+    /// measured on 2026-09-30, a hook whose source folder had moved did not run, and nothing said
+    /// so. The install folder is replaced at every update, so a plugin kept there would stop at
+    /// the first one. This folder is never replaced.
+    /// </para>
+    /// </remarks>
+    public string PluginFolder => Path.Combine(Root, "plugin");
+
     /// <summary>The durable event log (Impl Part 8).</summary>
     /// <remarks>
     /// Under the same root as everything else, so <c>CLAUDE_DASHBOARD_HOME</c> moves it too. It is

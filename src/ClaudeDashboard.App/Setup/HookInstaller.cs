@@ -18,14 +18,31 @@ namespace ClaudeDashboard.App.Setup;
 /// stops a start creating <c>~/.claude</c> on it. Defaults to <see langword="true"/> so that a
 /// presence built by hand describes the ordinary machine unless it says otherwise.
 /// </param>
+/// <param name="PluginEnabled">
+/// Whether Claude Code has this data folder's plugin enabled (issue #30): the settings name the
+/// plugin as enabled, and give this data folder's plugin folder as its source. When it is, Claude
+/// Code runs our script through the plugin and the settings need no handler of ours.
+/// </param>
+/// <param name="ForeignPlugin">
+/// The folder of a <see cref="HookPlugin.Name"/> plugin that belongs to another data folder, or
+/// null. Two data folders cannot both register a plugin of one name, so this one must keep to the
+/// settings handler.
+/// </param>
 public readonly record struct HookPresence(
     int Events,
     int Expected,
     IReadOnlyList<string> Foreign,
     string? Problem = null,
-    bool ClaudeCodeInstalled = true)
+    bool ClaudeCodeInstalled = true,
+    bool PluginEnabled = false,
+    string? ForeignPlugin = null)
 {
-    /// <summary>Whether every accepted event carries our handler.</summary>
+    /// <summary>Whether every accepted event carries our handler in the settings file.</summary>
+    /// <remarks>
+    /// About the settings handler alone, as it always was. A machine on the plugin route has no
+    /// handler in the settings and is not "complete" in this sense — ask
+    /// <see cref="PluginEnabled"/> for that.
+    /// </remarks>
     public bool Complete => Problem is null && Events == Expected;
 }
 
@@ -265,11 +282,19 @@ public sealed class HookInstaller
         {
             var settings = HookRegistration.Parse(text);
 
+            // The plugin route (issue #30), read from the same parse. "Ours" is decided by the
+            // folder the settings give for the marketplace, never by the name alone: a second
+            // data folder registers a plugin of the same name from a different folder.
+            var pluginFolder = HookPlugin.MarketplaceFolder(settings);
+            var pluginIsOurs = HookPlugin.IsFolderOf(_paths, pluginFolder);
+
             presence = new HookPresence(
                 HookRegistration.CountInstalled(settings, script),
                 expected,
                 HookRegistration.ForeignScriptPaths(settings, script),
-                ClaudeCodeInstalled: claudeCodeInstalled);
+                ClaudeCodeInstalled: claudeCodeInstalled,
+                PluginEnabled: pluginIsOurs && HookPlugin.IsEnabled(settings),
+                ForeignPlugin: pluginFolder is not null && !pluginIsOurs ? pluginFolder : null);
         }
         catch (System.Text.Json.JsonException ex)
         {
@@ -367,6 +392,32 @@ public sealed class HookInstaller
             return;
         }
 
+        if (presence.PluginEnabled)
+        {
+            if (presence.Events > 0)
+            {
+                // Both routes at once. Nothing in the product produces this state by itself: it
+                // takes a plugin registered by hand beside an install from before issue #30.
+                _logger.Warning(
+                    "Claude Code has the dashboard's plugin {Plugin} enabled, and its settings also " +
+                    "carry the dashboard's hook on {Events} of {Expected} events for {Script}. Each of " +
+                    "those events is posted twice. Run --install-hooks to take the settings entries out.",
+                    HookPlugin.Id,
+                    presence.Events,
+                    presence.Expected,
+                    ScriptPath);
+            }
+            else
+            {
+                _logger.Debug(
+                    "Claude Code has the dashboard's plugin {Plugin} enabled from {Folder}.",
+                    HookPlugin.Id,
+                    _paths.PluginFolder);
+            }
+
+            return;
+        }
+
         if (presence.Complete)
         {
             _logger.Debug(
@@ -375,6 +426,20 @@ public sealed class HookInstaller
                 presence.Events);
 
             return;
+        }
+
+        if (presence.ForeignPlugin is { } foreignPlugin)
+        {
+            // Said, and then the ordinary finding below is still said: the handler is missing
+            // here whichever route the other data folder took.
+            _logger.Warning(
+                "Claude Code has a plugin named {Plugin} from {Foreign}, which is not this data " +
+                "folder's {Folder}. Two data folders cannot both register that plugin, so this one " +
+                "keeps to the settings file. Check {HomeVariable}.",
+                HookPlugin.Name,
+                foreignPlugin,
+                _paths.PluginFolder,
+                DashboardPaths.HomeVariable);
         }
 
         if (presence.Foreign.Count > 0)

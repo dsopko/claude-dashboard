@@ -290,6 +290,15 @@ public sealed class UnprotectedTextInventory
         // message about the file, never anything out of it. THE CHECK MUST NEVER LOG THE FILE'S
         // CONTENTS: those are the operator's hooks, and one of them may carry their prompt text.
         "HookInstaller.ScriptPath", "HookPresence.Problem",
+
+        // Issue #30's plugin route. Three are folders: the dashboard's own plugin folder, twice,
+        // and the folder Claude Code's settings give for a plugin of the same name that belongs
+        // to another data folder — a path read out of one settings key, never a hook. The other
+        // two are what the claude program printed about a plugin command: its status line and
+        // paths in our data folder. The program is given a folder and a plugin name and nothing
+        // else, so it has no session text to print.
+        "ClaudeCliResult.Output", "DashboardPaths.PluginFolder", "HookPresence.ForeignPlugin",
+        "PluginInstaller.PluginFolder", "PluginResult.Problem",
         "IngressStatus.Fault",
         "LogonTaskFacts.Command", "LogonTaskFacts.RestartInterval", "LogonTaskFacts.RunLevel",
         "SettingsFileWriter.LockPath", "SettingsLoadResult.Problem",

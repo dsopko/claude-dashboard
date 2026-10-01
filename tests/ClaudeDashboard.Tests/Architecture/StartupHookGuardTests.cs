@@ -208,6 +208,49 @@ public sealed class StartupHookGuardTests
     }
 
     /// <summary>
+    /// <strong>Both hook paths are handed the plugin route, or issue #30 is undone in silence.</strong>
+    /// </summary>
+    /// <remarks>
+    /// The plugin installer is an optional last argument of <c>StartupHookInstall.Run</c> and of
+    /// <c>HookSwitches.Run</c>, so that every test written before it still tests the settings
+    /// route. The cost of "optional" is that a caller can leave it out and still compile: the
+    /// product would go back to writing Claude Code's settings file at every missing hook, every
+    /// test would stay green, and nothing would say so. These two calls are the only ones in the
+    /// product, and <c>Main</c> cannot be run past them by a test.
+    /// </remarks>
+    [Fact]
+    public void Both_hook_paths_are_handed_the_plugin_route()
+    {
+        var code = GuardScan.CodeOnly(Program());
+
+        const string Start = "StartupHookInstall.Run(";
+
+        var arguments = TopLevelArguments(
+            code,
+            code.IndexOf(Start, StringComparison.Ordinal) + Start.Length,
+            out var closed);
+
+        Assert.True(closed, "The StartupHookInstall.Run call is never closed, which cannot compile.");
+        Assert.True(
+            arguments.Count == 5,
+            $"The StartupHookInstall.Run call has {arguments.Count} argument(s); the plugin installer " +
+            "is expected as the fifth.");
+        Assert.Equal("host.Services.GetRequiredService<PluginInstaller>()", arguments[4]);
+
+        const string Switch = "HookSwitches.Run(";
+
+        Assert.Equal(1, GuardScan.Occurrences(code, Switch));
+
+        var switchArguments = TopLevelArguments(
+            code,
+            code.IndexOf(Switch, StringComparison.Ordinal) + Switch.Length,
+            out var switchClosed);
+
+        Assert.True(switchClosed, "The HookSwitches.Run call is never closed, which cannot compile.");
+        Assert.Equal(["requested", "installer", "Report", "plugin"], switchArguments);
+    }
+
+    /// <summary>
     /// <strong>A switch's decision is recorded, or <c>--remove-hooks</c> does not survive a restart.</strong>
     /// </summary>
     /// <remarks>

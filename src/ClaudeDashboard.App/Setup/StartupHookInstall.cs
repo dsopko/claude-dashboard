@@ -93,6 +93,11 @@ public static class StartupHookInstall
     /// that is who T1.32 exists for. <c>--install-hooks</c> is deliberately not gated: an
     /// operator running it by hand is asking.
     /// </para>
+    /// <para>
+    /// <strong>An enabled plugin is a hook that is present (issue #30).</strong> A machine on the
+    /// plugin route has no handler in the settings file and never will, so "not complete" alone
+    /// would install one beside the plugin at every start and post every event twice.
+    /// </para>
     /// </remarks>
     /// <param name="presence">What <see cref="HookInstaller.Check"/> found.</param>
     /// <param name="installAtStart">The operator's setting.</param>
@@ -105,7 +110,8 @@ public static class StartupHookInstall
         && settingsOutcome != SettingsLoadOutcome.Unreadable
         && installAtStart
         && presence.Problem is null
-        && !presence.Complete;
+        && !presence.Complete
+        && !presence.PluginEnabled;
 
     /// <summary>
     /// Reads Claude Code's settings and installs the hook if it is missing and wanted.
@@ -126,18 +132,39 @@ public static class StartupHookInstall
     /// <param name="installAtStart"><see cref="DashboardSettings.InstallHooksAtStart"/>.</param>
     /// <param name="settingsOutcome">How the dashboard's own settings load went.</param>
     /// <param name="logger">Where the one line goes.</param>
-    /// <returns>The write outcome, or <see langword="null"/> when nothing was attempted.</returns>
-    /// <exception cref="ArgumentNullException">Any argument is null.</exception>
+    /// <param name="plugin">
+    /// The plugin route (issue #30), or <see langword="null"/> to keep to the settings file. With
+    /// it, a machine that has <em>no</em> handler of ours is given the plugin, which Claude Code
+    /// registers itself, and the settings file is not written. A machine that already has the
+    /// settings handler keeps it and is topped up as before: moving it to the plugin would blind
+    /// every session that is open, because an open session does not see a new plugin, and that is
+    /// a step for the operator to take with <c>--install-hooks</c>. When the plugin cannot be
+    /// registered — no <c>claude</c> program, or Claude Code refused — the settings file is
+    /// written as before, because a dashboard that receives nothing is the worse failure.
+    /// </param>
+    /// <returns>
+    /// The outcome of a settings write, or <see langword="null"/> when the settings were not
+    /// written — because nothing was attempted, or because Claude Code registered the plugin.
+    /// </returns>
+    /// <exception cref="ArgumentNullException"><paramref name="installer"/> or <paramref name="logger"/> is null.</exception>
     public static SettingsWriteResult? Run(
         HookInstaller installer,
         bool installAtStart,
         SettingsLoadOutcome settingsOutcome,
-        ILogger logger)
+        ILogger logger,
+        PluginInstaller? plugin = null)
     {
         ArgumentNullException.ThrowIfNull(installer);
         ArgumentNullException.ThrowIfNull(logger);
 
         var presence = installer.Check();
+
+        // A registered plugin is loaded in place, so its files are how a new build's event set
+        // reaches Claude Code. Kept current at every start, like the script.
+        if (plugin is not null && presence.PluginEnabled)
+        {
+            plugin.EnsureFiles();
+        }
 
         if (!Wanted(presence, installAtStart, settingsOutcome))
         {
@@ -157,8 +184,9 @@ public static class StartupHookInstall
             }
 
             // Both remaining refusals say so only when they bit — when the handler is missing
-            // and this is the reason nothing goes back. A complete handler needs neither line.
-            if (presence.Problem is null && !presence.Complete)
+            // and this is the reason nothing goes back. A complete handler needs neither line,
+            // and neither does an enabled plugin.
+            if (presence.Problem is null && !presence.Complete && !presence.PluginEnabled)
             {
                 if (settingsOutcome == SettingsLoadOutcome.Unreadable)
                 {
@@ -182,6 +210,32 @@ public static class StartupHookInstall
             }
 
             return null;
+        }
+
+        // The plugin route, for a machine with no handler of ours at all (issue #30). One with
+        // some of the settings handler is an existing install and is topped up below, as before.
+        if (plugin is not null && presence.Events == 0 && presence.ForeignPlugin is null)
+        {
+            var registered = plugin.Install();
+
+            if (registered.Outcome == PluginOutcome.Registered)
+            {
+                logger.Information(
+                    "The dashboard's hook was missing, so this start registered the Claude Code plugin " +
+                    "{Plugin} from {Folder}. Claude Code recorded it; the dashboard did not write " +
+                    "Claude Code's settings. A session that is already open does not see the plugin " +
+                    "until it restarts. Set \"installHooksAtStart\": false in the dashboard's settings " +
+                    "to stop that.",
+                    HookPlugin.Id,
+                    plugin.PluginFolder);
+
+                return null;
+            }
+
+            logger.Information(
+                "The plugin was not registered ({Outcome}), so this start writes the hook into Claude " +
+                "Code's settings instead.",
+                registered.Outcome);
         }
 
         var result = installer.Install();
