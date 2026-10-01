@@ -86,18 +86,16 @@ public sealed class StartupHookGuardTests
     /// </para>
     /// <para>
     /// <strong>What is pinned now.</strong> The start path goes through
-    /// <c>StartupHookInstall</c> — the type that holds every bound on the repair, and the only one a
-    /// test can call — rather than through a call spelled out in <c>Main</c>, which nothing can
-    /// reach. And <c>Program.cs</c> still names no removal and no direct merge: the handler must
-    /// outlive the process, so nothing here may take one out, and nothing here may reach past the
-    /// install path into the settings tree.
+    /// <c>StartupHookInstall</c> — the type that holds every rule about the connection, and the only
+    /// one a test can call — rather than through a call spelled out in <c>Main</c>, which nothing
+    /// can reach. And <c>Program.cs</c> names no install, no removal and nothing of the handler's
+    /// shape: the plugin must outlive the process, so nothing here may take it out.
     /// </para>
     /// <para>
     /// <strong>What breaks without it.</strong> Move the decision inline and every rule it carries —
-    /// install on absent, top up on partial, write nothing on complete, write nothing on a file that
-    /// would not read, obey the opt-out — becomes unreachable from any test and fails silently in
-    /// production. The worst of them is the one the operator sees: a complete handler rewritten
-    /// anyway, stripping every comment in a hand-formatted settings file at every start.
+    /// register when missing, leave a turned-off plugin off, wait for an old hook to go, obey the
+    /// opt-out, and show a notice whenever the dashboard is left unconnected — becomes unreachable
+    /// from any test and fails silently in production.
     /// </para>
     /// <para>
     /// <strong>WHOLE FILE, WHICH IS WIDER THAN THE STARTUP PATH.</strong> <c>RunHookSwitch</c> lives
@@ -119,7 +117,7 @@ public sealed class StartupHookGuardTests
 
         Assert.DoesNotContain(".Install()", program, StringComparison.Ordinal);
         Assert.DoesNotContain(".Remove()", program, StringComparison.Ordinal);
-        Assert.DoesNotContain("HookRegistration.", program, StringComparison.Ordinal);
+        Assert.DoesNotContain("HookHandlers.", program, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -208,15 +206,15 @@ public sealed class StartupHookGuardTests
     }
 
     /// <summary>
-    /// <strong>Both hook paths are handed the plugin route, or issue #30 is undone in silence.</strong>
+    /// <strong>Both hook paths are handed the real parts: the check, the plugin installer and the
+    /// notice.</strong>
     /// </summary>
     /// <remarks>
-    /// The plugin installer is an optional last argument of <c>StartupHookInstall.Run</c> and of
-    /// <c>HookSwitches.Run</c>, so that every test written before it still tests the settings
-    /// route. The cost of "optional" is that a caller can leave it out and still compile: the
-    /// product would go back to writing Claude Code's settings file at every missing hook, every
-    /// test would stay green, and nothing would say so. These two calls are the only ones in the
-    /// product, and <c>Main</c> cannot be run past them by a test.
+    /// The plugin is the only route since the operator's ruling of 2026-10-01, so each of these is
+    /// a required argument and leaving one out no longer compiles. What a caller can still do is
+    /// pass the wrong thing — a notice it made itself, which no window is bound to, would show
+    /// nothing while every test stayed green. These two calls are the only ones in the product, and
+    /// <c>Main</c> cannot be run past them by a test.
     /// </remarks>
     [Fact]
     public void Both_hook_paths_are_handed_the_plugin_route()
@@ -235,10 +233,12 @@ public sealed class StartupHookGuardTests
             arguments.Count == 6,
             $"The StartupHookInstall.Run call has {arguments.Count} argument(s); the plugin installer " +
             "is expected as the fifth and the notice as the sixth.");
+        Assert.Equal("host.Services.GetRequiredService<HookCheck>()", arguments[0]);
         Assert.Equal("host.Services.GetRequiredService<PluginInstaller>()", arguments[4]);
 
-        // The notice (the ruling of 2026-10-01): without it a start that finds the plugin turned off
-        // says so only in the log, and the window shows a quiet day.
+        // The notice (the rulings of 2026-10-01): the host's own, which the tray and the window
+        // are bound to. Without it a start that leaves the dashboard unconnected says so only in
+        // the log, and the window shows a quiet day.
         Assert.Equal("host.Services.GetRequiredService<HookNotice>()", arguments[5]);
 
         const string Switch = "HookSwitches.Run(";
@@ -251,7 +251,7 @@ public sealed class StartupHookGuardTests
             out var switchClosed);
 
         Assert.True(switchClosed, "The HookSwitches.Run call is never closed, which cannot compile.");
-        Assert.Equal(["requested", "installer", "Report", "plugin"], switchArguments);
+        Assert.Equal(["requested", "check", "Report", "plugin"], switchArguments);
     }
 
     /// <summary>

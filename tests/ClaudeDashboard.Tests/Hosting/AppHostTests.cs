@@ -1035,4 +1035,58 @@ public sealed class AppHostTests : IDisposable
         Assert.True(tray.HasNotice);
         Assert.Equal(HookNotice.PluginDisabledText, tray.NoticeText);
     }
+
+    /// <summary>
+    /// <strong>A session that reports clears a notice that said nothing was reporting, and leaves
+    /// the one about an old hook</strong> (the ruling of 2026-10-01).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The wiring is one subscription in <c>AppHost.Build</c>, and without it a notice goes on
+    /// saying "receives nothing" above rows that are updating — true at the start, contradicted by
+    /// the screen a moment later, and corrected by nothing until the next start.
+    /// </para>
+    /// <para>
+    /// The session is added to the projection's collection directly. In the product that happens
+    /// on the UI thread, through a dispatcher this test host does not have; what is under test is
+    /// that the host listens to the collection at all.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void A_session_that_reports_clears_the_notice_that_nothing_was_reporting()
+    {
+        using var host = Build();
+
+        var notice = host.Services.GetRequiredService<HookNotice>();
+        var tray = host.Services.GetRequiredService<TrayViewModel>();
+        var projection = host.Services.GetRequiredService<SessionProjection>();
+
+        var registry = new SessionRegistry(new SingleWriterGuard());
+        var id = new SessionId("s-1");
+        registry.Apply(new UserPromptSubmit
+        {
+            SessionId = id,
+            Timestamp = DateTimeOffset.UtcNow,
+            Cwd = @"C:\dev\work",
+            PromptId = "p-1",
+            Prompt = "run the tests",
+        });
+        var session = registry.Sessions[id];
+
+        notice.ShowPluginDisabled();
+        Assert.True(tray.HasNotice);
+
+        projection.Sessions.Add(session);
+
+        Assert.False(notice.IsShown);
+        Assert.False(tray.HasNotice);
+        Assert.Null(tray.NoticeText);
+
+        // The old-hook notice is about a file, and events arrive normally while it is true.
+        notice.ShowOldHooks(pluginEnabled: false);
+        projection.Sessions[0] = session;
+
+        Assert.True(tray.HasNotice);
+        Assert.Equal(HookNotice.OldHooksText, tray.NoticeText);
+    }
 }

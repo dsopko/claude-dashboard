@@ -18,9 +18,7 @@ namespace ClaudeDashboard.App.Setup;
 /// <para>
 /// <strong>A compiled-in constant compared with the file byte for byte, rather than a version
 /// stamp.</strong> A stamp can be right while the body is wrong — a hand-edit, a half-written
-/// file, a partial restore all leave the stamp intact. Comparing the content catches all three,
-/// and it is the same reasoning that has <c>SettingsFileWriter</c> compare <c>before</c> with
-/// <c>after</c> instead of trusting a flag.
+/// file, a partial restore all leave the stamp intact. Comparing the content catches all three.
 /// </para>
 /// <para>
 /// <strong>Rewritten at every start, so a fix in the build reaches an existing install.</strong>

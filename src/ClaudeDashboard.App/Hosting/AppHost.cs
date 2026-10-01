@@ -139,10 +139,10 @@ public static class AppHost
         builder.Services.AddSingleton<ClaudeCodePaths>();
         builder.Services.AddSingleton<IVirtualDesktopService, VirtualDesktopService>();
         builder.Services.AddSingleton<WindowPresence>();
-        builder.Services.AddSingleton<HookInstaller>();
+        builder.Services.AddSingleton<HookCheck>();
 
-        // The plugin route (issue #30): the claude program registers the hook, so the dashboard
-        // does not write Claude Code's settings. Nothing is started by resolving these.
+        // The plugin route (issue #30): the claude program registers the hook, and the dashboard
+        // never writes Claude Code's settings. Nothing is started by resolving these.
         builder.Services.AddSingleton<IClaudeCli, ClaudeCli>();
         builder.Services.AddSingleton<PluginInstaller>();
 
@@ -280,7 +280,16 @@ public static class AppHost
         var rosters = app.Services.GetRequiredService<RosterStore>();
         registry.SessionChanged += (_, e) =>
             sound.OnSessionChanged(e.Session, GroupKeys.Effective(e.Session, rosters.Book));
-        _ = app.Services.GetRequiredService<SessionProjection>();
+        var projection = app.Services.GetRequiredService<SessionProjection>();
+
+        // A session that changes is a hook event that arrived, and an arriving event is proof
+        // that Claude Code reaches this dashboard. So it clears a notice that said nothing was
+        // reporting (the ruling of 2026-10-01): a notice that went on saying so above rows that
+        // are updating would be contradicted by the screen it is on. The projection's collection
+        // is touched on the UI thread only, which is the thread the notice is bound on. A start
+        // has no sessions until a hook brings one: nothing is restored from the archive.
+        var hookNotice = app.Services.GetRequiredService<HookNotice>();
+        projection.Sessions.CollectionChanged += (_, _) => hookNotice.EventArrived();
 
         // AFTER the sound engine's subscription, and the order is a correctness constraint: events
         // run their handlers in subscription order, and the board reads the nudge time the engine

@@ -537,6 +537,26 @@ Tasks landing after T1.20. Each one puts the acceptance document out of date in 
   - No administrator rights. No change to the hook, the plugin or ingress.
   - Live checks run against a scratch install, never the operator's.
 
+**T1.51 — The plugin is the only route**
+- **Goal:** the dashboard never writes Claude Code's settings file, and tells the operator on screen whenever it is not connected to Claude Code. Closes issue #65, and leaves issue #8 with nothing to describe: the writer whose error it reports is gone.
+- **Depends:** T1.49 (the plugin), T1.48 (the script, which does not change)
+- **Realizes:** the operator's rulings of 2026-10-01, given after T1.49 shipped. **They supersede T1.49's fallback, its migration, and its rule that an existing settings handler is topped up.** Impl §9.3 and §9.4.
+- **Deliverables:**
+  - **No write of `~/.claude/settings.json`, anywhere.** `SettingsFileWriter`, the merge, the removal of old entries and the legacy HTTP removal are deleted, with their tests. The file is read.
+  - **A start registers the plugin, or shows a notice.** The notice is a row in the window and the first line of the tray tooltip. It covers: no Claude Code install detected; Claude Code's settings unreadable; the plugin turned off; the plugin removed with `--remove-hooks`; the dashboard's own settings unreadable; another data folder holding the plugin name; `claude.exe` not found; Claude Code refusing.
+  - **Where the plugin cannot be registered, the notice gives the two commands to run by hand.** There is no other route.
+  - **An old hook in Claude Code's settings is warned about and left alone.** The plugin is not registered while it is there, because both together post every event twice. The notice says how to remove it: ask Claude, or use `/hooks`.
+  - **A notice that says nothing is reporting clears when a session reports.** The old-hook notice does not: events arrive through the old hook.
+  - **`--install-hooks` registers the plugin and `--remove-hooks` removes it.** Neither does anything else.
+  - `HookInstaller` becomes `HookCheck`, and `HookRegistration` becomes `HookHandlers`: each now reads, and the names say so.
+  - Docs: README, Impl §9.2 to §9.4 and §10.2.
+- **Acceptance:** every start outcome leaves a hand-formatted settings file byte for byte and shows its notice; the order of the findings is a table test; with an old hook nothing is asked of Claude Code, and the next start after it is gone registers the plugin; a session added to the projection clears a "nothing is reporting" notice and not the old-hook one; both switches work through `Main` with the real `claude` program against redirected roots; a source guard holds that only the reading type names the file and that it holds no writing call; both suite counts.
+- **Guardrails:**
+  - Nothing out of Claude Code's settings is logged or shown.
+  - A turned-off plugin stays off at a start (T1.49, R1).
+  - No notice tells the operator to edit a settings file by hand.
+  - A `claude.cmd` shim stays "not found"; such a machine gets the notice with the two commands.
+
 **Ordering ruled 2026-09-02:** the packaging workstream — `PKG.1` → `PKG.2` → `PKG.3` → T1.33 → `PKG.4` in the [Packaging Execution Plan](claude-dashboard-packaging-execution-plan.md) — runs **ahead of T2.1**. Appendix A is unchanged; the packaging plan carries its own order.
 
 ---

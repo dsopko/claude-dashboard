@@ -289,15 +289,15 @@ public sealed class UnprotectedTextInventory
         // The log file's floor: an enum name from the operator's own settings file.
         "LoggingSettings.MinimumLevel",
 
-        // Issue #29's hook installer. ScriptPath is a path in the dashboard's own data folder;
-        // ClaudeConfigDirectory (T1.33) is Claude Code's configuration path — our configuration,
-        // not the operator's words, and the refusal line names it so a CLAUDE_CONFIG_DIR pointing
-        // somewhere odd is diagnosable.
-        "HookInstaller.ClaudeConfigDirectory",
+        // The read of Claude Code's settings. ScriptPath is a path in the dashboard's own data
+        // folder; ClaudeConfigDirectory (T1.33) is Claude Code's configuration path — our
+        // configuration, not the operator's words, and the refusal line names it so a
+        // CLAUDE_CONFIG_DIR pointing somewhere odd is diagnosable.
+        "HookCheck.ClaudeConfigDirectory",
         // HookPresence.Problem is why Claude Code's settings file could not be read — an exception
         // message about the file, never anything out of it. THE CHECK MUST NEVER LOG THE FILE'S
         // CONTENTS: those are the operator's hooks, and one of them may carry their prompt text.
-        "HookInstaller.ScriptPath", "HookPresence.Problem",
+        "HookCheck.ScriptPath", "HookPresence.Problem",
 
         // Issue #30's plugin route. Three are folders: the dashboard's own plugin folder, twice,
         // and the folder Claude Code's settings give for a plugin of the same name that belongs
@@ -308,8 +308,7 @@ public sealed class UnprotectedTextInventory
         "ClaudeCliResult.Output", "DashboardPaths.PluginFolder", "HookPresence.ForeignPlugin",
         "PluginInstaller.PluginFolder", "PluginResult.Problem",
         "IngressStatus.Fault",
-        "SettingsFileWriter.LockPath", "SettingsLoadResult.Problem",
-        "SettingsWriteResult.BackupPath", "SettingsWriteResult.Problem",
+        "SettingsLoadResult.Problem",
         "ShowSignalResult.Problem", "SingleInstanceGate.Name", "SqliteEventStore.Path",
     };
 

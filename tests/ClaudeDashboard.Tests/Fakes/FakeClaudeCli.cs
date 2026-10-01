@@ -17,7 +17,7 @@ namespace ClaudeDashboard.Tests.Fakes;
 /// installed plugin as <c>enabledPlugins["plugin@marketplace"] = true</c>, and both removal
 /// commands took their key out again. That is the whole of what this fake reproduces, and it is
 /// what lets a test go round the full loop — ask, then read the answer back through
-/// <c>HookInstaller.Check</c> — without the real program.
+/// <c>HookCheck.Check</c> — without the real program.
 /// </para>
 /// <para>
 /// A call is recorded even when <see cref="Found"/> is false, because "it tried once and stopped"
@@ -81,7 +81,7 @@ public sealed class FakeClaudeCli(ClaudeCodePaths? claude = null) : IClaudeCli
     private static void Record(ClaudeCodePaths claude, IReadOnlyList<string> arguments)
     {
         var settings = File.Exists(claude.UserSettingsFile)
-            ? HookRegistration.Parse(File.ReadAllText(claude.UserSettingsFile))
+            ? HookHandlers.Parse(File.ReadAllText(claude.UserSettingsFile))
             : [];
 
         switch (arguments)
@@ -110,7 +110,7 @@ public sealed class FakeClaudeCli(ClaudeCodePaths? claude = null) : IClaudeCli
         }
 
         Directory.CreateDirectory(claude.ConfigDirectory);
-        File.WriteAllText(claude.UserSettingsFile, HookRegistration.Render(settings));
+        File.WriteAllText(claude.UserSettingsFile, HookHandlers.Render(settings));
     }
 
     private static JsonObject Section(JsonObject settings, string key)

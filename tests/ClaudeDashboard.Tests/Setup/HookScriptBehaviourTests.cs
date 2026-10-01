@@ -437,7 +437,7 @@ public sealed class HookScriptBehaviourTests : IDisposable
     /// </remarks>
     private RunResult Run(Action<ProcessStartInfo>? environment = null)
     {
-        var start = new ProcessStartInfo(HookInstaller.Interpreter)
+        var start = new ProcessStartInfo(HookHandlers.Interpreter)
         {
             RedirectStandardInput = true,
             RedirectStandardOutput = true,

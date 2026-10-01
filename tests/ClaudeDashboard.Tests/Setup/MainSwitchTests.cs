@@ -84,39 +84,39 @@ public sealed class MainSwitchTests : IDisposable
         using (Set(DashboardPaths.HomeVariable, _dashboardRoot))
         using (Set(ClaudeCodePaths.ConfigDirectoryVariable, _claudeRoot))
         {
+            // Main is given the REAL claude program, against the redirected configuration. What
+            // the switch must do depends on whether this machine has it, and there is no third
+            // case: the plugin is the only route (the operator's ruling of 2026-10-01).
+            var claudeIsHere = ClaudeCli.Locate(
+                Environment.GetEnvironmentVariable("PATH"),
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)) is not null;
+
             var installed = Program.Main(["--install-hooks"]);
 
-            Assert.Equal(0, installed);
-
             var paths = new DashboardPaths(_dashboardRoot);
-            var scriptPath = paths.HookScriptFile;
             var settingsFile = Path.Combine(_claudeRoot, "settings.json");
 
-            Assert.True(File.Exists(scriptPath), "The install switch did not write the script.");
+            Assert.True(File.Exists(paths.HookScriptFile), "The install switch did not write the script.");
+            Assert.True(HookPlugin.Matches(paths), "The install switch did not write the plugin files.");
 
-            // EXACTLY ONE ROUTE, WHICHEVER THIS MACHINE HAS (issue #30). Main is given the real
-            // claude program. Where it exists, Claude Code registers the plugin in the redirected
-            // configuration and the settings carry no handler; where it does not, the settings
-            // carry the handler on every event. Both are the switch doing what it was asked, and
-            // both at once would post every event twice — so the assertion is that one holds and
-            // the other does not, rather than a count that only one machine can produce.
-            var (byPlugin, bySettings) = Routes(settingsFile, paths);
-
-            Assert.True(
-                byPlugin ^ (bySettings == HookEventNames.Accepted.Count),
-                $"After --install-hooks: plugin enabled = {byPlugin}, settings handler on {bySettings} " +
-                $"of {HookEventNames.Accepted.Count} events. Exactly one route must carry the hook.");
-
-            if (byPlugin)
+            if (claudeIsHere)
             {
-                Assert.Equal(0, bySettings);
-                Assert.True(HookPlugin.Matches(paths), "The plugin was registered without its files.");
+                // Claude Code registered the plugin, and Claude Code wrote its own settings.
+                Assert.Equal(0, installed);
+                Assert.True(PluginEnabled(settingsFile, paths), "claude ran and the plugin is not enabled.");
+            }
+            else
+            {
+                // No claude program: the switch fails and says so, and nothing wrote a settings
+                // file — the dashboard never does, and nothing else was there to.
+                Assert.Equal(1, installed);
+                Assert.False(File.Exists(settingsFile), "Something wrote Claude Code's settings file.");
             }
 
             var removed = Program.Main(["--remove-hooks"]);
 
             Assert.Equal(0, removed);
-            Assert.Equal((false, 0), Routes(settingsFile, paths));
+            Assert.False(PluginEnabled(settingsFile, paths));
 
             // The removal recorded the opt-out in the dashboard's own settings (T1.32), which is
             // the part of the switch contract that outlives the process.
@@ -125,14 +125,18 @@ public sealed class MainSwitchTests : IDisposable
         }
     }
 
-    /// <summary>Which route carries the hook: the plugin, and how many events the settings handler is on.</summary>
-    private static (bool ByPlugin, int BySettings) Routes(string settingsFile, DashboardPaths paths)
+    /// <summary>Whether Claude Code's settings have this data folder's plugin enabled.</summary>
+    private static bool PluginEnabled(string settingsFile, DashboardPaths paths)
     {
-        var settings = HookRegistration.Parse(File.ReadAllText(settingsFile));
+        if (!File.Exists(settingsFile))
+        {
+            return false;
+        }
 
-        return (
-            HookPlugin.IsEnabled(settings) && HookPlugin.IsFolderOf(paths, HookPlugin.MarketplaceFolder(settings)),
-            HookRegistration.CountInstalled(settings, paths.HookScriptFile));
+        var settings = HookHandlers.Parse(File.ReadAllText(settingsFile));
+
+        return HookPlugin.IsEnabled(settings)
+            && HookPlugin.IsFolderOf(paths, HookPlugin.MarketplaceFolder(settings));
     }
 
     private static Restore Set(string name, string? value)

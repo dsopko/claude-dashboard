@@ -95,10 +95,10 @@ public sealed class PluginInstaller
     /// <strong>A failure after claude ran is checked against what claude recorded</strong> (the
     /// issue #30 review, M2). <c>claude plugin install</c> can write <c>enabledPlugins</c> and then
     /// fail — a non-zero exit after the write, or a stop at the budget after it — and a caller that
-    /// trusted the exit code went on to write the settings handler too: both routes, every event
-    /// posted twice. So when a run of claude ends in a failure, <paramref name="recordedEnabled"/>
-    /// is asked whether the plugin is now enabled, and if it is, the plugin <em>is</em> registered
-    /// and the result says so, before any fallback.
+    /// trusted the exit code would tell the operator that a registered plugin is not registered.
+    /// So when a run of claude ends in a failure, <paramref name="recordedEnabled"/> is asked
+    /// whether the plugin is now enabled, and if it is, the plugin <em>is</em> registered and the
+    /// result says so.
     /// </para>
     /// </remarks>
     /// <param name="recordedEnabled">
@@ -175,8 +175,8 @@ public sealed class PluginInstaller
     /// </summary>
     /// <remarks>
     /// Both commands run even when the first fails, so one refusal does not leave the other half
-    /// behind. The plugin files are left on disk, as <see cref="HookInstaller.Remove"/> leaves the
-    /// script: nothing runs them once Claude Code has forgotten them.
+    /// behind. The plugin files and the script are left on disk: nothing runs them once Claude
+    /// Code has forgotten them, and a later <c>--install-hooks</c> would only have to put them back.
     /// </remarks>
     public PluginResult Remove()
     {
