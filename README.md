@@ -1,8 +1,10 @@
 # Claude Dashboard
 
-Stop babysitting your terminal. Claude Dashboard gives you sound and visual notifications when a long-running Claude Code agent finishes its turn, so you can context-switch freely without letting critical tasks stall.
+No more babysitting terminals. Claude Dashboard gives you sound and visual notifications when a Claude Code agent finishes its turn, so you can stay heads-down on other work without letting critical tasks stall.
 
 A Windows tray application for developers running many concurrent Claude Code sessions. It answers, at a glance, the three questions a wall of terminals can't: **what needs me right now**, **what finished that I haven't seen**, and **what's still working**.
+
+Sessions don't always work alone. Claude Dashboard lets you group multi-agent orchestrations working together into a single status, so you get one notification when the whole team finishes instead of one at every handoff.
 
 ![The Claude Dashboard panel, grouped by working directory](docs/claude-dashboard-screenshot.png)
 
