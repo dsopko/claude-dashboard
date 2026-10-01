@@ -518,6 +518,25 @@ Tasks landing after T1.20. Each one puts the acceptance document out of date in 
   - **A `claude` that records the plugin and then fails is registered.** After a failed run, the installer reads Claude Code's settings again; if the plugin is now enabled, no settings handler goes in beside it.
   - **A relative `PATH` entry is not searched** for `claude.exe`.
 
+**T1.50 — Start with Windows, and the Settings window**
+- **Goal:** the dashboard is running whenever the operator is signed in, unless the operator turns that off. Closes issue #36.
+- **Depends:** PKG.3 (the installed `current\` path), T1.13 (the tray menu)
+- **Realizes:** the operator's rulings of 2026-10-01, recorded in issue #36. **They supersede Impl §10.1's choice of Task Scheduler:** the `Run` key appears where users look for startup programs (Windows Settings › Apps › Startup, Task Manager's Startup tab), and the restart after a crash is given up. It brings forward the first piece of T6.1, the Settings window.
+- **Deliverables:**
+  - **"Settings…" in the tray menu opens a Settings window** with one checkbox, *Start Claude Dashboard when Windows starts*. A change takes effect at once; there is no Save button.
+  - **`startWithWindows` in the dashboard's `settings.json`, default `true`.** Each start reconciles the `Run` value under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` with it, per the table in issue #36.
+  - **The value** is named `Claude Dashboard`, and holds the quoted full path to `current\ClaudeDashboard.App.exe`, never the root stub `Claude Dashboard.exe`.
+  - **Only an installed copy registers.** A portable copy, or a build from the repository, never writes the value; its checkbox is disabled, with a line saying why.
+  - **Windows' own off switch is respected.** When `HKCU\…\Explorer\StartupApproved\Run` marks the value disabled, a start leaves the mark alone and the checkbox shows unticked, with a line saying that Windows has it off. Ticking the checkbox clears the mark.
+  - **Only the checkbox turns it off.** Closing the dashboard, or ending it in Task Manager, changes nothing.
+  - **Velopack's uninstall hook removes the value**, fast, and never failing the uninstall.
+  - `LogonTask.cs` and its tests are removed. Impl §10.1 and §10.2 step 1 are amended to record the ruling.
+- **Acceptance:** issue #36's list. In particular: a logoff and logon start the dashboard to the tray; the entry shows in Windows Settings › Apps › Startup and in Task Manager's Startup tab; every row of the reconcile table; the Windows-disabled mark is left alone and shown; uninstall removes the value; a registry failure logs one Warning and never blocks the start; both suite counts.
+- **Guardrails:**
+  - **Tests never touch the operator's real `Run` value or `StartupApproved` mark.** They use a registry seam, or a unique value name deleted in a `finally`.
+  - No administrator rights. No change to the hook, the plugin or ingress.
+  - Live checks run against a scratch install, never the operator's.
+
 **Ordering ruled 2026-09-02:** the packaging workstream — `PKG.1` → `PKG.2` → `PKG.3` → T1.33 → `PKG.4` in the [Packaging Execution Plan](claude-dashboard-packaging-execution-plan.md) — runs **ahead of T2.1**. Appendix A is unchanged; the packaging plan carries its own order.
 
 ---
