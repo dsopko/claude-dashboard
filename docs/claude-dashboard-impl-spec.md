@@ -681,7 +681,7 @@ The dashboard's own settings. A person can edit it: comments and a comma at the 
 | `port` | number | None | Pins the ingress port (§3.1). A value that is not from 1 to 65535 is "not set", and the log says so |
 | `installHooksAtStart` | boolean | `true` | If a start registers the Claude Code plugin when it is absent. `--remove-hooks` sets it to `false`; `--install-hooks` sets it to `true` (§9.4) |
 | `startWithWindows` | boolean | `true` | If an installed copy starts when the operator signs in (§10.1) |
-| `logging.minimumLevel` | text | `Information` | The lowest level that is logged. See the limit in §8.4 (issue #68) |
+| `logging.minimumLevel` | text | `Information` | The lowest level that is logged, in the log file too. `Debug` adds the decision record (§8.4) |
 | `logging.retainedFileCount` | number | `14` | How many log files are kept |
 | `logging.fileSizeLimitBytes` | number | `16777216` | The size at which a log file rolls in one day |
 | `sound.masterVolume` | number, 0 to 1 | `1.0` | A multiplier on each sound |
@@ -767,7 +767,7 @@ Serilog, to `logs\dashboard-<date>.log`. One file for each day, 14 files kept, 1
 
 - The first line of a start is the version.
 - The log never holds a title, a prompt, an answer, a payload or a task description (§3.4).
-- **Known limit (issue #68):** the file keeps lines at Information and above, whatever `logging.minimumLevel` says, because the file sink has its own floor. Thus the `Debug` lines of the decision record do not reach the file. Use the `decisions` table.
+- **The file keeps the level that `logging.minimumLevel` sets**, Information by default. At `Debug` the file also keeps the decision record, one line for each decision, and one line for each event the Registry declined. Every `Debug` line holds identifiers only. The file sink had a fixed Information floor of its own until T1.52 (issue #68), so `Debug` did not reach the file. The `decisions` table is still the record to query.
 
 ### 8.5 Environment variables
 
@@ -865,7 +865,7 @@ The read is defensive:
 - A value of the wrong type is "not ours", never an exception.
 - **Nothing from the file is logged or shown.**
 
-`Architecture/ClaudeSettingsReadOnlyGuardTests.cs` holds the ruling: only the type that reads the file may name it, and that type has no call that writes, moves, copies, creates or deletes.
+`Architecture/ClaudeSettingsReadOnlyGuardTests.cs` holds the ruling: only the type that reads the file may name it, and that type has no call that writes, moves, copies, creates or deletes. A rule about names can be walked round, so the guard also pins the writers: it lists the exact set of product files that hold any call that writes, and a new file that writes fails it until a person checks what it writes and where. `ClaudeCodePaths.cs`, which holds the file's path, holds no call that writes.
 
 ### 9.4 The plugin — the only route
 
@@ -1005,3 +1005,4 @@ The text above says what is true now. This list says when each part changed.
 | 2026-09-30 | The token is made at each start and is in `listening.txt` | T1.48; issue #57 |
 | 2026-10-01 | The plugin is the only route; no write of Claude Code's settings. Start with Windows through the `Run` key; the scheduled task is removed | T1.49, T1.50, T1.51; issues #30, #36, #65 |
 | 2026-10-02 | v0.2. Written again to agree with the code. Added: §2.5 to §2.7, §3.5, §5.6, §8.1 to §8.5 | — |
+| 2026-10-02 | The log file follows `logging.minimumLevel` (§8.2, §8.4). The no-write guard pins the files that may write (§9.3) | T1.52; issues #68, #65 |

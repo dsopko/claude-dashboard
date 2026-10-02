@@ -404,7 +404,7 @@ Two use cases, raised by the operator on 2026-10-02. They need different things 
 
 ## 7. Rules that a second screen must keep
 
-These hold for each interface, in each language. The first column of section 8 says where each is written.
+A proposal, like section 6: nothing here is ruled for a second screen yet. Each item restates a rule the dashboard keeps today, and the first column of section 8 says where that rule is written. What is new is only how it reads for another screen, such as `textContent` in a browser (item 5) or a screen that does not poll the dashboard (item 12).
 
 1. **`/hook` stays a pure observer.** Always `200`, always empty. Commands from a screen go to their own endpoints and never to `/hook`. The mapper must never turn a hook payload into an `Ack`, a `SoundCommand` or a `RostersChanged`.
 2. **A command is an event in the channel.** A screen never changes the Registry or the sound engine directly. The Registry has one writer.

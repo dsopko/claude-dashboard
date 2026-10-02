@@ -340,7 +340,7 @@ The tick is not an event. It causes changes that no hook causes:
 
 ## 12. How to see the path work
 
-**The log.** The file is `%LocalAppData%\ClaudeDashboard\logs\dashboard-<date>.log`. At each start it shows the port and its source, and the announcement in `listening.txt`. It shows a line about the plugin only if the plugin was absent, was turned off, was registered at this start, or could not be checked. At this commit the file keeps only lines at Information and above. The setting `logging.minimumLevel` does not change that, because the file sink has its own limit. Thus the `Debug` lines of the decisions record do not reach the file. Use the decisions table.
+**The log.** The file is `%LocalAppData%\ClaudeDashboard\logs\dashboard-<date>.log`. At each start it shows the port and its source, and the announcement in `listening.txt`. It shows a line about the plugin only if the plugin was absent, was turned off, was registered at this start, or could not be checked. The file keeps lines at the level `logging.minimumLevel` sets, Information by default. Set it to `Debug` to see each decision as it is made, and each event the Registry declined. The decisions table holds the same record, and is the one to query.
 
 **The database.** Copy `dashboard.db` and its `-wal` file, then query the copy. This query shows the last events of one session and the decision that each caused:
 
@@ -395,12 +395,11 @@ Four results are important:
 
 ## 14. Known limits of this path
 
-These are true at `0488527`. The Technical Specification, Appendix C, lists what is specified and not built.
+These are true as of T1.52, which removed the log-level limit (issue #68). The Technical Specification, Appendix C, lists what is specified and not built.
 
 | Limit | Effect |
 |---|---|
 | `StopFailure` gives its kind in a field named `error`, and the mapper reads `error_type` (section 13; issue #67) | The kind of an Error row is always empty. The state is correct |
-| The log file keeps lines at Information and above, whatever `logging.minimumLevel` says (section 12; issue #68) | The `Debug` lines of the decisions record do not reach the file. Use the `decisions` table |
 | Nothing removes an Ended session (section 8) | An Ended row stays until the dashboard starts again |
 | The Registry starts empty (section 8) | After a restart, a session shows again at its next event. Nothing is read from `dashboard.db` at start |
 | A hard stop leaves `listening.txt` (section 11) | Until the next start, each hook posts to the old port |
