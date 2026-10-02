@@ -31,12 +31,13 @@ public readonly record struct SettingsLoadResult(
 /// <remarks>
 /// <para>
 /// <strong>A bad settings file never stops the dashboard starting.</strong> Impl §10.1 starts
-/// this app at logon from a scheduled task set to "restart every 1 minute, up to 3 times, if
-/// the task fails" — so a process that refuses to start over a stray comma does not present as
-/// a configuration error. It presents as the dashboard being *gone*, three times, and then
-/// staying gone. The operator has no console and no window to read an error from; the only
-/// diagnostic channel is the log file (Impl Part 8), which requires the process to be running.
-/// So a malformed file is logged and replaced with defaults in memory.
+/// this app when the operator signs in, through the <c>Run</c> key, and nothing starts it again
+/// if it stops — so a process that refuses to start over a stray comma does not present as a
+/// configuration error. It presents as the dashboard being *gone*, and staying gone. The
+/// operator has no console and no window to read an error from; the only diagnostic channel is
+/// the log file (Impl Part 8), which requires the process to be running. So a malformed file is
+/// logged and replaced with defaults in memory. (Until T1.50 a scheduled task started the app
+/// and retried a failed start three times; that task is removed.)
 /// </para>
 /// <para>
 /// The bad file itself is left untouched on disk. It is the operator's file and may hold

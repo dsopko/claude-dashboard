@@ -170,11 +170,12 @@ public sealed class PackagingTests
         Assert.Equal(package, tool);
     }
 
-    /// <summary>Not MSIX, and the reason is not preference (Impl §10.2).</summary>
+    /// <summary>Not MSIX: Velopack is the packager (Impl §10.2; Packaging Design D1).</summary>
     /// <remarks>
-    /// Its sandboxing fights writing the scheduled task and merging Claude Code's settings, and
-    /// this tool must do both. A packaging property that turned it on would break two features
-    /// whose failures look nothing like packaging.
+    /// The reason given here was that MSIX's sandboxing fights writing the scheduled task and
+    /// merging Claude Code's settings. The dashboard does neither now (T1.50, T1.51), so that
+    /// reason is gone. The test stays because the choice stands: a packaging property that turned
+    /// MSIX on would put a second packager beside the one the install path is built on.
     /// </remarks>
     [Fact]
     public void The_app_is_not_packaged_as_msix()

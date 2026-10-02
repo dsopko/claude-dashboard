@@ -23,8 +23,8 @@ namespace ClaudeDashboard.App.Hosting;
 /// reaching the dispatcher is by construction from the UI layer: a binding, a converter, a
 /// render pass, a click handler. It cannot have interrupted a domain write half-way. What it
 /// can do, if left unhandled, is kill a process whose entire value is being present and
-/// watching — and Impl §10.1 then restarts it on a one-minute loop that the operator sees only
-/// as the dashboard flickering in and out. A dropped frame is a better failure than that.
+/// watching — and since T1.50 nothing starts it again (Impl §10.1), so the dashboard stays gone
+/// until the operator starts it by hand. A dropped frame is a better failure than that.
 /// </para>
 /// <para>
 /// <strong>The storm guard.</strong> The cost of that decision is that a fault which recurs on
