@@ -432,9 +432,10 @@ public sealed class EventConsumer : BackgroundService
     /// </summary>
     /// <remarks>
     /// <para>
-    /// The four routine outcomes go to <c>Debug</c>, which the file sink does not keep — stale
-    /// duplicates happen constantly and are the guards working, so recording them would bury
-    /// everything else.
+    /// The four routine outcomes go to <c>Debug</c> — stale duplicates happen constantly and are
+    /// the guards working, so recording them at the default level would bury everything else. The
+    /// file keeps them only when the operator sets <c>logging.minimumLevel</c> to <c>Debug</c>
+    /// (T1.52, issue #68), and then beside the decision row that records the same decline.
     /// </para>
     /// <para>
     /// <see cref="ApplyOutcome.Uncorrelated"/> goes to <c>Warning</c>, with both prompt ids,

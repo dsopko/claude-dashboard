@@ -20,19 +20,19 @@ using Serilog.Events;
 namespace ClaudeDashboard.App.Hosting;
 
 /// <summary>
-/// Composes the Generic Host that owns the process (Impl §3.1, §10.1).
+/// Composes the Generic Host that owns the process (Impl Â§3.1, Â§10.1).
 /// </summary>
 /// <remarks>
 /// <para>
 /// Wiring only. Nothing here decides anything about sessions, states, ordering, grouping or
-/// sound — that all lives in Core and reaches this layer as registrations.
+/// sound â that all lives in Core and reaches this layer as registrations.
 /// </para>
 /// <para>
 /// <strong>Exactly one hosted service of ours, and that is a correctness requirement.</strong>
 /// <see cref="EventConsumer"/> owns both the channel read and the nudge tick on one loop,
 /// because the Registry and the sound engine are lock-free on the assumption that a single
-/// thread touches them (Impl §2.2, §4). A second <c>BackgroundService</c> — or a separate
-/// <c>PeriodicTimer</c> loop, which Impl §4's wording invites — would race, and the T1.5 review
+/// thread touches them (Impl Â§2.2, Â§4). A second <c>BackgroundService</c> â or a separate
+/// <c>PeriodicTimer</c> loop, which Impl Â§4's wording invites â would race, and the T1.5 review
 /// demonstrated that race concretely. A test pins the count at one; do not add another without
 /// reading <see cref="SingleWriterGuard"/> first.
 /// </para>
@@ -49,7 +49,7 @@ public static class AppHost
     /// </param>
     /// <param name="ingress">
     /// The port actually chosen, and whether it was secured (T1.21). <see cref="Program"/> supplies
-    /// this because §3.1 chooses the port before the host is built — the choice needs to probe, and
+    /// this because Â§3.1 chooses the port before the host is built â the choice needs to probe, and
     /// probing needs the single-instance gate name, neither of which exists in here.
     /// <strong>Null keeps the pre-T1.21 behaviour</strong>: bind the base port from settings. Every
     /// test builds a host that way, having already put a free port in its settings file, and making
@@ -78,7 +78,7 @@ public static class AppHost
 
         // Rosters, normalised on the way out of the file: a hand edit can hold a name in two
         // rosters or a roster with no members, and RosterBook can represent neither. Each
-        // correction is logged BY ROSTER NAME ONLY — a member name is a session title, and a title
+        // correction is logged BY ROSTER NAME ONLY â a member name is a session title, and a title
         // can be a model-written summary of the operator's prompt (T1.24, issue #18).
         var (book, corrections) = new RosterSettings { Rosters = loaded.Settings.Rosters }.ToBook();
 
@@ -88,7 +88,7 @@ public static class AppHost
         }
 
         // NO SILENT FALL-BACK TO THE BASE PORT. A caller that supplies no port gets the same
-        // §3.1 choice Program makes — pin, then port.txt, then derive, then walk — because the
+        // Â§3.1 choice Program makes â pin, then port.txt, then derive, then walk â because the
         // alternative is a working dashboard bound to the machine-wide port, announcing itself in
         // listening.txt so the hook agrees with it, and wrong for this user. The parameter stays
         // optional so that a test which has already pinned a free port in its settings file keeps
@@ -105,22 +105,22 @@ public static class AppHost
         var builder = WebApplication.CreateSlimBuilder();
 
         // Route the framework's own diagnostics into the rolling file. Without this bridge,
-        // Kestrel's bind failure on the ingress port — the likeliest startup failure this app has
-        // — would reach no sink at all, and the operator would see a dashboard that starts,
+        // Kestrel's bind failure on the ingress port â the likeliest startup failure this app has
+        // â would reach no sink at all, and the operator would see a dashboard that starts,
         // says so, and then never receives a hook, with nothing anywhere explaining why.
         builder.Logging.ClearProviders();
         builder.Logging.AddSerilog(logger, dispose: false);
 
-        // Impl §3.1: loopback only, with the port chosen per user since T1.21. Loopback is the whole of
-        // the network boundary — nothing off-machine may post events (TS §II.5).
+        // Impl Â§3.1: loopback only, with the port chosen per user since T1.21. Loopback is the whole of
+        // the network boundary â nothing off-machine may post events (TS Â§II.5).
         //
         // When the configured port is held by something that is not us, Kestrel is pointed at an
         // ephemeral loopback port instead, so the host starts and the window and tray still run.
         // It listens somewhere no hook is addressed to, which is the honest expression of "this
-        // dashboard cannot hear anything" — and IngressStatus is what says so out loud. There is
+        // dashboard cannot hear anything" â and IngressStatus is what says so out loud. There is
         // no way to make Kestrel bind nothing: clearing the URLs setting falls back to port 5000,
         // which would quietly take a port a development server commonly wants (measured). Note
-        // also that ListenLocalhost rejects port 0 outright — dynamic binding needs an explicit
+        // also that ListenLocalhost rejects port 0 outright â dynamic binding needs an explicit
         // address, which is why this is Listen(IPAddress.Loopback, 0).
         builder.WebHost.ConfigureKestrel(kestrel =>
         {
@@ -140,7 +140,7 @@ public static class AppHost
         builder.Services.AddSingleton(resolved);
 
         // Claude Code's own configuration directory, resolved the way Claude Code resolves it.
-        // A separate registration from DashboardPaths, and deliberately so — see ClaudeCodePaths.
+        // A separate registration from DashboardPaths, and deliberately so â see ClaudeCodePaths.
         builder.Services.AddSingleton(claude ?? new ClaudeCodePaths());
         builder.Services.AddSingleton<IVirtualDesktopService, VirtualDesktopService>();
         builder.Services.AddSingleton<WindowPresence>();
@@ -174,15 +174,15 @@ public static class AppHost
         builder.Services.AddSingleton<IngressToken>();
         builder.Services.AddSingleton<HookEventMapper>();
 
-        // The pipeline (Impl §4). Exactly one hosted service reads the channel and runs the
-        // nudge tick, on one loop — see EventConsumer for why that is a correctness
+        // The pipeline (Impl Â§4). Exactly one hosted service reads the channel and runs the
+        // nudge tick, on one loop â see EventConsumer for why that is a correctness
         // requirement rather than a simplification.
         // One shared region: a thread inside the Registry cannot also be inside the sound engine.
         builder.Services.AddSingleton<SingleWriterGuard>();
         builder.Services.AddSingleton<EventPipeline>();
         builder.Services.AddSingleton<IEventSink>(sp => sp.GetRequiredService<EventPipeline>().Sink);
         // Built through the container rather than beside the settings, because RosterStore announces
-        // every change on the pipeline and so needs the sink — which only exists once EventPipeline
+        // every change on the pipeline and so needs the sink â which only exists once EventPipeline
         // is registered.
         //
         // THE LOADED BOOK GOES TO THE CONSTRUCTOR, SO LOADING THE FILE ANNOUNCES NOTHING. Replace is
@@ -201,7 +201,7 @@ public static class AppHost
 
         // The decisions recorder (T1.37, issue #48): the scribe that puts every judgement beside
         // the event that caused it. The engine is built by factory so the recorder reaches it as
-        // its IDecisionSink — the sink parameter stays optional for standalone construction, and
+        // its IDecisionSink â the sink parameter stays optional for standalone construction, and
         // an optional parameter of a registered service type is what the composition guard
         // forbids, so the factory is the shape that satisfies both.
         builder.Services.AddSingleton<DecisionRecorder>();
@@ -215,12 +215,12 @@ public static class AppHost
         builder.Services.AddSingleton<SessionProjection>();
 
         // The UI (T1.10, T1.11). The window and its view model own UI-thread state, so they must
-        // be resolved on the UI thread and nowhere else — Program does, once, before Run.
+        // be resolved on the UI thread and nowhere else â Program does, once, before Run.
         // UiTick is the wire from the consumer's tick to the age and staleness display; it is
         // handed the view model rather than resolving one, so that nothing can construct the UI
         // from the consumer thread.
-        // The manual ack tier (Design Document §4). It takes the event sink, not the Registry:
-        // TS §I.3 requires every ack source to travel one path, and the Registry is lock-free on
+        // The manual ack tier (Design Document Â§4). It takes the event sink, not the Registry:
+        // TS Â§I.3 requires every ack source to travel one path, and the Registry is lock-free on
         // the assumption that the consumer is its only writer.
         builder.Services.AddSingleton<IAckPublisher, AckPublisher>();
         builder.Services.AddSingleton<IClipboard, WindowsClipboard>();
@@ -234,7 +234,7 @@ public static class AppHost
 
         // By factory for the recorder's sake, like the engine: the tray's light changing is a
         // decision, and the log parameter is optional-and-unregistered so tests build trays
-        // without one while the product cannot lose the wiring silently — the composition test
+        // without one while the product cannot lose the wiring silently â the composition test
         // asserts it arrived.
         builder.Services.AddSingleton(sp => new TrayViewModel(
             sp.GetRequiredService<SessionProjection>(),
@@ -258,7 +258,7 @@ public static class AppHost
         // stop-drain applies whatever ingress queued and hands the last records to the archive;
         // only a writer that stops after it can still write them. Registered the other way
         // round, the writer drained an empty channel, the consumer archived into a stopped
-        // writer, and the final events of a run vanished — caught by HookToDatabaseTests under
+        // writer, and the final events of a run vanished â caught by HookToDatabaseTests under
         // full-suite load, where the consumer loses the race with shutdown.
         builder.Services.AddSingleton<EventArchive>();
         builder.Services.AddSingleton<IEventStore, SqliteEventStore>();
@@ -269,8 +269,8 @@ public static class AppHost
         builder.Services.AddSingleton<EventConsumer>();
 
         // The seam the composition guard reads (T1.12b; ServiceCompositionTests). A built
-        // WebApplication does not publish its own descriptors — measured on a clean host, not
-        // assumed — and without them the guard cannot see any type registered behind an
+        // WebApplication does not publish its own descriptors â measured on a clean host, not
+        // assumed â and without them the guard cannot see any type registered behind an
         // interface, which is most of them. Deferred so the snapshot is taken after every
         // registration above, and typed read-only so nothing can reach through it to mutate the
         // container.
@@ -310,7 +310,7 @@ public static class AppHost
 
         // The decisions recorder hears about drops and about /show (T1.37). Post-build wiring,
         // like the sound engine's subscription above: these callbacks fire on the writing thread
-        // — ingress for the pipeline, the consumer for the archive, Kestrel for /show — and ride
+        // â ingress for the pipeline, the consumer for the archive, Kestrel for /show â and ride
         // the recorder's cross-thread queue.
         var decisions = app.Services.GetRequiredService<DecisionRecorder>();
         var wallClock = app.Services.GetRequiredService<Core.Ports.IClock>();
@@ -376,16 +376,16 @@ public static class AppHost
     }
 
     /// <summary>
-    /// Subscribes the two process-wide exception handlers (Impl §10.1). The dispatcher handler
+    /// Subscribes the two process-wide exception handlers (Impl Â§10.1). The dispatcher handler
     /// is wired by <see cref="App"/>, which owns the <c>Application</c> that raises it.
     /// </summary>
     /// <remarks>
-    /// Returns the subscriptions' removal so a test — or a second host in one process — does not
+    /// Returns the subscriptions' removal so a test â or a second host in one process â does not
     /// leave handlers behind on these process-wide events.
     /// </remarks>
     /// <param name="policy">What an unhandled fault does.</param>
     /// <param name="onTerminating">
-    /// Run once when a fault is taking the process down, before the log is flushed — T1.18 uses it
+    /// Run once when a fault is taking the process down, before the log is flushed â T1.18 uses it
     /// to take the hook handlers out of Claude Code's settings. Best effort by nature: this is the
     /// last managed code that runs, and a fault here must not replace one crash with two.
     /// </param>
@@ -433,7 +433,7 @@ public static class AppHost
 
             // Unwiring is the shutdown path, and it is the last chance to write out counts the
             // storm guard is still holding. Nothing runs a timer to expire a window, so without
-            // this a storm that stopped before the process did would take its tail with it —
+            // this a storm that stopped before the process did would take its tail with it â
             // and the tail is where "it stopped when the session ended" is visible.
             policy.Flush();
         });
@@ -451,12 +451,13 @@ public static class AppHost
         var configuration = new LoggerConfiguration()
 
             // The operator's own floor (T1.37): logging.minimumLevel in settings.json, default
-            // Information. Debug is what turns the decisions record on in the text log — the
-            // database is the queryable record; the log is what someone tails — and a settings
-            // key is what makes that possible without a rebuild.
+            // Information. Debug is what turns the decisions record on in the text log â the
+            // database is the queryable record; the log is what someone tails â and a settings
+            // key is what makes that possible without a rebuild. The file sink below takes the
+            // same floor (T1.52, issue #68).
             .MinimumLevel.Is(logging.EffectiveMinimumLevel)
 
-            // The framework logs four lines per request at Information — request starting,
+            // The framework logs four lines per request at Information â request starting,
             // endpoint executing, status code, request finished. Across fifteen busy sessions
             // that buries the dashboard's own diagnostics in its own traffic, in a file kept for
             // a fortnight. Framework warnings and errors still reach the file, which is what the
@@ -464,7 +465,7 @@ public static class AppHost
             // failure this app has, and it must not be silent.
             .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
 
-            // …except the lifetime messages, which say what was bound and that startup finished.
+            // â¦except the lifetime messages, which say what was bound and that startup finished.
             .MinimumLevel.Override("Microsoft.Hosting.Lifetime", LogEventLevel.Information)
             .Enrich.FromLogContext();
 
@@ -477,12 +478,17 @@ public static class AppHost
                 retainedFileCountLimit: logging.RetainedFileCount,
                 fileSizeLimitBytes: logging.FileSizeLimitBytes,
                 rollOnFileSizeLimit: true,
-                restrictedToMinimumLevel: LogEventLevel.Information,
+                // The file follows logging.minimumLevel, not a floor of its own (T1.52, issue #68).
+                // It had a fixed Information here, so Debug in the settings changed nothing in the
+                // file: a line must pass both floors, and the comments that promised the decisions
+                // record at Debug were wrong. The default is still Information, so a file whose
+                // operator never set the key carries what it always did.
+                restrictedToMinimumLevel: logging.EffectiveMinimumLevel,
                 shared: true,
 
                 // This process can be killed rather than asked to stop — at logoff, or from Task
-                // Manager — and neither runs the clean shutdown that would flush. Unflushed diagnostics would be lost in exactly the
-                // cases they exist to explain.
+                // Manager — and neither runs the clean shutdown that would flush. Unflushed
+                // diagnostics would be lost in exactly the cases they exist to explain.
                 flushToDiskInterval: TimeSpan.FromSeconds(2));
         }
 

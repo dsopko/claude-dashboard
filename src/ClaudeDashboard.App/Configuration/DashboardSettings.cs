@@ -253,13 +253,21 @@ public sealed record LoggingSettings
     public const int DefaultRetainedFiles = 14;
 
     /// <summary>
-    /// The log file's floor (T1.37). <c>Debug</c> is what turns the decisions record on in the
-    /// text log, without a rebuild.
+    /// The log's floor, for the logger and the log file alike (T1.37; T1.52, issue #68).
+    /// <c>Debug</c> is what turns the decisions record on in the text log, without a rebuild.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// A string in the file so a typo cannot stop the dashboard starting — Impl §10.1's rule for
     /// this whole file — and mapped through <see cref="EffectiveMinimumLevel"/>, where anything
     /// unrecognised falls back to Information rather than to silence or to a flood.
+    /// </para>
+    /// <para>
+    /// <strong>What Debug costs.</strong> One line per decision, and a second for each event the
+    /// Registry declined — so at most two lines for each row of the <c>decisions</c> table — plus
+    /// one for each <c>/state</c> request. Every Debug line carries identifiers only, never a
+    /// prompt, an answer or a title. The file's size limit and retention bound the rest.
+    /// </para>
     /// </remarks>
     [JsonPropertyName("minimumLevel")]
     public string MinimumLevel { get; init; } = DefaultMinimumLevel;

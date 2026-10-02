@@ -389,7 +389,8 @@ public sealed class DecisionRecorder : IDecisionSink, IDecisionLog
         RecordedCount++;
 
         // The same row at Debug, so an operator chasing a sound can tail the log with
-        // logging.minimumLevel=Debug and read what the table records. Identifiers only.
+        // logging.minimumLevel=Debug and read what the table records: the log file follows that
+        // setting (T1.52, issue #68). Identifiers only.
         _logger.Debug(
             "Decision {Kind} session={SessionId} {FromState}->{ToState} reason={Reason} detail={Detail}",
             decision.Kind,
