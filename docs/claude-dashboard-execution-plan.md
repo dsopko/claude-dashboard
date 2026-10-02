@@ -557,6 +557,17 @@ Tasks landing after T1.20. Each one puts the acceptance document out of date in 
   - No notice tells the operator to edit a settings file by hand.
   - A `claude.cmd` shim stays "not found"; such a machine gets the notice with the two commands.
 
+**T1.52 — The log file follows the log level**
+- **Goal:** `logging.minimumLevel` set to `Debug` puts Debug lines in the log file, as T1.37 intended and the code's own comments promise. Closes issue #68.
+- **Depends:** T1.37 (the decisions record and the setting)
+- **Realizes:** the operator's ruling of 2026-10-02: make the file follow the setting, rather than withdraw the promise.
+- **Deliverables:**
+  - `AppHost.CreateLogger` gives the file sink `logging.EffectiveMinimumLevel` in place of the fixed `LogEventLevel.Information`. The default stays Information, so nothing changes for anyone who has not set the key.
+  - The comments that disagree are made true and consistent: `LoggingSettings.MinimumLevel`, `DecisionRecorder.Add` and `EventConsumer.Report`.
+  - The documents that record the old floor: Impl §8.2 and §8.4, the event-flow guide §12 and §14, and `docs/quiet-scheduled-jobs.md` "How to check it is working".
+- **Acceptance:** a test builds the logger through `AppHost.CreateLogger` with `minimumLevel` `Debug`, writes one Debug line, and reads it back from the file; a second test, with the default, finds the Debug line absent; a value above Information still removes Information lines from the file; no prompt, answer or title text appears in any Debug line that now reaches the file; both suite counts.
+- **Guardrails:** the default level does not change. Debug lines are already written with identifiers only; verify that holds for every Debug call site before the floor is lifted.
+
 **Ordering ruled 2026-09-02:** the packaging workstream — `PKG.1` → `PKG.2` → `PKG.3` → T1.33 → `PKG.4` in the [Packaging Execution Plan](claude-dashboard-packaging-execution-plan.md) — runs **ahead of T2.1**. Appendix A is unchanged; the packaging plan carries its own order.
 
 ---
