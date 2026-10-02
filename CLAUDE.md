@@ -4,14 +4,19 @@ Claude Dashboard is a Windows tray app (C# / .NET 10 / WPF) that shows a develop
 
 ## Read these first (authoritative — never contradict)
 
-Planning docs live in `docs/`:
+The documents live in `docs/`:
 
-- `docs/claude-dashboard-spec.md` — **Technical Specification** (TS): technology-agnostic architecture and the *why*.
-- `docs/claude-dashboard-impl-spec.md` — **Implementation Specification** (Impl): the C#/.NET/WPF *how*, libraries, and the Claude Code hook contract.
-- `docs/claude-dashboard-execution-plan.md` — **Execution Plan**: the phased task graph and acceptance criteria, the agent role prompts (Appendix B), and the orchestration runbook (Appendix C).
+- `docs/claude-dashboard-spec.md` — **Technical Specification** (TS): technology-agnostic architecture and the *why*. Appendix C lists everything that is specified and not built.
+- `docs/claude-dashboard-impl-spec.md` — **Implementation Specification** (Impl): the C#/.NET/WPF *how*, with exact values. §3.5 is the `/state` contract, §5.6 is what the window shows, Part 8 is the data folder, Part 9 is the Claude Code hook contract.
 - `docs/claude-dashboard-design.md` — **Design Document**: the product shape and the *what*. §9 is the authority on row anatomy and the motion rule.
-- `docs/claude-code-hooks-reference.md` — **Hook events reference**: all 31 Claude Code hook events transcribed from the source documentation, the seven we consume first. Consult this before asserting anything about what a hook does or what fields it carries — including the Discrepancies section, which records where our code and the documentation disagree.
+- `docs/claude-dashboard-event-flow.md` — **Event flow**: one hook event, step by step, from Claude Code to the window, the speaker and the database, with the file that holds each step.
+- `docs/claude-dashboard-core-and-app.md` — **Core and App**: which project holds which rule, and what a second interface (web or phone) needs.
+- `docs/claude-code-hooks-reference.md` — **Hook events reference**: all 33 Claude Code hook events transcribed from the source documentation, the eight we consume first. Consult this before asserting anything about what a hook does or what fields it carries — including the Discrepancies section, which records where the documentation and the real payload disagree. Where they disagree, the payload is the authority.
+- `docs/claude-dashboard-execution-plan.md` — **Execution Plan**: the phased task graph and acceptance criteria, the agent role prompts (Appendix B), and the orchestration runbook (Appendix C). It is a plan and a record: where it disagrees with the specifications about what the product does today, the specifications are right.
+- `docs/quiet-scheduled-jobs.md` — a guide for the operator. A test holds its opt-in line to the code, word for word.
 - `docs/claude-dashboard-mockups.html` — UI reference. **Visuals only, never ordering** — its flat view is drawn in the superseded pre-ruling order.
+
+**Keep the documents true.** A change of behaviour changes the affected sections in the same change. Rewrite the statement in place and keep the reason beside it; add one row to that document's change history (TS Appendix D, Impl Appendix C, Design §13). Mark an intent that the code does not meet *not built*, and list it in TS Appendix C. Keep section numbers stable: code comments cite them.
 
 ## How this repo is built
 
@@ -22,12 +27,14 @@ Development runs as three independent Claude Code sessions coordinating over **c
 Every session follows these (full list: Execution Plan Part 1):
 
 - **Dependency rule:** `ClaudeDashboard.Core` contains no WPF, Win32, or ASP.NET; nothing references `ClaudeDashboard.App`. OS-specific code lives in App behind interfaces.
-- **Domain invariants:** state transitions are idempotent and timestamp-guarded; the Registry has exactly one writer and no locks.
+- **Domain invariants:** state transitions are idempotent and timestamp-guarded; the Registry has exactly one writer and no locks. A click never changes the Registry directly: an Ack, a mute and a pause are events in the same channel as the hooks.
 - **Pure-observer ingress:** hook endpoints return `200` empty and never a decision field — the dashboard can never block or alter a Claude turn.
 - **Text is data:** hook and message text is stored and rendered, never executed.
-- **Degrade, never crash:** UI Automation, WinEvent, and virtual-desktop adapters downgrade a feature on failure rather than throwing.
+- **Never log the operator's words:** no title, prompt, answer, payload, task description or task command in a log line (Impl §3.4).
+- **Never write Claude Code's settings:** the dashboard reads `~/.claude/settings.json` and never writes it. It connects through its plugin only (Impl §9.3, §9.4).
+- **Degrade, never crash:** an adapter that fails — sound, storage, virtual desktop, and later UI Automation and WinEvent — downgrades a feature rather than throwing.
 - **Never run elevated. No secrets in committed files.** Every Core behavior ships with xUnit tests.
 
 ## Status
 
-Planning complete; implementation begins at Execution Plan task **T1.0** (solution scaffolding). Until T1.0 lands, this repo holds planning artifacts and orchestration config only.
+**Phase 1 is built and released as a pre-release** (0.0.x; the Execution Plan's tasks run through T1.51). The tray app receives Claude Code hooks through its plugin, shows the panel and the tray light, plays notices and nudges, and keeps an event log. **Phases 2 to 7 are not built:** click-to-navigate, focus acknowledgment, virtual-desktop grouping, history search, the full settings interface, and the remote surface. `ClaudeDashboard.Remote` is an empty project.

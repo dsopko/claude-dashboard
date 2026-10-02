@@ -3,7 +3,11 @@
 **Source:** <https://code.claude.com/docs/en/hooks> (canonical; `docs.claude.com/en/docs/claude-code/hooks` 301s here)
 **Transcribed:** 2026-08-24 · **Events documented: 33** (was 31; `PreModelSwitch` and `PostModelSwitch` added 2026-08-31, issue #28) · **Consumed by the dashboard: 8** · **Command hook mechanics added 2026-08-30 (issue #29)**
 
+**Wire facts brought up to date 2026-10-02**, from the measurement of the operator's archive on 2026-09-29: 21,407 hook events from 2026-08-27 to 2026-09-29. The [event flow](claude-dashboard-event-flow.md) §13 has the full table.
+
 This document exists because "I don't know whether there is a hook for that" is not an acceptable answer in a project whose entire input surface *is* the hook contract. Everything below is transcribed from the source page on the date above, not recalled. **It is a snapshot: re-fetch and re-check before relying on it for a new integration.**
+
+**The documentation and the wire disagree in places.** Where they do, the wire is what the dashboard must read. Each such place is marked **[wire]** below, and [Discrepancies](#discrepancies-documentation-versus-what-we-observe) lists them together.
 
 Field names are quoted exactly as documented. Where our own observations disagree with the documentation, both are recorded — see [Discrepancies](#discrepancies-documentation-versus-what-we-observe), which is the most useful section in this file.
 
@@ -33,7 +37,9 @@ Field names are quoted exactly as documented. Where our own observations disagre
 | `agent_id` | Subagent contexts only. |
 | `agent_type` | Subagent contexts, or `--agent`. |
 
-`prompt_id` being common to every event is what T1.2's correlation guard assumes — that a `Stop` carries the `prompt_id` of the prompt it is answering. The documentation supports that reading (it is described as identifying the user prompt, not the event), but **we have not confirmed it on the wire.**
+`prompt_id` being common to every event is what T1.2's correlation guard assumes — that a `Stop` carries the `prompt_id` of the prompt it is answering. **Confirmed on the wire [wire]:** 2,318 of 2,335 archived `Stop` events carry the `prompt_id` of the session's last prompt. 15 carry a different one, and 2 have no prompt before them.
+
+Most events also carry `scratchpad_dir`, which the documentation does not list. The dashboard does not read it.
 
 `permission_mode` and `effort` are not consumed today and are worth remembering: a session in `plan` or `bypassPermissions` behaves differently enough that the operator might want to see it.
 
@@ -50,8 +56,8 @@ Eight of thirty-three. This is the whole integration surface.
 **Documented fields:** `model` *(optional, not guaranteed)*
 **Blocking:** no — exit 2 shows stderr to the user only.
 
-> **Dashboard:** create or refresh a Registry entry. `resume`/`fork` surface a session that already existed elsewhere. See TS §I.2 — *surfacing* is distinct from *showing a row*.
-> **We also read `source` and `session_title`, neither of which the source page lists as JSON fields** — see Discrepancies.
+> **Dashboard:** create or refresh a Registry entry. An Ended session becomes quiet again. A known session keeps its state.
+> **We read `source` and `session_title`, neither of which the source page lists as JSON fields. Both are on the wire [wire].** 86 archived events: `source` is `startup` 22, `resume` 22, `compact` 21, `fork` 20. The wire also carries `model`, `context_tokens`, `seconds_since_last_response`, `prompt_cache_likely_expired` and `estimated_cache_write_usd`, which the dashboard does not read.
 
 ### ✅ `UserPromptSubmit`
 
@@ -60,8 +66,8 @@ Eight of thirty-three. This is the whole integration surface.
 **Documented fields:** `user_input` — the prompt text.
 **Blocking:** **yes** — exit 2 blocks the prompt and erases it.
 
-> **Dashboard:** → **Working**; store the prompt as the session's context line; **auto-ack** any prior Unread or Needs-You state.
-> **We read `prompt`, not `user_input`, and it works [verified].** See Discrepancies — this is the most important one in the file.
+> **Dashboard:** → **Working**; store the prompt as the session's context line. A prompt that a person typed is also an acknowledgment of any Unread, Needs-You or Error state. A prompt that Claude Code submitted by itself is not (TS §IV.1).
+> **We read `prompt`, not `user_input` [wire].** The 2,565 archived events carry `prompt`, and `user_input` is not on the wire. The wire also carries `permission_mode` and `session_title`.
 > Note this hook *can* block a prompt. The dashboard must never use that power (pure-observer, Impl §3.3), and returning `200` with an empty body is what guarantees it does not.
 
 ### ✅ `Notification`
@@ -73,7 +79,7 @@ Eight of thirty-three. This is the whole integration surface.
 
 > **Dashboard:** `permission_prompt` → **NeedsPermission** [verified]. `agent_needs_input` → **NeedsQuestion**. `idle_prompt` → **nothing** (issue #1 — it was mapped to NeedsQuestion and turned every finished session red). `agent_completed` → nothing.
 > **We knew four of twelve matcher values.** The other eight parse as `Unknown` and change no state, which is safe — but it was safe by luck rather than by knowledge. `quota_auto_resume_*` in particular describes a session waiting on a quota reset, which is arguably an operator-relevant state the dashboard has no way to show.
-> **`notification_text` is documented and we do not read it.** It is the human-readable message — plausibly the best thing to put on a Needs-You row, since it is what Claude is actually saying.
+> **The documented text field is `notification_text`. The wire sends `message` [wire].** The dashboard reads neither. It is the human-readable message — plausibly the best thing to put on a Needs-You row, since it is what Claude is actually saying. 1,481 archived events.
 
 ### ✅ `Stop`
 
@@ -114,8 +120,9 @@ Eight of thirty-three. This is the whole integration surface.
 **Blocking:** no — output and exit code ignored (except `terminalSequence`).
 
 > **Dashboard:** → **Error**; record the kind.
-> **Our specs named three of ten matchers** with a trailing "…". The full list is above. `max_output_tokens` and `billing_error` are notably different in kind from a rate limit — one is a turn that produced too much, the other needs a human with a credit card, and neither is fixed by waiting.
-> **`error_message` is documented and we do not read it.** An Error row currently shows a category where it could show a reason.
+> **KNOWN DEFECT (issue #67) [wire]: the wire sends the kind in a field named `error`. The dashboard reads `error_type`, and then `matcher`.** All 18 archived events have `error`, and none has `error_type` or `matcher`. Thus the kind of an Error row is always empty. The state is still correct, because it comes from the event and not from the field. The wire also carries `last_assistant_message` and `effort`.
+> **The dashboard knows three of the ten kinds by name.** The full list is above. `max_output_tokens` and `billing_error` are notably different in kind from a rate limit — one is a turn that produced too much, the other needs a human with a credit card, and neither is fixed by waiting.
+> **`error_message` is documented and we do not read it.** An Error row could show a reason where it shows a category.
 
 ### ✅ `SessionEnd`
 
@@ -124,8 +131,8 @@ Eight of thirty-three. This is the whole integration surface.
 **Documented fields:** `end_reason`
 **Blocking:** no.
 
-> **Dashboard:** → **Ended**; schedule removal.
-> **We read `reason`; the documented field is `end_reason`** — see Discrepancies.
+> **Dashboard:** → **Ended**. Removal of the row after a time is not built.
+> **We read `reason`; the documented field is `end_reason`. The wire sends `reason` [wire].** 60 archived events, and none carries `end_reason`.
 
 ### ✅ `CwdChanged`
 
@@ -134,7 +141,8 @@ Eight of thirty-three. This is the whole integration surface.
 **Documented fields:** *(common fields only — the new directory arrives as `cwd`)*
 **Blocking:** no.
 
-> **Dashboard:** re-derive the session's **Group**. Accepted by ingress; not currently registered as a hook in the operator's `settings.json`, so it has never fired in production.
+> **Dashboard:** re-derive the session's **Group**, from `cwd`.
+> **The wire also sends `old_cwd` and `new_cwd`, and `cwd` is not always the new directory [wire].** 2,392 archived events. `cwd` is equal to `new_cwd` on 784, to `old_cwd` on 1,447, and to neither on 161. In the 1,447, the session's next event has the old directory again: these are changes of directory for one command. The dashboard reads `cwd` only, so it does not move the session for them. That is the correct result.
 
 ### ✅ `PostToolBatch`
 
@@ -143,7 +151,7 @@ Eight of thirty-three. This is the whole integration surface.
 **Documented fields:** `tool_calls` (array of results) · `batch_id`
 **Blocking:** **yes** — exit 2 stops the agentic loop before the next model call.
 
-> **Dashboard:** the turn is running, so the session returns to **Working**. This is the signal [issue #2](https://github.com/dsopko/claude-dashboard/issues/2) needed — *the agent is between model calls, therefore executing* — and it fires **once per batch rather than once per tool**, which answered the volume objection that made `PostToolUse` unattractive. It covers a resolved permission, a resolved question and an error that recovers on retry, which a permission-specific hook would not.
+> **Dashboard:** the turn is running, so a session that was blocked, in error or silent returns to **Working** — or to **Waiting**, if it still waits on background work. A session that is already Working, and one that is Unread, do not change. The most frequent event by far: 12,470 of 21,407 archived events. This is the signal [issue #2](https://github.com/dsopko/claude-dashboard/issues/2) needed — *the agent is between model calls, therefore executing* — and it fires **once per batch rather than once per tool**, which answered the volume objection that made `PostToolUse` unattractive. It covers a resolved permission, a resolved question and an error that recovers on retry, which a permission-specific hook would not.
 > **It carries blocking power and we never use it.** Ingress answers `200` with an empty body and the command hook exits 0 on every path, so nothing here can stop a turn (Impl §3.3).
 
 ---
@@ -168,7 +176,7 @@ Not used today. Each one is here because it answers a question we are currently 
 **Documented fields:** `tool_name` · `tool_input` · `tool_use_id` · `permission_level`
 **Blocking:** no via exit code — **use a JSON `decision` object** (exit 2 is not honoured).
 
-> **Registered in the operator's settings and deliberately not consumed.** Production evidence: every `PermissionRequest` is followed ~6s later by a `Notification(permission_prompt)`, which is the path the dashboard uses. So this is corroboration, not the primary signal.
+> **Not registered by the dashboard, and deliberately not consumed.** Production evidence from August 2026, when the operator's own settings still registered it: every `PermissionRequest` is followed ~6s later by a `Notification(permission_prompt)`, which is the path the dashboard uses. So this is corroboration, not the primary signal.
 > It carries `tool_name` and `tool_input`, which `Notification` does not — **so a Needs-You row could say *what* permission is being asked for** rather than only that one is. That is a real product improvement, at the cost of correlating two events.
 > **It can render a decision.** The dashboard must never do so.
 
@@ -281,35 +289,34 @@ fix is the expensive one**, and it will look attractive again the moment this pa
 
 # Discrepancies: documentation versus what we observe
 
-**The most valuable section in this file.** Each of these is a place where our code and the source page disagree, and where a wrong guess is silent.
+**The most valuable section in this file.** Each of these is a place where the source page and the wire disagree, and where a wrong guess is silent: a field that is read under the wrong name is empty, with no error.
 
-### 1. `UserPromptSubmit`: we read `prompt`, the docs say `user_input`
+All were measured on the operator's archive on 2026-09-29. **The wire is the authority. Do not "correct" the code to the documented name.**
 
-We map `[JsonPropertyName("prompt")]`. The source page documents the field as `user_input`.
+| # | Event | The documentation says | The wire sends | The dashboard reads | Result |
+|---|---|---|---|---|---|
+| 1 | `UserPromptSubmit` | `user_input` | `prompt` | `prompt` | Correct |
+| 2 | `SessionEnd` | `end_reason` | `reason` | `reason` | Correct |
+| 3 | `SessionStart` | `model` only; the source is a matcher | `source`, `session_title`, `model` and four more | `source`, `session_title` | Correct |
+| 4 | `StopFailure` | `error_type`, `error_message` | `error` | `error_type`, then `matcher` | **Defect (issue #67): the kind of an Error row is always empty** |
+| 5 | `Notification` | `notification_text` | `message` | Neither | The message is not shown |
+| 6 | `CwdChanged` | Common fields only; `cwd` is the new directory | `old_cwd`, `new_cwd`; `cwd` is the session's directory | `cwd` | Correct: a change of directory for one command does not move the session |
+| 7 | `Stop` | `last_assistant_message` | Also `background_tasks`, `session_crons` | All three | Correct. The two extra fields are not documented at all |
+| 8 | Any event | No title field | `session_title`, on some events and never on `Stop` | `session_title`, on each event | Correct: the dashboard keeps the last title that it saw |
 
-**Our code works** — a prompt submitted at 22:46 rendered in the row as its context line [verified]. So either both fields are present on the wire, or the documentation names it differently from the payload. **Do not "fix" this to `user_input` on the strength of the docs**; that would break a working path. Settle it with a payload capture and then support whichever is real — or both.
+### What settled 1, 2 and 3
 
-This is the single best argument for capturing a real payload rather than reading either the code or the docs.
+Until September 2026 these three were open, because `SessionStart` and `SessionEnd` had not fired in production and nobody had captured a payload. The archive now holds 86 `SessionStart` and 60 `SessionEnd` events. `prompt`, `reason` and `source` are on the wire. `user_input` and `end_reason` are not.
 
-### 2. `SessionEnd`: we read `reason`, the docs say `end_reason`
+`session_title` used to be read on `SessionStart` only, which is why issue #18 found the title feature dead. The documentation does not say which events carry it, so the dashboard reads it wherever it appears.
 
-Nothing has verified ours, because `SessionEnd` has never fired in production — it was only registered today. If `end_reason` is correct, our end reason is silently null. The dashboard still reaches **Ended** (the state comes from the event, not the field), so the failure is a missing detail rather than a missing transition. Cheap to fix, cheap to confirm.
+### Matcher lists the dashboard knows in part
 
-### 3. `SessionStart`: `source` is unconfirmed, and `session_title` is undocumented
+`Notification`: the dashboard knows **four of twelve** types by name. `StopFailure`: **three of ten**. An unknown value changes no state. That is safe, and it is not the same as known: `quota_auto_resume_*` describes a session that waits for a quota reset, which the dashboard cannot show. An unknown `Notification` type writes no log line (issue #9).
 
-The page documents only `model` as a `SessionStart`-specific field, and gives `startup`/`resume`/`clear`/`compact`/`fork` as **matcher** values. We treat `source` as a payload field carrying that same information. Both may be true — matchers are commonly mirrored into the payload — but it is unconfirmed, and `session_title` appears nowhere in the documentation at all.
+### Fields on the wire that could improve a row, and are not read
 
-**Updated at T1.24.** `session_title` used to be read on the `SessionStart` arm alone, which is why issue #18 found the feature dead: `SessionStart` has never fired (issue #20). It is now a common field on every event. The reason is this discrepancy rather than a guess about which events carry it — the documentation says nothing, so nothing tells us the set, and reading it wherever it appears is the only shape that cannot be wrong about a set nobody has published. Measured on the live archive: 72 titles across 1,210 payloads, and `Stop` never carries one.
-
-**`source` is the half still standing.** It is read on the `SessionStart` arm and only there, and `SessionStart` still never fires — so whether the matcher really is mirrored into the payload remains untested by anything running, and would stay untested even if it were wrong. The heading names both halves so that fixing one does not read as having closed the discrepancy.
-
-### 4. Matcher lists we had truncated
-
-`Notification`: we knew **four of twelve**. `StopFailure`: we listed **three of ten** with a trailing "…". Everything unknown falls to `Unknown` and changes no state, so nothing is broken — but "safe because unhandled" is not the same as "known", and one of the unknown twelve (`quota_auto_resume_*`) describes a real operator-relevant condition.
-
-### 5. Documented fields we do not read
-
-`notification_text` (the human-readable message), `error_message` (the reason behind an error category), and — for candidates — `tool_name`/`tool_input` on `PermissionRequest`. All three would put *what is happening* on a row that currently shows only *that something is happening*.
+`message` on `Notification` (what Claude says), `error` on `StopFailure` (which is the defect above), and — for candidates — `tool_name` and `tool_input` on `PermissionRequest`. Each would put *what occurs* on a row that shows only *that something occurs*.
 
 ---
 
@@ -341,7 +348,9 @@ Two things this confirms:
 
 # Command hook mechanics
 
-**The dashboard uses a command hook, not an HTTP one, since issue #29.** The section above stays because it documents what the ingress contract is built on and what the migration is moving away from.
+**The dashboard uses a command hook, not an HTTP one, since issue #29.** The section above stays because it documents what the ingress contract is built on, and why the HTTP hook was left.
+
+**The handler reaches Claude Code in a plugin, since issue #30.** The dashboard keeps the plugin's `hooks.json` in its own data folder and asks Claude Code to register it. It never writes Claude Code's settings (Impl §9.3, §9.4).
 
 Per-handler configuration:
 

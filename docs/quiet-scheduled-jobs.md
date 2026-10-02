@@ -66,6 +66,8 @@ This is the safe direction. A missed sentinel costs one extra beep, which is how
    ```
 
    `ScheduledPrompt` marks the tick starting. If you see it and never `QuietTick`, the job is being recognized but its reply is not exactly the sentinel. If you see neither, the job is not being recognized: check that it was recreated after you added the line.
-3. **Or watch the log.** With `"logging": { "minimumLevel": "Debug" }` in `%LocalAppData%\ClaudeDashboard\settings.json`, the same decisions appear in the log as they happen.
+3. **Do not look for it in the log file.** The log file keeps lines at Information and above, and these decisions are written at Debug. The setting `logging.minimumLevel` does not change that today (issue #68). The decisions record of step 2 is the place to look.
+
+To read the database while the dashboard runs, copy `dashboard.db` and its `-wal` file and query the copy.
 
 The dashboard compares the reply as data and never records it: neither the reply nor the job's prompt appears in the decisions record or the log.

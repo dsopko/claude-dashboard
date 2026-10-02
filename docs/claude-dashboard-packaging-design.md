@@ -1,12 +1,25 @@
 # Claude Dashboard — Packaging Design (Install Path, Step 1)
 
-**Status:** Proposed 2026-09-01. Design authority for the packaging workstream; the companion [Packaging Execution Plan](claude-dashboard-packaging-execution-plan.md) derives its tasks from the decisions here.
+**Status:** Proposed 2026-09-01. **Step 1 is built** (PKG.1 to PKG.3, September 2026). Brought up to date 2026-10-02 for what changed after it: the hook is a Claude Code plugin, and the start with Windows is the `Run` key. Design authority for the packaging workstream; the companion [Packaging Execution Plan](claude-dashboard-packaging-execution-plan.md) derives its tasks from the decisions here.
+
+**Where the install path stands at 2026-10-02:**
+
+| Step | Content | State |
+|---|---|---|
+| 1 | A local installer | Built. `build\package.ps1` |
+| 2 | The application connects itself to Claude Code and starts with Windows | Built (T1.32, T1.33, T1.49 to T1.51). The Implementation Specification §9.4 and §10.1 are the authority |
+| 3 | GitHub releases and the update feed | Releases are published by hand as pre-releases (0.0.19 on 2026-10-01). **The application does not look for updates: not built** |
+| 4 | Scoop | Not built |
+| 5 | Announcement | Not done |
+| 6 | winget and code signing | Not built. The Setup is not signed (D6) |
+
+The gate of PKG.4 (a clean machine, a standard user) is the operator's, and its record is in the execution plan.
 
 ## Purpose
 
 Step 1 of the six-step install path: make the build produce a distributable installer, locally. One command turns a clean checkout into a `Setup.exe` and a portable `.zip` in a local folder, and that Setup installs onto a clean Windows machine — per-user, into LocalAppData, with zero elevation prompts.
 
-**Out of scope:** in-app hook wiring (Step 2 — the start-time check-and-install change is already in flight on its own track), GitHub releases and update-feed wiring (Step 3), Scoop (Step 4), announcement (Step 5), winget and code signing (Step 6).
+**Out of scope for Step 1:** the connection to Claude Code from inside the application (Step 2), GitHub releases and the update feed (Step 3), Scoop (Step 4), announcement (Step 5), winget and code signing (Step 6).
 
 ## Decisions
 
@@ -14,12 +27,12 @@ Step 1 of the six-step install path: make the build produce a distributable inst
 
 Velopack takes the `dotnet publish` output directory and produces, in one command, everything the install path will ever need: a per-user `Setup.exe` that installs without UAC, a portable zip, and the update packages (full + delta) that Step 3 will later serve from GitHub Releases. It also gives the app an update client (`UpdateManager`) for free when we want it.
 
-**This supersedes half of the 2026-08-22 packaging decision.** That decision called for a bespoke "small first-run setup" that (a) registers the logon scheduled task and (b) merges the hook config. Velopack replaces the bespoke installer; the two first-run duties relocate to where they now belong:
+**This supersedes half of the 2026-08-22 packaging decision.** That decision called for a bespoke "small first-run setup" that (a) registers a logon scheduled task and (b) merges the hook configuration into Claude Code's settings. Velopack replaces the bespoke installer. The two first-run duties moved into the application, and both changed form on the way:
 
-- *Hook merge* → in the app itself since T1.32 ([issue #39](https://github.com/dsopko/claude-dashboard/issues/39)): a start whose handler is missing installs it, unless the operator opted out. T1.33 adds the guard this workstream needs — **no `~/.claude` directory means no Claude Code, and the app installs nothing** rather than creating that directory on a machine that never had it. The installer knows nothing about hooks.
-- *Logon scheduled task* → an app-owned concern (a settings toggle, Step 2 territory), enabled by the stable executable path in D3.
+- *The connection to Claude Code* → the application registers a Claude Code **plugin** at a start that finds it absent, unless the operator opted out (issues #39 and #30; T1.32, T1.49). **No `~/.claude` directory means no Claude Code, and the application registers nothing and creates nothing** (T1.33). The application never writes Claude Code's settings file (T1.51). The installer knows nothing about hooks.
+- *The start with Windows* → the application writes a value under the `Run` key of the current user, at the stable path of D3 (T1.50). There is no scheduled task. The operator can turn it off in the Settings window, in Windows Settings, or in Task Manager.
 
-The installer stays dumb; the app owns its own configuration.
+The installer stays dumb; the application owns its own configuration.
 
 ### D2. Publish shape: self-contained, `win-x64`, **not** single-file
 
@@ -31,16 +44,18 @@ Self-contained stays, as previously decided: it deletes the entire ".NET Desktop
 
 Velopack installs per-user under `%LocalAppData%\<packId>\`, with a stable `current\` directory it rewrites on update and deletes on uninstall. That directory is *Velopack's* — nothing of ours may live there.
 
-A naïve `packId` of `ClaudeDashboard` would claim `%LOCALAPPDATA%\ClaudeDashboard` — which is already the app's **data root** (settings JSON, the SQLite event log, Serilog files, and the port file the command hooks read). Updates would churn around the data; uninstall would delete it; the hook rediscovery file would sit inside a directory the packager owns.
+A naïve `packId` of `ClaudeDashboard` would claim `%LOCALAPPDATA%\ClaudeDashboard` — which is already the app's **data root** (the settings file, the SQLite event log, the log files, the hook script, the port files, and the Claude Code plugin). Updates would churn around the data; uninstall would delete it; the files that the hook reads would sit inside a directory the packager owns.
 
-Rather than migrate the data root (a path change that would have to be coordinated with the in-flight hook rewrite), the packId takes the qualified form — which is also Velopack's own recommended convention (`<Company>.<App>`) and matches the eventual winget identifier. Consequences:
+Rather than migrate the data root, the packId takes the qualified form — which is also Velopack's own recommended convention (`<Company>.<App>`) and matches the eventual winget identifier. Consequences:
 
 | Path | Owner | Contents |
 |---|---|---|
 | `%LocalAppData%\dsopko.ClaudeDashboard\` | Velopack | `current\` (binaries), `Update.exe`, packages |
-| `%LocalAppData%\ClaudeDashboard\` | the app | settings, SQLite, logs, port file — **unchanged** |
+| `%LocalAppData%\ClaudeDashboard\` | the app | settings, SQLite, logs, the hook script, the port files, the plugin — **unchanged** |
 
-No collision, no data migration, no coordination burden on the hook workstream. Uninstall removes the binaries and leaves the user's data in place (deliberate; a "remove my data too" affordance can join the Step 2 hook-removal toggle later). Display surfaces — Start Menu, the Apps list — show the `packTitle`, so no user ever sees the dotted id. **No desktop shortcut** (D113): the pack passes `--shortcuts StartMenuRoot`, and `--packAuthors` names the person, since the Apps list shows it as Publisher. And the scheduled task of the future gets a path that survives every update: `%LocalAppData%\dsopko.ClaudeDashboard\current\ClaudeDashboard.App.exe`.
+No collision and no data migration. Uninstall removes the binaries and the `Run` value, and leaves the user's data and the Claude Code plugin in place. That is deliberate: the plugin's hook finds no dashboard and does nothing, and `--remove-hooks` takes it out. A "remove my data too" option is *not built*. Display surfaces — Start Menu, the Apps list — show the `packTitle`, so no user ever sees the dotted id. **No desktop shortcut** (D113): the pack passes `--shortcuts StartMenuRoot`, and `--packAuthors` names the person, since the Apps list shows it as Publisher. The `Run` value names a path that survives every update: `%LocalAppData%\dsopko.ClaudeDashboard\current\ClaudeDashboard.App.exe`.
+
+**The plugin must stay in the data root, never in the install root.** Claude Code loads a plugin from its folder in place, and `current\` is replaced at every update.
 
 ### D4. One version number, supplied at invocation
 
@@ -61,7 +76,7 @@ Windows Sandbox gives a disposable clean machine in seconds — the iteration lo
 ## Interfaces to later steps
 
 - **Update artifacts.** `vpk pack` emits the full package and the release manifest alongside the Setup. Step 3 uploads these with the release — they are what makes `v0.1.1` a delta rather than a re-download — and future packs will fetch the previous release (`vpk download github`) before packing so deltas can be produced. Nothing to build now; the script just doesn't discard them.
-- **Lifecycle callbacks.** Velopack exposes hooks such as `OnFirstRun` and uninstall-time callbacks — the natural seam for Step 2's "remove hooks on uninstall" behavior. Noted, not wired.
+- **Lifecycle callbacks.** Velopack exposes callbacks such as `OnFirstRun` and one that runs at uninstall. The uninstall callback is wired: it removes the `Run` value (T1.50). It does not remove the Claude Code plugin; that is `--remove-hooks`.
 - **Application icon.** Already delivered: `Assetspp.ico` is compiled into the executable through `ApplicationIcon` (T1.27, [issue #17](https://github.com/dsopko/claude-dashboard/issues/17)). The pack step passes the same file to `--icon` so the Setup and the Start Menu shortcut carry it. Nothing here waits on artwork.
 - **arm64.** Out of scope; a second RID is a one-line extension of the script when it matters.
 
