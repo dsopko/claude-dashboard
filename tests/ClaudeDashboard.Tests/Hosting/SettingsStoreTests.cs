@@ -113,9 +113,9 @@ public sealed class SettingsStoreTests : IDisposable
     // ---- Malformed ------------------------------------------------------------------------------
 
     /// <summary>
-    /// The case that decides whether the dashboard can start at all. Impl §10.1 auto-starts it
-    /// from a scheduled task that retries three times; refusing to start over a stray comma
-    /// would present to the operator not as a bad setting but as the dashboard being gone.
+    /// The case that decides whether the dashboard can start at all. Impl §10.1 starts it at
+    /// sign-in through the <c>Run</c> key, and nothing starts it again; refusing to start over a
+    /// stray comma would present to the operator not as a bad setting but as the dashboard being gone.
     /// </summary>
     [Theory]
     [InlineData("{ this is not json")]

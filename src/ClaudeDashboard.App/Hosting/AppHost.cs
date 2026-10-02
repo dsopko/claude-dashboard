@@ -480,9 +480,8 @@ public static class AppHost
                 restrictedToMinimumLevel: LogEventLevel.Information,
                 shared: true,
 
-                // This process can be killed rather than asked to stop — at logoff, or by the
-                // scheduled task's restart-on-failure (Impl §10.1) — and neither runs the clean
-                // shutdown that would flush. Unflushed diagnostics would be lost in exactly the
+                // This process can be killed rather than asked to stop — at logoff, or from Task
+                // Manager — and neither runs the clean shutdown that would flush. Unflushed diagnostics would be lost in exactly the
                 // cases they exist to explain.
                 flushToDiskInterval: TimeSpan.FromSeconds(2));
         }

@@ -97,8 +97,9 @@
 
   <!--
     T1.19, reshaped by PKG.2 — the shipping shape (Impl 10.2, Packaging Design D2): win-x64,
-    self-contained, a DIRECTORY of files. Not MSIX: its sandboxing fights writing the scheduled
-    task and merging Claude Code's settings, and this tool must do both.
+    self-contained, a DIRECTORY of files. Not MSIX: Velopack is the packager (D1). The reason
+    given here was that MSIX's sandboxing fights writing the scheduled task and merging Claude
+    Code's settings; the dashboard does neither now (T1.50, T1.51).
 
     THIS SAID "ONE FILE", AND THE REASON IT CHANGED IS RECORDED RATHER THAN DELETED (D2).
     Single-file was chosen so nothing could copy "the exe" without its halves. Velopack ended

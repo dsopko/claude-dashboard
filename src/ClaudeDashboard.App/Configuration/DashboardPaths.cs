@@ -288,8 +288,8 @@ public sealed class DashboardPaths
     /// <remarks>
     /// Returns false rather than throwing if they cannot be created. A dashboard that cannot
     /// write logs should still run — losing diagnostics is a smaller failure than not starting
-    /// at all, and Impl §10.1 restarts a failed start on a one-minute loop the operator would
-    /// only see as the app being gone.
+    /// at all. Nothing starts a failed start again (Impl §10.1), so the operator would only see
+    /// the app being gone.
     /// </remarks>
     public bool TryEnsureCreated(out string? failure)
     {
