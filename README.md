@@ -8,13 +8,13 @@ Sessions don't always work alone. Claude Dashboard lets you group multi-agent or
 
 ![The Claude Dashboard panel, grouped by working directory](docs/claude-dashboard-screenshot.png)
 
-**Status:** Phase 1 is building. The tray app runs, ingests Claude Code hooks, and shows the panel above; the design, specifications, and a phased execution plan are done. Windows integration — click-to-navigate, focus acknowledgment, virtual-desktop grouping — begins at Phase 2.
+**Status:** Phase 1 is in pre-release (0.0.x). The tray app runs, receives Claude Code hooks, and shows the panel above. Windows integration — click-to-navigate, focus acknowledgment, virtual-desktop grouping — begins at Phase 2 and is not built.
 
 ## What it does
 
-- A single resident tray app whose icon is an overall **status light** (red needs-you · amber error · green unread · blue working · grey quiet), rolled up from every session.
-- A panel that sorts sessions into **attention bands** — needs-you (oldest first), unread (newest first), working, quiet — grouped by working directory, with each row showing the prompt *and*, when finished, the answer, so most checks resolve without switching to the terminal.
-- **Sound that carries meaning.** Four distinct notices — permission, question, error, finished — so a beep tells you what happened before you look at anything. A nudge re-raises something still waiting, and any of it can be silenced: every session, the next thirty minutes, or one session on its own.
+- A single resident tray app whose icon is an overall **status light** (red permission · amber error or question · green unread · blue working · grey quiet), rolled up from every session.
+- A panel that sorts sessions into **attention bands** — needs-you (permissions, then errors, then questions; the oldest first in each), unread (newest first), working, quiet — grouped by working directory, with each row showing the prompt *and*, when finished, the answer, so most checks resolve without switching to the terminal.
+- **Sound that carries meaning.** Four distinct notices — permission, question, error, finished — so a beep tells you what happened before you look at anything. A nudge re-raises something still waiting. All of it can be silenced, until you say or for the next thirty minutes.
 - **Group related sessions, and the group chimes as one.** Sessions working one job — agents passing messages back and forth, or parallel runs across repositories — go quiet as individuals: no chime per handoff, none per member to count. You hear a single notice when the last one finishes, however many there are and whatever order they land in.
 - Its world is **event-sourced from Claude Code hooks** — it never polls, and it never blocks a Claude turn (hooks are pure observers).
 - Later phases add click-to-navigate to the right terminal tab, focus-based acknowledgment, virtual-desktop grouping, searchable history, and a phone view.
@@ -56,7 +56,7 @@ A scheduled job, such as a watchdog that checks every 30 minutes, can end its tu
 
 ## Asking the dashboard what it believes
 
-`GET http://127.0.0.1:<port>/state` answers with what the dashboard believes now: every session with its state, band, title, waiting tasks and next nudge time, then the band counts and the tray light. It is for tests, diagnosis and a future phone view. It never carries a prompt or an answer.
+`GET http://127.0.0.1:<port>/state` answers with what the dashboard believes now: every session with its state, band, title, waiting tasks and next nudge time, then the band counts and the tray light. It is for tests and diagnosis. It never carries a prompt or an answer. The [Implementation Specification](docs/claude-dashboard-impl-spec.md) §3.5 describes every field.
 
 It needs the dashboard's token, in an `X-Dashboard-Token` header; without it, or with a wrong one, `/state` answers `401`. **You set nothing.** The dashboard makes a new token every time it starts and writes it, with the port, to `%LocalAppData%\ClaudeDashboard\listening.txt`: the port on the first line, the token on the second. The file exists only while a dashboard runs. The hook reads the same file at every event, so a Claude Code session keeps reporting through any number of dashboard restarts, and no session or terminal ever needs restarting for the token. Read the token again after each start. The old `CLAUDE_DASHBOARD_TOKEN` variable is no longer used; if it is set, the dashboard says so once in its log and ignores it.
 
@@ -76,19 +76,26 @@ Everything lives in [`docs/`](docs/). Read in this order:
 | [Design](docs/claude-dashboard-design.md) | Business-level design — the problem, principles, and product shape. |
 | [Technical Specification](docs/claude-dashboard-spec.md) | Technology-agnostic architecture and mechanisms (the *why*). Reference for any future non-Windows port. |
 | [Implementation Specification](docs/claude-dashboard-impl-spec.md) | The C# / .NET / WPF realization (the *how*) — projects, libraries, APIs, the Claude Code hook contract. |
-| [Execution Plan](docs/claude-dashboard-execution-plan.md) | Phased task graph with acceptance criteria, plus agent role prompts (Appendix B). |
-| [Mockups](docs/claude-dashboard-mockups.html) | UI reference — open in a browser. |
+| [Event flow](docs/claude-dashboard-event-flow.md) | One hook event, step by step, from Claude Code to the window, the speaker and the database, with the file for each step. |
+| [Core and App](docs/claude-dashboard-core-and-app.md) | Which project holds which rule, and what a second interface (web or phone) needs. |
+| [Hook events reference](docs/claude-code-hooks-reference.md) | Every Claude Code hook event, and where the documentation and the wire disagree. |
+| [Quiet scheduled jobs](docs/quiet-scheduled-jobs.md) | A guide: how a scheduled job that finds nothing stays silent. |
+| [Packaging Design](docs/claude-dashboard-packaging-design.md) | How the installer is made, and where the install path stands. |
+| [Execution Plan](docs/claude-dashboard-execution-plan.md) | Phased task graph with acceptance criteria, plus agent role prompts (Appendix B). A plan and a record: where it disagrees with the specifications, the specifications say what is true now. |
+| [Mockups](docs/claude-dashboard-mockups.html) | UI reference — open in a browser. Visuals only, never ordering. |
+
+What is specified and not built is listed in one place: the Technical Specification, Appendix C.
 
 ## Tech stack
 
-C# on **.NET 10 (LTS)**, **WPF**. Three projects behind a portable-core / Windows-host split:
+C# on **.NET 10 (LTS)**, **WPF**. A portable core and a Windows host:
 
-- `ClaudeDashboard.Core` — domain (registry, state machine, attention engine, sound policy) with no WPF/Win32/ASP.NET.
-- `ClaudeDashboard.App` — WPF tray UI, loopback ingress (Kestrel), and all Windows integration (UI Automation, WinEvent hooks, virtual desktop) behind interfaces.
-- `ClaudeDashboard.Remote` — later, the phone surface.
+- `ClaudeDashboard.Core` — domain (registry, state machine, attention order, groups and rosters, sound policy) with no WPF/Win32/ASP.NET.
+- `ClaudeDashboard.App` — WPF tray UI, loopback ingress (Kestrel), the event loop, storage, and the Windows adapters behind interfaces.
+- `ClaudeDashboard.Remote` — an empty project today. Later, the phone surface.
 - `ClaudeDashboard.Tests` — xUnit.
 
-Key libraries: FlaUI (UI Automation), NAudio (sound), H.NotifyIcon (tray), Kestrel minimal API (hook ingress), Microsoft.Data.Sqlite (history), Serilog. Full list in the Implementation Specification, Appendix A.
+Key libraries: NAudio (sound), H.NotifyIcon (tray), Kestrel minimal API (hook ingress), Microsoft.Data.Sqlite (history), Serilog, Velopack (install). FlaUI (UI Automation) comes with Phase 2. Full list in the Implementation Specification, Appendix A.
 
 ## How it's built
 
@@ -119,16 +126,26 @@ claude-dashboard/
 │   └── skills/
 │       └── dashboard-orchestration/
 │           └── SKILL.md          # loadable guide to the director/coder/reviewer workflow
+├── build/
+│   └── package.ps1               # publish and pack: Setup.exe, portable zip, update packages
 ├── src/
-│   ├── ClaudeDashboard.Core/     # the domain: state machine, attention ordering, grouping
-│   └── ClaudeDashboard.App/      # the Windows host: WPF panel, tray, ingress, adapters
+│   ├── ClaudeDashboard.Core/     # the domain: state machine, attention ordering, grouping, sound policy
+│   ├── ClaudeDashboard.App/      # the Windows host: WPF panel, tray, ingress, event loop, storage, adapters
+│   └── ClaudeDashboard.Remote/   # empty; the phone surface of Phase 7
 ├── tests/
 │   └── ClaudeDashboard.Tests/    # xUnit, including the architecture and dependency rules
 └── docs/
     ├── claude-dashboard-design.md
     ├── claude-dashboard-spec.md
     ├── claude-dashboard-impl-spec.md
+    ├── claude-dashboard-event-flow.md
+    ├── claude-dashboard-core-and-app.md
+    ├── claude-code-hooks-reference.md
+    ├── quiet-scheduled-jobs.md
+    ├── claude-dashboard-packaging-design.md
+    ├── claude-dashboard-packaging-execution-plan.md
     ├── claude-dashboard-execution-plan.md
+    ├── claude-dashboard-phase1-acceptance.md
     ├── claude-dashboard-mockups.html
     └── claude-dashboard-screenshot.md   # how the README screenshot is retaken
 ```

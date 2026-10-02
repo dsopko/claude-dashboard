@@ -1,10 +1,10 @@
 # Claude Dashboard — How session events reach the dashboard
 
-**Describes the code at commit `63e5380` · Written 2026-09-29, brought up to date 2026-09-30 for T1.46 to T1.48**
+**Describes the code at commit `0488527` · Written 2026-09-29, brought up to date 2026-10-02 for T1.49 to T1.51 (the plugin)**
 
 This document follows one event from a Claude Code session to the window, the speaker and the database. For each step it gives the rule, the file that holds the rule, and the result when the step fails.
 
-**The code is the authority for this document.** The [Technical Specification](claude-dashboard-spec.md) and the [Implementation Specification](claude-dashboard-impl-spec.md) give the reasons for the design. The [hook events reference](claude-code-hooks-reference.md) gives the hook contract. Section 14 lists the places where those documents and the code disagree.
+**The code is the authority for this document.** The [Technical Specification](claude-dashboard-spec.md) and the [Implementation Specification](claude-dashboard-impl-spec.md) give the reasons for the design. The [hook events reference](claude-code-hooks-reference.md) gives the hook contract. Section 14 lists the known limits of this path.
 
 `GET /state` (T1.46) reads the dashboard's state from outside. It is not a part of the path that this document describes. Section 5 lists it with the other endpoints.
 
@@ -53,18 +53,21 @@ Three properties hold on the full path:
 
 | Item | Location | Written by | When |
 |---|---|---|---|
-| The hook entry, one for each of 8 events | Claude Code's user settings, `~/.claude/settings.json` | The dashboard | At a start that finds the entry missing, or on `--install-hooks` |
+| The plugin `claude-dashboard`: three files, with one hook entry for each of 8 events | The data folder, in `plugin\` | The dashboard | At every start, if a file is different from the text in the build |
+| The registration of the plugin | Claude Code's own settings | **Claude Code**, when the dashboard runs `claude plugin marketplace add` and `claude plugin install` | At a start that finds the plugin absent, or on `--install-hooks` |
 | `post-status.cmd` | The data folder | The dashboard | At every start, if the file is different from the text in the build |
 | `listening.txt` | The data folder | The dashboard | After the socket is bound and the script is written. Holds the port and the token. Deleted on exit |
 | `port.txt` | The data folder | The dashboard | After the socket is bound. Never deleted |
 
 The operator sets nothing. The dashboard makes a new token at every start (section 2.3).
 
+**The dashboard never writes Claude Code's settings file.** It reads that file to learn if the plugin is enabled.
+
 The data folder is `%LocalAppData%\ClaudeDashboard`. The variable `CLAUDE_DASHBOARD_HOME` moves it. The variable `CLAUDE_CONFIG_DIR` moves Claude Code's settings, and the dashboard obeys it.
 
 ### 2.1 The hook entry
 
-Each of the 8 events has one entry of this shape:
+The plugin's file `plugin\hooks\hooks.json` has one entry of this shape for each of the 8 events:
 
 ```json
 {
@@ -79,24 +82,29 @@ Each of the 8 events has one entry of this shape:
 }
 ```
 
-- **`command` with `args`** starts `cmd.exe` directly. No shell runs, so the two paths are absolute. The installer resolves them.
+- **`command` with `args`** starts `cmd.exe` directly. No shell runs, so the two paths are absolute. The dashboard resolves them when it writes the file.
 - **`async: true`** runs the hook in the background. A turn does not wait for it.
 - **No port and no URL.** The entry names a script. The script finds the port when it runs. Thus the entry stays correct when the port moves and when the dashboard is closed.
-- **The script path identifies the entry.** The dashboard adds no marker key to Claude Code's settings.
+- **The plugin is a pointer.** It names `post-status.cmd` by its absolute path in the data folder. Claude Code loads the plugin from the data folder in place.
 
-### 2.2 When the dashboard writes the hook entry
+### 2.2 When the dashboard registers the plugin
 
-At each start, the dashboard reads Claude Code's settings and counts the events that have its entry. It writes the file only if all of these are true:
+At each start, the dashboard reads Claude Code's settings. It asks Claude Code to register the plugin only if all of these are true:
 
 1. Claude Code's configuration folder exists.
 2. Claude Code's settings file is absent, or it can be read and parsed.
-3. The dashboard's own settings file is absent, or it can be read.
-4. `installHooksAtStart` is `true` in the dashboard's settings. This is the default.
-5. One or more of the 8 entries is missing.
+3. Those settings hold no hook from a build before the plugin. Both together would post each event twice.
+4. The plugin is not enabled already, is not turned off, and is not held by a different data folder.
+5. The dashboard's own settings file is absent, or it can be read.
+6. `installHooksAtStart` is `true` in the dashboard's settings. This is the default.
 
-If the file exists, a write makes a backup of it first, with the name `settings.json.dashboard-backup-<time>`. If the backup fails, the dashboard does not write. A write also removes comments and formatting from the file, because the file is written again from parsed JSON.
+To register, the dashboard runs the `claude` program two times: `claude plugin marketplace add <the plugin folder>` and `claude plugin install claude-dashboard@claude-dashboard`.
 
-Only `--remove-hooks` removes the entries. It also sets `installHooksAtStart` to `false`, so the next start does not put them back. Nothing is removed when the dashboard exits.
+**In each case where the dashboard is left not connected, it shows a notice** in the window and in the tray tooltip, with what to do. Section 9.4 of the Implementation Specification has the full table.
+
+A session that was open before the registration does not have the plugin. It reports after it restarts.
+
+Only `--remove-hooks` removes the plugin. It also sets `installHooksAtStart` to `false`, so the next start does not put it back. Nothing is removed when the dashboard exits.
 
 ### 2.3 The two port files
 
@@ -130,7 +138,7 @@ The dashboard registers these 8 events:
 
 When one of them occurs, Claude Code starts `cmd.exe /c post-status.cmd` and writes the event to its standard input as JSON. Each call starts two processes, `cmd.exe` and `curl.exe`. The hook events reference gives the measured cost: 97 ms with a dashboard that listens, and 65 ms without.
 
-The list comes from one place, `HookEventNames.Accepted`. The installer and ingress both read it. Thus the dashboard cannot register an event that ingress refuses.
+The list comes from one place, `HookEventNames.Accepted`. The plugin's hooks file and ingress both read it. Thus the dashboard cannot register an event that ingress refuses.
 
 ---
 
@@ -318,20 +326,21 @@ The tick is not an event. It causes changes that no hook causes:
 | The dashboard is closed | There is no `listening.txt`, so the script exits and opens no socket. The events of that time are lost. The dashboard does not get them later |
 | The dashboard was killed | `listening.txt` stays and names the old port and a token that nothing accepts now. The script posts to that port, and each post fails in the background. If a different program takes the port, it receives the payloads, which contain prompts. The next start writes the file again, with a new token |
 | A different program has the port at start | The dashboard starts and cannot receive events. It writes no `listening.txt`. The tray tooltip gives the cause |
-| The hook entry is missing | The next start installs it, if the rules of section 2.2 permit |
+| The plugin is not registered, or is turned off | No event arrives. The next start registers it if the rules of section 2.2 permit. If not, the window and the tray show a notice with what to do |
+| An old hook from a build before the plugin is in Claude Code's settings | Events arrive through the old hook. The dashboard registers no plugin beside it, and shows a notice that asks the operator to remove the hook |
 | A hook reads `listening.txt` just before a restart replaces it | That one post carries the old token and gets `401`. The next hook reads the new file |
 | The script cannot be rewritten at start | The dashboard tries three times, then writes one Error line. An old script sends no token, so its hooks get `401` until the next start |
 | The event channel is full | The oldest event is discarded. The log and the decisions table record it |
 | The disk is slow | The archive channel fills and discards its oldest records. The count goes into the log at shutdown. The window and the sound continue |
 | `dashboard.db` cannot be opened or written | The store writes one Warning and stops. The dashboard runs with no history until the next start |
 | Claude Code sends an event type or a field that the dashboard does not know | The event changes no state. The archive keeps the payload |
-| Claude Code is not installed | The start installs nothing and creates nothing. It writes one Information line |
+| Claude Code is not installed | The start registers nothing and creates nothing. It writes one Information line and shows the notice "no Claude Code install detected" |
 
 ---
 
 ## 12. How to see the path work
 
-**The log.** The file is `%LocalAppData%\ClaudeDashboard\logs\dashboard-<date>.log`. At each start it shows the port and its source, and the announcement in `listening.txt`. It shows a line about the hook only if the hook was missing, was installed, or could not be checked. At this commit the file keeps only lines at Information and above. The setting `logging.minimumLevel` does not change that, because the file sink has its own limit. Thus the `Debug` lines of the decisions record do not reach the file. Use the decisions table.
+**The log.** The file is `%LocalAppData%\ClaudeDashboard\logs\dashboard-<date>.log`. At each start it shows the port and its source, and the announcement in `listening.txt`. It shows a line about the plugin only if the plugin was absent, was turned off, was registered at this start, or could not be checked. At this commit the file keeps only lines at Information and above. The setting `logging.minimumLevel` does not change that, because the file sink has its own limit. Thus the `Debug` lines of the decisions record do not reach the file. Use the decisions table.
 
 **The database.** Copy `dashboard.db` and its `-wal` file, then query the copy. This query shows the last events of one session and the decision that each caused:
 
@@ -384,26 +393,20 @@ Four results are important:
 
 ---
 
-## 14. Where the code and the other documents disagree
+## 14. Known limits of this path
 
-The rows below are true at `63e5380`. Remove a row when the document is corrected.
+These are true at `0488527`. The Technical Specification, Appendix C, lists what is specified and not built.
 
-| Document | Statement | The code, or the wire |
-|---|---|---|
-| Implementation Specification, Part 9, first paragraph | All handlers are HTTP hooks. The command hook is the fallback | The command hook is the only handler. §9.2 and §9.3 of the same document are correct |
-| Implementation Specification, Part 8 | `port.txt` lets a command hook find the URL. `dashboard.db` is for Phase 5 | The hook reads `listening.txt`. The table does not list `listening.txt` or `post-status.cmd`. The database is written now and has two tables |
-| Implementation Specification, §9.1 | `Stop` moves a session to Unread. `PostToolBatch` resumes three states. `StopFailure` takes its kind from the matcher | `Stop` can move a session to Waiting or restore a quiet tick. `PostToolBatch` also resumes Interrupted, and can go to Waiting. The code reads `error_type`, and the wire sends `error` |
-| Implementation Specification, §2.1 | `SessionState` has seven values | It has nine: `Interrupted` and `Waiting` are added |
-| Implementation Specification, Part 3 | Refers to TS §II.7 | The Technical Specification has no §II.7. The section is §II.5 |
-| Technical Specification, §II.1 | The HTTP handler is the primary transport | The command handler is the transport. It forwards the payload to the loopback endpoint |
-| Technical Specification, §IV.7 | If HTTP ingress fails, the command hook is the fallback | There is no second transport |
-| Technical Specification, §II.2, §IV.1, Part V | Six events. No `Waiting` state | Eight events, with `CwdChanged` and `PostToolBatch`. `Waiting` exists |
-| Hook events reference, `StopFailure` | The fields are `error_type` and `error_message` | The wire sends `error` |
-| Hook events reference, `Notification` | The text field is `notification_text` | The wire sends `message` |
-| Hook events reference, `CwdChanged` | It has the common fields only, the new directory is `cwd`, and it has never fired | The wire sends `old_cwd` and `new_cwd`. There are 2,392 events |
-| Hook events reference, Discrepancies 1, 2 and 3 | `prompt`, `reason` and `source` are not confirmed. `SessionStart` and `SessionEnd` have never fired | All three fields are on the wire. `user_input` and `end_reason` are not. There are 86 and 60 events |
-| Hook events reference, common fields | The `prompt_id` of a `Stop` is not confirmed on the wire | It is confirmed. See section 13 |
-| Quiet scheduled jobs, "Or watch the log" | The `Debug` level shows the decisions in the log | The file sink stops `Debug` lines. See section 12 |
+| Limit | Effect |
+|---|---|
+| `StopFailure` gives its kind in a field named `error`, and the mapper reads `error_type` (section 13; issue #67) | The kind of an Error row is always empty. The state is correct |
+| The log file keeps lines at Information and above, whatever `logging.minimumLevel` says (section 12; issue #68) | The `Debug` lines of the decisions record do not reach the file. Use the `decisions` table |
+| Nothing removes an Ended session (section 8) | An Ended row stays until the dashboard starts again |
+| The Registry starts empty (section 8) | After a restart, a session shows again at its next event. Nothing is read from `dashboard.db` at start |
+| A hard stop leaves `listening.txt` (section 11) | Until the next start, each hook posts to the old port |
+| An unknown `Notification` type changes no state and writes no log line (issue #9) | Only the archive shows that it arrived |
+
+Until 2026-10-02 this section listed the places where the other documents disagreed with the code. Those documents are corrected.
 
 ---
 
@@ -411,7 +414,8 @@ The rows below are true at `63e5380`. Remove a row when the document is correcte
 
 | Step | File |
 |---|---|
-| The hook entry, install and removal | `src/ClaudeDashboard.App/Setup/HookRegistration.cs`, `HookInstaller.cs`, `StartupHookInstall.cs`, `HookSwitches.cs`, `SettingsFileWriter.cs` |
+| The plugin: its files, its registration and its removal | `src/ClaudeDashboard.App/Setup/HookPlugin.cs`, `HookHandlers.cs`, `PluginInstaller.cs`, `ClaudeCli.cs`, `StartupHookInstall.cs`, `HookSwitches.cs` |
+| The read of Claude Code's settings, and the notice | `src/ClaudeDashboard.App/Setup/HookCheck.cs`, `HookNotice.cs`; `src/ClaudeDashboard.App/Configuration/ClaudeCodePaths.cs` |
 | The script | `src/ClaudeDashboard.App/Setup/HookScript.cs` |
 | The port files | `src/ClaudeDashboard.App/Configuration/ListeningFile.cs`, `PortFile.cs`; `src/ClaudeDashboard.App/Hosting/IngressAnnouncement.cs` |
 | The port choice | `src/ClaudeDashboard.App/Hosting/PortSelection.cs`, `HealthProbe.cs` |

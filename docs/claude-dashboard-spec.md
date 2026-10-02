@@ -1,448 +1,547 @@
 # Claude Dashboard — Technical Specification
 
-**Draft v0.2 · 2026-08-22**
+**v0.3 · 2026-10-02 · agrees with the code at commit `0488527`**
 
-*v0.2: session↔tab identification is now content-matching; the terminal title is left untouched (the earlier title-stamping approach is removed).*
+This specification says *how the system works and which mechanisms make it possible*. It names each component by the **role** it plays, not by a programming language, a UI framework or a storage engine. Where it names a concrete API, that API belongs to the operating system or to Claude Code: a fixed surface that the system must work with, not a choice.
 
-This specification describes *how the system works and what mechanisms make it possible*. It is deliberately agnostic to programming language, UI framework, and storage engine: every component is named by the **role** it plays, not the technology that fills it. Where it names concrete APIs, those are operating-system and Claude Code capabilities — the fixed external surfaces the system must integrate with — not implementation choices. A companion business-level design document (`claude-dashboard-design.md`) covers product intent; this document covers the machinery.
+The companion documents:
 
-Reading order: Part I is the architecture at a glance. Part II is the Claude side (how the system learns what agents are doing). Part III is the Windows side (how the system observes and acts on the desktop). Part IV is the cross-cutting logic that ties them together. Part V maps each mechanism to a delivery phase.
+- [Design](claude-dashboard-design.md): the product and the reasons for it.
+- [Implementation Specification](claude-dashboard-impl-spec.md): the C# and WPF form of this document, with exact values.
+- [Event flow](claude-dashboard-event-flow.md): one event, step by step, with the file for each step.
+- [Core and App](claude-dashboard-core-and-app.md): which project holds which rule, and what a second interface needs.
+
+**How to read the marks.** *Not built* means that the text is the intent and the code does not do it yet. Appendix C lists all such items. Appendix D gives the dated history of the rulings that changed this document.
+
+Reading order: Part I is the architecture. Part II is the Claude Code side. Part III is the Windows side. Part IV is the logic that joins them. Part V maps each mechanism to a phase.
 
 ---
 
-## Part I — System architecture (agnostic)
+## Part I — System architecture
 
 ### I.1 Logical components
 
-The system is a set of roles. One deployment might fold several into one process; a later phase might split one across a network. The roles are stable regardless.
+The system is a set of roles. One process holds all of them today. A later phase can put one of them behind a network. The roles stay the same.
 
 | Role | Responsibility | Depends on |
 |---|---|---|
-| **Ingress** | Receive lifecycle signals from Claude Code sessions and hand them to Intake | a local receiving endpoint |
-| **Intake** | Normalize raw signals into internal *events*; deduplicate; timestamp | Ingress |
-| **Session Registry** | The world model: the set of known sessions and each one's current state, latest exchange, workspace, and group | Intake |
-| **Attention Engine** | Compute band membership and ordering; decide what is urgent | Session Registry |
-| **Group Resolver** | Derive a session's group from observable facts (workspace now; virtual desktop later) | Session Registry, (Windows layer, later) |
-| **Notifier** | Sound policy: schedule notices and nudges; honor mutes and suppression | Session Registry (state changes) |
-| **Presenter** | Render the list, bands, expanded exchanges, counts, tray presence; accept Ack and view-mode input | Attention Engine, Group Resolver |
-| **Navigator** *(later)* | Bring a session's terminal window and tab to the foreground on request | Windows layer |
-| **Focus Observer** *(later)* | Detect which terminal the operator is actually looking at, to infer acknowledgment | Windows layer |
+| **Ingress** | Receive lifecycle signals from Claude Code sessions and give them to Intake | A local endpoint |
+| **Intake** | Change a raw signal into an internal *event*; stamp the arrival time | Ingress |
+| **Session Registry** | The world model: the known sessions and, for each, its state, its latest exchange, its directory and its group | Intake |
+| **Attention Engine** | Put the sessions into bands and into order | Session Registry |
+| **Group Resolver** | Find the group of each session from facts that can be observed | Session Registry, the rosters |
+| **Notifier** | The sound policy: notices and nudges, mute and pause | Session Registry |
+| **Presenter** | Show the list, the bands, the exchanges, the counts and the tray light; accept Ack and the view mode | Attention Engine, Group Resolver |
+| **Reporter** | Answer "what does the Registry believe now?" to a local caller (§IV.9) | Session Registry, Notifier |
+| **Recorder** | Keep each event, and each decision that it caused, on disk (§IV.6) | Intake, Session Registry, Notifier |
+| **Navigator** *(Phase 2, not built)* | Bring a session's terminal window and tab to the front | Windows layer |
+| **Focus Observer** *(Phase 3, not built)* | Find which terminal the operator looks at, to infer an acknowledgment | Windows layer |
 
-### I.2 The core principle: the world is event-sourced
+### I.2 The core principle: the world comes from events
 
-**There is no API that lists "all Claude Code sessions currently running on this machine."** Claude Code does not expose a running-session registry to outside observers. The dashboard's entire world model is therefore *reconstructed from a stream of lifecycle events*. A session exists in the Registry because the system saw an event from it; it has a state because the last event told it so.
+**No API lists "all Claude Code sessions that run on this machine".** Claude Code does not show its sessions to an observer. Thus the dashboard builds its world from a stream of lifecycle events. A session is in the Registry because the system saw an event from it. It has a state because the last event gave it one.
 
-Three consequences follow, and they drive several design decisions:
+Three results follow:
 
-1. **Sessions that started before the app was running are invisible** until their next event. Mitigations: register a session-start signal that also fires on resume (so a `--continue` surfaces the session), and optionally run a *reconciliation sweep* (Part III.6) that scans the OS for running Claude Code processes and shows a placeholder "known, awaiting first event" row.
-2. **Restart must rebuild the world** either from persisted state or by waiting for the next events. The Registry's durable snapshot (Part IV.5) exists for this.
-3. **Delivery is at-least-once and possibly out of order.** Every state transition must be *idempotent* and *timestamp-ordered* (Part IV.1), so applying the same "finished" signal twice, or a stale one late, is harmless.
+1. **A session that started before the dashboard is invisible until its next event.** Almost any event makes the session appear, not only a session start (§IV.1 gives the exceptions). A sweep that looks for Claude Code processes (§III.6) could show such a session earlier. *Not built.*
+2. **A restart loses the world.** The Registry is in memory and starts empty. Each session appears again at its next event. A snapshot on disk that restores the world at start is the intent. *Not built.* The event log that it would read does exist (§IV.6).
+3. **An event can arrive twice, or late.** Each state change must be *idempotent*, and must compare times (§IV.1). The same "finished" signal applied twice changes nothing.
 
 ### I.3 Data flow
 
 ```
- Claude Code session ──hook──▶ Ingress ──▶ Intake ──▶ Session Registry
+ Claude Code session ──hook──▶ Ingress ──▶ Intake ──▶ Session Registry ──▶ Recorder
                                                           │
-                        ┌─────────────────────────────────┼───────────────┐
-                        ▼                                  ▼               ▼
-                  Attention Engine                     Notifier        Group Resolver
+                        ┌─────────────────────────────────┼───────────────┬─────────────┐
+                        ▼                                  ▼               ▼             ▼
+                  Attention Engine                     Notifier      Group Resolver   Reporter
                         │                                  │               │
                         └──────────────▶ Presenter ◀───────┴───────────────┘
                                              │
-                                    operator ▲│▼ (Ack, toggle, click)
+                                    operator ▲│▼ (Ack, mute, group, view mode)
                                              │
                           (later) Navigator ─┘   Focus Observer ──▶ Intake (as ack events)
 ```
 
-Note the loop at the bottom: the Focus Observer feeds *back into* Intake as a synthetic "acknowledged" event, so acknowledgment from any source (new prompt, manual click, inferred focus) flows through one path.
+**Each change to the world goes through Intake, on one path.** An Ack from a click is an event. A mute is an event. In Phase 3, an acknowledgment that the Focus Observer infers is an event too. Nothing changes the Registry from the side. This is the property that lets the Registry have one writer and no locks, and it is the property that a second interface can use: it sends the same events.
 
 ### I.4 Deployment shape
 
-A single resident presence that (a) is always running so it never misses events, (b) exposes a receiving endpoint on the loopback interface only, (c) owns a persistent tray indicator, and (d) can show or hide a main window without losing state. The main window is one *consumer* of the Registry; this separation is what lets a remote surface (Phase 7) become a second consumer without disturbing the core.
+One resident process that:
+
+- always runs, so that it misses no event;
+- has a receiving endpoint on the loopback interface only;
+- has a tray light that stays when the window is closed;
+- can show and hide its window with no loss of state.
+
+The window is one *consumer* of the Registry. This separation is what lets a remote surface (Phase 7) be a second consumer.
 
 ---
 
 ## Part II — The Claude Code event layer
 
-This is how the system learns what every agent is doing. The mechanism is **Claude Code hooks**: user-defined handlers that Claude Code runs at fixed points in a session's lifecycle. Hooks fire wherever Claude Code runs — terminal, IDE extension, desktop app — and every hook receives a JSON payload describing the event.
+The system learns what each agent does through **Claude Code hooks**: handlers that Claude Code runs at fixed points in a session's life. A hook fires in each place where Claude Code runs: terminal, IDE extension, desktop app. Each hook gets a JSON payload that describes the event.
 
 ### II.1 Transport: how a hook reaches Ingress
 
-Claude Code supports several hook *handler types*. Three are relevant, and the system can use them interchangeably or in combination:
+**The transport is a command handler.** For each event, Claude Code runs a small script in the background and writes the payload to its standard input. The script sends the payload, unchanged, to the loopback endpoint.
 
-- **HTTP handler** — Claude Code POSTs the event's JSON payload to a URL. This is the natural primary transport: the resident presence exposes a loopback endpoint, and each hook is configured to POST to it. No per-event script process, no file to poll. Payload arrives as the request body; the handler can carry custom headers (e.g., a shared secret), with an explicit allowlist of environment variables permitted in those headers.
-- **Command handler** — Claude Code runs a shell command and passes the payload on standard input. Useful as a fallback where an HTTP listener isn't desired. (The command inherits the session's environment and *could* forward extra variables, but the system needs none for identification — see II.4.)
-- **MCP tool handler** — Claude Code calls a tool on an already-connected server. Mentioned for completeness; not needed for this system.
+Three rules make the script safe:
 
-The transport choice is an implementation detail. The specification requires only that *every relevant lifecycle event reaches Ingress with its payload intact*.
+- **It finds the dashboard when it runs.** The dashboard writes a small file that says "a dashboard listens on this port now, and accepts this token". The script reads that file at each event. If the file is absent, the script stops and opens no connection. Thus the hook is correct when the dashboard is closed, when the port moves, and when the dashboard restarts.
+- **It prints nothing.** For a prompt submission and a session start, Claude Code adds a hook's output to the model's context. One line of output would change each prompt in each session.
+- **It always reports success.** One failure code shows an error to the operator. A different one stops the turn.
 
-Hook registration lives in Claude Code's settings, which merge across scopes (per-user, per-project, per-machine-managed). For a machine-wide dashboard, the per-user scope covers every project automatically. Registration is declarative configuration; the system may ship it or help the operator install it, but the spec does not mandate hand-editing.
+**The registration is a Claude Code plugin.** A plugin is the door that Claude Code gives to a different program's hooks. The dashboard keeps the plugin's files in its own data folder and asks Claude Code to register it. **The dashboard never writes Claude Code's settings.** That file belongs to Claude Code, which writes it too. A second writer can lose a change and can reformat the file, and its errors break Claude Code, not the dashboard. Where the plugin cannot be registered, the dashboard says so on screen and tells the operator what to do.
+
+**Why not an HTTP handler.** Claude Code can post a payload to a URL directly, and the first builds used that. It was removed because:
+
+- the URL holds the port, and the port must be free to move (one loopback port serves one user only);
+- Claude Code needs the URL in an allow-list, in the settings that the dashboard must not write;
+- with the dashboard closed, each event showed a connection error in the session.
 
 ### II.2 The events consumed, and what each means
 
-The dashboard subscribes to a small subset of the available lifecycle events. Each maps to a state or an enrichment.
+The dashboard registers eight events.
 
-| Claude Code event | Fires when | Dashboard meaning | Key payload fields consumed |
+| Claude Code event | Fires when | Meaning for the dashboard | Fields read |
 |---|---|---|---|
-| **SessionStart** | a session begins or resumes | create/refresh a Registry entry; on resume, surface a pre-existing session | `session_id`, `cwd`, `source` (startup/resume/clear/compact/fork), `transcript_path` |
-| **UserPromptSubmit** | operator submits a prompt, before processing | state → **Working**; store the prompt text as the session's context line; **auto-acknowledge** any prior unread/needs-you state (proof the answer was seen) | `session_id`, prompt text, `cwd`, `prompt_id` |
-| **Notification** (matcher: `permission_prompt`) | a permission dialog is raised | state → **Needs You — Permission** | `session_id`, notification type |
-| **Notification** (matcher: `agent_needs_input`) | Claude is blocked on an answer | state → **Needs You — Question** | `session_id`, notification type |
-| **Notification** (matcher: `idle_prompt`) | nothing has happened in this session for a while | **no state change** — see the correction below | `session_id`, notification type |
-| **Stop** | Claude finishes responding | state → **Unread**; store the answer text as the exchange result | `session_id`, `last_assistant_message` (final answer text, provided so the handler need not read the transcript) |
-| **StopFailure** (matchers: `rate_limit`, `overloaded`, `authentication_failed`, …) | the turn dies on an error | state → **Error**; store the reason | `session_id`, error type |
-| **SessionEnd** | a session terminates | state → **Ended**; schedule removal | `session_id`, end reason |
+| **SessionStart** | A session starts or resumes | Make the session known. No state change for a known session, but an Ended one lives again | `source` |
+| **UserPromptSubmit** | A prompt is submitted | State → **Working**. Keep the prompt as the session's context line. A prompt that the operator typed is also an acknowledgment of what waited (§IV.1) | `prompt` |
+| **Notification**, type `permission_prompt` | A permission dialog is shown | State → **Needs You — Permission** | `notification_type` |
+| **Notification**, type `agent_needs_input` | Claude is blocked on an answer | State → **Needs You — Question** | `notification_type` |
+| **Notification**, all other types | For example `idle_prompt`: nothing occurred for some time | **No state change** | `notification_type` |
+| **Stop** | Claude finishes its response | State → **Unread**, or **Waiting** if background work still runs. Keep the answer | `last_assistant_message`, `background_tasks`, `session_crons` |
+| **StopFailure** | The turn stops on an API error | State → **Error**. Keep the kind of error | `error_type` |
+| **SessionEnd** | The session terminates | State → **Ended** | `reason` |
+| **CwdChanged** | The working directory changes | Find the group again | None |
+| **PostToolBatch** | A batch of tool calls is complete, before the next model call | The turn runs: a session that was blocked, in error or silent goes back to **Working** | None |
 
-> **Correction (2026-08-24, found by dogfooding — [issue #1](https://github.com/dsopko/claude-dashboard/issues/1)).** This row previously read **"`idle_prompt` / agent-needs-input | Claude is waiting on the operator | → Needs You — Question"**, bundling two unrelated events into one state. It is wrong, and the way it is wrong is systematic rather than marginal.
->
-> **`agent_needs_input` is a request. `idle_prompt` is the absence of one.** Claude Code emits `idle_prompt` when a session has simply been sitting there — and *every session that finishes eventually sits there*. So a session went `Stop` → **Unread** (green, correct), and about ninety seconds later an `idle_prompt` promoted it to **Needs You — Question**: red, blinking, top of the band, needing nothing. Measured on one day of real use: **207 `Notification`s against 13 `PermissionRequest`s**, so the overwhelming majority of notifications are this.
->
-> Three things break at once. Red and the blink are reserved for *"it is asking you for something only you can give"* (Impl §5.2), and this spends them on *nobody typed for a minute*. The **Unread band empties**, which defeats the second of the three questions the dashboard exists to answer and contradicts Design §6's rule that Unread is "never summarized away". And §IV.2's ratified Permission > Error > Question ordering, justified by *cheapest-to-clear blocker first*, fills with sessions that have no blocker at all.
->
-> **Ruled: `idle_prompt` changes no state.** It joins `agent_completed` as observed-but-inert. Idleness is already modelled — TS §IV.2's **Quiet** band is exactly "this session is not doing anything", and the 2026-08-24 ruling that `Acked` covers "started, nothing typed yet" was the same judgement made once already. A finished session that nobody has read is **Unread**; a finished session that has been read is **Quiet**. Neither is a question.
+All events also give `session_id`, `prompt_id`, `cwd`, `transcript_path` and `session_title`.
 
-Two payload properties make the product possible and deserve emphasis:
+**The dashboard reads only these fields.** It keeps the full payload in the event log, but it does not interpret the remainder. It never reads the `command` of a background task: that text can hold a prompt or a secret.
 
-- **UserPromptSubmit carries the prompt text.** This is why the session's context line — the thing the operator recognizes it by — populates at the source, with no scrollback scraping.
-- **Stop carries the final assistant message directly.** This is why an expanded row can show the *answer* beside the *question*: both halves of the exchange arrive in events, so many checks resolve inside the dashboard without opening the terminal at all.
+Two payload properties make the product possible:
+
+- **UserPromptSubmit carries the prompt text.** The session's context line comes from the source. No scrollback is read.
+- **Stop carries the last assistant message.** An expanded row can show the answer next to the question. Many checks end in the dashboard, and the operator does not open the terminal.
+
+Two rules about what an event must *not* do, each learned from use:
+
+- **`idle_prompt` is not a question.** `agent_needs_input` is a request. `idle_prompt` is the absence of one: Claude Code sends it because a session sat untouched, and each finished session does that. When the dashboard read it as a question, each Unread row became red and blinking about ninety seconds after it finished. Idleness already has its place: a result that nobody read is Unread, and one that was read is Quiet. The general rule is in the Design (§4): *an absence of activity must never make a session louder.*
+- **An unknown type changes nothing.** Claude Code has twelve notification types and ten error kinds, and it can add more. A type that the dashboard does not know is kept in the log and changes no state.
+
+*Known defect (issue #67):* on the wire, `StopFailure` gives its kind in a field named `error`. The dashboard reads `error_type`. Thus the kind of an Error row is empty today. The state is still correct.
 
 ### II.3 Correlation and identity
 
-- **Primary key: `session_id`.** Present on every event; it is the Registry's key. All state transitions are keyed by it.
-- **Grouping input: `cwd`.** The working directory arrives on the session-defining events and is the Phase 1 grouping key (Part IV.3). It can change mid-session (the operator or Claude runs `cd`); the current directory events reflect the change, so the group is re-derived, not fixed at start.
-- **Turn correlation: `prompt_id`.** Ties a specific prompt to its outcome; useful for matching a `Stop` to the `UserPromptSubmit` that caused it, and for de-duplicating.
-- **Fallback context: `transcript_path`.** The full conversation on disk. The system generally should *not* need it — the events carry what's shown — but it exists as a recovery source. Note it is written asynchronously and can lag the live turn, so it is unsuitable for reading the latest message in real time; that is precisely why `Stop`'s inline answer field is preferred.
+- **Primary key: `session_id`.** It is on each event. It is the Registry's key.
+- **Grouping input: `cwd`.** It can change in a session. The group is found again when it changes, and is not fixed at the start. On a `CwdChanged` event, `cwd` is the directory of the session, which is not always the new directory: a change of directory for one command does not move the session.
+- **Turn correlation: `prompt_id`.** It connects a `Stop` to the prompt that caused it. Measured on the operator's archive: 2,318 of 2,335 `Stop` events have the id of the session's last prompt.
+- **The name: `session_title`.** It is the name that the operator gave the session, or one that Claude Code made. It arrives on few events and never on `Stop`. Thus the Registry keeps the last title that it saw (§IV.1).
+- **Fallback: `transcript_path`.** The full conversation on disk. It is written late and can be behind the live turn, so the dashboard does not read it.
 
-### II.4 What is *not* available, and how the system compensates
+### II.4 What is not available
 
-- **No session enumeration** — addressed in I.2 (event-sourced world, reconciliation sweep).
-- **No "which window/tab is this session in" from Claude Code.** The event tells you the session and its working directory, not its on-screen location. Locating the window and tab is entirely the Windows layer's job (Part III), done by **content-matching**: reading a tab's visible content via UI Automation and matching it against the prompt/answer text the Registry already holds (III.2).
-- **No guaranteed ordering or exactly-once delivery.** Addressed by idempotent, timestamp-ordered transitions (IV.1).
+- **No list of sessions.** See §I.2.
+- **No "which window and tab is this session in".** The event gives the session and its directory, not its place on screen. To find the window is the Windows layer's task (Part III).
+- **No sequence guarantee, and no exactly-once delivery.** See §IV.1.
+- **No event for an interrupt.** When the operator stops a turn, Claude Code sends nothing. The dashboard can measure only silence (§IV.1).
+- **No event for an approval.** When the operator approves a permission, Claude Code sends nothing. The dashboard infers that the turn continues from the next `PostToolBatch`.
 
-### II.5 Delivery security at the boundary
+### II.5 Security at the boundary
 
-The receiving endpoint is a local attack surface and hook payloads are untrusted content:
+The endpoint is a local attack surface, and a payload is content that the dashboard cannot trust.
 
-- **Bind to loopback only.** The endpoint listens on the local interface; nothing off-machine can reach it. (Phase 7 remote access is a *separate, authenticated* surface layered on top of the Registry, never this raw ingress exposed to the network.)
-- **Optional shared secret.** A token in a hook header, checked at Ingress, guards against other local processes posting spoofed events.
-- **Treat all event text as data, never instruction.** Prompt text and answer text are displayed and stored; they are never interpreted as commands by the system. (Claude Code itself flags text shaped like out-of-band system commands; the dashboard's own rule is simpler — it renders and escapes, and does nothing executable with event content.)
+- **Loopback only.** Nothing outside the machine can reach the endpoint. A remote surface (Phase 7) is a *separate, authenticated* surface on top of the Registry. It is never this endpoint opened to the network.
+- **A shared secret, always.** The dashboard makes a new token at each start and holds it in memory. It gives the token to the hook script through the same small file that holds the port. Each request but the liveness check must carry it. The token stops a process of a different user on the same machine. A process of the same user can read the file, and can read the event log too.
+- **Event text is data, never an instruction.** The dashboard stores and shows prompt text, answer text, titles and task descriptions. It never interprets them as commands, and it never writes them to a log.
 
 ---
 
 ## Part III — The Windows integration layer
 
-This is how the system observes the desktop (to infer that the operator looked at a terminal) and acts on it (to jump to a terminal). Everything here is **later-phase** work; Phase 1 needs none of it. It is specified now because the mechanisms constrain the earlier design — and because the identification approach (content-matching, III.2) shapes what the Registry must retain: enough of each exchange's text to recognize a tab by its content.
+This part says how the system can observe the desktop (to infer that the operator looked at a terminal) and act on it (to go to a terminal). **Almost all of it is for later phases and is not built.** It is specified now because it constrains the earlier design: the Registry must keep sufficient text of each exchange to recognise a tab by its content.
 
-The APIs named below are Windows platform capabilities. Every general-purpose language on Windows can bind to them; naming them commits to nothing about implementation language.
+What is built from this part: the tray light and the sound (§III.10), the single instance, the start with Windows and the rule of no elevation (§III.11), and the pin of the window to all virtual desktops (§III.9).
 
 ### III.1 The two hard problems
 
-1. **Observation** — "Is the operator currently looking at session S's terminal?" (Focus Observer, for inferred acknowledgment, Phase 3.)
-2. **Action** — "Bring session S's terminal window and tab to the foreground." (Navigator, Phase 2.)
+1. **Observation:** "Does the operator look at session S's terminal now?" (Focus Observer, Phase 3.)
+2. **Action:** "Bring session S's terminal window and tab to the front." (Navigator, Phase 2.)
 
-Both reduce to a mapping problem: **session ⇄ on-screen window+tab.** The system holds the session side (Registry). Windows holds the on-screen side. Bridging them is the crux, and it is genuinely awkward for tabbed terminals, for reasons III.3 explains. The adopted approach is **content-matching**: recognize a session's tab by reading its visible content and comparing against the exchange text the Registry already holds (III.2). It needs no cooperation from the terminal title and no identifier injected anywhere.
+Both are one mapping problem: **session ⇄ window and tab on screen.** The Registry holds the session side. Windows holds the screen side. The approach is **content-matching** (§III.2).
 
 ### III.2 The content-matching join
 
-The system recognizes a session's on-screen tab by **what the tab contains**, not by any injected marker. The Registry already holds each session's latest exchange (the prompt text from `UserPromptSubmit`, the answer text from `Stop`). The Windows layer reads a tab's visible buffer through UI Automation (III.4) and matches that text against the Registry. A confident match maps the tab to a session; that mapping is what both navigation and focus-inference need.
+The system recognises a session's tab by **what the tab contains**. The Registry holds each session's latest exchange. The Windows layer reads a tab's visible text through UI Automation (§III.4) and compares it with the Registry.
 
-- **What to match on:** the most recent prompt line is the strongest signal — distinctive and operator-authored; the answer snippet and the working directory shown in the prompt are corroborating signals. Matching on several beats matching on one.
-- **Ambiguity:** if two tabs genuinely present the same recent text (e.g., the identical prompt typed in two sessions), the match is unresolved and degrades to **window-level** behavior (III.7) — activate or observe the window, skip precise tab selection — rather than guessing.
-- **Cost:** reading buffer text per tab is heavier than reading a title, but it happens only on demand (a navigation click, or a focus change), not continuously, so the cost is negligible in practice.
+- **What to compare:** the most recent prompt line is the strongest signal. The answer and the directory in the prompt support it.
+- **Ambiguity:** if two tabs show the same recent text, there is no match. The system then works at the level of the window (§III.7) and does not guess.
+- **Cost:** to read a tab's text costs more than to read a title. It occurs only at a click or at a change of focus, not continuously.
 
-The decisive property: content-matching requires **no cooperation from the terminal title, no identifier written anywhere, and nothing from Claude Code beyond the event text the Registry already has.** This is why the title is left entirely untouched (III.3).
+Content-matching needs **no cooperation from the terminal title, no identifier written anywhere, and nothing from Claude Code** but the text that the Registry already has.
 
-### III.3 Identifiers the join deliberately avoids
+### III.3 Identifiers that the join does not use
 
-Three more obvious handles were considered and rejected; content-matching exists because none of them holds up:
-
-- **The terminal title.** Tempting as a place to stamp a session id, but Claude Code actively rewrites the whole title on every render cycle and exposes no append or template hook, so any injected suffix is erased almost immediately. Setting it from a hook doesn't work either — escape sequences in hook output are captured by Claude Code's interface rather than passed to the terminal emulator. And the only actor that could re-stamp it after each overwrite would have to already know which tab belongs to which session — the very fact the id was meant to establish. The title is therefore left completely alone; the system writes nothing to it.
-- **The pane session GUID.** Windows Terminal gives each pane a session GUID in its environment, which a hook could report. But Windows offers no public way to ask "which visible tab has this GUID," so the GUID can *correlate* but cannot *locate* a tab on screen.
-- **The process tree.** From a session's process one might hope to find its window. This works for classic single-window consoles but fails for Windows Terminal, where one process backs many windows and tabs and the shells are grandchildren, with no clean path from process to a specific window-and-tab.
-
-Content-matching sidesteps all three: it reads something the tab genuinely displays and that the Registry independently knows.
+- **The terminal title.** Claude Code writes the full title again at each render and gives no way to add to it. A hook cannot set it either. The system leaves the title alone and writes nothing to it.
+- **The pane session GUID.** Windows Terminal gives each pane a GUID in its environment. Windows gives no public way to ask "which tab has this GUID". The GUID can *correlate* and cannot *locate*.
+- **The process tree.** For a classic console, one process is one window. For Windows Terminal, one process holds many windows and tabs, and there is no path from a process to a tab.
 
 ### III.4 Reading the desktop: UI Automation
 
-Windows Terminal renders its own tab strip; tabs are not separate OS windows. To inspect them, the system uses **UI Automation (UIA)**, the accessibility API, treating the terminal's UI as an element tree:
+Windows Terminal draws its own tab strip. A tab is not an OS window. To see tabs, the system uses **UI Automation (UIA)**, the accessibility API:
 
-- The tab strip exposes which tab is **selected**; each tab's **pane content** is reachable as text through UIA's text pattern.
-- To find a tab: walk the terminal window's UIA subtree, read each tab's visible content, and match against the Registry's exchange text (III.2).
-- To read the active tab: query the selected element of the tab strip, then read its content.
+- The tab strip shows which tab is **selected**. Each tab's content can be read as text.
+- To find a tab: go through the terminal window's UIA tree, read each tab, and compare with the Registry.
 
-UIA is the workhorse for anything tab-level, and it is the fragile part: it depends on the terminal's accessibility tree, which can shift between terminal versions. The spec therefore isolates all UIA behind an adapter with a hard rule that **UIA failure degrades to window-level behavior**, never a crash (III.8).
+UIA is the fragile part: it depends on the terminal's accessibility tree, which can change between terminal versions. All UIA is behind an adapter, with one hard rule: **a UIA failure gives window-level behaviour, never a crash** (§III.8).
 
-### III.5 Observing focus: event hooks vs. tab switches
+### III.5 Observing focus
 
-To know when the operator switches to a window, the system installs a **system-wide event hook** for the foreground-changed event, registered out-of-process with a callback in the resident presence. (Out-of-process event hooks are delivered as messages, so the registering thread must run a message loop — a concrete constraint on however the resident presence is built.)
+To know when the operator goes to a window, the system installs a system-wide hook for the foreground-changed event. The thread that registers it must run a message loop.
 
-A crucial subtlety: **switching tabs *within* one terminal window does not change the foreground window.** The foreground-changed event fires when the operator moves *between* windows, not between tabs of the same window. Tab-level focus therefore cannot be inferred from the foreground event alone; it requires UIA selection/focus events on the tab strip. The Focus Observer thus has two tiers:
+**A change of tab in one terminal window does not change the foreground window.** Thus the Focus Observer has two tiers:
 
-- **Window focus** (foreground event) — cheap, reliable, tells you the operator is in *some* terminal window.
-- **Tab focus** (UIA selection change) — richer, fragile, tells you *which tab* — and, via content-matching, which session.
+- **Window focus** (the foreground event): cheap and reliable. It says that the operator is in *some* terminal window.
+- **Tab focus** (a UIA selection change): fragile. It says *which tab*, and through content-matching, which session.
 
-Phase 3 can ship window-level inference first (already enough to soft-acknowledge when only one session lives in a window) and add tab-level inference as a refinement.
+Inference: the foreground stays on a terminal window → read the focused tab → match it to a session → if the focus stays for a short time, send an acknowledgment event into Intake (§I.3). The wait prevents an acknowledgment of each tab that the operator only passes.
 
-Acknowledgment inference then reads: foreground settles on a terminal window → read the focused tab's content via UIA → match to session (III.2) → if it dwells for a short threshold, emit a synthetic acknowledgment event into Intake (I.3). Dwell-thresholding avoids acking everything the operator merely tabs past.
+### III.6 Reconciliation sweep *(optional; not built)*
 
-### III.6 Reconciliation sweep (optional, supports I.2)
+To show sessions that are older than the dashboard, the system can look at the running processes, find the Claude Code instances, and make placeholder entries ("known, waiting for the first event"). This adds to the event stream and does not replace it.
 
-To surface sessions that predate the app, the system may periodically enumerate running processes, identify Claude Code instances and their hosting terminals, and create placeholder Registry entries ("known, awaiting first event"). These rows carry no exchange text until a real event arrives. This is a supplement to the event stream, not a replacement, and it is best-effort.
+### III.7 Locate strategy for each terminal type
 
-### III.7 Per-terminal locate strategy
+For a **terminal with no tabs**, the process tree is a valid and cheaper path: one process, one window. For a **terminal with tabs**, content-matching is necessary. Window-level activation is the fallback for both.
 
-The rationale for content-matching over titles, GUIDs, and process trees is in III.3. One actionable nuance remains: for **non-tabbed** terminals (classic single-window consoles), process-tree location is a valid and cheaper path — enumerate top-level windows and match by owning process id, since there the process maps cleanly to one window. It is only **tabbed** terminals (Windows Terminal) where that breaks and content-matching is required. The locate strategy is therefore selected per terminal type; window-level activation (III.8) is the common fallback when neither resolves a specific tab.
+### III.8 Acting on the desktop
 
-### III.8 Acting on the desktop: activation and navigation
+Two levers, in this sequence:
 
-Two levers, preferred in this order:
+1. **Ask the terminal.** Windows Terminal accepts a command that focuses a tab of an existing window, by window id and tab index.
+2. **Direct activation.** If that is not possible, bring the window to the front with the OS call and select the tab through UIA.
 
-1. **Delegate to the terminal.** Windows Terminal accepts a command to focus a tab in a specific existing window by window id and zero-based tab index (`-w <window> focus-tab -t <index>` in its command-line vocabulary). When the system can determine the window id and index (via UIA enumeration + content-matching, III.2), delegating activation to the terminal is the cleanest path — the terminal handles its own foreground and tab selection.
-2. **Direct activation.** Otherwise, the system brings the located window to the foreground via the OS activation call and, if needed, invokes the target tab element through UIA.
+**Foreground lock.** Windows limits which process can take the foreground. The dashboard is exempt by construction: the operator clicks a row in the dashboard's own window, so the dashboard has just received input and may set the foreground.
 
-**Foreground-lock note.** Windows restricts which process may take the foreground; a background process generally cannot steal it. This system is largely exempt *by construction*: navigation is triggered by the operator clicking a row in the dashboard's own window, so the dashboard has just received user input and is permitted to set the foreground at that moment. This is a real advantage of click-initiated navigation over autonomous window-raising, and the spec relies on it rather than on foreground-lock workarounds.
+### III.9 Virtual desktops
 
-### III.9 Virtual desktop awareness (Phase 4 grouping)
+The operator uses one virtual desktop for each task. Thus the virtual desktop is the truest grouping key (Phase 4, not built). Windows has two tiers:
 
-The operator organizes tasks as one virtual desktop per task, so virtual desktop is the truest grouping key. Windows exposes desktop capability at two tiers:
+- **Documented tier:** which desktop a window is on, whether a window is on the current desktop, and a move of a window to a desktop. This is sufficient to **group sessions by desktop**.
+- **Undocumented tier:** to list desktops, to switch to one, to read their names, and to **pin a window to all desktops**. These need an internal interface whose identifier changes between Windows builds. The rule: put this tier behind an adapter, pin the version, and **degrade without a crash**.
 
-- **Documented tier** — a public manager interface answers *which* desktop a given window is on, and whether a window is on the current desktop, and can move a window to another desktop. This is enough to **group sessions by desktop** (read each session's window's desktop id) and to know if a target is off-screen.
-- **Undocumented tier** — *enumerating* desktops, *switching* to a desktop, and reading/setting desktop *names* are not in the public interface. They require an internal COM interface whose identifier changes between Windows builds. The spec's rule: isolate this tier behind an adapter, depend on a maintained community wrapper, pin versions, and **degrade gracefully** — if a Windows update breaks desktop switching, navigation still activates the window (which itself triggers the desktop switch on most builds) and grouping still works via the documented tier. Desktop *names* may be read from their per-user storage as a pragmatic, non-contractual source; absent a name, groups fall back to the workspace key.
+Built today: the dashboard pins its own window to all desktops through the undocumented tier. If the pin fails, the window stays on one desktop and the log says so.
 
 ### III.10 Tray presence and audio
 
-- **Tray indicator** — a persistent status icon owned by the resident presence, reflecting the worst current state (quiet / working / needs-you with a count badge), clickable to show the window. This is the always-on layer that survives closing the main window.
-- **Audio** — an output capability for notices and nudges. The scheduling is OS-independent (Part IV.4); only playback touches the platform.
+- **The tray light** is a status icon that always shows. Its colour is the worst state of all sessions, in five colours (§IV.3 gives the order): red for a permission, amber for an error or a question, green for unread, blue for working, grey for quiet. It has no digits and it does not move. The counts are in its tooltip. A click shows the window.
+- **Audio** plays notices and nudges. The schedule does not depend on the platform (§IV.5). Only the playback does.
 
 ### III.11 Housekeeping
 
-Single-instance enforcement (only one resident presence), start-with-Windows registration, and **no elevation**: all target processes (terminals, shells) run at the operator's normal integrity level, so UIA inspection and foreground activation work without administrator rights. Running elevated would actually *impede* UIA against non-elevated windows and is to be avoided.
+- **One instance.** A second start asks the first to show its window, and exits.
+- **Start with Windows.** The dashboard starts when the operator signs in. The operator can turn this off.
+- **No elevation.** Terminals and shells run at the operator's normal level. An elevated dashboard could not inspect them.
 
 ---
 
 ## Part IV — Cross-cutting logic
 
-Platform-independent rules that govern behavior regardless of how Parts II and III are realized.
+Rules that do not depend on the platform.
 
 ### IV.1 The session state machine
 
-States: `Working`, `NeedsYou.Question`, `NeedsYou.Permission`, `Error`, `Unread`, `Acked`, `Interrupted`, `Ended`.
+Nine states:
 
-Transitions are triggered by events (Part II) and by acknowledgment sources (Part I.3). All transitions are **idempotent** and **timestamp-guarded**: an incoming event older than the state's last-applied timestamp is ignored; re-applying the current state is a no-op.
+| State | Meaning |
+|---|---|
+| `Working` | Claude works on the turn |
+| `Waiting` | The turn ended, and background work of the session still runs. Claude Code will wake the session when that work reports |
+| `NeedsYou.Permission` | Blocked on an approval |
+| `NeedsYou.Question` | Blocked on an answer |
+| `Error` | The turn stopped on an error |
+| `Unread` | Finished, and not seen |
+| `Acked` | Seen. Also: started, and nothing typed yet |
+| `Interrupted` | Working, and silent for the threshold |
+| `Ended` | The session terminated |
+
+**Transitions for a known session:**
 
 ```
-            UserPromptSubmit
-   (any) ───────────────────────▶ Working        [also: auto-ack prior Unread/NeedsYou]
- (live) ──Stop───────────────────▶ Unread
- (live) ──Notification(perm)─────▶ NeedsYou.Permission
- (live) ──Notification(needs_input)▶ NeedsYou.Question
-        Notification(idle) is inert — it changes no state (§II.2 correction)
- (live) ──StopFailure────────────▶ Error
- Unread        ──Ack*────────────▶ Acked
- NeedsYou.*     ──Ack*────────────▶ Acked          (rare; usually a new prompt supersedes)
- NeedsYou.* / Error ──UserPromptSubmit─▶ Working    (operator answered/retried)
- NeedsYou.* / Error ──PostToolBatch──▶ Working      (the turn resumed — see below)
- Working  ──no event for N min──▶ Interrupted   (elapsed silence only — see below)
- Interrupted ──any event───────▶ wherever that event says
- (any)   ──SessionEnd────────────▶ Ended ──(timer)──▶ removed
+ (any)   ──UserPromptSubmit────────────▶ Working
+ (live)  ──Notification(permission)────▶ NeedsYou.Permission
+ (live)  ──Notification(needs input)───▶ NeedsYou.Question
+ (live)  ──Notification(any other)─────▶ no change
+ (live)  ──Stop, no background work────▶ Unread
+ (live)  ──Stop, background work runs──▶ Waiting
+ (live)  ──StopFailure─────────────────▶ Error
+ NeedsYou.* / Error / Interrupted ──PostToolBatch──▶ Working   (Waiting, if the session waits)
+ Unread / NeedsYou.* / Error ──Ack─────▶ Acked
+ Working ──no event for 10 minutes─────▶ Interrupted
+ (any)   ──SessionEnd──────────────────▶ Ended
+ Ended   ──SessionStart────────────────▶ Acked
+ (live)  ──SessionStart / CwdChanged───▶ no change of state; the group can change
 
- Ack* = { new UserPromptSubmit in session | manual Ack | inferred focus (Phase 3) }
- (live) = any state except Ended
+ (live) = any state but Ended.  An Ended session reacts only to SessionStart and UserPromptSubmit.
 ```
 
-> **Correction (2026-08-24).** `Stop`, `Notification` and `StopFailure` previously
-> originated only from `Working`. That was too narrow to be correct. The ordinary
-> permission flow is `Working → Notification(perm) → NeedsPermission →` *operator
-> approves in the terminal* `→ Claude finishes → Stop`. Approving a permission is
-> **not** a prompt submission, so under the literal reading that `Stop` was
-> inapplicable and the session stayed `NeedsPermission` **permanently** — stranded
-> in the loudest band, nudging at widening intervals about a turn that had already
-> finished, with no escape until the operator happened to type something new. Found
-> at T1.2 and reproduced independently; these transitions now originate from any
-> live (non-`Ended`) state.
+**The first event of an unknown session** makes the session: `SessionStart` or `CwdChanged` gives Acked; the others give the state in the table. `PostToolBatch`, an Ack, and a notification that changes no state do not make a session.
 
-> **Added 2026-08-31 (T1.30, [issue #28](https://github.com/dsopko/claude-dashboard/issues/28)): `Interrupted`.**
->
-> No event has arrived for the session for the silence threshold while it was `Working`. Entered only from `Working`, only by elapsed time, and never from a state that is asking for the operator: an absence of activity may quieten a session and must never promote one. Any subsequent event leaves it, so a session marked wrongly corrects itself the moment it speaks — `UserPromptSubmit` back to `Working`, `Stop` to `Unread`, and a `PostToolBatch` back to `Working` because a batch resolving is proof the turn is executing.
->
-> **It is silence that is observed, not interruption.** Claude Code posts nothing when a turn is interrupted — re-confirmed against its published documentation on 2026-08-31, where `Stop` carries no `stop_reason`, `StopFailure` is API errors only, and none of the twelve `Notification` matchers concerns interruption. So elapsed quiet is the only signal available, and a single tool call longer than the threshold is indistinguishable from an interrupted turn. The badge reads `INTERRUPTED` because that is overwhelmingly the cause and the operator asked for the word; nothing else in the product repeats the claim.
->
-> **The entry timestamp records a detection, not something the session did.** Every other state's `EnteredAt` marks an event arriving; this one marks the moment the dashboard noticed nothing had. So a row's age is read from last activity rather than from it — the operator wants "silent for 40 minutes", not "greyed out 8 seconds ago" — and nothing nudges off it, because entering this state raises no notice at all.
->
-> **The threshold is ten minutes, and it is a guess.** Every transition is logged at Information with the silence that produced it, so it can be revised from the operator's own machine rather than from arithmetic. There is deliberately no setting: a knob would ask them to guess where a log lets them measure.
+**Three guards.** Delivery is at-least-once and the sequence can change. Each guard covers a case that the others cannot:
 
-> **Addition (2026-08-25, found by dogfooding — [issue #2](https://github.com/dsopko/claude-dashboard/issues/2)).** The correction above fixed a session stranded *after the turn ended*. It did not fix the same session stranded *while the turn is still running*, and that is a separate gap in this diagram: **`Working` was only ever entered from `UserPromptSubmit`.**
->
-> So once a session left `Working` for any Needs-You state, the only road back was the turn ending. Observed: the operator answers a permission, Claude carries on working, and **the row stays red at the top of Needs You for the rest of the turn** — still claiming to be blocked on someone who has already unblocked it. A cleared item that stays on the to-do list is the terminal-hunting this product exists to remove, and it corrupts §IV.2's ordering, since a resolved permission sorts *higher* the longer it has been resolved.
->
-> **There is no hook for "the operator answered."** `PermissionRequest` fires when a decision is needed and `PermissionDenied` when auto mode denies one; approval fires nothing (see `claude-code-hooks-reference.md`). Resumption must therefore be **inferred from the session doing work again**, and `PostToolBatch` — which fires once after a batch of tool calls resolves, before the next model call — is that evidence. It is deliberately the general fix: it covers a resolved question and a recovered error as well as a permission.
->
-> **`Unread` must never be resumed this way.** Un-reading a finished session is issue #1's failure mirrored, and the worse direction — #1 was loud and wrong, this would be quiet and wrong.
->
-> **Accepted residual:** between approval and the tool *finishing*, the row stays red. Nothing fires at the moment of approval, so with the hooks that exist this gap cannot be closed — only shortened from "the rest of the turn" to "the rest of this tool call".
+1. **The time guard.** An event that is older than the session's last activity is dropped.
+2. **The correlation guard.** A `Stop` whose `prompt_id` is different from the id of the session's current exchange is refused. A late copy of a `Stop` gets a new, later arrival time, so the time guard cannot catch it. Without this guard, such a copy would pull a session that works back to Unread, with a false "finished" sound.
+3. **No effect, no trace.** An event that would leave the session as it is changes nothing: no state change, no sound, and no change of the session's place in the list.
 
-Every state carries: the latest exchange (prompt text; answer text once known), entry timestamp (for age display and nudge timing), workspace, and derived group.
+**Why `Stop`, `Notification` and `StopFailure` apply from any live state.** The usual permission flow is: Working → permission → the operator approves in the terminal → Claude finishes → `Stop`. An approval is not a prompt. If `Stop` applied only from Working, the session would stay in the loudest band permanently.
+
+**Why `PostToolBatch` resumes.** No hook says "the operator answered". The proof that a turn continues is that the session does work again, and `PostToolBatch` is that proof. It covers a permission, a question and an error that recovers. It fires one time for each batch, not for each tool call. **It must never resume `Unread`:** to un-read a finished session is the quiet, worse mirror of the `idle_prompt` defect. *Accepted residual:* between the approval and the end of the tool call, the row stays red.
+
+**`Waiting`.** A turn that ends while a background command or a background agent still runs is not finished: Claude Code will wake the session when the work reports. Before this state existed, such a turn played "finished" while the agent still waited.
+
+- Only work of an allowed kind counts: a background command and a background agent. A long-lived watcher does not count, because it may never report. A kind that the dashboard does not know does not count, and the decision record says that it was seen.
+- Any prompt ends the wait.
+- While a session waits on a background agent, that agent's own permission prompt, question or error arrives under the parent's id and outranks Waiting. The next `PostToolBatch` then puts the session back to Waiting, not to Working.
+- Waiting is work: it is in the Working band and is blue. It is calm: it does not move, it makes no sound, and it is never nudged. The silence rule does not apply to it.
+
+**`Interrupted`.** A Working session that sent no event for ten minutes stops its claim to be busy.
+
+- **It is silence that is observed, not an interrupt.** A tool call that is longer than the threshold looks the same. The name is the operator's word for the usual cause.
+- **It only makes a session quieter.** It applies to Working only. A session that asks for the operator, and goes silent, still asks.
+- **Any event leaves it.** A session that was marked wrongly corrects itself when it speaks.
+- **The threshold is ten minutes, and it is a guess.** Each such change is logged with the silence that caused it, so that the value can be changed from evidence. There is no setting.
+
+**Which prompt is an acknowledgment.** "The operator cannot type a new prompt and not see the last result" is true only of a prompt that somebody typed. Claude Code also submits prompts: a notice that background work is complete, a message from a different session, an idle notice, a message from an agent, and a scheduled job of the session itself. Each of these moves the session to Working, because the work did start again. None is recorded as an acknowledgment. They are recognised by a fixed prefix, or, for a scheduled job, by the structure in the next paragraph. The text is never interpreted.
+
+**A prompt that continues the work.** The notice that background work is complete does not start a new piece of work. The session keeps the text and the start time of the exchange, so "You asked" still shows the operator's question and the working clock does not start again.
+
+**The quiet tick.** A session can schedule a job for itself, for example a check each 30 minutes. Each run is a turn, so each run would play "finished".
+
+- A prompt is a **tick** if it is exactly equal to the prompt of one of the scheduled jobs that the session listed at the end of its last turn. This is structure, not keywords.
+- A tick is **quiet** if the full reply is the one agreed word. The job's prompt asks for this, so the feature is opt-in for each job.
+- After a quiet tick the row goes back to what it showed before the tick: the same state, the same answer, the same entry time, and thus the same place in its nudge schedule. No sound plays.
+- Any other reply is an ordinary reply. Thus an error costs one more sound, and can never make an escalation silent.
+
+The guide for the operator is [Quiet scheduled jobs](quiet-scheduled-jobs.md).
+
+**The title.** The Registry keeps the last title that is not empty and that is different from the one it holds. This runs for each event, also for an event that changes no state, because the events that carry a title are mostly such events. A title never changes a session's place in the list or its clock. A title cannot be removed: nothing on the wire says "no title".
+
+**What each session carries:** the latest exchange (prompt, answer, the times of each), the time it entered its state, the time of its last change, the time an event last arrived, its directory, its group key, its title, the kind of its error, and the background work it waits on.
+
+**The row's clock** is a display rule and is in the Implementation Specification (§5.6). One point is a rule of the domain: **an acknowledgment or a close never starts the clock again.** A row that finished four hours ago still says so after an Ack.
 
 ### IV.2 Attention banding and ordering
 
-Bands, top to bottom, with intra-band order:
+Bands, top to bottom:
 
-| Band | Members | Order within band | Rationale |
+| Band | Members | Order in the band | Reason |
 |---|---|---|---|
-| Needs You | `NeedsYou.Permission`, `Error`, `NeedsYou.Question` | **by kind first — Permission > Error > Question — then oldest first within each kind** | cheapest-to-clear blocker first: a permission is usually seconds of operator time holding up an agent indefinitely |
-| Unread | `Unread` | **newest first** | freshest finish is the one being chased after a beep |
-| Working | `Working` | most recent activity first | — |
-| Quiet | `Acked` (see note — covers "idle" too), `Interrupted` | recency | sinks; collapsible |
-| Ended | `Ended` | recency | dim; auto-removed after a short window |
+| Needs You | `NeedsYou.Permission`, `Error`, `NeedsYou.Question` | **By kind first: Permission, then Error, then Question. Then oldest first in each kind** | The blocker that is cheapest to clear comes first |
+| Unread | `Unread` | **Newest first** | After a sound, the newest finish is the one that the operator looks for |
+| Working | `Working`, `Waiting` | Most recent change first | |
+| Quiet | `Acked`, `Interrupted` | Most recent change first | Sinks; can collapse |
+| Ended | `Ended` | Most recent change first | Dim. Removal after a short time is *not built*: an Ended session stays until the dashboard starts again |
 
-> **Decision (2026-08-24, ratified by the operator).** This row previously read "`Acked`, idle", naming a distinct **idle** member that `SessionState` never had — so the model was knowingly incomplete against its own spec from T1.1 onward, and `AttentionOrder`'s remark had been recording the collision since T1.3. Raised again at T1.11, where the gap first became user-visible: a just-started session renders the badge "QUIET" though nothing has been seen because nothing has happened, and the "+ k quiet" footer counts "finished and seen" together with "started, nothing yet".
->
-> **Ruled: no separate state. One quiet state covers both.** The operator's reasoning — not worth a dedicated `Idle` state for that edge case. `Acked` therefore carries both meanings deliberately, and this is settled rather than deferred: do not re-raise it as a defect.
->
-> What it would have cost, recorded so a future reader can weigh a reversal rather than rediscover it: a `SessionState` change touching the transition table, `AttentionOrder`'s rank and band arrays, the sound engine's notice mapping, and every test asserting `Acked` — plus a **new persisted enum value**, since Impl §8 forbids renumbering. Both members sort by recency, so no ordering would change.
+The asymmetry is deliberate, and it is the centre of the attention model: **reds sort by rising age, greens by falling age.** A blocked session earns attention the longer it is blocked. A finished session is looked for immediately after its sound.
 
-> **Added 2026-08-31 (T1.30, issue #28).** `Interrupted` joins the Quiet band: a session that stopped talking is not competing for attention, and it sorts by recency there like `Acked`. It ranks between `Working` above and `Acked` below — quieter than busy, because a stalled row must not outrank a live one, and more worth noticing than one the operator has already seen. Recency here reads *last activity*, not the moment the silence was detected; see §IV.1.
-The ordering asymmetry (reds by *ascending* age, greens by *descending* recency) is intentional and is the heart of the attention model. In the Needs-You band that asymmetry operates *within* each kind, since kind sorts first (see §IV.3). Pseudocode:
+**The kind order makes sub-bands, not tie-breaks.** A Question that is blocked for twenty minutes is *below* a Permission that is three minutes old. The operator chose this over the alternative (age first, kind for equal ages) with both shown.
 
-```
-def render_order(sessions):
-    needs = [s for s in sessions if s.state in (Question, Permission, Error)]
-    unread = [s for s in sessions if s.state == Unread]
-    working = [s for s in sessions if s.state == Working]
-    quiet = [s for s in sessions if s.state == Acked or s.idle]
-    ended = [s for s in sessions if s.state == Ended]
+**No separate idle state.** A session that started and did nothing is `Acked`, the same as one that was seen. Both sort by recency, so the order does not change. A separate state would cost a change to the transition table, the rank table, the sound mapping and a stored value, for one edge case. This is settled.
 
-    # kind first (Permission > Error > Question), then oldest first within kind
-    needs.sort(key=lambda s: (needs_rank(s.state), s.entered_at))
-    unread.sort(key=lambda s: s.entered_at, reverse=True)  # newest first
-    working.sort(key=lambda s: s.last_activity, reverse=True)
-    quiet.sort(key=lambda s: s.last_activity, reverse=True)
+Each order is total: the last tie-break is the session id.
 
-    return needs + unread + working + quiet + ended
-```
-
-In **grouped** view this ordering runs *within* each group, and groups are ordered by their most-urgent member (tie-break: latest activity), so active groups float up. In **flat** view the bands are global and labeled.
+In the **grouped** view this order runs *in* each group. Groups are in the order of their state (§IV.3), then their most recent change. In the **flat** view the bands are global and have headings.
 
 ### IV.3 Grouping and derivation
 
-- **Phase 1 key:** workspace (`cwd`). Re-derived on directory-change events, not fixed at session start.
-- **Phase 4 key:** virtual desktop id (III.9), with desktop name as the group label.
-- **Group state** = worst member state (`NeedsYou.Permission` > `Error` > `NeedsYou.Question` > `Unread` > `Working` > `Quiet`). **In a roster group `Working` outranks `Unread`**, because its members are one piece of work passing between them and one member finishing while another works is a hand-off, not a result (issue #16). A roster group reads finished only after every member has been quiet for a settle window.
-- **Settle window:** 1.5 s, a starting value rather than a measured one. A group that reads finished and returns to working within 5 s wrote a wrong finished, and says so in the log — that line is what will decide whether 1.5 s holds.
-- **Group recency** = most recent member event.
+**One severity order** serves the bands, the groups and the tray light:
 
-> **Correction (2026-08-24, ratified by the operator).** §IV.2 and this section
-> previously disagreed about `Error`: §IV.2's band table placed it *inside* the
-> Needs-You band, while this roll-up ranked it *below* the band as a whole. Both
-> now use one severity order, and the operator's ruling splits the two Needs-You
-> states around `Error` rather than keeping them together:
-> **Permission > Error > Question.**
->
-> **Rationale — throughput, not age.** A permission prompt is usually seconds of
-> operator time (one approval) standing between an agent and an indefinite wait,
-> so clearing it returns the most blocked capacity per second of attention. An
-> error is next: often self-recoverable on retry, but stopped until looked at. A
-> question is the softest — it may need real thought, and thinking about it does
-> not unblock anything else.
->
-> **This order forms sub-bands, not tie-breaks.** In §IV.2's Needs-You band, kind
-> sorts first and age sorts within each kind, so a `Question` blocked twenty
-> minutes appears *below* a `Permission` raised three minutes ago. That is
-> deliberate and was chosen over the alternative (age dominant, kind breaking
-> exact ties only) with both renderings side by side. §IV.2's oldest-first
-> principle still governs *within* a kind.
+`NeedsYou.Permission` > `Error` > `NeedsYou.Question` > `Unread` > `Working` > `Waiting` > `Interrupted` > `Acked` > `Ended`
 
-**Grouping mirrors observable reality, and the dashboard never invents membership.** A group's key is derived from what the events reported — the workspace in Phase 1, the virtual desktop in Phase 4 — and is re-derived on directory-change events rather than fixed at session start.
+The reason is throughput, not age. A permission is usually seconds of operator time that hold an agent for an unlimited time. An error is next: it stays stopped until somebody looks. A question is the softest: it can need thought, and that thought unblocks nothing else.
 
-**The operator may define a roster: a named set of session names.** A session whose current title is in a roster is grouped by that roster, wherever it is running and whatever its workspace; a roster group outranks the workspace group, because gathering sessions that `cwd` scatters is the point. This is the one place the operator's hand reaches grouping, and it reaches only the *rule*, never the membership: **a roster matches names the sessions themselves report, so the dashboard still never asserts that two sessions belong together on its own authority.** A rename moves a session in or out with no restart, and a session in no roster is grouped exactly as before.
+- **Group state** = the worst state of its members.
+- **Group recency** = the most recent change of a member.
+- **The key** is the working directory. Case, the direction of separators and a separator at the end do not make two groups. A session with no directory is a group of one. *Phase 4, not built:* the virtual desktop as the key.
 
-> **Amendment (2026-08-30, T1.25, issue #16).** This paragraph previously read "The operator never assigns groups by hand; grouping mirrors observable reality. A manual label or per-group checklist is a candidate refinement only if it later earns its place." The first clause stopped being true when rosters landed. The rest of it did not, and is what the replacement keeps.
+**Grouping mirrors what can be observed. The dashboard never invents membership.**
+
+**Rosters.** The operator can define a roster: a named set of session names. A session whose title is in a roster is grouped by that roster, wherever it runs. A roster group outranks the directory group, because to gather sessions that directories scatter is its purpose.
+
+- The operator's hand reaches the *rule* and never the membership: a roster matches names that the sessions report. A rename moves a session in or out with no restart.
+- The match is exact. A session with no title can be in no roster.
+- A name is in one roster at most. A roster with no members does not exist.
+- A group that the operator forms exists immediately. It survives a restart only if the operator asks the dashboard to remember it.
+- To remove a member removes its name from the roster permanently. The session goes back to its directory group.
+
+**A roster group is one piece of work that passes between its members.** Thus:
+
+- **In a roster group, `Working` and `Waiting` outrank `Unread`.** One member that finishes while a second works is a hand-off, not a result.
+- **The settle window.** In a hand-off there is a moment when no member works. A roster group reads finished only after each member is quiet for **1.5 seconds**. Until then it reads Working. The value is a start value, not a measured one.
+- **The check on that value.** A group that reads finished and goes back to work in **5 seconds** wrote a false "finished". The log says so, and that line decides if 1.5 seconds holds.
+- **One sound for the group** (§IV.5), and **one Ack for the group** (Design §4).
 
 ### IV.4 Space, staleness, collapse
 
-Rows are the scarce resource (a narrow panel). Rules, in priority order:
+Rows are the scarce resource. The rules, in priority:
 
-1. **A fully quiet group collapses to one line** after N minutes idle (default 15): name, member count, idle age. Expandable; never pushes active work down.
-2. **Acked rows collapse within their group** to a "+ k quiet" footer.
-3. **Unread rows always keep a full row** — finished-but-unseen work is exactly what gets lost today and is never summarized away.
+1. **A group that is fully quiet becomes one line** after 15 minutes with no change: name, count of members, idle time. It can be opened.
+2. **Quiet rows in a live group become one "+ k quiet" line.**
+3. **An Unread row always keeps a full row.** Work that is finished and not seen is what gets lost today. It is never summarised.
 
-Rule 3 supersedes the earlier "show only the first finished session per group when space is tight" idea, which would have hidden the very thing the tool exists to surface. Collapsing only *already-handled* work is simpler and safe.
+In the flat view, the Quiet band and the Ended band are each one line that can be opened.
+
+"Quiet" here means the Quiet band and the Ended band, and nothing else.
 
 ### IV.5 Sound policy engine
 
-Vocabulary: a **notice** is the first sound for an event; a **nudge** is a reminder.
+A **notice** is the first sound for an event. A **nudge** is a reminder.
 
-- **Notices** fire on state entry: distinct sounds for finished, permission, question, error (the existing sound language).
-- **Nudges** fire for a still-unacknowledged **`NeedsYou.Permission`, `Error` or `NeedsYou.Question`** session past T₁ (default 2 min): the *same melody, softer and quieter*, repeating at widening intervals (2 → 5 → 10 min). Never louder, never faster.
+- **Notices** play when a session enters a state. Four states have one, each with its own sound: finished (Unread), permission, question, error. Working, Waiting, Acked, Interrupted and Ended have none.
+- **Nudges** play for a session that stays in **`NeedsYou.Permission`, `Error` or `NeedsYou.Question`**: the *same melody, softer*, after 2 minutes, then 5, then 10. The last interval repeats. Never louder, never faster. If the dashboard was blocked and a nudge is late, one nudge plays, not all that were missed.
+- **Unread** gets one soft nudge after 5 minutes, and no more.
+- **A roster group** makes one finished sound when it settles (§IV.3), and one soft nudge. The finished sound of a member is not played. A member's permission, question and error sounds are not changed: they are about that member.
+- **A quiet tick** (§IV.1) makes no sound and leaves the nudge schedule where it was.
+- **Mute all** makes all sound stop, for 30 minutes or until the operator ends it. The tray light stays true.
+- **Pause** makes all sound stop until the operator resumes, and makes the tray light grey and visibly "off". This is the one deliberate exception to "the tray tells the truth". Pause does not survive a restart.
+- **Mute for one session or one group.** The engine has it. No control reaches it. *Not built.*
+- **Suppression (Phase 3, not built):** no notice for a session that the operator looks at.
 
-> **Correction (2026-08-24, found at T1.5).** This bullet previously read "a `NeedsYou.*` session", but §IV.1's state list names `NeedsYou.Question`, `NeedsYou.Permission` and `Error` as three *separate* states — so read literally, an errored session would notice once and then go **silent forever**, which is the failure this product exists to prevent. The three nudge-eligible states are now named explicitly. This follows from the ratified §IV.2/§IV.3: `Error` sits inside the Needs-You band, its rationale is "stopped until looked at" — precisely the nudge condition — and it ranks *above* `Question`, so a scheme where a question nudges and an error does not would be incoherent.
-- **Unread** gets at most one soft nudge (default 5 min) or none — per-state configurable.
-- **Mute** is available per-session and per-group.
-- **Suppression (Phase 3):** when focus inference reports the operator is looking at a session, suppress that session's notice — they'll see it finish.
+Mute is a filter on the output, not a stop of the schedule. A muted session's schedule goes on silently, so that an unmute does not release a backlog.
 
-Timing model: each session in a nudge-eligible state holds a scheduled next-nudge time; entering `Acked` (from any ack source) cancels it. This is a pure timer over Registry state and touches no platform code except playback.
+The engine keeps a due time for each session and plays what is due when it is asked. It starts no timer. An acknowledgment clears the due time. Thus there is nothing to cancel, and no race between a nudge and an Ack.
 
 ### IV.6 Persistence
 
-- **Ephemeral (in memory):** the live Registry, band computations, nudge timers.
-- **Durable (survives restart):** a Registry snapshot for warm restart (I.2), operator settings (thresholds, sound choices, mutes, default view), and — Phase 5 — an event/exchange history for search and stats.
-- A durable append-only event log is the natural substrate for both warm restart and later history; the spec requires the *capability*, not a specific store.
+- **In memory only:** the Registry, the bands, the nudge schedule, the mute and pause modes, a roster that the operator did not ask to remember.
+- **On disk:** the operator's settings; the rosters that the operator asked to remember; the place of the window; and an **event log**.
+- **The event log** is append-only. It holds each event with its full payload, and a **decision record**: each judgement that the dashboard made (a state change, a refusal, a sound played, a sound not played and the cause), next to the event that caused it. It answers "why did that sound play?".
+- The decision record holds identifiers and names only. It never holds a title, a prompt or an answer.
+- **A restart from the log** is the intent. *Not built.* So is search of the history (Phase 5).
+- The log is not pruned. *Retention is not built.*
 
 ### IV.7 Degradation ladder
 
-Every platform capability fails soft; the product keeps working with less precision:
+Each capability fails soft. The product continues with less.
 
-| If this breaks… | …the system falls back to | Product still does |
+| If this fails… | …the system does this | The product still |
 |---|---|---|
-| Tab-level UIA | window-level focus/activation | acks and navigates at window granularity |
-| Content match ambiguous (look-alike tabs) | window-level activation | navigates to the window, skips exact tab |
-| Desktop switching (build change) | window activation (triggers switch) + documented-tier grouping | jumps to the session; groups correctly |
-| Focus inference entirely | manual + auto (new-prompt) ack | Phase 1 acknowledgment, fully usable |
-| Reconciliation sweep | event stream only | shows sessions from their next event on |
-| HTTP ingress | command-hook transport | same events, different pipe |
+| The dashboard does not run | The hook script finds no announcement and stops | Leaves each Claude Code session untouched. The events of that time are lost |
+| No free port | The dashboard starts, announces nothing, and says so in the tray | Shows its window; receives nothing |
+| Claude Code is not connected | The dashboard shows a notice with what to do | Runs; receives nothing until it is connected |
+| The event log cannot be written | The dashboard writes one warning and stops the log | Shows and sounds as usual, with no history |
+| The sound device fails | Silence, and a log line | Shows as usual |
+| The settings file cannot be read | Defaults in memory; the file is left as it is | Runs |
+| The pin to all desktops fails | The window is on one desktop | Runs |
+| The reconciliation sweep *(not built)* | The event stream only | Shows each session from its next event on |
+| Tab-level UIA *(later)* | Window-level focus and activation | Acknowledges and goes to the window |
+| Content match is ambiguous *(later)* | Window-level activation | Goes to the window |
+| Desktop switching *(later)* | Window activation, and grouping from the documented tier | Goes to the session; groups correctly |
+| Focus inference *(later)* | Manual Ack and the Ack from a new prompt | Phase 1 acknowledgment |
 
-Phase 1 sits at the bottom of every ladder and is fully functional on its own.
+Phase 1 is at the bottom of each ladder and works alone.
 
 ### IV.8 Threat surface summary
 
-- Loopback-only ingress; optional shared-secret header.
-- Event text is display data, never executed.
+- The endpoint listens on loopback only. A token is necessary, always.
+- Event text is display data. It is never executed and never logged.
 - No elevation.
-- Phase 7 remote access is a distinct authenticated surface over the Registry, never the raw ingress exposed outward.
+- The dashboard never writes Claude Code's settings.
+- Remote access (Phase 7) is a separate authenticated surface on the Registry. It is never the raw endpoint opened to the network.
+
+### IV.9 The state report
+
+A local caller can ask what the Registry believes now. The answer is one entry for each session (state, band, group, directory, title, times, kind of error, the background work it waits on, the time of its next nudge), then a count for each band, and the tray light.
+
+- It is read-only. It changes no session and no setting.
+- It needs the token.
+- **It never carries a prompt or an answer.** It does carry titles and descriptions of background work, by the operator's ruling, so that a caller can tell sessions apart.
+- It is for tests and diagnosis. It is not a complete read model for a second interface: see [Core and App](claude-dashboard-core-and-app.md) §6.3.
 
 ---
 
 ## Part V — Mechanism-to-phase map
 
-| Phase | Product theme | Claude-side mechanisms | Windows-side mechanisms | Cross-cutting |
+| Phase | Theme | Claude side | Windows side | Cross-cutting |
 |---|---|---|---|---|
-| **1** | See clearly | HTTP/command hook intake for SessionStart, UserPromptSubmit, Notification, Stop, StopFailure, SessionEnd | tray presence; audio playback | full state machine; banding; grouping by workspace; collapse rules; notices + nudges; warm-restart snapshot; retain exchange text for later matching |
-| **2** | Go there | — | UIA tab enumeration + content-matching; terminal-delegated `focus-tab`; direct activation with click-exempt foreground | navigator wiring; per-terminal locate strategy |
-| **3** | It notices | synthetic ack events from focus | foreground event hook; UIA selection events; dwell thresholding | ack-source unification; on-screen notice suppression |
-| **4** | Task lens | — | virtual-desktop grouping (documented tier); desktop names; isolated undocumented adapter | grouping key swap to desktop |
-| **5** | Memory | richer event retention | — | durable history; search; wait-time stats |
-| **6** | Polish | — | — | settings UI; sound editor; themes |
-| **7** | Anywhere | — | — | authenticated remote surface as a second Registry consumer |
+| **1** | See clearly | Command hook, through a plugin, for the eight events of §II.2 | Tray light; audio; one instance; start with Windows; the pin to all desktops | The state machine; banding; grouping by directory and by roster; collapse rules; notices and nudges; the event log and the decision record; the state report |
+| **2** | Go there | — | UIA tab enumeration and content-matching; the terminal's focus command; direct activation | Navigator; locate strategy for each terminal |
+| **3** | It notices | Acknowledgment events from focus | Foreground hook; UIA selection events; the dwell time | One path for all acknowledgments; no notice for a session on screen |
+| **4** | Task lens | — | Grouping by virtual desktop; desktop names | The group key becomes the desktop |
+| **5** | Memory | — | — | Search of the history; statistics; a restart from the log; retention |
+| **6** | Polish | — | — | Settings interface; sound editor; themes |
+| **7** | Anywhere | — | — | An authenticated remote surface as a second consumer of the Registry |
+
+Phases 2 to 7 are not built.
 
 ---
 
-## Appendix A — External surfaces this system depends on (and their stability)
+## Appendix A — External surfaces, and how stable each is
 
-| Surface | Kind | Stability | Isolation strategy |
+| Surface | Kind | Stability | How it is isolated |
 |---|---|---|---|
-| Claude Code hook events & payloads | documented product API | evolving but documented | thin intake adapter; tolerate unknown fields |
-| UI Automation tree + text of the terminal | OS API over app UI | app-version-sensitive | adapter; window-level fallback; used for both content-matching and tab selection |
-| Foreground-changed event hook | OS API | very stable | — |
-| Terminal window/tab command-line addressing | documented | stable | delegate when possible |
-| Virtual desktop — documented interface | OS API | stable | primary for grouping |
-| Virtual desktop — internal interface | undocumented | build-sensitive | pinned community wrapper; graceful degradation |
-| Tray & activation calls | OS API | very stable | — |
+| Claude Code hook events and payloads | Documented product API | Changes, and is documented. The documentation and the wire disagree in places: see the [hooks reference](claude-code-hooks-reference.md) | A thin mapper that reads a fixed list of fields and tolerates the remainder |
+| Claude Code's plugin commands | Documented product API | Measured on one version | One adapter; a notice on screen when it fails |
+| Claude Code's settings file | A file that Claude Code owns | The dashboard reads three keys | Read only, and tolerant: a file that will not parse is "cannot be read" |
+| UI Automation tree and text of the terminal *(later)* | OS API over an application's UI | Depends on the terminal version | An adapter; window-level fallback |
+| Foreground-changed hook *(later)* | OS API | Very stable | — |
+| The terminal's window and tab command *(later)* | Documented | Stable | Used where possible |
+| Virtual desktop, documented interface *(later)* | OS API | Stable | The primary source for grouping |
+| Virtual desktop, internal interface | Undocumented | Changes with the Windows build | A pinned wrapper behind an adapter; failure is a lost convenience |
+| Tray and activation calls | OS API | Very stable | — |
 
 ## Appendix B — Open technical questions
 
-- **Content-match disambiguation.** If two tabs ever present identical recent text, the join is unresolved and falls back to window level. Is that acceptable in practice, or is a lightweight disambiguator (e.g., a hidden per-session marker read only during troubleshooting) worth adding later? Not built now.
-- **Answering from the dashboard.** Typing a reply into a session from the panel would need a write path back into the terminal (injected input, or a terminal automation surface). This pulls the tool toward being a terminal frontend and is deferred past Phase 3 pending appetite.
-- **Subagents.** Roll subagent lifecycle up into the parent session row, or ignore entirely? Affects which events are subscribed.
-- **Queued prompts.** Claude Code lets the operator queue messages; surface a "queued" hint on Working rows, and if so, from which signal?
-- **Unread that is never acked and never revisited.** Auto-fade after some hours, or persist until acted on?
-- **Relationship to ClaudeSessions.** Does this absorb that project? A session-addressing URI scheme from it would slot directly into Phase 2 navigation as an alternative to UIA location.
+- **Content-match disambiguation.** If two tabs show the same recent text, the join has no answer and falls back to the window. Is that acceptable, or is a light disambiguator necessary later? Not built now.
+- **Answers from the dashboard.** To type a reply into a session from the panel needs a write path into the terminal. That pulls the tool toward a terminal front end. Deferred past Phase 3.
+- **Subagents.** Partly answered. A background agent's events arrive under the parent session's id, and the Waiting state covers a parent that waits on one. The dashboard does not show a subagent as its own row. Open: should it?
+- **Queued prompts.** Claude Code lets the operator queue messages. Show a "queued" hint on a Working row? From which signal?
+- **Unread that is never acknowledged.** Today it stays Unread until it is acknowledged or the dashboard restarts. Fade it after some hours?
+- **The relation to ClaudeSessions.** Does this project absorb that one? Its session addressing could serve Phase 2 navigation.
+- **Several observers.** Today "seen" is a state of the session, so there is one observer. Two people, or two devices with separate acknowledgments, need "seen" to be a fact about an observer. See [Core and App](claude-dashboard-core-and-app.md).
+
+## Appendix C — Specified and not built
+
+One list for all the documents. Each item is marked *not built* where it appears.
+
+| Item | Where it is specified | State of the code at `0488527` |
+|---|---|---|
+| Removal of an Ended session after a short time | §IV.2; Design §4, §5 | Nothing removes a session. It stays until the dashboard restarts |
+| A restart that restores the world from disk | §I.2, §IV.6; Impl Part 8 | The Registry starts empty. The event log exists and nothing reads it at start |
+| Retention of the event log | §IV.6; Impl Appendix B | The log is never pruned |
+| Mute for one session or one group | §IV.5; Design §8; Impl Part 7 | The sound engine has both. No event and no control reaches them |
+| Settings for the nudge intervals, the Unread nudge, the stale time, the sound choice, the default view | Design §8; Impl Part 8 | Fixed values. The settings file has four sound values only (Impl §8.2) |
+| A control for always-on-top | Impl §5.4 | A key in the settings file only |
+| A count badge on the tray light | Design §9 | No digits. The counts are in the tooltip |
+| The reconciliation sweep | §III.6 | Not built |
+| The kind of an Error row | §II.2 | Always empty: the wire field is `error` and the dashboard reads `error_type` (issue #67) |
+| A restart of the dashboard after a crash | Earlier text of Impl §10.1 | Given up by ruling when the start moved to the `Run` key (Impl §10.1) |
+| "Open terminal" on an open row | Design §9 | The button is in the markup and is hidden until Phase 2 |
+| Navigator, Focus Observer, grouping by desktop, history search, the settings interface (but one checkbox), the remote surface | Part III, Part V | Phases 2 to 7 |
+
+## Appendix D — Change history
+
+The text above says what is true now. This list says when each rule changed, for a reader who meets an older statement in a commit, an issue or a comment in the code.
+
+| Date | Change | Source |
+|---|---|---|
+| 2026-08-22 | v0.2. The join between a session and its tab is content-matching. The terminal title is left untouched | — |
+| 2026-08-24 | `idle_prompt` changes no state. Before, it gave Needs You — Question, and each finished session went red | Issue #1 |
+| 2026-08-24 | `Stop`, `Notification` and `StopFailure` apply from any live state, not from Working only | T1.2 |
+| 2026-08-24 | One severity order: Permission > Error > Question. §IV.2 and §IV.3 had disagreed about Error | Operator's ruling |
+| 2026-08-24 | No separate idle state. `Acked` covers "started, nothing typed" | Operator's ruling |
+| 2026-08-24 | Error nudges, like the two Needs You states | T1.5 |
+| 2026-08-25 | `PostToolBatch` resumes a blocked or failed session | Issue #2 |
+| 2026-08-30 | Rosters, the roster severity order and the settle window. Before, "the operator never assigns groups by hand" | T1.25, T1.26; issue #16 |
+| 2026-08-30 | The command hook replaces the HTTP hook. The hook names a script, and no port is in Claude Code's settings | T1.28; issue #29 |
+| 2026-08-31 | The `Interrupted` state and the silence threshold | T1.30; issue #28 |
+| 2026-09 | The event log gains the decision record | T1.37; issue #48 |
+| 2026-09 | A notice of complete background work continues the exchange | T1.40; issue #51 |
+| 2026-09 | The `Waiting` state. A prompt that nobody typed is not an acknowledgment | T1.41; issue #52 |
+| 2026-09 | The quiet tick | T1.44; issue #56 |
+| 2026-09-29 | The state report. An Ack or a close never restarts the row's clock | T1.46, T1.47; issues #10, #59 |
+| 2026-09-30 | The token is made at each start and travels in the announcement file. An environment variable is no longer used | T1.48; issue #57 |
+| 2026-10-01 | The hook is registered as a Claude Code plugin. The dashboard never writes Claude Code's settings. Start with Windows | T1.49, T1.50, T1.51; issues #30, #36, #65 |
+| 2026-10-02 | v0.3. This document is written again to agree with the code. The dated correction blocks became this table | — |

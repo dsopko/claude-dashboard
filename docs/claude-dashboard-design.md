@@ -1,166 +1,204 @@
 # Claude Dashboard — Design Document
 
-**Draft v0.1 · 2026-08-22 · technology-agnostic**
+**v0.2 · 2026-10-02 · no technology named · agrees with the product at commit `0488527`**
 
-Working title: *Claude Dashboard*. Everything in this document describes behavior and concepts, not implementation. No stack decisions are made or implied here.
+This document describes behaviour and concepts: the *what* and the reasons. It names no technology. The [Technical Specification](claude-dashboard-spec.md) (TS) holds the mechanisms and is the authority for the event mapping, the bands and the order. The [Implementation Specification](claude-dashboard-impl-spec.md) (Impl) holds the exact values; its §5.6 says what each part of the window shows.
+
+*Not built* marks an intent that the product does not have yet. TS Appendix C lists all such items.
 
 ---
 
 ## 1. What this is
 
-Claude Dashboard is a Windows application for a developer running many concurrent Claude Code sessions. At any moment it answers three questions in one glance:
+Claude Dashboard is a Windows application for a developer who runs many Claude Code sessions at one time. At a glance it answers three questions:
 
-1. **What needs me right now?** (a session is waiting on permission or an answer)
-2. **What finished that I haven't looked at yet?**
-3. **What's still working?**
+1. **What needs me now?** A session waits for a permission or an answer.
+2. **What finished that I did not look at yet?**
+3. **What still works?**
 
-It replaces mental tracking and terminal-hunting with a single prioritized list, and it replaces "a beep happened somewhere" with "this session, working on this task, finished / needs you."
+It replaces a mental map and a search through terminals with one list in order of priority. It replaces "a beep occurred somewhere" with "this session, on this task, finished" or "needs you".
 
 ## 2. The problem
 
-Fifteen terminals across multiple virtual desktops, each running an agent on a different job. Audio notifications announce *that* something happened, never *what* or *where*. Terminals show the answer but not the question, so checking a result means finding the right window, then scrolling up to reconstruct context. Finished-but-unseen work piles up invisibly, and the operator carries the whole map in his head.
+Fifteen terminals on several virtual desktops, each with an agent on a different job. A sound says *that* something occurred, never *what* or *where*. A terminal shows the answer and not the question, so to check a result the operator must find the window and scroll up. Work that is finished and not seen collects out of view, and the operator carries the full map in their head.
 
 ## 3. Product principles
 
-**Attention is the product.** The list is sorted by what needs the operator, never by alphabet and never by pure chronology. A session that's been blocked for ten minutes must not sink below one that finished ten seconds ago.
+**Attention is the product.** The list is in the order of what needs the operator. It is never in alphabetical order and never in pure time order. A session that is blocked for ten minutes must not sink below one that finished ten seconds ago.
 
-**Mirror reality; never require bookkeeping.** Grouping is derived from things that already exist (working folder now, virtual desktop later). The moment the tool asks the operator to file sessions under tasks, it becomes a chore that goes stale. This is explicitly not a project-management tool.
+**Mirror reality; ask for no bookkeeping.** Grouping comes from things that exist: the working folder, and the names that sessions already have. When a tool asks the operator to file sessions under tasks, it becomes a chore that goes stale. This is not a project-management tool.
 
-**Quiet by default, loud only for interrupts.** Motion and alarm are reserved for sessions that need a human. Reminders get *softer*, not louder — the first sound informed; reminders only nudge.
+**Quiet by default, loud only for an interrupt.** Motion and alarm are for sessions that need a person. A reminder is *softer*, not louder: the first sound informed, and the reminder only taps a shoulder.
 
-**Reduce trips, don't just guide them.** Each row can show the question *and* the answer, so many checks end in the dashboard without a context switch at all.
+**An absence of activity never makes a session louder.** A session that goes silent can become quieter on screen. It can never become red. This rule was learned twice (§4).
 
-**Every phase ships something useful on its own.** Phase 1 with no navigation and no focus-tracking still beats trolling fifteen terminals.
+**Remove trips, not only shorten them.** Each row can show the question *and* the answer. Many checks end in the dashboard.
+
+**Each phase ships something useful alone.** Phase 1 has no navigation and no focus tracking, and it is still better than fifteen terminals.
 
 ## 4. Domain model
 
-**Session** — one running Claude Code instance. It has an identity, a workspace (the folder it's working in), a derived group, a state, a current exchange, and a timeline of state changes.
+**Session** — one Claude Code instance that runs. It has an identity, a working folder, a group, a state, a current exchange, and a short history of its state changes.
 
-**Exchange** — one prompt-and-answer turn. The latest exchange is the session's context line: the prompt snippet says what the session is doing, and the answer is what the operator reads when it finishes. What *names* a session is its title, where it has one (§9).
+**Exchange** — one prompt and its answer. The latest exchange is the session's context line: the prompt says what the session does, and the answer is what the operator reads when it finishes. What *names* a session is its title, where it has one (§9).
 
 **Session states**
 
-| State | Meaning | Entered when | Color language |
+| State | Meaning | Entered when | Colour and motion |
 |---|---|---|---|
-| **Working** | Claude is processing a prompt | operator submits a prompt | blue, breathing |
-| **Needs You — Question** | Claude asked something and is blocked on the answer | Claude requests input (see the correction below) | red, blinking |
-| **Needs You — Permission** | Claude wants approval for an action | permission request raised | red, blinking |
-| **Error** | the turn died (rate limit, auth, server) | turn fails | amber, steady |
-| **Unread** | Claude finished; result not yet seen | response completes | green, steady |
-| **Acked** | result seen and acknowledged | see *Acknowledgment* | grey |
-| **Ended** | session exited | session ends | dim grey, then removed |
+| **Working** | Claude works on a prompt | A prompt is submitted, or a blocked turn continues | Blue, breathes |
+| **Waiting** | The turn ended, and background work of the session still runs | The turn ends with a background command or a background agent that still runs | Blue, still |
+| **Needs You — Permission** | Claude wants approval for an action | A permission prompt shows | Red, blinks |
+| **Needs You — Question** | Claude asked something and is blocked on the answer | Claude asks for input | Red, blinks |
+| **Error** | The turn stopped (rate limit, authentication, server) | The turn fails | Amber, still |
+| **Unread** | Claude finished; the result is not seen | The response is complete | Green, still |
+| **Acked** | The result is seen. Also: a session that started and did nothing yet | See *Acknowledgment* | Grey |
+| **Interrupted** | The session was working and went silent for ten minutes | No event arrived for the threshold | Grey, still |
+| **Ended** | The session exited | The session ends | Dim grey |
 
-> **Correction (2026-08-24, found by dogfooding — [issue #1](https://github.com/dsopko/claude-dashboard/issues/1)).** The Question row previously read "Claude asked something **/ is idle waiting for input**". That "or" bundled two unrelated things, and the second one is not a request: Claude Code's `idle_prompt` fires because a session has been sitting untouched, which every finished session eventually is. The result on screen was that **an Unread row turned red and blinking about ninety seconds after it finished**, needing nothing.
->
-> **Only "Claude asked something and is blocked" is a Question.** Idleness is already the **Quiet** band's job (§5), and §4's own three-tier Acknowledgment is what moves a session there. The authority for the event mapping is **TS §II.2**; this table is a summary of it.
->
-> Worth keeping as a principle, because it is the second time this has bitten: **an absence of activity must never escalate a session.** Motion and alarm are for sessions that need a human (§3), and nothing-happened is the opposite of that.
->
-> **Extended 2026-08-31 (T1.30, [issue #28](https://github.com/dsopko/claude-dashboard/issues/28)): it may still *de-escalate* one.** A `Working` session that has said nothing for ten minutes stops claiming to be busy — grey, badged `INTERRUPTED`, out of the Working band and still. The asymmetry is the whole rule. A session that has gone quiet may have been interrupted, or may be in the middle of a long tool call, and the two are indistinguishable from outside; quietening it costs the operator a glance at a row that turns out to be fine, while promoting it would cost them a false alarm. Nothing sounds, nothing nudges, and nothing moves.
+The TS (§II.2, §IV.1) is the authority for which event gives which state. This table is a summary.
 
-**Acknowledgment** — the transition from Unread (or Needs You) to Acked. Three tiers:
+**Two lessons about silence.**
 
-1. *Automatic:* the operator submits a new prompt in that session — proof the answer was seen. Zero extra plumbing; covers most cases.
-2. *Manual:* an Ack action on the row — except inside a roster group, which is acknowledged **once, at its header**: the orchestration is the unit, one click clears every waiting member, and member rows carry no Ack of their own (they keep the badge and LED, so what wants attention is still visible). The accepted cost: a blocked member — permission, question, error — is cleared by hand only at the group, which is chosen, since the permission has to be answered in the terminal either way. Members of a working-directory group keep their own Acks: that group is a filing convenience, not an orchestration.
-3. *Inferred (later phase):* the session's terminal window/tab held focus for a few seconds.
+- *Idleness is not a question.* Claude Code sends an "idle" notice when a session sat untouched, and each finished session does that. When the dashboard read that notice as a question, each finished row became red and blinking about ninety seconds after it finished, with nothing to ask. Only "Claude asked something and is blocked" is a Question.
+- *Silence can make a session quieter.* A Working session that says nothing for ten minutes stops its claim to be busy: grey, with the badge `INTERRUPTED`. The session was probably interrupted, or it is in one long tool call; the two look the same from outside. To make it quieter costs the operator one glance at a row that is in order. To make it louder would cost a false alarm. No sound plays, and nothing moves.
 
-Phase 1 ships tiers 1 and 2.
+**Waiting is work, and it is calm.** Before this state, a turn that started a long build and ended played "finished" while the agent still waited for the build. A Waiting row stays in the Working band and is blue. It does not move, it makes no sound, and it is never nudged.
 
-**Group** — a derived container of sessions. Phase 1 grouping key: workspace folder. Later: virtual desktop (which is how tasks are already organized), with desktop names as group names. A group's state is the *worst* state of its members (needs-you > error > unread > working > quiet), and its recency is its most recent member event.
+**Acknowledgment** — the change from Unread (or Needs You, or Error) to Acked. Three tiers:
 
-**Event feed** — the app consumes session lifecycle notifications: session started/ended, prompt submitted (with prompt text), response finished (with answer text), attention requested (question/permission), turn failed (with reason). Already verified feasible against Claude Code's lifecycle hooks; the precise contract is a Phase 1 implementation detail. The feed is deliberately generic so other agent tools could feed it someday — a design convenience, not a goal.
+1. *Automatic:* the operator submits a new prompt in that session. That is proof that the answer was seen. **Only a prompt that a person typed counts.** Claude Code also submits prompts by itself: a notice that background work is complete, a message from a different session, a scheduled job. These start the work again, and they are not proof that anybody saw anything.
+2. *Manual:* an Ack on the row. In a roster group the Ack is **one, at the group's heading**: the orchestration is the unit, one click clears each member that waits, and a member's row has no Ack (it keeps its badge and its light). The accepted cost: a blocked member can be cleared by hand only at the group. A group by working folder is a filing convenience, and its members keep their own Acks. **Ack all** in the toolbar clears each session that waits.
+3. *Inferred (Phase 3, not built):* the session's terminal held the focus for some seconds.
 
-**Notifier** — the sound policy engine. First-notice sounds per state, plus the reminder ("nudge") policy in §8. This is where claude-beeps eventually lives.
+An acknowledgment never restarts a row's clock. A row that finished four hours ago still says so after the Ack.
+
+**Group** — a container of sessions that is derived, not assigned.
+
+- By default the key is the **working folder**.
+- A **roster** is a named set of session names that the operator made by a selection of rows (§9). A session whose title is in a roster is in that roster's group, wherever it runs. The dashboard still invents no membership: a roster matches names that the sessions report.
+- Later (Phase 4, not built): the virtual desktop as the key.
+- A group's state is the *worst* state of its members: permission > error > question > unread > working > waiting > quiet.
+- **In a roster group, working outranks unread.** The members are one piece of work that passes between them. One member that finishes while a second works is a hand-off, not a result. The group reads finished only after all members are quiet for a moment (1.5 seconds).
+
+**Event feed** — the application consumes session lifecycle events: a session started or ended, a prompt was submitted (with its text), a response finished (with its text), attention was asked for, a turn failed, the folder changed, a batch of tool calls ended. The TS (§II.2) has the contract.
+
+**Notifier** — the sound policy: a first sound for each state, and the reminder policy of §8.
 
 ## 5. The attention model
 
-The list is organized into priority bands, top to bottom:
+The list has priority bands, top to bottom:
 
-| Band | Contains | Order within band |
+| Band | Contains | Order in the band |
 |---|---|---|
-| **Needs You** | permissions, errors, questions | **by kind first — Permission > Error > Question — then oldest first within each kind** (see the correction below) |
-| **Unread** | finished, unseen | **newest first** — when a beep just fired, the newest green is the one being hunted |
-| **Working** | processing | most recent activity first |
-| **Quiet** | acked, idle | sinks to the bottom |
-| **Ended** | exited sessions | dim single line for a few minutes, then gone (history is a later phase) |
+| **Needs You** | Permissions, errors, questions | **By kind first: permission, then error, then question. Then oldest first in each kind** |
+| **Unread** | Finished, not seen | **Newest first.** After a sound, the newest green is the one that the operator looks for |
+| **Working** | Working, and waiting on background work | Most recent change first |
+| **Quiet** | Acknowledged, idle, interrupted | Most recent change first; sinks to the bottom |
+| **Ended** | Sessions that exited | Dim. Removal after some minutes is *not built* |
 
-The ordering asymmetry is deliberate: reds are sorted by starvation, greens by the beep-chasing workflow. Within the Needs-You band that asymmetry now operates *inside* each kind — see the correction.
+**The asymmetry is deliberate:** reds sort by how long they starve, greens by the "I just heard a beep" workflow.
 
-> **Correction (2026-08-24).** The Needs-You row above previously read "oldest first — the longest-blocked agent is the most wasted capacity". That was superseded by the operator's ratification recorded in **TS §IV.2 and §IV.3** (commits `e645fd8`, then `2860e14`), which is the authority for ordering. The ratified rule sorts the band **by kind first — `Permission` > `Error` > `Question` — then oldest-first within each kind**, so a Question blocked twenty minutes appears *below* a Permission raised three minutes ago.
->
-> The rationale changed with it, from age to **throughput**: a permission is usually seconds of operator time standing between an agent and an indefinite wait, so clearing it returns the most blocked capacity per second of attention; an error is often self-recoverable on retry; a question may need real thought, and thinking about it unblocks nothing else meanwhile.
->
-> This section went stale because the amendment landed in the TS while this document was not yet in the authoritative set — it was added to the Execution Plan's companion list at `9de8ab3`/`41d0f57`. **TS §IV.2/§IV.3 remain the authority for banding and ordering; this section is a summary of them.** The single implementation lives in `AttentionOrder` and is consumed by both the attention engine and `Group.WorstState`.
+**Why kind comes before age.** A permission is usually seconds of operator time between an agent and an unlimited wait, so to clear it gives back the most blocked capacity for each second of attention. An error often recovers on a retry. A question can need real thought, and that thought unblocks nothing else. Thus a question that is blocked for twenty minutes is *below* a permission that is three minutes old. The operator chose this with both orders shown.
 
-*Alternative considered:* pure "last status change" ordering (the original sketch). Rejected because a fresh green would bury a starving red; recency is preserved *within* bands, so the feel survives.
+*Alternative considered:* pure "last status change" order. Rejected, because a fresh green would bury a red that starves.
 
-In grouped view, groups sort by their most urgent member (tie-break: latest activity), and the same bands apply inside each group. In flat view the bands are global and visibly labeled. Active groups float to the top automatically — no manual pinning needed.
+In the grouped view, groups sort by their most urgent member (then by latest activity), and the same bands apply in each group. In the flat view the bands are global and have headings. Active groups float to the top with no pin.
 
-## 6. Space, staleness, and overflow
+## 6. Space, staleness and overflow
 
-The window is a narrow side panel; rows are the scarce resource. Rules, in order:
+The window is a narrow side panel. Rows are the scarce resource. The rules, in sequence:
 
-1. **A stale group costs one row.** When every member of a group is quiet for N minutes (default 15), the group collapses to a single line — name, member count, "quiet 38 min." Still findable, click to expand, never pushes active work down.
-2. **Acked rows collapse inside their group.** An expanded group shows a footer like "+ 3 quiet" instead of individual grey rows.
-3. **Unread rows always get a full row.** Finished-but-unseen work is exactly what gets lost today; it is never summarized away.
+1. **A stale group costs one row.** When each member of a group is quiet for 15 minutes, the group becomes one line: name, member count, "idle 38 min". A click opens it.
+2. **Quiet rows collapse in their group.** A group with live work shows a line "+ 3 quiet" in place of the grey rows.
+3. **An Unread row always gets a full row.** Work that is finished and not seen is what gets lost today. It is never summarised.
 
-Rule 3 replaces the "show only the first green per group when space is tight" idea: that rule would hide precisely the thing the tool exists to surface, and it adds a special overflow mode. Collapsing only what's already been *dealt with* is simpler and safe.
+Rule 3 replaces the idea "show only the first green of each group when space is short". That rule would hide the thing that the tool exists to show. To collapse only what is *dealt with* is simpler and safe.
 
-Budget check: a row is about two text lines. Fifteen sessions with zero collapsing fit a half-height column; with collapsing, the typical visible count is far lower.
+In the flat view, the Quiet band and the Ended band are each one line that can be opened.
 
 ## 7. View modes
 
-**Grouped** (default) and **Flat**, switched by a toggle in the header. Same band logic in both; flat view adds a small group tag to each row and labels the bands. A "needs me only" filter is a candidate for later — the band sort may make it unnecessary.
+**Grouped** (the default at each start) and **Flat**, with a toggle in the toolbar. The band logic is the same in both. The flat view adds a small folder tag to each row and gives the bands headings. A "needs me only" filter is a candidate for later.
 
 ## 8. Sound design
 
-Vocabulary: a **notice** is the first sound for an event; a **nudge** is the reminder.
+A **notice** is the first sound for an event. A **nudge** is the reminder.
 
-- **Notices** keep the existing claude-beeps language: finished = "bee-boop"; permission, question, and error each get their own distinct sound.
-- **Nudges** fire when a Needs You session sits unacknowledged past T₁ (default 2 min): the *same melody, softer* — "beee-booop," lower volume, gentler timbre — repeating at widening intervals (2 → 5 → 10 min). Never louder, never faster. The first sound informed; the nudge only taps a shoulder.
-- **Unread** gets at most one soft nudge (default: after 5 min) or none — configurable per state.
-- Per-group and per-session mute are cheap and worth having early.
-- Later, once focus-awareness exists (Phase 3): suppress the notice for the session currently on screen — you're watching it finish anyway.
+- **Notices:** finished, permission, question and error each have their own sound. Working, Waiting and Interrupted have none.
+- **Nudges** play when a permission, an error or a question waits: the *same melody, softer*, after 2 minutes, then 5 minutes later, then each 10 minutes. Never louder, never faster.
+- **Unread** gets one soft nudge after 5 minutes.
+- **A roster group makes one sound.** No chime for each hand-off, and none for each member. One notice plays when the last member finishes.
+- **A scheduled job that finds nothing can be silent.** See [Quiet scheduled jobs](quiet-scheduled-jobs.md).
+- **Mute all** stops all sound, for 30 minutes or until the operator ends it. The tray light stays true.
+- **Pause monitoring** stops all sound and makes the tray light grey and visibly "off", until the operator resumes.
+- **Mute for one session or one group.** *Not built.*
+- **Settings for the intervals.** *Not built:* the values above are fixed.
+- Later (Phase 3, not built): no notice for the session that is on screen.
 
 ## 9. Main window anatomy
 
-- **Header:** app name · counts strip ("3 need you · 2 unread · 1 working") · Grouped/Flat toggle · mute.
+This section is the authority for the anatomy of a row and for the motion rule. Impl §5.6 gives each rule with its exact value.
+
+- **Caption:** the application name and the **counts strip** ("11 sessions · 3 need you · 2 unread · 1 working"). When the window is narrow, the strip drops words before numbers.
+- **Toolbar:** the Grouped/Flat toggle · Select · Mute all · Ack all.
+- **Notice:** one amber row under the toolbar, only when the dashboard is not connected to Claude Code. It says what is wrong and what to do. A dashboard that receives nothing must not look like a quiet day.
 - **Body:** groups (or bands) of session rows.
-- **Session row:** status LED · the session's title where it has one, then the prompt snippet (monospace — it *is* terminal text) · state + age line · Ack action on unread rows. The title is whatever Claude Code calls the session — a name the operator set with `--name` or `/rename`, or one Claude Code generated. It is truncated, and sits outside the snippet's budget so a title never costs prompt text. A session with no title renders as it did before.
-- **Selecting sessions:** the operator groups sessions by entering *selection mode* from the header and clicking rows. The tick is shown only in that mode, so a row costs no width for it the rest of the time, and the mode announces itself in the header — a mode that can be on unseen is a mode that will be wrong. In selection mode a row click selects rather than expands. **A selected row is marked by its own state, never by focus**: a check takes the status LED's slot and the row carries a selection shade distinct from the focus shade, so two chosen rows both look chosen whichever one was clicked last. **A session with no title cannot be selected**, and says so on the row — dimmed while the mode is on, with the remedy in the tooltip: a roster stores names, and that session has none to store.
-- **Lit action chips:** the toolbar has two kinds of control, with separate rules. A *segmented toggle* (Grouped / Flat) always has one raised segment, and the raised segment means *this is the current state*. An *action chip* is **lit when it is enabled and it is the primary action of the current state** — the thing the state exists to reach: *Ack all* whenever something waits, *Group these* once selection can complete. *Select* is an entry into a mode, *Cancel* is a way out, *Mute all* is a preference — none is ever lit, because "lit = enabled" alone would light them permanently and mean nothing. An unlit chip rests at the plain header look, not a dimmed one: a quiet board and an incomplete selection are ordinary states, not broken controls. One consequence, accepted: in selection mode with two chosen and something waiting, *Group these* and *Ack all* are both lit — they sit in different clusters and answer different questions.
-- **Group heading:** the group's name — the roster's own name where the group is a roster, and the workspace's short name otherwise — with its member count, worst-member accent and idle age. Expanding a roster group lets a member be **removed** from it by right-click, which takes the name out of the roster permanently: removal that a restart undoes is not removal. A removed session is not removed from the dashboard — it returns to its workspace group.
-- **Roster prompt:** after the operator forms a group, a single row above it asks whether to remember the group as a roster. It is not modal — the window can be used and dismissed with the prompt unanswered, and **an unanswered prompt is a declined one**: the group is already formed and already unpersisted, so no answer and "no" leave the same state.
-- **Expanded row:** the full latest exchange — "You asked …" / "Claude answered …" — with Ack, a disabled "Open terminal" slot reserved for Phase 2, and the session id: the first eight characters, which copy in full on a click. The id appears here only — the session row does not carry it.
-- **Tray icon:** always-ambient summary — grey all-quiet, blue working, red with a needs-you count badge. The dashboard can be closed and the tray still tells the truth.
+- **Session row:** status light · the session's title where it has one, then the start of the prompt (monospace: it *is* terminal text) · a badge with the state · the age · an Ack on a row that waits. The title is what Claude Code calls the session: a name that the operator set with `--name` or `/rename`, or one that Claude Code made. It is cut to a fixed length and does not take space from the prompt. A session with no title shows the prompt only.
+- **The age on a row** says whose time it is. "Waiting 4 min": the agent is stopped and the time is the operator's. "2 min ago": the work is done and the time measures how long it is unseen. "6 min": the agent is busy. A working row counts from the operator's question, and a stop for a permission does not restart it.
+- **Selection:** the operator makes a roster in *selection mode*, which starts from the toolbar. The mode shows itself in the toolbar: a mode that can be on and not seen is a mode that will be wrong. In the mode, a click on a row selects it and does not open it. **A selected row shows that by its own state, never by focus:** a check takes the place of the status light, and the row has a selection shade that is different from the focus shade. **A session with no title cannot be selected**, and its row says so: a roster stores names, and that session has none.
+- **Lit action buttons:** the toolbar has two kinds of control. A *segmented toggle* (Grouped / Flat) always has one raised segment, which means "this is the current state". An *action button* is **lit when it is the main action of the current state**: *Ack all* when something waits, *Group these* when two or more rows are chosen. *Select*, *Cancel* and *Mute all* are never lit. A button that is not lit looks plain, not dim: a quiet board is an ordinary state, not a broken control.
+- **Group heading:** the group's name (the roster's own name for a roster; the folder's short name for a folder group), one dot for each member in its colour, and, for a stale group, the member count and the idle time. A roster group that has a member that waits shows the group's one Ack. A right click on a member of a roster group removes its name from the roster permanently; the session goes back to its folder group.
+- **Roster prompt:** after the operator makes a group, one row above the list asks if the dashboard must remember the group as a roster. It is not modal. **A prompt with no answer is a "no"**: the group exists and is not saved, so no answer and "no" leave the same state.
+- **Open row:** the full latest exchange ("You asked …" with the time, "Claude answered …"), the background work that a Waiting session waits on, the Ack, and the session id (the first eight characters; a click copies the full id). An "Open terminal" action belongs here in Phase 2; it is *not built* and is hidden.
+- **Tray light:** always there. Red for a permission, amber for an error or a question, green for unread, blue for working, grey for quiet. It has no digits; the counts are in its tooltip. The window can be closed and the tray still tells the truth.
 
-Motion discipline: red blinks; working breathes; nothing else moves.
+**Motion: red blinks; working breathes; nothing else moves.** With animations off in Windows, nothing moves at all.
 
-## 10. Phase plan (strawman — reorder freely)
+**The tray palette and the row palette differ on purpose.** A lone question is amber in the tray and red on its row. The tray triages (*how urgently must I look?*). The row diagnoses (*what does it do?*).
 
-| Phase | Theme | Contents |
-|---|---|---|
-| 1 | **See clearly** | event intake · session list with states and bands · grouped/flat toggle · ack tiers 1+2 · notices + nudges · collapse rules · tray icon |
-| 2 | **Go there** | click-to-navigate (window + Windows Terminal tab) · tab titling from prompts |
-| 3 | **It notices** | focus-based ack (tier 3) · on-screen notice suppression |
-| 4 | **Task lens** | virtual-desktop grouping · desktop names as group names |
-| 5 | **Memory** | session history · searchable past exchanges · simple stats (e.g., how long agents wait on you) |
-| 6 | **Polish** | settings UI · sound editor · themes |
-| 7 | **Anywhere** | phone/remote view — read states and ack from anywhere |
+## 10. Phase plan
 
-Each phase is independently shippable. Phase 7 is the reason the domain model stays cleanly separated from the Windows-specific parts — a remote read surface later shouldn't touch the core.
+| Phase | Theme | Contents | State |
+|---|---|---|---|
+| 1 | **See clearly** | Event intake · the session list with states and bands · grouped and flat · rosters · Ack tiers 1 and 2 · notices and nudges · collapse rules · the tray light · the event log | Built |
+| 2 | **Go there** | Click a row to go to its terminal window and tab | Not built |
+| 3 | **It notices** | Ack from focus (tier 3) · no notice for the session on screen | Not built |
+| 4 | **Task lens** | Grouping by virtual desktop · desktop names as group names | Not built |
+| 5 | **Memory** | Session history · search of past exchanges · simple statistics | Not built |
+| 6 | **Polish** | A settings interface · a sound editor · themes | One setting is built: start with Windows |
+| 7 | **Anywhere** | A phone or remote view: read the states and acknowledge from any place | Not built |
+
+Each phase can ship alone. Phase 7 is the reason that the domain model stays apart from the Windows parts. [Core and App](claude-dashboard-core-and-app.md) says what a second interface needs.
 
 ## 11. Non-goals (for now)
 
-- Project or task management: no assigning, no kanban, no manual task lists.
-- Typing prompts or replying from the dashboard (open question — it pulls the tool toward being a terminal frontend; revisit after Phase 3).
-- Multi-machine aggregation (until Phase 7 forces the question).
-- Managing non-Claude agents (the event feed stays generic, but it's not a goal).
+- Project or task management: no assignment, no kanban, no task lists.
+- To type a prompt or a reply from the dashboard. It pulls the tool toward a terminal front end. Look again after Phase 3.
+- Sessions from more than one machine in one list (until Phase 7 forces the question).
+- To manage agents that are not Claude.
+- To write anything into Claude Code's own settings.
 
 ## 12. Open questions
 
-- Relationship to ClaudeSessions: does this absorb it (the `claudesessions://` scheme would slot straight into Phase 2 navigation), or are they siblings?
-- Unread rows that are never acked and never revisited — auto-fade after some hours, or sit forever?
-- Subagents: roll up into the parent session, or hide entirely?
-- Queued prompts (Claude Code lets you queue messages) — show a "1 queued" hint on working rows?
-- Retention: is "today only" enough until Phase 5?
+- The relation to ClaudeSessions: does this absorb it, or are they siblings?
+- An Unread row that is never acknowledged: fade it after some hours, or leave it? Today it stays.
+- Subagents: show each as a row, or keep them under the parent? Today a background agent's events arrive under the parent session, and a parent that waits on one is Waiting.
+- Queued prompts: show a "1 queued" hint on a working row?
+- Retention: how long must the event log be kept?
+- More than one observer: two people, or two devices with separate acknowledgments. Today "seen" is a state of the session, so there is one observer.
+
+## 13. Change history
+
+| Date | Change | Source |
+|---|---|---|
+| 2026-08-24 | Only "Claude asked something and is blocked" is a Question. An idle notice changes nothing | Issue #1 |
+| 2026-08-24 | The Needs You band sorts by kind first (permission, error, question), then oldest first | Operator's ruling |
+| 2026-08-30 | Rosters: selection mode, the roster prompt, the roster group's one sound | Issue #16 |
+| 2026-08-31 | The Interrupted state: silence can make a session quieter | Issue #28 |
+| 2026-09 | Ack all. A roster group is acknowledged at its heading | Issues #43, #47 |
+| 2026-09 | The Waiting state. A prompt that nobody typed is not an acknowledgment | Issue #52 |
+| 2026-09 | A quiet scheduled job makes no sound | Issue #56 |
+| 2026-09-29 | An acknowledgment or a close never restarts a row's clock. The "Open terminal" button is hidden | Issues #59, #60 |
+| 2026-10-01 | The notice when the dashboard is not connected. Nothing is written into Claude Code's settings | Issue #65 |
+| 2026-10-02 | v0.2. Written again to agree with the product. "Tab titling from prompts" is removed from Phase 2: the terminal title is left untouched (TS §III.3) | — |

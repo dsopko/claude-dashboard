@@ -1,6 +1,14 @@
 # Claude Dashboard — Packaging Execution Plan (Install Path, Step 1)
 
-**Status:** Proposed 2026-09-01. Executes the decisions in the [Packaging Design](claude-dashboard-packaging-design.md); where this document and the design disagree, the design wins and the conflict is escalated.
+**Status:** Proposed 2026-09-01. **PKG.1, PKG.2 and PKG.3 are done** (September 2026). **PKG.4 is the operator's gate:** its first iteration is recorded below, and the run on a clean machine as a standard user is not recorded as done. Executes the decisions in the [Packaging Design](claude-dashboard-packaging-design.md); where this document and the design disagree, the design wins and the conflict is escalated.
+
+**This document is a plan and a record. Read it with these changes, which came after it was written (brought up to date 2026-10-02):**
+
+- **The hook is a Claude Code plugin** (T1.49, T1.51). Where a task below says "the hook switches", they register and remove the plugin. Where it says the hooks are in Claude Code's settings, that is the state of 2026-09-02: the application no longer writes that file.
+- **The start with Windows is the `Run` key** (T1.50). Where a task below says "no logon task until Step 2", read: the application writes its `Run` value at the first start of an installed copy.
+- **Gate item 7 has more to see.** With no Claude Code on the machine, the application also shows the notice "no Claude Code install detected" in its window and in its tray tooltip.
+- **Gate item 9 has more to check.** The uninstall also removes the `Run` value.
+- **The Velopack version** is 1.2.161 (T1.45), in the package and in the `vpk` tool.
 
 **Workflow:** the director/coder/reviewer roles, handoff contract, dispatch rules (including `notify_when_idle` on every dispatch and the standing watchdog), and launch runbook are defined in the main [Execution Plan](claude-dashboard-execution-plan.md), Appendices B and C. They apply here unchanged and are referenced, not re-quoted. Task IDs below use the `PKG.` prefix so Status Reports and Review Requests are unambiguous alongside `T1.x` work.
 
