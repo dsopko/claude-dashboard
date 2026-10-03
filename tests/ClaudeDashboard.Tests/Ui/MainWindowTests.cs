@@ -1434,6 +1434,45 @@ public sealed class MainWindowTests(StaHarness harness, Xunit.Abstractions.ITest
         // The age reads "ago", not a bare duration: this row is not claiming to be busy.
         Assert.Contains(texts, text => text.EndsWith(" ago", StringComparison.Ordinal));
     }
+    /// <summary>
+    /// <strong>An Error row says which error it was, beside its badge</strong> (T1.53, issue #67).
+    /// </summary>
+    /// <remarks>
+    /// The failure enters as the wire sends it, through the real mapper, rather than as a built
+    /// <see cref="StopFailure"/>: the defect was in the field name, and a built event has no field
+    /// names. The kind must be in the badge's own line, so that it reads as the badge's detail.
+    /// </remarks>
+    [Fact]
+    public void An_error_row_shows_its_kind_beside_the_badge()
+    {
+        const string Id = "failed";
+
+        var (badgeLine, texts) = WithWindow(
+            registry =>
+            {
+                registry.Working(Id, At);
+
+                var mapper = new ClaudeDashboard.App.Ingress.HookEventMapper(new FakeClock(At.AddMinutes(1)));
+                var payload = System.Text.Json.JsonSerializer.Deserialize<ClaudeDashboard.App.Ingress.HookPayload>(
+                    """{"hook_event_name":"StopFailure","session_id":"failed","error":"rate_limit"}""");
+                registry.Apply(mapper.Map(payload!).Event!);
+            },
+            (window, _) =>
+            {
+                var row = RowFor(window, Id);
+                var badge = StaHarness.FindAll<TextBlock>(row).Single(block => block.IsVisible && TextOf(block) == "ERROR");
+                var line = (Panel)VisualTreeHelper.GetParent((Border)VisualTreeHelper.GetParent(badge));
+
+                return (
+                    StaHarness.FindAll<TextBlock>(line).Where(block => block.IsVisible).Select(TextOf).ToList(),
+                    VisibleTexts(window, Id));
+            });
+
+        // The kind comes right after the badge. The age and the workspace follow it on the line.
+        Assert.Equal(["ERROR", "rate_limit"], badgeLine.Take(2));
+        Assert.Single(texts, text => text == "rate_limit");
+    }
+
     private static List<string> VisibleTexts(MainWindow window, string sessionId) =>
         [.. StaHarness.FindAll<TextBlock>(RowFor(window, sessionId))
             .Where(block => block.IsVisible)

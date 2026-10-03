@@ -1,3 +1,4 @@
+using System.Text.Json;
 using ClaudeDashboard.Core;
 using ClaudeDashboard.Core.Events;
 using ClaudeDashboard.Core.Ports;
@@ -113,7 +114,8 @@ public sealed class HookEventMapper(IClock clock)
             {
                 SessionId = sessionId, Timestamp = timestamp, Cwd = cwd,
                 PromptId = promptId, TranscriptPath = transcript,
-                ErrorKind = payload.ErrorType ?? payload.Matcher ?? string.Empty,
+                // The wire's name first, then the documented one (T1.53, issue #67).
+                ErrorKind = TextOf(payload.Error) ?? payload.ErrorType ?? payload.Matcher ?? string.Empty,
             },
 
             HookEventNames.SessionEnd => new SessionEnd
@@ -189,4 +191,8 @@ public sealed class HookEventMapper(IClock clock)
             ScheduledPrompts = SessionCronReader.Read(payload.SessionCrons),
         };
     }
+
+    /// <summary>A raw field's text when it is a JSON string, or null for any other shape.</summary>
+    private static string? TextOf(JsonElement? field) =>
+        field is { ValueKind: JsonValueKind.String } text ? text.GetString() : null;
 }

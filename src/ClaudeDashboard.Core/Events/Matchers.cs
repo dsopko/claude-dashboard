@@ -73,6 +73,9 @@ public enum StopFailureKind
 
     /// <summary>Authentication failed.</summary>
     AuthenticationFailed = 3,
+
+    /// <summary>The service failed on its side. Seen in the archive: 3 of 18 events (T1.53).</summary>
+    ServerError = 4,
 }
 
 /// <summary>The <c>SessionEnd</c> matcher — why the session terminated (Impl §9.1).</summary>
@@ -163,6 +166,7 @@ public static class StopFailureKinds
         "rate_limit" => StopFailureKind.RateLimit,
         "overloaded" => StopFailureKind.Overloaded,
         "authentication_failed" => StopFailureKind.AuthenticationFailed,
+        "server_error" => StopFailureKind.ServerError,
         _ => StopFailureKind.Unknown,
     };
 
@@ -172,6 +176,7 @@ public static class StopFailureKinds
         StopFailureKind.RateLimit => "rate_limit",
         StopFailureKind.Overloaded => "overloaded",
         StopFailureKind.AuthenticationFailed => "authentication_failed",
+        StopFailureKind.ServerError => "server_error",
         _ => null,
     };
 }

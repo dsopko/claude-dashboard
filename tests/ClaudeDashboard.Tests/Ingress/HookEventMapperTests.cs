@@ -218,17 +218,70 @@ public sealed class HookEventMapperTests
         Assert.Equal("29 passed, 0 failed", stop.LastAssistantMessage);
     }
 
+    /// <summary>
+    /// <strong>The payload as the wire sends it</strong> (T1.53, issue #67): the kind is in
+    /// <c>error</c>, not in the documented <c>error_type</c>. The body is the shape of an archived
+    /// <c>StopFailure</c>, with its other fields left out.
+    /// </summary>
     [Theory]
     [InlineData("rate_limit", StopFailureKind.RateLimit)]
     [InlineData("overloaded", StopFailureKind.Overloaded)]
     [InlineData("authentication_failed", StopFailureKind.AuthenticationFailed)]
-    public void StopFailure_carries_every_matcher_value_section_9_1_lists(string kind, StopFailureKind expected)
+    [InlineData("server_error", StopFailureKind.ServerError)]
+    public void StopFailure_reads_its_kind_from_error_as_the_wire_sends_it(string kind, StopFailureKind expected)
     {
         var failure = MapTo<StopFailure>(
-            $$"""{"hook_event_name":"StopFailure","session_id":"s-1","error_type":"{{kind}}"}""");
+            $$"""{"hook_event_name":"StopFailure","session_id":"s-1","error":"{{kind}}"}""");
 
         Assert.Equal(kind, failure.ErrorKind);
         Assert.Equal(expected, failure.Kind);
+    }
+
+    /// <summary>A payload that follows the documentation, with only <c>error_type</c>, still maps.</summary>
+    [Fact]
+    public void StopFailure_with_only_error_type_still_maps()
+    {
+        var failure = MapTo<StopFailure>(
+            """{"hook_event_name":"StopFailure","session_id":"s-1","error_type":"overloaded"}""");
+
+        Assert.Equal("overloaded", failure.ErrorKind);
+        Assert.Equal(StopFailureKind.Overloaded, failure.Kind);
+    }
+
+    /// <summary>The wire's field wins over the documented one, and over the generic matcher.</summary>
+    [Fact]
+    public void Error_wins_over_error_type_and_matcher()
+    {
+        var failure = MapTo<StopFailure>("""
+            {
+              "hook_event_name": "StopFailure",
+              "session_id": "s-1",
+              "error": "rate_limit",
+              "error_type": "overloaded",
+              "matcher": "authentication_failed"
+            }
+            """);
+
+        Assert.Equal("rate_limit", failure.ErrorKind);
+    }
+
+    /// <summary>
+    /// An <c>error</c> that is not a string is not read, and does not cost the event: the
+    /// <c>StopFailure</c> still maps, and the next name is tried. Degrade, never crash.
+    /// </summary>
+    [Theory]
+    [InlineData("""{"type":"rate_limit"}""", "")]
+    [InlineData("42", "")]
+    [InlineData("null", "")]
+    [InlineData("""["rate_limit"]""", "overloaded")]
+    public void An_error_that_is_not_a_string_still_maps_the_failure(string error, string expected)
+    {
+        var errorType = expected.Length > 0 ? $$""","error_type":"{{expected}}" """ : string.Empty;
+
+        var failure = MapTo<StopFailure>(
+            $$"""{"hook_event_name":"StopFailure","session_id":"s-1","error":{{error}}{{errorType}}}""");
+
+        Assert.Equal(expected, failure.ErrorKind);
     }
 
     /// <summary>§9.1's list ends in "…", so an unrecognized kind must survive intact.</summary>
@@ -236,7 +289,7 @@ public sealed class HookEventMapperTests
     public void StopFailure_carries_an_unrecognized_kind_verbatim()
     {
         var failure = MapTo<StopFailure>(
-            """{"hook_event_name":"StopFailure","session_id":"s-1","error_type":"context_length_exceeded"}""");
+            """{"hook_event_name":"StopFailure","session_id":"s-1","error":"context_length_exceeded"}""");
 
         Assert.Equal("context_length_exceeded", failure.ErrorKind);
         Assert.Equal(StopFailureKind.Unknown, failure.Kind);

@@ -121,6 +121,46 @@ public sealed class StateEndpointTests
     }
 
     /// <summary>
+    /// <strong>A session in Error reports its kind</strong> (T1.53, issue #67): a
+    /// <c>StopFailure</c> posted to <c>/hook</c> as the wire sends it, with <c>error</c>, answers
+    /// <c>"errorKind": "rate_limit"</c> on <c>/state</c>.
+    /// </summary>
+    [Fact]
+    public async Task A_session_in_Error_reports_the_kind_the_wire_sent()
+    {
+        await using var host = await StateHost.Start(Token);
+
+        host.Registry.Apply(new UserPromptSubmit
+        {
+            SessionId = new SessionId("s-1"),
+            Timestamp = FakeClock.DefaultStart,
+            Cwd = @"C:\work",
+            PromptId = "p-1",
+            Prompt = "run the tests",
+        });
+
+        using var post = new HttpRequestMessage(HttpMethod.Post, "/hook")
+        {
+            Content = new StringContent(
+                """{"hook_event_name":"StopFailure","session_id":"s-1","cwd":"C:\\work","prompt_id":"p-1","error":"rate_limit"}""",
+                Encoding.UTF8,
+                "application/json"),
+        };
+        post.Headers.Add(IngressToken.HeaderName, Token);
+        using var posted = await host.Client.SendAsync(post);
+        Assert.Equal(HttpStatusCode.OK, posted.StatusCode);
+
+        host.Registry.Apply(Assert.IsType<StopFailure>(Assert.Single(host.Sink.Published)));
+
+        using var response = await host.Client.SendAsync(Get("/state", Token));
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var session = Assert.Single(document.RootElement.GetProperty("sessions").EnumerateArray().ToList());
+
+        Assert.Equal("Error", session.GetProperty("state").GetString());
+        Assert.Equal("rate_limit", session.GetProperty("errorKind").GetString());
+    }
+
+    /// <summary>
     /// A request changes nothing: the Registry and the report are the same after it as before.
     /// </summary>
     [Fact]
@@ -296,6 +336,7 @@ public sealed class StateEndpointTests
             Client = client;
             Registry = app.Services.GetRequiredService<SessionRegistry>();
             Board = app.Services.GetRequiredService<StateBoard>();
+            Sink = (RecordingEventSink)app.Services.GetRequiredService<IEventSink>();
         }
 
         public HttpClient Client { get; }
@@ -303,6 +344,9 @@ public sealed class StateEndpointTests
         public SessionRegistry Registry { get; }
 
         public StateBoard Board { get; }
+
+        /// <summary>What /hook published. Nothing drains it: a test applies what it needs.</summary>
+        public RecordingEventSink Sink { get; }
 
         public static async Task<StateHost> Start(string token)
         {

@@ -156,7 +156,7 @@ public sealed class PhaseOneAcceptanceTests(StaHarness harness) : IDisposable
             // One of each state the dashboard exists to show.
             Post($$"""{"hook_event_name":"Notification","session_id":"s-0","cwd":"{{Cwds[0]}}","notification_type":"permission_prompt","timestamp":"{{When(60)}}"}""");
             Post($$"""{"hook_event_name":"Notification","session_id":"s-1","cwd":"{{Cwds[1]}}","notification_type":"agent_needs_input","timestamp":"{{When(61)}}"}""");
-            Post($$"""{"hook_event_name":"StopFailure","session_id":"s-2","cwd":"{{Cwds[2]}}","prompt_id":"p-2","error_type":"rate_limit","timestamp":"{{When(62)}}"}""");
+            Post($$"""{"hook_event_name":"StopFailure","session_id":"s-2","cwd":"{{Cwds[2]}}","prompt_id":"p-2","error":"rate_limit","timestamp":"{{When(62)}}"}""");
             Post($$"""{"hook_event_name":"Stop","session_id":"s-3","cwd":"{{Cwds[3]}}","prompt_id":"p-3","timestamp":"{{When(63)}}"}""");
 
             // issue #1: a finished session going idle must not become a question.

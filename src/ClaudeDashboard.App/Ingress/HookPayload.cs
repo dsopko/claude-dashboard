@@ -83,7 +83,31 @@ public sealed record HookPayload
     [JsonPropertyName("notification_type")]
     public string? NotificationType { get; init; }
 
-    /// <summary><c>StopFailure</c>: the failure kind — <c>rate_limit</c>, <c>overloaded</c>, … .</summary>
+    /// <summary>
+    /// <c>StopFailure</c>: the failure kind — <c>rate_limit</c>, <c>server_error</c>, … — as the
+    /// wire sends it (T1.53, issue #67).
+    /// </summary>
+    /// <remarks>
+    /// The documentation names this field <c>error_type</c>; Claude Code sends <c>error</c>. All 18
+    /// archived <c>StopFailure</c> events carry <c>error</c>, and none carries <c>error_type</c>
+    /// (hooks reference, discrepancy 4). Where the two disagree, the wire is the authority.
+    /// <para>
+    /// A <see cref="JsonElement"/>, not a string, so that no shape it arrives in can fail the
+    /// whole payload: an <c>error</c> that is not a string is passed over for the next name, and
+    /// the <c>StopFailure</c> still arrives. <see cref="HookEventMapper"/> reads a string only.
+    /// </para>
+    /// </remarks>
+    [JsonPropertyName("error")]
+    public JsonElement? Error { get; init; }
+
+    /// <summary>
+    /// <c>StopFailure</c>: the failure kind under the name the documentation gives it. Read only
+    /// when <see cref="Error"/> is absent, in case a later Claude Code follows its documentation.
+    /// </summary>
+    /// <remarks>
+    /// <c>error_message</c>, documented beside it, is prose about the operator's turn. It is not
+    /// bound here, so nothing can read, store, show or log it.
+    /// </remarks>
     [JsonPropertyName("error_type")]
     public string? ErrorType { get; init; }
 

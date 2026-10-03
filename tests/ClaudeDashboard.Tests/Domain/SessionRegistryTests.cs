@@ -514,6 +514,37 @@ public sealed class SessionRegistryTests
     }
 
     /// <summary>
+    /// <strong>A second, different error moves the detail; the same error again does not</strong>
+    /// (T1.53, issue #67).
+    /// </summary>
+    /// <remarks>
+    /// While every kind read as empty, the second error was declined as a duplicate of the first.
+    /// With the kind read, it changes the row's detail. The session stays in Error, so the age
+    /// clock does not restart: the row has been in Error since the first failure.
+    /// </remarks>
+    [Fact]
+    public void A_second_error_kind_moves_the_detail_and_a_repeat_of_it_is_a_duplicate()
+    {
+        GivenWorking();
+        _clock.AdvanceMinutes(1);
+        Assert.Equal(ApplyOutcome.Applied, Apply(Failed("rate_limit")));
+        var enteredError = Current.EnteredAt;
+        _clock.AdvanceMinutes(1);
+
+        Assert.Equal(ApplyOutcome.Applied, Apply(Failed("server_error")));
+        Assert.Equal(SessionState.Error, Current.State);
+        Assert.Equal("server_error", Current.ErrorKind);
+        Assert.Equal(enteredError, Current.EnteredAt);
+
+        _changes.Clear();
+        _clock.AdvanceMinutes(1);
+
+        Assert.Equal(ApplyOutcome.Duplicate, Apply(Failed("server_error")));
+        Assert.Equal("server_error", Current.ErrorKind);
+        Assert.Empty(_changes);
+    }
+
+    /// <summary>
     /// Enriching a session in place must not make it look newer.
     /// </summary>
     /// <remarks>

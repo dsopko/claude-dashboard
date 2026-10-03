@@ -141,7 +141,9 @@ public sealed class UnprotectedTextInventory
     /// <strong>The wire-vocabulary entries were checked against the hook contract rather than
     /// assumed</strong> (<c>docs/claude-code-hooks-reference.md</c>), because an error string is
     /// the classic place a fragment of somebody's content ends up.
-    /// <c>StopFailure.ErrorKind</c> comes from <c>error_type</c>, a closed set of ten spellings;
+    /// <c>StopFailure.ErrorKind</c> comes from <c>error</c> on the wire, or <c>error_type</c> as
+    /// documented, a closed set of ten spellings (T1.53: the archive holds three of them, and
+    /// nothing else);
     /// <c>SessionEnd.Reason</c> from <c>end_reason</c>, a closed set of five; both fall back to the
     /// matcher, which is also a token. <c>SessionStart.Source</c> is undocumented as a JSON field
     /// but carries the same matcher spellings.
