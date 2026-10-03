@@ -71,6 +71,14 @@ public enum DecisionKind
     /// <summary>A timed mute lapsed, observed on the tick.</summary>
     MuteExpired = 25,
 
+    /// <summary>
+    /// A sound was emitted and the player dropped it (T1.55, issue #72). Recorded in place of
+    /// <see cref="NoticePlayed"/>, <see cref="NudgePlayed"/> or <see cref="GroupNoticePlayed"/>;
+    /// <c>reason</c> is <c>NoOutput</c> or <c>Failed</c>, and <c>detail</c> carries the identifiers
+    /// the played row would have carried.
+    /// </summary>
+    SoundDropped = 26,
+
     // ---- Pipeline -----------------------------------------------------------------------------
 
     /// <summary>A channel was full and dropped its oldest; <c>reason</c> names the channel.</summary>

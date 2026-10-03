@@ -65,7 +65,7 @@ namespace ClaudeDashboard.App.Adapters;
 /// process can ask would distinguish that from a working device with the volume down.
 /// </para>
 /// </remarks>
-public sealed class NAudioSoundPlayer : ISoundPlayer, IDisposable
+public sealed class NAudioSoundPlayer : ISoundPlayer, ISoundOutput, IDisposable
 {
     /// <summary>How many failures against one endpoint before the adapter stops trying it.</summary>
     /// <remarks>
@@ -264,11 +264,20 @@ public sealed class NAudioSoundPlayer : ISoundPlayer, IDisposable
         _worker.Start();
     }
 
-    /// <summary>Whether a working output device is bound. Diagnostic only.</summary>
+    /// <summary>Whether a working output device is bound. The sound device notice reads it (T1.55).</summary>
     /// <remarks>
+    /// <para>
     /// False when Windows reports no default endpoint, when every attempt at the current one has
     /// failed, and when the bound stream has reported itself stopped. It is <em>not</em> false
     /// for a device that is listed, active, and inaudible — see the note on the class.
+    /// </para>
+    /// <para>
+    /// <strong>Read on the UI thread's tick; the endpoint worker and NAudio's thread change it.</strong>
+    /// The read takes the gate, which publishes the pair safely. The gate is held only for a
+    /// reference read or a list insert, never while a device opens or closes, so the tick does not
+    /// wait on a driver. The constructor binds before it returns, so the first read is already the
+    /// real answer: the notice does not flash at start.
+    /// </para>
     /// </remarks>
     public bool HasOutput
     {
@@ -390,11 +399,15 @@ public sealed class NAudioSoundPlayer : ISoundPlayer, IDisposable
     internal string LastProviderKind { get; private set; } = string.Empty;
 
     /// <inheritdoc/>
-    public void Play(SoundId sound, double gain, TimeSpan fade)
+    /// <remarks>
+    /// The outcome comes from the same paths that count <see cref="QueuedCount"/> and
+    /// <see cref="DegradedCount"/>, so the record and the counters cannot disagree (T1.55).
+    /// </remarks>
+    public SoundOutcome Play(SoundId sound, double gain, TimeSpan fade)
     {
         try
         {
-            PlayCore(sound, gain, fade);
+            return PlayCore(sound, gain, fade);
         }
         catch (Exception ex)
         {
@@ -407,6 +420,8 @@ public sealed class NAudioSoundPlayer : ISoundPlayer, IDisposable
             }
 
             _logger.Warning(ex, "Playing {Sound} failed. Continuing without it.", sound.Name);
+
+            return SoundOutcome.Failed;
         }
     }
 
@@ -472,7 +487,7 @@ public sealed class NAudioSoundPlayer : ISoundPlayer, IDisposable
         }
     }
 
-    private void PlayCore(SoundId sound, double gain, TimeSpan fade)
+    private SoundOutcome PlayCore(SoundId sound, double gain, TimeSpan fade)
     {
         Bound? bound;
 
@@ -485,7 +500,7 @@ public sealed class NAudioSoundPlayer : ISoundPlayer, IDisposable
                 DegradedCount++;
                 _droppedWhileSilent++;
 
-                return;
+                return SoundOutcome.NoOutput;
             }
         }
 
@@ -496,7 +511,7 @@ public sealed class NAudioSoundPlayer : ISoundPlayer, IDisposable
                 DegradedCount++;
             }
 
-            return;
+            return SoundOutcome.Failed;
         }
 
         // Clamped rather than rejected, per the port's contract. A gain above one would clip
@@ -532,7 +547,7 @@ public sealed class NAudioSoundPlayer : ISoundPlayer, IDisposable
                 DegradedCount++;
                 _droppedWhileSilent++;
 
-                return;
+                return SoundOutcome.NoOutput;
             }
 
             LastVolume = volume;
@@ -540,6 +555,8 @@ public sealed class NAudioSoundPlayer : ISoundPlayer, IDisposable
 
             bound.Mixer.AddMixerInput(provider);
             QueuedCount++;
+
+            return SoundOutcome.Queued;
         }
     }
 

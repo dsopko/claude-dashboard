@@ -40,9 +40,19 @@ public sealed class RecordingSoundPlayer : ISoundPlayer
     /// </remarks>
     public IReadOnlyList<double> Gains => [.. _played.Select(p => p.Gain)];
 
+    /// <summary>
+    /// What <see cref="Play"/> answers (T1.55): queued unless a test says the output is gone or the
+    /// sound failed. The call is recorded either way, because the engine made it.
+    /// </summary>
+    public SoundOutcome Outcome { get; set; } = SoundOutcome.Queued;
+
     /// <inheritdoc/>
-    public void Play(SoundId sound, double gain, TimeSpan fade) =>
+    public SoundOutcome Play(SoundId sound, double gain, TimeSpan fade)
+    {
         _played.Add(new PlayedSound(sound, gain, fade));
+
+        return Outcome;
+    }
 
     /// <summary>Every call for one sound, in order.</summary>
     public IReadOnlyList<PlayedSound> PlayedOf(SoundId sound) =>

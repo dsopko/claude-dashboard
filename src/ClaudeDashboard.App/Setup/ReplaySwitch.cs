@@ -340,9 +340,9 @@ public static class ReplaySwitch
 
     private sealed class SilentPlayer : ISoundPlayer
     {
-        public void Play(SoundId sound, double gain, TimeSpan fade)
-        {
-        }
+        // Queued: the replay rebuilds the record a live run would have written, and it cannot know
+        // whether that run had an output device. Its rows say "played", as the replay always has.
+        public SoundOutcome Play(SoundId sound, double gain, TimeSpan fade) => SoundOutcome.Queued;
     }
 
     private sealed class DiscardingSink : IEventSink

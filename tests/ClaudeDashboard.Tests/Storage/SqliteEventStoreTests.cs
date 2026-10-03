@@ -381,6 +381,67 @@ public sealed class SqliteEventStoreTests : IDisposable
         Assert.DoesNotContain(log.Events, entry => entry.MessageTemplate.Text.StartsWith("Recording events to {DatabaseFile}. It is", StringComparison.Ordinal));
     }
 
+    /// <summary>
+    /// <strong>Fail, recover, fail again</strong>: a second Warning and a second recovery line,
+    /// with a new lost count (T1.55, from the T1.54 review).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The stack is written on the first failure of the process only. The second Warning carries the
+    /// exception's type and message and no exception, so a disk that flaps costs one short line a
+    /// minute, not a stack a minute.
+    /// </para>
+    /// <para>
+    /// The second failure is a write on an open connection: another connection drops the table, so
+    /// the next insert fails. The retry's schema step makes the table again, which is the recovery.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void A_second_failure_after_a_recovery_warns_again_without_the_stack()
+    {
+        var log = new RecordingLogSink();
+        var clock = new FakeClock();
+        var path = Db();
+
+        using var store = new SqliteEventStore(path, Logger(log), clock);
+
+        // Episode 1: the open fails; a minute later the path is free and the write succeeds.
+        Directory.CreateDirectory(path);
+        Assert.False(store.Append(TestEvents.Hook("{}")));
+        Directory.Delete(path);
+        clock.Advance(TimeSpan.FromSeconds(60));
+        Assert.True(store.Append(TestEvents.Hook("{}")));
+
+        // Episode 2: a write on the open connection fails, then one inside the minute is lost.
+        using (var other = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path};Pooling=False"))
+        {
+            other.Open();
+            using var drop = other.CreateCommand();
+            drop.CommandText = "DROP TABLE events;";
+            drop.ExecuteNonQuery();
+        }
+
+        clock.Advance(TimeSpan.FromSeconds(10));
+        Assert.False(store.Append(TestEvents.Hook("{}")));
+        clock.Advance(TimeSpan.FromSeconds(30));
+        Assert.False(store.Append(TestEvents.Hook("{}")));
+        clock.Advance(TimeSpan.FromSeconds(30));
+        Assert.True(store.Append(TestEvents.Hook("{}")));
+
+        var warnings = log.Events.Where(entry => entry.Level == LogEventLevel.Warning).ToList();
+        Assert.Equal(2, warnings.Count);
+        Assert.NotNull(warnings[0].Exception);
+        Assert.Null(warnings[1].Exception);
+        Assert.Equal("\"SqliteException\"", warnings[1].Properties["ErrorType"].ToString());
+        Assert.Contains("events", warnings[1].Properties["ErrorMessage"].ToString(), StringComparison.Ordinal);
+
+        var recoveries = log.Events
+            .Where(entry => entry.Level == LogEventLevel.Information && entry.MessageTemplate.Text.Contains(" again.", StringComparison.Ordinal))
+            .Select(entry => entry.Properties["LostCount"].ToString())
+            .ToList();
+        Assert.Equal(["1", "2"], recoveries);
+    }
+
     /// <summary>The failure message names the file, not the payload.</summary>
     [Fact]
     public void The_failure_message_names_the_file_and_not_the_body()

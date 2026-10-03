@@ -324,6 +324,31 @@ public sealed class DecisionRecordTests : IAsyncLifetime
         Assert.Contains("waitedMinutes=3", nudge.Detail, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// <strong>With no output, the notice is recorded dropped, and never played</strong> (T1.55,
+    /// issue #72). Through the real pipeline and the real engine: the record the archive receives.
+    /// </summary>
+    [Fact]
+    public async Task With_no_output_a_due_notice_is_recorded_dropped_and_not_played()
+    {
+        _player.Outcome = SoundOutcome.NoOutput;
+
+        Publish(Prompt());
+        await RecordWith(DecisionKind.SessionAdded);
+
+        _clock.AdvanceMinutes(1);
+        Publish(new Stop { SessionId = Id, Timestamp = _clock.Now, Cwd = Cwd, LastAssistantMessage = Marker });
+
+        var record = await RecordWith(DecisionKind.SoundDropped);
+
+        var dropped = Row(record, DecisionKind.SoundDropped);
+        Assert.Equal(Id.Value, dropped.SessionId);
+        Assert.Equal(nameof(SoundOutcome.NoOutput), dropped.Reason);
+        Assert.Equal($"kind=Notice sound={SoundId.Finished}", dropped.Detail);
+
+        Assert.DoesNotContain(_records, r => r.Decisions.Any(d => d.Kind == DecisionKind.NoticePlayed));
+    }
+
     // ---- Mutes --------------------------------------------------------------------------------
 
     /// <summary>The mute is recorded, and what it silenced is recorded suppressed, not lost.</summary>

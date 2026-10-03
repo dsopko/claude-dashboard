@@ -70,7 +70,7 @@ public enum SuppressionReason
 /// </remarks>
 public interface IDecisionSink
 {
-    /// <summary>A sound was emitted to the player.</summary>
+    /// <summary>A sound was emitted, and the player queued it on the output.</summary>
     /// <param name="kind">Notice, nudge, or the group's.</param>
     /// <param name="session">The session it is about; empty for a group's own sound.</param>
     /// <param name="group">The effective group.</param>
@@ -84,6 +84,26 @@ public interface IDecisionSink
         SoundId sound,
         int rung,
         TimeSpan waited);
+
+    /// <summary>
+    /// A sound was emitted, and the player dropped it (T1.55, issue #72): there was no output, or
+    /// it failed. Recorded in place of <see cref="SoundPlayed"/>, with the same identifiers.
+    /// </summary>
+    /// <param name="kind">Notice, nudge, or the group's.</param>
+    /// <param name="session">The session it is about; empty for a group's own sound.</param>
+    /// <param name="group">The effective group.</param>
+    /// <param name="sound">Which sound was dropped.</param>
+    /// <param name="rung">The nudge rung; zero for a notice.</param>
+    /// <param name="waited">How long the session had waited, for a nudge.</param>
+    /// <param name="outcome">Why: <see cref="SoundOutcome.NoOutput"/> or <see cref="SoundOutcome.Failed"/>.</param>
+    void SoundDropped(
+        SoundDecisionKind kind,
+        SessionId session,
+        GroupKey group,
+        SoundId sound,
+        int rung,
+        TimeSpan waited,
+        SoundOutcome outcome);
 
     /// <summary>A sound that was due was deliberately not emitted.</summary>
     /// <param name="kind">Notice, nudge, or the group's.</param>
@@ -117,6 +137,18 @@ public sealed class NullDecisionSink : IDecisionSink
         SoundId sound,
         int rung,
         TimeSpan waited)
+    {
+    }
+
+    /// <inheritdoc/>
+    public void SoundDropped(
+        SoundDecisionKind kind,
+        SessionId session,
+        GroupKey group,
+        SoundId sound,
+        int rung,
+        TimeSpan waited,
+        SoundOutcome outcome)
     {
     }
 

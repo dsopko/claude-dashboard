@@ -776,6 +776,106 @@ public sealed class NAudioSoundPlayerTests : IDisposable
             throw new InvalidTimeZoneException("nothing predicted this");
     }
 
+    // ---- What the player reports, and the notice that reads it (T1.55, issue #72) -----------------
+
+    /// <summary>
+    /// <strong>Play says what it did</strong>, from the same paths that count queued and degraded:
+    /// queued with an output, no output without one, failed for a missing file and for a failure
+    /// nobody predicted.
+    /// </summary>
+    [Fact]
+    public void Play_reports_queued_no_output_or_failed()
+    {
+        WriteTone(_shipped, SoundId.Finished);
+
+        using (var working = Player(Endpoints()))
+        {
+            Assert.Equal(SoundOutcome.Queued, working.Play(SoundId.Finished, 1.0, TimeSpan.Zero));
+
+            // No permission.wav was written: a missing sound.
+            Assert.Equal(SoundOutcome.Failed, working.Play(SoundId.Permission, 1.0, TimeSpan.Zero));
+        }
+
+        using (var silent = Player(NoEndpoints()))
+        {
+            Assert.Equal(SoundOutcome.NoOutput, silent.Play(SoundId.Finished, 1.0, TimeSpan.Zero));
+            Assert.Equal(1, silent.DegradedCount);
+        }
+
+        using var throwing = new NAudioSoundPlayer(
+            new ThrowingCatalog(_overrides, _shipped), Logger.None, new FakeClock(), () => Endpoints(), settle: TimeSpan.Zero);
+
+        Assert.Equal(SoundOutcome.Failed, throwing.Play(SoundId.Finished, 1.0, TimeSpan.Zero));
+    }
+
+    /// <summary>
+    /// <strong>With no default endpoint, the sound device notice shows at the tick; given an
+    /// endpoint, it clears at the next tick.</strong>
+    /// </summary>
+    [Fact]
+    public void The_sound_device_notice_shows_with_no_output_and_clears_when_one_returns()
+    {
+        var endpoints = NoEndpoints();
+        using var player = Player(endpoints);
+        var notice = new SoundDeviceNotice(player);
+        var clock = new FakeClock();
+
+        notice.Tick(clock.Now);
+
+        Assert.True(notice.IsShown);
+        Assert.Equal(SoundDeviceNotice.WindowText, notice.Text);
+        Assert.Equal(SoundDeviceNotice.TrayShort, notice.TrayText);
+
+        endpoints.Default = Speakers;
+        endpoints.RaiseChanged();
+        Wait(() => player.HasOutput, "the returned device to be bound");
+
+        clock.Advance(TimeSpan.FromSeconds(15));
+        notice.Tick(clock.Now);
+
+        Assert.False(notice.IsShown);
+        Assert.Null(notice.Text);
+        Assert.Null(notice.TrayText);
+    }
+
+    /// <summary>
+    /// <strong>No flash at start</strong>: a start whose device binds normally shows no sound notice
+    /// at any tick, even when the driver is slow to open.
+    /// </summary>
+    /// <remarks>
+    /// The player binds inside its constructor, on the constructing thread, before the worker starts.
+    /// The slow open here runs inside that constructor, so by the time anything can read the player,
+    /// its first attempt has finished. The first tick reads the real answer.
+    /// </remarks>
+    [Fact]
+    public void A_start_whose_device_binds_shows_no_sound_notice_at_any_tick()
+    {
+        var endpoints = Endpoints();
+        var constructing = Environment.CurrentManagedThreadId;
+        var openedOn = 0;
+        endpoints.BeforeOpen = _ =>
+        {
+            openedOn = Environment.CurrentManagedThreadId;
+            Thread.Sleep(300);
+        };
+
+        using var player = Player(endpoints);
+        var notice = new SoundDeviceNotice(player);
+        var clock = new FakeClock();
+
+        var shownAtAnyTick = false;
+
+        for (var tick = 0; tick < 4; tick++)
+        {
+            notice.Tick(clock.Now);
+            shownAtAnyTick |= notice.IsShown;
+            clock.Advance(TimeSpan.FromSeconds(15));
+        }
+
+        Assert.False(shownAtAnyTick);
+        Assert.Equal(constructing, openedOn);
+    }
+
     /// <summary>Gain outside 0…1 is clamped rather than rejected, per the port's contract.</summary>
     [Fact]
     public void Gain_is_clamped_rather_than_rejected()

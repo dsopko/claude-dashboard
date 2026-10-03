@@ -194,6 +194,10 @@ public static class AppHost
         builder.Services.AddSingleton<SoundCatalog>();
         builder.Services.AddSingleton<ISoundPlayer, NAudioSoundPlayer>();
 
+        // What the sound device notice reads (T1.55): the player's own output state, through an App
+        // interface, so the notice never names the NAudio type. The same instance as the player.
+        builder.Services.AddSingleton<ISoundOutput>(sp => (ISoundOutput)sp.GetRequiredService<ISoundPlayer>());
+
         // The engine's options are Core's defaults with the operator's file layered on, one way
         // only (Impl Part 7, Part 8). This is the first setting anything consumes, and the
         // direction is the whole point: Core owns the defaults and never learns a file exists.
@@ -273,17 +277,19 @@ public static class AppHost
         builder.Services.AddSingleton<EventConsumer>();
 
         // The notice row and the tooltip's faults (T1.54, issue #71): the hook route first, then the
-        // history. The history notice reads the store's published state on the tray's tick; it never
-        // touches the file, so the UI thread never waits on the disk. A later notice (#72, #73, #14) is
-        // one more source here.
+        // history, then the sound device (T1.55, issue #72). The history and sound notices read a
+        // published state on the tray's tick; neither touches the file or the device, so the UI thread
+        // never waits on a disk or a driver. A later notice (#73, #14) is one more source here.
         builder.Services.AddSingleton(sp =>
         {
             var store = sp.GetRequiredService<SqliteEventStore>();
             return new HistoryNotice(() => store.Available == false);
         });
+        builder.Services.AddSingleton(sp => new SoundDeviceNotice(sp.GetRequiredService<ISoundOutput>()));
         builder.Services.AddSingleton(sp => new NoticeBoard(
             sp.GetRequiredService<HookNotice>(),
-            sp.GetRequiredService<HistoryNotice>()));
+            sp.GetRequiredService<HistoryNotice>(),
+            sp.GetRequiredService<SoundDeviceNotice>()));
 
         // The seam the composition guard reads (T1.12b; ServiceCompositionTests). A built
         // WebApplication does not publish its own descriptors — measured on a clean host, not

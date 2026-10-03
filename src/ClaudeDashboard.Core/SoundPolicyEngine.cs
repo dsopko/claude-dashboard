@@ -605,8 +605,22 @@ public sealed class SoundPolicyEngine : ISoundModeReader
         // Master volume is folded in here and nowhere else (Impl Part 7). The adapter receives a
         // finished number; it does not know there is such a thing as a master volume, which is
         // what keeps "how loud is this" answerable by reading one method.
-        _player.Play(sound, gain * _options.MasterVolume, fade);
-        _sink.SoundPlayed(kind, session, group, sound, rung, waited);
+        //
+        // T1.55 (issue #72): the record says what the player did. A dropped sound is recorded as
+        // dropped, never as played. THE RULES DO NOT CHANGE: the caller goes on as if the sound had
+        // played, so a dropped notice still counts as announced and the nudge ladder still advances.
+        // Nothing is replayed when a device returns: a stack of old sounds at that moment is noise,
+        // and each would be about a state the operator may already have seen (Impl Part 7).
+        var outcome = _player.Play(sound, gain * _options.MasterVolume, fade);
+
+        if (outcome == SoundOutcome.Queued)
+        {
+            _sink.SoundPlayed(kind, session, group, sound, rung, waited);
+        }
+        else
+        {
+            _sink.SoundDropped(kind, session, group, sound, rung, waited, outcome);
+        }
     }
 
     /// <summary>

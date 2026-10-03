@@ -1761,6 +1761,81 @@ public sealed class MainWindowTests(StaHarness harness, Xunit.Abstractions.ITest
     }
 
     /// <summary>
+    /// <strong>The history notice and the sound notice show together, in the board's order</strong>
+    /// (T1.55, issue #72), lead the tooltip in that order, and the sound notice clears at the tick
+    /// after a device returns while the history notice stays.
+    /// </summary>
+    [Fact]
+    public void The_history_and_sound_notices_show_together_in_order()
+    {
+        var clock = new FakeClock();
+        var output = new SettableOutput { HasOutput = false };
+
+        var hook = new ClaudeDashboard.App.Setup.HookNotice();
+        var history = new ClaudeDashboard.App.Storage.HistoryNotice(() => true);
+        var sound = new ClaudeDashboard.App.Adapters.SoundDeviceNotice(output);
+
+        var seen = _harness.Invoke(() =>
+        {
+            using var registry = new RegistryHarness();
+            using var policy = new MotionPolicy(() => false, observeChanges: false);
+            using var viewModel = new MainViewModel(
+                registry.Projection, policy, new StubAckPublisher(),
+                new FakeClipboard(), new RosterStore(new RecordingEventSink()), new RecordingRosterPersistence());
+            using var board = new NoticeBoard(hook, history, sound);
+            using var tray = TestTrays.For(registry.Projection, clock: clock, notices: board);
+
+            var window = new MainWindow(viewModel, tray);
+            using var bindings = new BindingErrorWatch();
+
+            (List<string> Lines, string Tooltip) Look()
+            {
+                _harness.Pump(DispatcherPriority.Background);
+                window.UpdateLayout();
+                return (window.NoticeRow.IsVisible ? NoticeLines(window) : [], tray.Tooltip);
+            }
+
+            try
+            {
+                Realize(window);
+
+                tray.Tick(clock.Now);
+                var both = Look();
+
+                output.HasOutput = true;
+                clock.Advance(TimeSpan.FromSeconds(15));
+                tray.Tick(clock.Now);
+                var afterDevice = Look();
+
+                Assert.Empty(bindings.Problems);
+
+                return (both, afterDevice);
+            }
+            finally
+            {
+                window.Hide();
+            }
+        });
+
+        const string History = ClaudeDashboard.App.Storage.HistoryNotice.TrayShort;
+        const string Sound = ClaudeDashboard.App.Adapters.SoundDeviceNotice.TrayShort;
+
+        Assert.Equal(
+            [ClaudeDashboard.App.Storage.HistoryNotice.WindowText, ClaudeDashboard.App.Adapters.SoundDeviceNotice.WindowText],
+            seen.both.Lines);
+        Assert.StartsWith($"{History} · {Sound}", seen.both.Tooltip, StringComparison.Ordinal);
+
+        Assert.Equal([ClaudeDashboard.App.Storage.HistoryNotice.WindowText], seen.afterDevice.Lines);
+        Assert.DoesNotContain(Sound, seen.afterDevice.Tooltip, StringComparison.Ordinal);
+    }
+
+    /// <summary>An output state the test sets, in place of a player.</summary>
+    private sealed class SettableOutput : ClaudeDashboard.App.Adapters.ISoundOutput
+    {
+        public bool HasOutput { get; set; }
+    }
+
+    /// <summary>
     /// The header's Mute all is the tray's switch (T1.47, the ruling of 2026-09-29): it publishes
     /// the tray's command, and its label follows the one muted state the tray menu reads.
     /// </summary>

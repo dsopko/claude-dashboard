@@ -116,6 +116,54 @@ public sealed class DecisionRecorderUnitTests
         Assert.Equal("nudge", nudge.Reason);
     }
 
+    /// <summary>
+    /// A dropped nudge is a <see cref="DecisionKind.SoundDropped"/> row with the reason, and the
+    /// identifiers the played row would have carried: the kind, the sound and the rung (T1.55).
+    /// </summary>
+    [Fact]
+    public void A_dropped_nudge_is_a_dropped_row_with_its_rung()
+    {
+        Apply("s-1");
+
+        _recorder.BeginTick(FakeClock.DefaultStart);
+        ((IDecisionSink)_recorder).SoundDropped(
+            SoundDecisionKind.Nudge, new SessionId("s-1"), default, SoundId.Permission,
+            rung: 2, waited: TimeSpan.FromMinutes(17), SoundOutcome.NoOutput);
+        _recorder.Complete();
+
+        Assert.True(_archive.Reader.TryRead(out var record));
+
+        var dropped = Assert.Single(record.Decisions);
+        Assert.Equal(DecisionKind.SoundDropped, dropped.Kind);
+        Assert.Equal("s-1", dropped.SessionId);
+        Assert.Equal(nameof(SoundOutcome.NoOutput), dropped.Reason);
+        Assert.Equal("kind=Nudge sound=permission rung=2 waitedMinutes=17", dropped.Detail);
+    }
+
+    /// <summary>A dropped group sound names the group and its members by id, as the played row does.</summary>
+    [Fact]
+    public void A_dropped_group_sound_names_the_group_and_its_members()
+    {
+        Apply("s-b");
+        Apply("s-a");
+
+        var group = _registry.Sessions[new SessionId("s-a")].WorkspaceGroup;
+
+        _recorder.BeginTick(FakeClock.DefaultStart);
+        ((IDecisionSink)_recorder).SoundDropped(
+            SoundDecisionKind.GroupNotice, default, group, SoundId.Finished,
+            rung: 0, waited: TimeSpan.Zero, SoundOutcome.Failed);
+        _recorder.Complete();
+
+        Assert.True(_archive.Reader.TryRead(out var record));
+
+        var dropped = Assert.Single(record.Decisions);
+        Assert.Equal(DecisionKind.SoundDropped, dropped.Kind);
+        Assert.Null(dropped.SessionId);
+        Assert.Equal(nameof(SoundOutcome.Failed), dropped.Reason);
+        Assert.Equal($"kind=GroupNotice sound=finished group={group.Value} members=s-a,s-b", dropped.Detail);
+    }
+
     private void Apply(string id) =>
         _registry.Apply(new UserPromptSubmit
         {

@@ -273,6 +273,9 @@ public sealed class UnprotectedTextInventory
         // notices' tray texts joined, each of them classified here.
         "HistoryNotice.Text", "HistoryNotice.TrayText", "NoticeBoard.TrayText",
 
+        // The sound device notice (T1.55, issue #72): two fixed texts.
+        "SoundDeviceNotice.Text", "SoundDeviceNotice.TrayText",
+
         // Start with Windows (issue #36): the installed exe's path and its quoted Run data; a line of
         // fixed text, or the registry's own refusal message; and that refusal message itself.
         "StartWithWindows.ExePath", "StartWithWindows.RunData", "SettingsViewModel.Note", "StartupState.Problem",
