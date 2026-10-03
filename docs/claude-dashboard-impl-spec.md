@@ -233,7 +233,7 @@ The dashboard tries to bind each candidate. **To bind is the only question that 
 3. **A derived port:** `52789` (`DashboardSettings.IngressPortBase`) plus an offset from 0 to 999. The offset comes from **SHA-256** of the user's SID. Never `GetHashCode()`: .NET makes it different in each process, and all in-process tests would still pass.
 4. **The next ports above the derived port**, 32 at most. For each occupied port, the `/health` answer of §3.2 says who holds it.
 
-If no port is free, the dashboard **starts**, writes an Error line, and says so in the tray tooltip (§5.3).
+If no port is free, the dashboard **starts**, and says what to do in three places (T1.57, issue #14): an Error line in the log, the first line of the tray tooltip, and the first line of the window's notice row (§5.2, §5.6.1). With no pin, the tray reads `port <n> taken · free a port and restart`, and the window names the first and the last port tried and the full path of `settings.json`. A pin that is taken reads `pinned port <n> taken · unpin it or free it, then restart`. **Nothing retries:** the dashboard asks once, by binding, because no event says that a port became free.
 
 The port that is bound goes into `port.txt`, and into `listening.txt` for as long as it stays bound (§9.4). **No port is in Claude Code's settings.**
 
@@ -404,7 +404,7 @@ The colour is the worst state of all sessions (`StatusSummary.Of`, then `TrayVis
 
 - Mute all is the volume control. Pause is "off duty". Pause is the one deliberate exception to "the tray tells the truth".
 - The glyph for pause is different from the grey of "all quiet".
-- **The tooltip leads with what the operator cannot see.** First the faults, joined by ` · `: no port, then the tray text of each notice in the notice row's order (not connected to Claude Code, then `history not recorded`, then `no sound device`, then `settings not read · using defaults`; §5.6.1). Then `paused · click to resume`, then `muted 24 min`, then the counts. The minutes of a mute are rounded up.
+- **The tooltip leads with what the operator cannot see.** First the faults, joined by ` · `: the tray text of each notice in the notice row's order (the port, not connected to Claude Code, then `history not recorded`, then `no sound device`, then `settings not read · using defaults`; §5.6.1). The port fault is a notice on the board like the others, so it shows once, first (T1.57). Then `paused · click to resume`, then `muted 24 min`, then the counts. The minutes of a mute are rounded up.
 - A mute ends by a test of the time, not by a timer. Thus the tooltip is computed again on each tick.
 - **Pause does not survive a restart.**
 - Mute and pause do not stop the events. The Registry stays correct, and the window shows the truth.
@@ -414,7 +414,7 @@ The colour is the worst state of all sessions (`StatusSummary.Of`, then `TrayVis
 - A named `Mutex` (`SingleInstanceGate`) is taken at start. It is local to the logon session, and its name holds a hash of the data folder path. If it is held, this process is the second instance.
 - The second instance reads the port from `port.txt` and the token from `listening.txt`, sends `POST /show`, and exits.
 - The port corroborates only. After a hard stop, any program can hold the port. `GET /health` says if the holder is a copy of this dashboard, a different user's dashboard, or a stranger.
-- **A dashboard with no port still starts.** The tray tooltip gives the cause.
+- **A dashboard with no port still starts.** The tray tooltip and the window's notice row give the cause and what to do (§3.1).
 
 ### 5.4 DPI and window placement
 
@@ -438,7 +438,7 @@ Top to bottom:
 1. **The caption:** the icon, "Claude Dashboard", the **counts strip**, a help slot that does nothing yet, and the buttons Minimize, Maximize and "Close to the tray".
 2. **The counts row:** shown only when the caption is too narrow for the counts.
 3. **The toolbar:** `Grouped | Flat` · `Select` · `Mute all` · `Ack all`.
-4. **The notice row:** a short list, one line for each notice that is shown, in a fixed order: the connection to Claude Code (§9.4), then `History is not being recorded: the database could not be written. The dashboard tries again each minute.` (§8.3), then `No sound device. Notices and nudges are silent until Windows has an output device.` (Part 7), then the settings notice (§8.2). Hidden when none is shown. Two can be true at one time, so it is a list (T1.54, issue #71). Each notice has its own window text, its own tray text and its own rule for when it clears. `NoticeBoard` orders them; a new notice is one more `INotice` source, and the board does not change. The tray colour does not change for a notice.
+4. **The notice row:** a short list, one line for each notice that is shown, in a fixed order: the port (§3.1), then the connection to Claude Code (§9.4), then `History is not being recorded: the database could not be written. The dashboard tries again each minute.` (§8.3), then `No sound device. Notices and nudges are silent until Windows has an output device.` (Part 7), then the settings notice (§8.2). Hidden when none is shown. Two can be true at one time, so it is a list (T1.54, issue #71). Each notice has its own window text, its own tray text and its own rule for when it clears. `NoticeBoard` orders them; a new notice is one more `INotice` source, and the board does not change. The tray colour does not change for a notice.
 5. **The body:** the rows.
 
 **The counts strip** reads `11 sessions · 3 need you · 5 unread · 8 working`. The total always shows. A band with zero is left out. Quiet and Ended have no count. The counts are of sessions, not of rows, so a collapsed group still counts. When the space is short, the strip drops words before numbers; its tooltip always has the full sentence.
@@ -685,8 +685,8 @@ The dashboard's own settings. A person can edit it: comments and a comma at the 
 
 - **A file that does not parse** (bad JSON, a wrong type, a bare `null`) is renamed to `settings.error-<yyyyMMdd-HHmmss>.json` in the same folder, local time, with `-2`, `-3` when the name is taken. It is a move: the bytes do not change. A fresh `settings.json` with the defaults takes its place, so later saves go to it. The fresh file is written first under a temporary name, so a failure at any step leaves the bad file where it was (`SettingsStore.PrepareForStart`).
 - **Only the first instance that will show the window does it**, after the single-instance decision and before anything else reads the file: `Program` hands this start's first load to `AppHost.Build`, which reads the file no more. A second instance that stands down and the one-shot switches (`--install-hooks`, `--remove-hooks`, `--replay`) leave the file byte for byte.
-- **This start registers no plugin** (§9.4). The first load is the authority for the whole start (`SettingsAtStart.Original`), though the fresh file says `installHooksAtStart: true`. The next start reads the fresh file and registers the plugin unless the operator copied `"installHooksAtStart": false` back.
-- **A file that cannot be opened at all** (no permission, or another program holds it), **or a keep-aside that fails**, is left alone. The dashboard runs on the defaults, and `SettingsStore.Save` refuses every save for the rest of the run, with one Warning line for each refused save. Every save site goes through it: the window's place at quit, the rosters, the Settings window and the `installHooksAtStart` record.
+- **This start registers no plugin, and leaves start with Windows as it found it** (§9.4, §10.1). The first load is the authority for the whole start (`SettingsAtStart.Original`), though the fresh file says `installHooksAtStart: true` and `startWithWindows: true`. The `Run` value and Windows' `StartupApproved` mark are not touched, for the reason no plugin is registered: the operator's choice was in the file this start could not read (the director's ruling of 2026-10-03, extending the operator's ruling on #73). The same holds when the file cannot be opened or kept aside. The next start reads the fresh file, and turns both on unless the operator copied `"installHooksAtStart": false` and `"startWithWindows": false` back; the notice says so.
+- **A file that cannot be opened at all** (no permission, or another program holds it), **or a keep-aside that fails**, is left alone. The dashboard runs on the defaults, and `SettingsStore.Save` refuses every save for the rest of the run, with one Warning line for each refused save. Every save site goes through it: the window's place at quit, the rosters, the Settings window and the `installHooksAtStart` record. The Settings window then says "This choice is not remembered: the settings file could not be opened." A file that opened but could not be kept aside has its own notice text, which says "could not be read or kept aside", not "could not be opened".
 - **One Error line** names the backup's full path, or why the file was left alone, with the parse problem. No setting value is logged. The window notice and the tray (`settings not read · using defaults`) show it until the next start; neither shows the parse problem.
 
 | Key | Type | Default | Meaning |
@@ -938,12 +938,12 @@ Measured on Claude Code 2.1.286 (2026-09-30 and 2026-10-01): both install comman
 - **The start sequence** (`Program.Main`):
   1. Velopack's lifecycle arguments. First, always.
   2. The one-shot switches: `--install-hooks`, `--remove-hooks`, `--replay <path>`.
-  3. The single-instance gate. A second instance sends `/show` and exits.
+  3. The single-instance gate. A second instance sends `/show` and exits. A first instance then keeps aside a settings file that does not parse (§8.2).
   4. The port choice (§3.1).
   5. The host is built and started.
   6. `post-status.cmd` is written, then `listening.txt`.
   7. The plugin check (§9.4).
-  8. The start-with-Windows value is made to match the setting.
+  8. The start-with-Windows value is made to match the setting, **unless this start's settings were unreadable**: kept aside, could not be opened, or could not be kept aside. That start leaves the `Run` value and Windows' `StartupApproved` mark as it found them, because the operator's choice was in the file it could not read: the same reason it registers no plugin (§8.2, §9.4).
   9. The window and the tray are made, on the UI thread.
 - **Start with Windows is the `Run` key** (T1.50). The value `Claude Dashboard` under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` holds the quoted path of `current\ClaudeDashboard.App.exe`. `startWithWindows` in `settings.json` is the truth: each start makes the value match it. Only a copy that Setup installed registers; a portable copy never does. Windows' own off switch (in Settings › Apps › Startup, and in Task Manager) is respected. Velopack's uninstall removes the value.
 - **Why the `Run` key and not a scheduled task:** it is where a user looks for startup programs, and where a user can turn one off. The price: **no restart after a crash.**
@@ -1032,3 +1032,4 @@ The text above says what is true now. This list says when each part changed.
 | 2026-10-03 | The store tries again each minute (§8.3). The notice row is a list, and history not recorded is a notice (§5.6.1); the tooltip leads with each notice (§5.2) | T1.54; issue #71 |
 | 2026-10-03 | The player reports what it did, and a dropped sound is `SoundDropped` (Part 7, §8.3). No sound device is a notice (§5.2, §5.6.1). The store writes the stack on its first Warning only | T1.55; issue #72 |
 | 2026-10-03 | A settings file that does not parse is kept aside and a fresh one written; one that cannot be opened refuses saves for the run (§8.1, §8.2, §9.4). The settings notice (§5.2, §5.6.1) | T1.56; issue #73 |
+| 2026-10-03 | A port that is taken says what to do, in the log, the tray and the window; the port fault is the first notice on the board (§3.1, §5.2, §5.3, §5.6.1). A start whose settings were unreadable leaves start with Windows as it found it (§8.2, §10.1) | T1.57; issue #14 |
