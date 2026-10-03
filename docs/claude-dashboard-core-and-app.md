@@ -273,7 +273,7 @@ Thus the dashboard process stays the only holder of Core. ClaudeDashWebApp is a 
 | The title | `Session.Title` | Yes |
 | The prompt, the answer, "You asked" | `Session.Latest` | **No, by the operator's ruling.** `/state` carries titles and task descriptions, and never a prompt or an answer |
 | The row's clock | `Latest.StartedAt` or `ClockAnchor` | **No.** It has `EnteredAt`, `LastActivity` and `LastHeardAt` only |
-| The error kind | `Session.ErrorKind` | Yes. It is always empty today: the wire sends `error` and the mapper reads `error_type` (issue #67) |
+| The error kind | `Session.ErrorKind` | Yes, as `errorKind`. The mapper reads `error`, the field the wire sends. Until T1.53 it read `error_type`, and the kind was always empty (issue #67) |
 | The "Waiting on" lines | `Session.WaitingOn` | Yes |
 | The group, where it is a roster | `GroupKeys.Effective` and the roster book | **No.** `group` is the workspace key. The rosters are not sent |
 | The group's state, with the settle window | `RosterSettle.StateOf(group, now)` | **No** |

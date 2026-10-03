@@ -120,8 +120,8 @@ Eight of thirty-three. This is the whole integration surface.
 **Blocking:** no — output and exit code ignored (except `terminalSequence`).
 
 > **Dashboard:** → **Error**; record the kind.
-> **KNOWN DEFECT (issue #67) [wire]: the wire sends the kind in a field named `error`. The dashboard reads `error_type`, and then `matcher`.** All 18 archived events have `error`, and none has `error_type` or `matcher`. Thus the kind of an Error row is always empty. The state is still correct, because it comes from the event and not from the field. The wire also carries `last_assistant_message` and `effort`.
-> **The dashboard knows three of the ten kinds by name.** The full list is above. `max_output_tokens` and `billing_error` are notably different in kind from a rate limit — one is a turn that produced too much, the other needs a human with a credit card, and neither is fixed by waiting.
+> **[wire]: the wire sends the kind in a field named `error`, not `error_type` (discrepancy 4).** All 18 archived events have `error`, and none has `error_type` or `matcher`. The dashboard reads `error`, then `error_type`, then `matcher` (T1.53, issue #67). Before T1.53 it read only `error_type` and `matcher`, so the kind of an Error row was always empty, though the state was correct. The archive holds three kinds: `rate_limit` 14 times, `server_error` 3 times, `authentication_failed` once (measured 2026-10-03). The wire also carries `last_assistant_message` and `effort`.
+> **The dashboard knows four of the ten kinds by name**: the three in the archive and `overloaded`. The row shows any kind as it arrives. The full list is above. `max_output_tokens` and `billing_error` are notably different in kind from a rate limit — one is a turn that produced too much, the other needs a human with a credit card, and neither is fixed by waiting.
 > **`error_message` is documented and we do not read it.** An Error row could show a reason where it shows a category.
 
 ### ✅ `SessionEnd`
@@ -298,7 +298,7 @@ All were measured on the operator's archive on 2026-09-29. **The wire is the aut
 | 1 | `UserPromptSubmit` | `user_input` | `prompt` | `prompt` | Correct |
 | 2 | `SessionEnd` | `end_reason` | `reason` | `reason` | Correct |
 | 3 | `SessionStart` | `model` only; the source is a matcher | `source`, `session_title`, `model` and four more | `source`, `session_title` | Correct |
-| 4 | `StopFailure` | `error_type`, `error_message` | `error` | `error_type`, then `matcher` | **Defect (issue #67): the kind of an Error row is always empty** |
+| 4 | `StopFailure` | `error_type`, `error_message` | `error` | `error`, then `error_type`, then `matcher` | Correct since T1.53. Before it, the dashboard read `error_type` and the kind of an Error row was always empty (issue #67) |
 | 5 | `Notification` | `notification_text` | `message` | Neither | The message is not shown |
 | 6 | `CwdChanged` | Common fields only; `cwd` is the new directory | `old_cwd`, `new_cwd`; `cwd` is the session's directory | `cwd` | Correct: a change of directory for one command does not move the session |
 | 7 | `Stop` | `last_assistant_message` | Also `background_tasks`, `session_crons` | All three | Correct. The two extra fields are not documented at all |
@@ -312,11 +312,11 @@ Until September 2026 these three were open, because `SessionStart` and `SessionE
 
 ### Matcher lists the dashboard knows in part
 
-`Notification`: the dashboard knows **four of twelve** types by name. `StopFailure`: **three of ten**. An unknown value changes no state. That is safe, and it is not the same as known: `quota_auto_resume_*` describes a session that waits for a quota reset, which the dashboard cannot show. An unknown `Notification` type writes no log line (issue #9).
+`Notification`: the dashboard knows **four of twelve** types by name. `StopFailure`: **four of ten**. An unknown value changes no state. That is safe, and it is not the same as known: `quota_auto_resume_*` describes a session that waits for a quota reset, which the dashboard cannot show. An unknown `Notification` type writes no log line (issue #9).
 
 ### Fields on the wire that could improve a row, and are not read
 
-`message` on `Notification` (what Claude says), `error` on `StopFailure` (which is the defect above), and — for candidates — `tool_name` and `tool_input` on `PermissionRequest`. Each would put *what occurs* on a row that shows only *that something occurs*.
+`message` on `Notification` (what Claude says), and — for candidates — `tool_name` and `tool_input` on `PermissionRequest`. Each would put *what occurs* on a row that shows only *that something occurs*. `error` on `StopFailure` was on this list until T1.53, which reads it.
 
 ---
 

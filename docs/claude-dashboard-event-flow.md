@@ -218,7 +218,7 @@ The mapper reads these fields and no others:
 | `UserPromptSubmit` | `prompt` |
 | `Notification` | `notification_type` |
 | `Stop` | `last_assistant_message`; `background_tasks` (`id`, `type`, `status`, `description` of each entry); `session_crons` (`prompt` of each entry) |
-| `StopFailure` | `error_type` |
+| `StopFailure` | `error`, then `error_type` |
 | `SessionEnd` | `reason` |
 | `CwdChanged`, `PostToolBatch` | None |
 
@@ -388,18 +388,17 @@ Four results are important:
 
 - **`prompt_id` connects a `Stop` to its prompt.** 2,318 of 2,335 `Stop` events have the `prompt_id` of the last prompt of the session. 15 have a different one. 2 have no prompt before them.
 - **`SessionStart` has `source` in the payload.** The values are `startup` 22, `resume` 22, `compact` 21 and `fork` 20.
-- **`StopFailure` sends `error`, and the mapper reads `error_type`.** All 18 events have `error`, and none has `error_type` or `matcher`. Thus the error kind of an Error row is always empty. This is a defect in the code.
+- **`StopFailure` sends `error`, not the documented `error_type`.** All 18 events have `error`, and none has `error_type` or `matcher`. Until T1.53 the mapper read `error_type`, so the error kind of an Error row was always empty. T1.53 reads `error` first (issue #67).
 - **`cwd` on `CwdChanged` is the directory of the session, and not always the new directory.** `cwd` is equal to `new_cwd` on 784 events, to `old_cwd` on 1,447, and to neither on 161. In the 1,447, the next event of the session has the old directory again, or a third one, and never the new one. These are changes of directory for one command. The dashboard reads `cwd` only, so it does not move the session for them.
 
 ---
 
 ## 14. Known limits of this path
 
-These are true as of T1.52, which removed the log-level limit (issue #68). The Technical Specification, Appendix C, lists what is specified and not built.
+These are true as of T1.53, which reads the error kind from `error` (issue #67). T1.52 removed the log-level limit (issue #68). The Technical Specification, Appendix C, lists what is specified and not built.
 
 | Limit | Effect |
 |---|---|
-| `StopFailure` gives its kind in a field named `error`, and the mapper reads `error_type` (section 13; issue #67) | The kind of an Error row is always empty. The state is correct |
 | Nothing removes an Ended session (section 8) | An Ended row stays until the dashboard starts again |
 | The Registry starts empty (section 8) | After a restart, a session shows again at its next event. Nothing is read from `dashboard.db` at start |
 | A hard stop leaves `listening.txt` (section 11) | Until the next start, each hook posts to the old port |
