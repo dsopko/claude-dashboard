@@ -36,8 +36,13 @@ public interface ISoundPlayer
     /// <para>
     /// <strong>Never throws.</strong> Audio is the least important thing this application
     /// does; a missing sound file or an unavailable output device degrades to silence and a
-    /// log line, and must never propagate into the caller (TS §IV.7).
+    /// log line, and must never propagate into the caller (TS §IV.7). A failure that would have
+    /// thrown returns <see cref="SoundOutcome.Failed"/> instead.
     /// </para>
     /// </remarks>
-    void Play(SoundId sound, double gain, TimeSpan fade);
+    /// <returns>
+    /// What happened to the sound: queued on the output, or dropped for no output or a failure
+    /// (T1.55). The engine records a dropped sound as dropped, not as played.
+    /// </returns>
+    SoundOutcome Play(SoundId sound, double gain, TimeSpan fade);
 }

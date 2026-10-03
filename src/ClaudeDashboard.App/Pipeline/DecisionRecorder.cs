@@ -347,6 +347,37 @@ public sealed class DecisionRecorder : IDecisionSink, IDecisionLog
     }
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// The detail holds what the played row would have held, so a reader can ask the same question
+    /// of either: the kind and the sound, then the rung for a nudge, or the group and its member
+    /// ids for a group sound. Identifiers only.
+    /// </remarks>
+    public void SoundDropped(
+        SoundDecisionKind kind,
+        SessionId session,
+        GroupKey group,
+        SoundId sound,
+        int rung,
+        TimeSpan waited,
+        SoundOutcome outcome)
+    {
+        var detail = kind switch
+        {
+            SoundDecisionKind.Nudge => $"kind={kind} sound={sound} rung={rung} waitedMinutes={(int)waited.TotalMinutes}",
+            SoundDecisionKind.GroupNotice or SoundDecisionKind.GroupNudge =>
+                $"kind={kind} sound={sound} group={group.Value} members={MembersOf(group)}",
+            _ => $"kind={kind} sound={sound}",
+        };
+
+        Add(new Decision(
+            _now,
+            session.IsEmpty ? null : session.Value,
+            DecisionKind.SoundDropped,
+            Reason: outcome.ToString(),
+            Detail: detail));
+    }
+
+    /// <inheritdoc/>
     public void SoundSuppressed(
         SoundDecisionKind kind,
         SessionId session,

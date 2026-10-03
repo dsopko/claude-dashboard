@@ -150,6 +150,7 @@ public sealed class SqliteEventStore : IEventStore, IDisposable
     private SqliteConnection? _connection;
     private DateTimeOffset? _failedAt;
     private bool _announced;
+    private bool _stackWritten;
     private bool _disposed;
     private int _available = Unknown;
 
@@ -541,11 +542,24 @@ public sealed class SqliteEventStore : IEventStore, IDisposable
 
         // ONCE per failure. A failing disk fails on every event, and a line per event would bury the
         // log in the one situation where the operator most needs to read it.
-        _logger.Warning(
-            ex,
+        const string Template =
             "Cannot record events to {DatabaseFile}, so the dashboard runs with no history. This " +
             "is a lost feature, not a fault: everything on screen still works, and the window says " +
-            "so. The dashboard tries again each minute, and says so here when it records again.",
-            _path);
+            "so. The dashboard tries again each minute, and says so here when it records again.";
+
+        if (!_stackWritten)
+        {
+            // The stack once per process (T1.55, from the T1.54 review): the first failure is the
+            // one a reader needs to diagnose.
+            _stackWritten = true;
+            _logger.Warning(ex, Template, _path);
+
+            return;
+        }
+
+        // A later failure writes the type and the message, not the stack. A disk that flaps (a
+        // backup program that locks the file) then costs one short line a minute, not a stack a
+        // minute. The message names the error and the file, never a payload (see Append).
+        _logger.Warning(Template + " {ErrorType}: {ErrorMessage}", _path, ex.GetType().Name, ex.Message);
     }
 }

@@ -328,6 +328,10 @@ public sealed class QuietTickTests
         {
         }
 
+        public void SoundDropped(SoundDecisionKind kind, SessionId session, GroupKey group, SoundId sound, int rung, TimeSpan waited, SoundOutcome outcome)
+        {
+        }
+
         public void SoundSuppressed(SoundDecisionKind kind, SessionId session, GroupKey group, SoundId sound, SuppressionReason reason) =>
             Suppressed.Add((sound, reason));
     }
