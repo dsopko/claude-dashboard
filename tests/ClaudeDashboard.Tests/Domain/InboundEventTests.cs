@@ -302,6 +302,7 @@ public sealed class InboundEventTests
     [InlineData("rate_limit", StopFailureKind.RateLimit)]
     [InlineData("overloaded", StopFailureKind.Overloaded)]
     [InlineData("authentication_failed", StopFailureKind.AuthenticationFailed)]
+    [InlineData("server_error", StopFailureKind.ServerError)]
     public void StopFailure_carries_and_parses_its_error_kind(string wire, StopFailureKind expected)
     {
         var e = Build<StopFailure>() with { ErrorKind = wire };
