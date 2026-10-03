@@ -610,6 +610,33 @@ The work in GitHub milestone 3, "Observability 1": issues #3, #14, #67, #71, #72
   - Plants: (a) the store never retries, and the clock test fails; (b) the list shows only its first notice, and the two-notice test fails.
   - Both suite counts.
 - **Guardrails:** degrade, never crash: a failing store never throws into the consumer. No payload, title or prompt in the log or a notice. `/state` does not change in this task. The retry never blocks the consumer thread for longer than a normal write.
+- **Done 2026-10-03:** PR #77, merged as `a2dfaad`, `b3607c5`. `NoticeBoard(params INotice[])` in constructor order; `HistoryNotice` reads the store on the tick. The reviewer saw the real tick show the notice 14 s after a post on a live scratch dashboard. Carried to T1.55: a test for fail, recover, fail again; the Warning's stack on every episode; the documents say "one Warning" where the code writes one for each failure episode. Carried to #14's task: the ingress fault leads the tooltip by its own path, so a port notice must move it into the board, not add beside it.
+
+**T1.55 — The window says when there is no sound device, and the record says when a sound was dropped**
+- **Goal:** when Windows has no working sound output, the window and the tray say so, and the decisions record says that a sound was dropped instead of saying that it played. For issue #72.
+- **Depends:** T1.54 (the notice list), T1.37 (the decisions record), T1.14 (the sound engine)
+- **Realizes:** the operator's rulings of 2026-10-03 in #72: **a notice row and a tooltip line, with no mark on the tray icon** (the tray keeps five colours and no other marks, Design §9); **the record tells the truth:** the player reports a drop back, and the record gets a "dropped" row in place of "played".
+- **Deliverables:**
+  - **The player reports what it did.** `ISoundPlayer.Play` returns an outcome, a Core enum: queued, no output, or failed (a missing sound, or an unexpected exception). `NAudioSoundPlayer` returns it from the paths that already count `QueuedCount` and `DegradedCount`. Every other `ISoundPlayer` (fakes, the replay's player) returns queued unless a test sets otherwise.
+  - **The record.** A queued sound records as today (`NoticePlayed`, `NudgePlayed`, `GroupNoticePlayed`). A dropped one records a new kind, `SoundDropped`, with reason `NoOutput` or `Failed` and the same identifier detail the played row would have had (`kind=… sound=…`, the rung for a nudge, the group for a group sound). Identifiers only.
+  - **The sound rules do not change.** A dropped notice still counts as announced, and the nudge ladder advances as it would have. Nothing is replayed when a device returns: a stack of old sounds at that moment is noise. Say so in the comment and in Impl Part 7.
+  - **The notice.** A third source on the board, after the history notice. Window: "No sound device. Notices and nudges are silent until Windows has an output device." Tray: `no sound device`. The tray colour does not change. It shows while the player has no output, read on the 15-second tick through an App interface, not the NAudio type. It clears at the next tick after a device returns. **It must not flash at start:** if the player binds its device after the window opens, the notice waits for the player's first attempt to finish. Find out, and report, how the player starts.
+  - **The limit that stays:** a device that is listed, active and silent (volume at zero, a monitor with no speakers) cannot be told apart from one that works. Say so in TS §IV.7.
+  - **From T1.54's review:**
+    - A test for fail, then recover, then fail again: a second Warning and a second recovery line, with a new lost count.
+    - The Warning carries the exception and its stack on the first failure of the process only. A later episode writes the Warning with the exception's type and message, without the stack. This bounds a flapping disk (a backup program locking the file) to one short line a minute.
+    - The documents say "one Warning when it fails (not for a failed retry)" in place of "one Warning": TS §IV.7, Impl §8.3, event flow §11.
+  - Documents, in the same change: TS §IV.7 (the row "The sound device fails"); Impl §5.2, §5.6.1, Part 7 and §8.3 (the new kind in the kinds table); Design §8 and §9; Core and App §3 where it lists the ports, if `ISoundPlayer` is described there. One row each in TS Appendix D, Impl Appendix C and Design §13.
+- **Acceptance:**
+  - With `FakeAudioEndpoints` and no default endpoint: the notice and the tray text show at the tick; given an endpoint, both clear at the next tick.
+  - With no output, a notice that is due records `SoundDropped` with reason `NoOutput`, and no `NoticePlayed`. With output, `NoticePlayed` as today. The same for a nudge and a group sound.
+  - The nudge schedule under a fake clock is the same with output and without.
+  - No flash at start: a start whose player binds normally shows no sound notice at any tick.
+  - The notice list shows the history notice and the sound notice together, in order.
+  - A realized-window test with `BindingErrorWatch` clean.
+  - Plants: (a) the engine records `NoticePlayed` whatever the outcome, and the record test fails; (b) the notice reads a stale value that never clears, and the clear test fails; (c) a dropped sound does not advance the ladder, and the schedule test fails.
+  - Both suite counts. If the box has a sound device you can disable without touching the operator's settings, a hardware check; otherwise say it was not done. **Never change the operator's audio configuration.**
+- **Guardrails:** never touch the operator's audio settings or default device. The player's state is set on the audio thread and read on the UI tick: publish it safely. Degrade, never crash: a player that throws still returns an outcome. `/state` does not change in this task.
 
 ---
 
