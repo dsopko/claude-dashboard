@@ -664,6 +664,35 @@ The work in GitHub milestone 3, "Observability 1": issues #3, #14, #67, #71, #72
   - Plants: (a) the hook check reads the fresh file, and the no-plugin test fails; (b) the rename becomes a copy and a rewrite, and the hash test fails; (c) one save site skips the guard, and its test fails.
   - Both suite counts.
 - **Guardrails:** the dashboard never writes Claude Code's settings. The backup is never deleted or rewritten by the dashboard. Tests use scratch folders only, never the operator's data folder. No setting value or parse text on screen; no setting value in the log.
+- **Done 2026-10-03:** PR #83, merged as `01eef6e`, `f5886c6`. `PrepareForStart` runs in `Program.Main` right after the second-instance stand-down; the hook check reads the original outcome. #26 closed as completed with the operator's agreement. Issue #84 filed for an older race the suite met once (the store disposed mid-write). Carried to T1.57: review nits 1, 3, 4 and 5. Not carried: a crash between the two renames leaves the backup and `settings.json.new` with no notice at the next start; nothing is lost, and the window is microseconds.
+
+**T1.57 — A port that is taken says what to do, and the port fault joins the notice list**
+- **Goal:** when the dashboard cannot get a port, the log, the tray and the window each say what to do: free a port, or change the pin, then restart. The port fault becomes a source on the notice board instead of a separate tooltip path. For issue #14. Also the follow-ups from T1.56's review.
+- **Depends:** T1.54 (the board), T1.56 (the settings notice), T1.21 (the port choice)
+- **Realizes:** issue #14 and its recommended fix (comment of 2026-10-03), which is taken as written. The pinned-port log line is the model. **No retry and no poller:** the dashboard asks once, by binding (TS §I.2).
+- **Deliverables, #14:**
+  - **The tray lines** (`IngressStatus`): no pin, every port taken: `port <n> taken · free a port and restart`; a pin that is taken: `pinned port <n> taken · unpin it or free it, then restart`. Find every other `IngressStatus` that sets a fault (for example a bind that fails after the choice) and give each a remedy in the same short form. Report the list.
+  - **The window notice** (the long form), as the **first** source on the board, before the plugin notices. No pin: "The dashboard cannot receive anything: every port it tried is in use (`<first>` to `<last>`). Free one of them, or pin a free port with "port" in `<full path of settings.json>`, then restart the dashboard. Claude Code's settings need no change: the hook finds the new port by itself." A pin: "The dashboard cannot receive anything: port `<n>` is pinned in settings.json and another program holds it. Free that port, or change or remove the "port" setting, then restart the dashboard."
+  - **One path for the tooltip.** `TrayViewModel` today puts `_ingress.Fault` before the board's text. Move the ingress fault into the board and remove the separate term, so the tooltip shows it once, first. The tray colour rule for an ingress fault does not change.
+  - **The unpinned log line** (`Program.ReportPortChoice`, the last branch) gains: "Free one of them, or pin a free port with "port" in settings.json, then restart the dashboard. Claude Code's hook settings need no change: the hook finds the new port by itself."
+  - `StartupDecision.ExplainReportAndExit` already says what to do (read 2026-10-03); leave it.
+- **Deliverables, from T1.56's review:**
+  - **The Settings window** (`SettingsViewModel`): when the save is refused, the note reads "This choice is not remembered: the settings file could not be opened."
+  - **A third settings text** for a file that opened but could not be kept aside (the rename failed): "settings.json in `<folder>` could not be read or kept aside, so the dashboard runs on its defaults and saves no settings until it is restarted." The cannot-open text stays for the cannot-open case.
+  - **The doubled full stop** at the end of the settings Error line in `AppHost.ReportStartup`.
+  - **Start with Windows follows the plugin rule.** A start whose settings were unreadable (kept aside, cannot open, or rename failed) does not reconcile the `Run` value: it leaves the value and Windows' `StartupApproved` mark as it found them, because the operator's choice was in the file it could not read (the same reason T1.32 registers no plugin). The kept-aside notice's copy-back sentence names both keys: "…copy "installHooksAtStart": false and "startWithWindows": false back too, if you had set them, or the next start turns them on again." (Director's ruling, 2026-10-03, extending the operator's #73 ruling.)
+- Documents, in the same change: Impl §3.1 (the last paragraph: no free port), §5.2 (what leads the tooltip), §5.6.1 (the notice row's first source), §8.2 (the kept-aside start leaves the `Run` value), §10.1 (the start's reconcile is skipped after an unreadable file); TS §IV.7 (the row "No free port"). One row each in TS Appendix D and Impl Appendix C.
+- **Acceptance:**
+  - `PortSelection.Choose` with a probe that answers "taken" for every candidate (no real port is opened): the log line, the tray line and the window notice each hold "restart"; the window notice names the first and last port tried. The same for a taken pin.
+  - The tooltip shows the port fault exactly once, first, and the counts after it; with a plugin notice as well, the port fault leads.
+  - Every `IngressStatus` fault in the report's list has a test.
+  - The Settings window shows the not-remembered note when the store refuses.
+  - The rename-failed case shows the third text.
+  - A kept-aside start, and a cannot-open start, do not call `Reconcile` (a seam or a guard), and leave a test `Run` value and mark as found. A normal start still reconciles.
+  - A realized-window test with the port notice and one other, in order, `BindingErrorWatch` clean.
+  - Plants: (a) the tooltip keeps the separate ingress term, and the exactly-once test fails; (b) an unreadable start reconciles, and its test fails.
+  - Both suite counts.
+- **Guardrails:** no test opens a real port for this; the probe is a function. Tests never touch the operator's real `Run` value or `StartupApproved` mark (T1.50's seam). No poller. No setting value on screen or in the log.
 
 ---
 
