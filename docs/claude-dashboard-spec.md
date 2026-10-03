@@ -433,8 +433,8 @@ Each capability fails soft. The product continues with less.
 | The dashboard does not run | The hook script finds no announcement and stops | Leaves each Claude Code session untouched. The events of that time are lost |
 | No free port | The dashboard starts, announces nothing, and says so in the tray | Shows its window; receives nothing |
 | Claude Code is not connected | The dashboard shows a notice with what to do | Runs; receives nothing until it is connected |
-| The event log cannot be written | The dashboard writes one warning, says so in the window and the tray, and tries again each minute | Shows and sounds as usual. The events of each minute that cannot be written are lost |
-| The sound device fails | Silence, and a log line | Shows as usual |
+| The event log cannot be written | The dashboard writes one warning when it fails (not for a failed retry), says so in the window and the tray, and tries again each minute | Shows and sounds as usual. The events of each minute that cannot be written are lost |
+| The sound device fails | Silence, a log line, and a notice in the window and the tray: no sound device. The record says each sound was dropped, not played | Shows as usual. A device that is listed, active and silent (the volume at zero, a monitor with no speakers) cannot be told apart from one that works |
 | The settings file cannot be read | Defaults in memory; the file is left as it is | Runs |
 | The pin to all desktops fails | The window is on one desktop | Runs |
 | The reconciliation sweep *(not built)* | The event stream only | Shows each session from its next event on |
@@ -446,6 +446,8 @@ Each capability fails soft. The product continues with less.
 Phase 1 is at the bottom of each ladder and works alone.
 
 **A lost feature must still show on screen.** The event log once wrote one warning and stopped until the next start, and nothing on screen changed: the operator found out days later, looking for a record that was not there (issue #71). Now the window and the tray say "history not recorded", and the log tries again each minute, by the operator's ruling. A disk that is full for a minute costs a minute of history, not the rest of the day. The events of that minute are lost, not held in memory: a queue would keep the operator's words for as long as the disk stays full.
+
+**A silent dashboard must say that it is silent.** Sound is how the dashboard gets the operator's attention, so a dashboard with no output device that looks healthy is the failure it exists to prevent (issue #72). The window and the tray say "no sound device", by the operator's ruling of 2026-10-03: a notice row and a tooltip line, and no mark on the tray icon, which keeps its five colours. The record tells the truth too: a sound the player dropped is recorded as dropped, not as played. The sound rules do not change: a dropped notice still counts as announced, and nothing is replayed when a device returns, because a stack of old sounds at that moment is noise.
 
 ### IV.8 Threat surface summary
 
@@ -550,3 +552,4 @@ The text above says what is true now. This list says when each rule changed, for
 | 2026-10-02 | v0.3. This document is written again to agree with the code. The dated correction blocks became this table | — |
 | 2026-10-03 | The kind of an Error row is read from `error`, the field the wire sends. A second error of another kind changes the row | T1.53; issue #67 |
 | 2026-10-03 | The event log tries again each minute, and the window and the tray say when history is not recorded (§IV.7). Before, it stopped until the next start. §II.2: `error_type` is also read when `error` is not a string | T1.54; issue #71 |
+| 2026-10-03 | No sound device is a notice in the window and the tray, and the record says a dropped sound was dropped (§IV.7). The event log writes one warning when it fails, not for a failed retry | T1.55; issue #72 |

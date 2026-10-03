@@ -49,9 +49,9 @@ Core is written against these interfaces. App supplies the Windows implementatio
 | Port | Member | Adapter in App |
 |---|---|---|
 | `IClock` | `Now` | `SystemClock` |
-| `ISoundPlayer` | `Play(SoundId, gain, fade)` | `NAudioSoundPlayer` |
+| `ISoundPlayer` | `SoundOutcome Play(SoundId, gain, fade)`: `Queued`, `NoOutput` or `Failed` (T1.55) | `NAudioSoundPlayer` |
 | `IEventSink` | `bool TryPublish(InboundEvent)`. Never blocks and never throws | The sink of `EventPipeline` |
-| `IDecisionSink` | `SoundPlayed(…)`, `SoundSuppressed(…)`. The sound engine says what it decided | `DecisionRecorder` |
+| `IDecisionSink` | `SoundPlayed(…)`, `SoundDropped(…)`, `SoundSuppressed(…)`. The sound engine says what it decided, and what the player did with it | `DecisionRecorder` |
 | `ISoundModeReader` | `IsMonitoringPaused`, `AllMutedUntil`. Read-only, safe on any thread | `SoundPolicyEngine` itself |
 | `IVirtualDesktopService` | `GetDesktop(hwnd)`, `PinToAllDesktops(hwnd)`; later `Switch`, `Name` | `VirtualDesktopService` (the pin is used today) |
 | `ITerminalLocator` *(Phase 2/3)* | `Task<TabRef?> FindTab(SessionId)`, `TabRef? IdentifyForegroundTab()` | None yet |
@@ -404,7 +404,7 @@ The colour is the worst state of all sessions (`StatusSummary.Of`, then `TrayVis
 
 - Mute all is the volume control. Pause is "off duty". Pause is the one deliberate exception to "the tray tells the truth".
 - The glyph for pause is different from the grey of "all quiet".
-- **The tooltip leads with what the operator cannot see.** First the faults, joined by ` · `: no port, then the tray text of each notice in the notice row's order (not connected to Claude Code, then `history not recorded`; §5.6.1). Then `paused · click to resume`, then `muted 24 min`, then the counts. The minutes of a mute are rounded up.
+- **The tooltip leads with what the operator cannot see.** First the faults, joined by ` · `: no port, then the tray text of each notice in the notice row's order (not connected to Claude Code, then `history not recorded`, then `no sound device`; §5.6.1). Then `paused · click to resume`, then `muted 24 min`, then the counts. The minutes of a mute are rounded up.
 - A mute ends by a test of the time, not by a timer. Thus the tooltip is computed again on each tick.
 - **Pause does not survive a restart.**
 - Mute and pause do not stop the events. The Registry stays correct, and the window shows the truth.
@@ -438,7 +438,7 @@ Top to bottom:
 1. **The caption:** the icon, "Claude Dashboard", the **counts strip**, a help slot that does nothing yet, and the buttons Minimize, Maximize and "Close to the tray".
 2. **The counts row:** shown only when the caption is too narrow for the counts.
 3. **The toolbar:** `Grouped | Flat` · `Select` · `Mute all` · `Ack all`.
-4. **The notice row:** a short list, one line for each notice that is shown, in a fixed order: the connection to Claude Code (§9.4), then `History is not being recorded: the database could not be written. The dashboard tries again each minute.` (§8.3). Hidden when none is shown. Two can be true at one time, so it is a list (T1.54, issue #71). Each notice has its own window text, its own tray text and its own rule for when it clears. `NoticeBoard` orders them; a new notice is one more `INotice` source, and the board does not change. The tray colour does not change for a notice.
+4. **The notice row:** a short list, one line for each notice that is shown, in a fixed order: the connection to Claude Code (§9.4), then `History is not being recorded: the database could not be written. The dashboard tries again each minute.` (§8.3), then `No sound device. Notices and nudges are silent until Windows has an output device.` (Part 7). Hidden when none is shown. Two can be true at one time, so it is a list (T1.54, issue #71). Each notice has its own window text, its own tray text and its own rule for when it clears. `NoticeBoard` orders them; a new notice is one more `INotice` source, and the board does not change. The tray colour does not change for a notice.
 5. **The body:** the rows.
 
 **The counts strip** reads `11 sessions · 3 need you · 5 unread · 8 working`. The total always shows. A band with zero is left out. Quiet and Ended have no count. The counts are of sessions, not of rows, so a collapsed group still counts. When the space is short, the strip drops words before numbers; its tooltip always has the full sentence.
@@ -588,7 +588,7 @@ The mode ends when the operator groups, cancels, or hides the window.
 | A roster group settled | The consumer wakes at the deadline and sends a tick |
 | Mute or pause changed | The consumer sends a tick after the `SoundCommand` |
 | The operator opened or closed a heading, changed the view, or edited a roster | The view model refreshes itself |
-| A notice changed | A source raises a property change, and `NoticeBoard` rebuilds the list. `HookNotice` changes at a start or an event. `HistoryNotice` looks at the store on `TrayViewModel.Tick`, which passes the tick to the board |
+| A notice changed | A source raises a property change, and `NoticeBoard` rebuilds the list. `HookNotice` changes at a start or an event. `HistoryNotice` looks at the store, and `SoundDeviceNotice` at the player, on `TrayViewModel.Tick`, which passes the tick to the board |
 
 `EventConsumer` is the only caller of `UiTick`. A test holds that, because the view models do not check that time goes forward.
 
@@ -648,6 +648,12 @@ The process runs at the user's **normal level and never elevated**. A test reads
 - **The samples are decoded one time and kept.**
 - **The adapter never throws.** A file that is absent, a device that will not open and a file that will not decode each give silence and a log line.
 - **The adapter decides nothing.** Mute, pause and master volume are in `SoundPolicyEngine`, which gives the adapter a final gain. The adapter knows no session and no group.
+- **The adapter says what it did** (T1.55, issue #72). `Play` returns a `SoundOutcome`: `Queued` when the sound reached the mixer, `NoOutput` when there was no working device, `Failed` for a missing or broken file or an unexpected exception. The outcome comes from the same paths that count `QueuedCount` and `DegradedCount`. Queued is not heard: see the limit below.
+- **The record tells the truth** (the operator's ruling of 2026-10-03). A queued sound records `NoticePlayed`, `NudgePlayed` or `GroupNoticePlayed`, as before. A dropped one records `SoundDropped`, with the reason and the same identifiers (§8.3).
+- **A dropped sound changes no rule.** It still counts as announced, and the nudge ladder advances as it would have, so the schedule is the same with a device and without. **Nothing is replayed when a device returns:** a stack of old sounds at that moment is noise, each about a state the operator may already have seen.
+- **No sound device is a notice** (§5.6.1). Window: `No sound device. Notices and nudges are silent until Windows has an output device.` Tray: `no sound device`. No mark on the tray icon, and the colour does not change. `SoundDeviceNotice` reads `ISoundOutput.HasOutput`, an App interface that the player implements, on the tray's 15-second tick. It clears at the tick after a device returns. The read takes the player's gate, which is never held while a device opens.
+- **The notice does not flash at start.** The player binds its first device in its constructor, on the constructing thread, before its worker starts. The constructor runs while the host is built, before the window and the tray exist. So the first tick reads the real answer.
+- **The limit that stays:** a device that is listed, active and silent (the volume at zero, a monitor with no speakers) counts as an output. Nothing the process can ask tells it apart from a device that works.
 
 ---
 
@@ -701,11 +707,12 @@ The dashboard's own settings. A person can edit it: comments and a comma at the 
 
 SQLite, through `Microsoft.Data.Sqlite`. One writer thread. Append-only. **Never pruned** (retention is *not built*). A typical day adds about 300 KB.
 
-If the file cannot be opened or written, the store writes one Warning, and the window and the tray say `history not recorded` (§5.6.1). **It tries again each minute** (the operator's ruling in issue #71; before T1.54 it stopped until the next start):
+If the file cannot be opened or written, the store writes one Warning when it fails (not for a failed retry), and the window and the tray say `history not recorded` (§5.6.1). **It tries again each minute** (the operator's ruling in issue #71; before T1.54 it stopped until the next start):
 
 - The next attempt is the first write at least 60 seconds after the failure (`SqliteEventStore.RetryAfter`, from the injected `IClock`). A failed retry starts the minute again.
 - The records that arrive inside the minute are lost, not queued: a queue would hold the operator's words in memory for as long as the disk stays full. `LostCount` counts them, with each record whose write failed.
 - No timer and no thread retry. The attempt rides on the next record, on the writer thread, so it costs one normal write at most and never touches the consumer thread.
+- The first Warning of the process carries the exception and its stack. A later failure writes the exception's type and message and no stack, so a disk that flaps (a backup program that locks the file) costs one short line a minute (T1.55).
 - A failed retry writes no log line. The first write that succeeds writes one Information line with the count of records lost. A record is one event with its decisions, or the decisions of one tick. The open announcement is not written again.
 - The notice reads `SqliteEventStore.Available` (false while the last write failed) on the tray's 15-second tick. The writer thread publishes it with `Volatile`. So the notice shows within one tick of the failure, and clears within one tick of the write that succeeds.
 
@@ -751,10 +758,11 @@ An event that the Registry declined is in the table too. A `SoundCommand` and a 
 | `AckApplied` | An Ack was applied | `Manual` or `InferredFocus` |
 | `AckDeclined` | An Ack was declined | The outcome |
 | `TaskTypeUnrecognised` | A `Stop` listed a kind of background work that the dashboard does not know | `UnrecognisedType` · `count=…` |
-| `NoticePlayed` | A notice | The sound |
-| `NudgePlayed` | A nudge | The sound · `rung=… waitedMinutes=…` |
+| `NoticePlayed` | A notice that the player queued | The sound |
+| `NudgePlayed` | A nudge that the player queued | The sound · `rung=… waitedMinutes=…` |
 | `NoticeSuppressed` | A sound that was due did not play | `MonitoringPaused`, `AllMuted`, `SessionMuted`, `GroupMuted`, `GroupDone` or `AlreadyAnnounced` · `kind=… sound=…` |
 | `GroupNoticePlayed` | A roster group's sound | `notice` or `nudge` · `group=… members=…` (session ids) |
+| `SoundDropped` | A sound that the player dropped, in place of the played row (T1.55) | `NoOutput` or `Failed` · `kind=… sound=…`, then `rung=… waitedMinutes=…` for a nudge, or `group=… members=…` for a group sound |
 | `MuteApplied` | A `SoundCommand` | `MuteAll`, `UnmuteAll`, `PauseMonitoring` or `ResumeMonitoring` · `until=…` |
 | `MuteExpired` | A timed mute ended, seen on the tick | `until=…` |
 | `EventDropped` | A full channel dropped its oldest | `pipeline` or `archive` |
@@ -1015,3 +1023,4 @@ The text above says what is true now. This list says when each part changed.
 | 2026-10-02 | The log file follows `logging.minimumLevel` (§8.2, §8.4). The no-write guard pins the files that may write (§9.3) | T1.52; issues #68, #65 |
 | 2026-10-03 | `StopFailure` gives its kind in `error`, read before `error_type` (§3.5, §9.1). A second error of another kind changes the kind | T1.53; issue #67 |
 | 2026-10-03 | The store tries again each minute (§8.3). The notice row is a list, and history not recorded is a notice (§5.6.1); the tooltip leads with each notice (§5.2) | T1.54; issue #71 |
+| 2026-10-03 | The player reports what it did, and a dropped sound is `SoundDropped` (Part 7, §8.3). No sound device is a notice (§5.2, §5.6.1). The store writes the stack on its first Warning only | T1.55; issue #72 |

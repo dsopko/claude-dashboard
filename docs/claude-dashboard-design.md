@@ -132,6 +132,7 @@ A **notice** is the first sound for an event. A **nudge** is the reminder.
 - **A scheduled job that finds nothing can be silent.** See [Quiet scheduled jobs](quiet-scheduled-jobs.md).
 - **Mute all** stops all sound, for 30 minutes or until the operator ends it. The tray light stays true.
 - **Pause monitoring** stops all sound and makes the tray light grey and visibly "off", until the operator resumes.
+- **No sound device is said, not hidden.** When Windows has no output device, the window and the tray say "no sound device". The tray keeps its colour and gets no mark. A sound that could not play is recorded as dropped, and it is not played later when a device returns: a stack of old sounds is noise.
 - **Mute for one session or one group.** *Not built.*
 - **Settings for the intervals.** *Not built:* the values above are fixed.
 - Later (Phase 3, not built): no notice for the session that is on screen.
@@ -142,7 +143,7 @@ This section is the authority for the anatomy of a row and for the motion rule. 
 
 - **Caption:** the application name and the **counts strip** ("11 sessions · 3 need you · 2 unread · 1 working"). When the window is narrow, the strip drops words before numbers.
 - **Toolbar:** the Grouped/Flat toggle · Select · Mute all · Ack all.
-- **Notice:** amber lines under the toolbar, one for each thing the operator must see and would not otherwise: the dashboard is not connected to Claude Code, or history is not being recorded. Each says what is wrong and what to do, and each clears by its own rule. Two can be true at one time, so the row is a list in a fixed order, the connection first. A dashboard that receives nothing, or records nothing, must not look like a quiet day.
+- **Notice:** amber lines under the toolbar, one for each thing the operator must see and would not otherwise: the dashboard is not connected to Claude Code, history is not being recorded, or there is no sound device. Each says what is wrong and what to do, and each clears by its own rule. Two can be true at one time, so the row is a list in a fixed order, the connection first. A dashboard that receives nothing, records nothing or plays nothing must not look like a quiet day.
 - **Body:** groups (or bands) of session rows.
 - **Session row:** status light · the session's title where it has one, then the start of the prompt (monospace: it *is* terminal text) · a badge with the state · the age · an Ack on a row that waits. The title is what Claude Code calls the session: a name that the operator set with `--name` or `/rename`, or one that Claude Code made. It is cut to a fixed length and does not take space from the prompt. A session with no title shows the prompt only.
 - **The age on a row** says whose time it is. "Waiting 4 min": the agent is stopped and the time is the operator's. "2 min ago": the work is done and the time measures how long it is unseen. "6 min": the agent is busy. A working row counts from the operator's question, and a stop for a permission does not restart it.
@@ -203,3 +204,4 @@ Each phase can ship alone. Phase 7 is the reason that the domain model stays apa
 | 2026-10-01 | The notice when the dashboard is not connected. Nothing is written into Claude Code's settings | Issue #65 |
 | 2026-10-02 | v0.2. Written again to agree with the product. "Tab titling from prompts" is removed from Phase 2: the terminal title is left untouched (TS §III.3) | — |
 | 2026-10-03 | The notice row is a list. "History is not being recorded" is a notice, and the history tries again each minute | Issue #71 |
+| 2026-10-03 | "No sound device" is a notice, with no mark on the tray icon. A sound that could not play is not played later | Issue #72 |

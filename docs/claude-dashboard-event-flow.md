@@ -332,7 +332,8 @@ The tick is not an event. It causes changes that no hook causes:
 | The script cannot be rewritten at start | The dashboard tries three times, then writes one Error line. An old script sends no token, so its hooks get `401` until the next start |
 | The event channel is full | The oldest event is discarded. The log and the decisions table record it |
 | The disk is slow | The archive channel fills and discards its oldest records. The count goes into the log at shutdown. The window and the sound continue |
-| `dashboard.db` cannot be opened or written | The store writes one Warning, and the window and the tray say "history not recorded". It tries again each minute; the events of that minute are lost. The write that succeeds clears the notice and writes one line with the count lost (T1.54, issue #71) |
+| `dashboard.db` cannot be opened or written | The store writes one Warning when it fails (not for a failed retry), and the window and the tray say "history not recorded". It tries again each minute; the events of that minute are lost. The write that succeeds clears the notice and writes one line with the count lost (T1.54, issue #71) |
+| Windows has no sound output | Each sound is dropped and recorded as `SoundDropped`, not as played. The window and the tray say "no sound device", and the notice clears at the tick after a device returns. Nothing is replayed (T1.55, issue #72) |
 | Claude Code sends an event type or a field that the dashboard does not know | The event changes no state. The archive keeps the payload |
 | Claude Code is not installed | The start registers nothing and creates nothing. It writes one Information line and shows the notice "no Claude Code install detected" |
 
@@ -423,7 +424,7 @@ Until 2026-10-02 this section listed the places where the other documents disagr
 | The events | `src/ClaudeDashboard.Core/Events/InboundEvent.cs`, `Variants.cs`, `Matchers.cs`, `PayloadJson.cs` |
 | The channel and the consumer | `src/ClaudeDashboard.App/Pipeline/EventPipeline.cs`, `EventConsumer.cs` |
 | The Registry | `src/ClaudeDashboard.Core/SessionRegistry.cs`, `SessionState.cs`, `ApplyOutcome.cs`, `Acknowledgment.cs`, `QuietTicks.cs` |
-| The sound | `src/ClaudeDashboard.Core/SoundPolicyEngine.cs` |
+| The sound | `src/ClaudeDashboard.Core/SoundPolicyEngine.cs`; `src/ClaudeDashboard.App/Adapters/NAudioSoundPlayer.cs`, `ISoundOutput.cs`, `SoundDeviceNotice.cs` |
 | The screen | `src/ClaudeDashboard.App/Ui/SessionProjection.cs`, `AckPublisher.cs`, `TrayViewModel.cs`, `NoticeBoard.cs` |
 | The archive and the decisions | `src/ClaudeDashboard.App/Pipeline/DecisionRecorder.cs`; `src/ClaudeDashboard.App/Storage/EventArchive.cs`, `EventArchiveWriter.cs`, `SqliteEventStore.cs`, `Decisions.cs`, `HistoryNotice.cs` |
 | The tests of the path | `tests/ClaudeDashboard.Tests/Setup/HookScriptBehaviourTests.cs`, `tests/ClaudeDashboard.Tests/Ingress/`, `tests/ClaudeDashboard.Tests/Pipeline/` |
