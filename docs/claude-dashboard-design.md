@@ -142,7 +142,7 @@ This section is the authority for the anatomy of a row and for the motion rule. 
 
 - **Caption:** the application name and the **counts strip** ("11 sessions · 3 need you · 2 unread · 1 working"). When the window is narrow, the strip drops words before numbers.
 - **Toolbar:** the Grouped/Flat toggle · Select · Mute all · Ack all.
-- **Notice:** one amber row under the toolbar, only when the dashboard is not connected to Claude Code. It says what is wrong and what to do. A dashboard that receives nothing must not look like a quiet day.
+- **Notice:** amber lines under the toolbar, one for each thing the operator must see and would not otherwise: the dashboard is not connected to Claude Code, or history is not being recorded. Each says what is wrong and what to do, and each clears by its own rule. Two can be true at one time, so the row is a list in a fixed order, the connection first. A dashboard that receives nothing, or records nothing, must not look like a quiet day.
 - **Body:** groups (or bands) of session rows.
 - **Session row:** status light · the session's title where it has one, then the start of the prompt (monospace: it *is* terminal text) · a badge with the state · the age · an Ack on a row that waits. The title is what Claude Code calls the session: a name that the operator set with `--name` or `/rename`, or one that Claude Code made. It is cut to a fixed length and does not take space from the prompt. A session with no title shows the prompt only.
 - **The age on a row** says whose time it is. "Waiting 4 min": the agent is stopped and the time is the operator's. "2 min ago": the work is done and the time measures how long it is unseen. "6 min": the agent is busy. A working row counts from the operator's question, and a stop for a permission does not restart it.
@@ -202,3 +202,4 @@ Each phase can ship alone. Phase 7 is the reason that the domain model stays apa
 | 2026-09-29 | An acknowledgment or a close never restarts a row's clock. The "Open terminal" button is hidden | Issues #59, #60 |
 | 2026-10-01 | The notice when the dashboard is not connected. Nothing is written into Claude Code's settings | Issue #65 |
 | 2026-10-02 | v0.2. Written again to agree with the product. "Tab titling from prompts" is removed from Phase 2: the terminal title is left untouched (TS §III.3) | — |
+| 2026-10-03 | The notice row is a list. "History is not being recorded" is a notice, and the history tries again each minute | Issue #71 |

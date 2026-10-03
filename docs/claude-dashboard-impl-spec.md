@@ -404,7 +404,7 @@ The colour is the worst state of all sessions (`StatusSummary.Of`, then `TrayVis
 
 - Mute all is the volume control. Pause is "off duty". Pause is the one deliberate exception to "the tray tells the truth".
 - The glyph for pause is different from the grey of "all quiet".
-- **The tooltip leads with what the operator cannot see.** First a fault (no port, or not connected to Claude Code), then `paused · click to resume`, then `muted 24 min`, then the counts. The minutes of a mute are rounded up.
+- **The tooltip leads with what the operator cannot see.** First the faults, joined by ` · `: no port, then the tray text of each notice in the notice row's order (not connected to Claude Code, then `history not recorded`; §5.6.1). Then `paused · click to resume`, then `muted 24 min`, then the counts. The minutes of a mute are rounded up.
 - A mute ends by a test of the time, not by a timer. Thus the tooltip is computed again on each tick.
 - **Pause does not survive a restart.**
 - Mute and pause do not stop the events. The Registry stays correct, and the window shows the truth.
@@ -438,7 +438,7 @@ Top to bottom:
 1. **The caption:** the icon, "Claude Dashboard", the **counts strip**, a help slot that does nothing yet, and the buttons Minimize, Maximize and "Close to the tray".
 2. **The counts row:** shown only when the caption is too narrow for the counts.
 3. **The toolbar:** `Grouped | Flat` · `Select` · `Mute all` · `Ack all`.
-4. **The notice row:** shown only when the dashboard is not connected to Claude Code (§9.4).
+4. **The notice row:** a short list, one line for each notice that is shown, in a fixed order: the connection to Claude Code (§9.4), then `History is not being recorded: the database could not be written. The dashboard tries again each minute.` (§8.3). Hidden when none is shown. Two can be true at one time, so it is a list (T1.54, issue #71). Each notice has its own window text, its own tray text and its own rule for when it clears. `NoticeBoard` orders them; a new notice is one more `INotice` source, and the board does not change. The tray colour does not change for a notice.
 5. **The body:** the rows.
 
 **The counts strip** reads `11 sessions · 3 need you · 5 unread · 8 working`. The total always shows. A band with zero is left out. Quiet and Ended have no count. The counts are of sessions, not of rows, so a collapsed group still counts. When the space is short, the strip drops words before numbers; its tooltip always has the full sentence.
@@ -588,7 +588,7 @@ The mode ends when the operator groups, cancels, or hides the window.
 | A roster group settled | The consumer wakes at the deadline and sends a tick |
 | Mute or pause changed | The consumer sends a tick after the `SoundCommand` |
 | The operator opened or closed a heading, changed the view, or edited a roster | The view model refreshes itself |
-| The notice changed | `HookNotice` raises a property change |
+| A notice changed | A source raises a property change, and `NoticeBoard` rebuilds the list. `HookNotice` changes at a start or an event. `HistoryNotice` looks at the store on `TrayViewModel.Tick`, which passes the tick to the board |
 
 `EventConsumer` is the only caller of `UiTick`. A test holds that, because the view models do not check that time goes forward.
 
@@ -701,7 +701,13 @@ The dashboard's own settings. A person can edit it: comments and a comma at the 
 
 SQLite, through `Microsoft.Data.Sqlite`. One writer thread. Append-only. **Never pruned** (retention is *not built*). A typical day adds about 300 KB.
 
-If the file cannot be opened or written, the store writes one warning and stops. The dashboard runs with no history until the next start.
+If the file cannot be opened or written, the store writes one Warning, and the window and the tray say `history not recorded` (§5.6.1). **It tries again each minute** (the operator's ruling in issue #71; before T1.54 it stopped until the next start):
+
+- The next attempt is the first write at least 60 seconds after the failure (`SqliteEventStore.RetryAfter`, from the injected `IClock`). A failed retry starts the minute again.
+- The records that arrive inside the minute are lost, not queued: a queue would hold the operator's words in memory for as long as the disk stays full. `LostCount` counts them, with each record whose write failed.
+- No timer and no thread retry. The attempt rides on the next record, on the writer thread, so it costs one normal write at most and never touches the consumer thread.
+- A failed retry writes no log line. The first write that succeeds writes one Information line with the count of records lost. A record is one event with its decisions, or the decisions of one tick. The open announcement is not written again.
+- The notice reads `SqliteEventStore.Available` (false while the last write failed) on the tray's 15-second tick. The writer thread publishes it with `Volatile`. So the notice shows within one tick of the failure, and clears within one tick of the write that succeeds.
 
 **The table `events`:** one row for each event that reached the consumer.
 
@@ -893,7 +899,7 @@ The read is defensive:
 | …and `claude.exe` is not found | Nothing more | The two commands to run by hand |
 | …and Claude Code refuses | Nothing more | What it said, and the two commands |
 
-- **The notice is a row in the window and the first part of the tray tooltip.**
+- **The notice is the first line of the notice row, and the first notice in the tray tooltip** (§5.6.1).
 - **A notice that says "nothing reports" clears when a session reports.** An event that arrives is proof of the opposite.
 - **Three notices do not clear on an event alone.** The old-hook notice stays until a start finds the hook gone: events arrive through that hook. The notices for a plugin that is turned off or removed clear only when a session reports **and** Claude Code's settings show the plugin enabled: a session that was open before keeps the plugin until it restarts. For those, the dashboard reads the settings again at an event, 30 seconds apart at most.
 - **`claude.exe` is looked for on `PATH`, then in `%USERPROFILE%\.local\bin`.** A `claude.cmd` from npm counts as not found.
@@ -1008,3 +1014,4 @@ The text above says what is true now. This list says when each part changed.
 | 2026-10-02 | v0.2. Written again to agree with the code. Added: §2.5 to §2.7, §3.5, §5.6, §8.1 to §8.5 | — |
 | 2026-10-02 | The log file follows `logging.minimumLevel` (§8.2, §8.4). The no-write guard pins the files that may write (§9.3) | T1.52; issues #68, #65 |
 | 2026-10-03 | `StopFailure` gives its kind in `error`, read before `error_type` (§3.5, §9.1). A second error of another kind changes the kind | T1.53; issue #67 |
+| 2026-10-03 | The store tries again each minute (§8.3). The notice row is a list, and history not recorded is a notice (§5.6.1); the tooltip leads with each notice (§5.2) | T1.54; issue #71 |

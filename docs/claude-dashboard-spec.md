@@ -112,7 +112,7 @@ The dashboard registers eight events.
 | **Notification**, type `agent_needs_input` | Claude is blocked on an answer | State → **Needs You — Question** | `notification_type` |
 | **Notification**, all other types | For example `idle_prompt`: nothing occurred for some time | **No state change** | `notification_type` |
 | **Stop** | Claude finishes its response | State → **Unread**, or **Waiting** if background work still runs. Keep the answer | `last_assistant_message`, `background_tasks`, `session_crons` |
-| **StopFailure** | The turn stops on an API error | State → **Error**. Keep the kind of error | `error`, or `error_type` if `error` is absent |
+| **StopFailure** | The turn stops on an API error | State → **Error**. Keep the kind of error | `error`, or `error_type` if `error` is absent or not a string |
 | **SessionEnd** | The session terminates | State → **Ended** | `reason` |
 | **CwdChanged** | The working directory changes | Find the group again | None |
 | **PostToolBatch** | A batch of tool calls is complete, before the next model call | The turn runs: a session that was blocked, in error or silent goes back to **Working** | None |
@@ -131,7 +131,7 @@ Two rules about what an event must *not* do, each learned from use:
 - **`idle_prompt` is not a question.** `agent_needs_input` is a request. `idle_prompt` is the absence of one: Claude Code sends it because a session sat untouched, and each finished session does that. When the dashboard read it as a question, each Unread row became red and blinking about ninety seconds after it finished. Idleness already has its place: a result that nobody read is Unread, and one that was read is Quiet. The general rule is in the Design (§4): *an absence of activity must never make a session louder.*
 - **An unknown type changes nothing.** Claude Code has twelve notification types and ten error kinds, and it can add more. A type that the dashboard does not know is kept in the log and changes no state.
 
-**The kind of error comes from `error`, the field the wire sends.** Claude Code's documentation names the field `error_type`, but all 18 archived `StopFailure` events carry `error`, and none carries `error_type` (issue #67). Where the two disagree, the wire is the authority. The dashboard reads `error` first, and `error_type` only when `error` is absent, in case a later Claude Code follows its documentation. The row shows the kind as it arrives, so a kind the dashboard does not know still reaches the operator. It never reads `error_message`: that is prose about the operator's turn.
+**The kind of error comes from `error`, the field the wire sends.** Claude Code's documentation names the field `error_type`, but all 18 archived `StopFailure` events carry `error`, and none carries `error_type` (issue #67). Where the two disagree, the wire is the authority. The dashboard reads `error` first, and `error_type` only when `error` is absent or not a string, in case a later Claude Code follows its documentation. The row shows the kind as it arrives, so a kind the dashboard does not know still reaches the operator. It never reads `error_message`: that is prose about the operator's turn.
 
 A second `StopFailure` with a different kind, on a session already in Error, changes the kind on the row. It is a real change, not a duplicate. The same kind twice is a duplicate.
 
@@ -433,7 +433,7 @@ Each capability fails soft. The product continues with less.
 | The dashboard does not run | The hook script finds no announcement and stops | Leaves each Claude Code session untouched. The events of that time are lost |
 | No free port | The dashboard starts, announces nothing, and says so in the tray | Shows its window; receives nothing |
 | Claude Code is not connected | The dashboard shows a notice with what to do | Runs; receives nothing until it is connected |
-| The event log cannot be written | The dashboard writes one warning and stops the log | Shows and sounds as usual, with no history |
+| The event log cannot be written | The dashboard writes one warning, says so in the window and the tray, and tries again each minute | Shows and sounds as usual. The events of each minute that cannot be written are lost |
 | The sound device fails | Silence, and a log line | Shows as usual |
 | The settings file cannot be read | Defaults in memory; the file is left as it is | Runs |
 | The pin to all desktops fails | The window is on one desktop | Runs |
@@ -444,6 +444,8 @@ Each capability fails soft. The product continues with less.
 | Focus inference *(later)* | Manual Ack and the Ack from a new prompt | Phase 1 acknowledgment |
 
 Phase 1 is at the bottom of each ladder and works alone.
+
+**A lost feature must still show on screen.** The event log once wrote one warning and stopped until the next start, and nothing on screen changed: the operator found out days later, looking for a record that was not there (issue #71). Now the window and the tray say "history not recorded", and the log tries again each minute, by the operator's ruling. A disk that is full for a minute costs a minute of history, not the rest of the day. The events of that minute are lost, not held in memory: a queue would keep the operator's words for as long as the disk stays full.
 
 ### IV.8 Threat surface summary
 
@@ -547,3 +549,4 @@ The text above says what is true now. This list says when each rule changed, for
 | 2026-10-01 | The hook is registered as a Claude Code plugin. The dashboard never writes Claude Code's settings. Start with Windows | T1.49, T1.50, T1.51; issues #30, #36, #65 |
 | 2026-10-02 | v0.3. This document is written again to agree with the code. The dated correction blocks became this table | — |
 | 2026-10-03 | The kind of an Error row is read from `error`, the field the wire sends. A second error of another kind changes the row | T1.53; issue #67 |
+| 2026-10-03 | The event log tries again each minute, and the window and the tray say when history is not recorded (§IV.7). Before, it stopped until the next start. §II.2: `error_type` is also read when `error` is not a string | T1.54; issue #71 |
