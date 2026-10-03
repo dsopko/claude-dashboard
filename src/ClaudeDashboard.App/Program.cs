@@ -193,7 +193,7 @@ public static class Program
                 host = AppHost.Build(
                     paths,
                     onShow: () => surfacer!.Request(),
-                    ingress: IngressFor(action, choice, paths.SettingsFile),
+                    ingress: IngressFor(choice, paths.SettingsFile),
                     settingsAtStart: start);
 
                 // Between Build and Start, and that ordering is load-bearing rather than
@@ -488,23 +488,22 @@ public static class Program
 
     /// <summary>Turns the port choice into what the tray will say about it.</summary>
     /// <remarks>
+    /// <para>
     /// Three outcomes, three lines. A refused pin is not the same event as a port taken out from
     /// under the dashboard: the operator chose that port, and the tooltip says "pinned" so they
     /// know which setting is the thing to change.
+    /// </para>
+    /// <para>
+    /// <strong>The choice alone decides (T1.57 review).</strong> Only a start that will run reaches
+    /// this, and a port the choice found is bound. The start that stayed deaf when a stranger held
+    /// the port in <c>port.txt</c>, though its choice had found a free one, is gone with
+    /// <c>StartWithoutIngress</c>.
+    /// </para>
     /// </remarks>
-    internal static IngressStatus IngressFor(StartupAction action, PortChoice choice, string settingsFile)
-    {
-        if (action == StartupAction.StartNormally && choice.Found)
-        {
-            return IngressStatus.Healthy(choice.Port);
-        }
-
-        // A choice that found a port, under a start that will not bind it (a stranger on the port in
-        // port.txt), keeps the line it has always had, now with its remedy (T1.57).
-        return choice.Found
-            ? IngressStatus.Unavailable(choice.Port, settingsFile: settingsFile)
+    internal static IngressStatus IngressFor(PortChoice choice, string settingsFile) =>
+        choice.Found
+            ? IngressStatus.Healthy(choice.Port)
             : IngressStatus.NotBound(choice, settingsFile);
-    }
 
     /// <summary>Says how the port was arrived at, once the logger that can record it exists.</summary>
     /// <remarks>

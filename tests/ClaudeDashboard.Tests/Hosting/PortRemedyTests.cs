@@ -22,9 +22,9 @@ namespace ClaudeDashboard.Tests.Hosting;
 /// <para>
 /// <strong>Every place that makes an <see cref="IngressStatus"/> fault has a test here.</strong>
 /// <c>IngressStatus.NotBound</c> for a walk that ran out and for a refused pin, which both
-/// <c>Program.IngressFor</c> and <c>AppHost.Build</c> use; <c>Program.IngressFor</c> for a start
-/// that will not bind a port it found; and <c>AppHost.Build</c> when it is told the port is
-/// unavailable. A bind that fails after the choice is not a status at all: <c>Program.Main</c>
+/// <c>Program.IngressFor</c> and <c>AppHost.Build</c> use; and <c>AppHost.Build</c> when it is told
+/// the port is unavailable. Since the T1.57 review a start never stays deaf on a port its choice
+/// found: a stranger on the recorded port is skipped, which the two live cases below hold. A bind that fails after the choice is not a status at all: <c>Program.Main</c>
 /// logs a Fatal line, which already says what to do, and exits.
 /// </para>
 /// </remarks>
@@ -77,21 +77,81 @@ public sealed class PortRemedyTests
     }
 
     /// <summary>
-    /// A start that will not bind the port it found (a stranger on the port in <c>port.txt</c>) keeps
-    /// its line, now with the remedy.
+    /// <strong>The live case from the T1.57 review</strong>: a stranger holds the port in
+    /// <c>port.txt</c>, there is no pin, and the dashboard binds the next free port it walks to. No
+    /// notice shows.
+    /// </summary>
+    /// <remarks>
+    /// The reviewer measured "52977:Silent → 52888:OtherInstance → 52889:Free" with nothing bound,
+    /// and a window that said every port tried was in use. The decision and the choice are both
+    /// asked here, as <c>Program.Main</c> asks them: the decision on the recorded port's occupant,
+    /// then the choice, then the status.
+    /// </remarks>
+    [Fact]
+    public void A_stranger_on_the_recorded_port_lets_the_dashboard_bind_the_next_free_port()
+    {
+        const int Recorded = 52977;
+        var taken = new HashSet<int> { Recorded };
+
+        // The recorded port is silent; the first port after it is another user's dashboard; the
+        // next is free.
+        PortOccupant Probe(int port)
+        {
+            if (port == Recorded)
+            {
+                return PortOccupant.Silent;
+            }
+
+            if (taken.Count == 1)
+            {
+                taken.Add(port);
+                return PortOccupant.OtherInstance;
+            }
+
+            return taken.Contains(port) ? PortOccupant.OtherInstance : PortOccupant.Free;
+        }
+
+        Assert.Equal(StartupAction.StartNormally, StartupDecision.For(holdsGate: true, PortOccupant.Silent));
+
+        var choice = PortSelection.Choose(Base, "S-1-5-21-1-2-3-1001", Recorded, Probe);
+
+        Assert.True(choice.Found);
+        Assert.Equal(PortSource.Walked, choice.Source);
+        Assert.NotEqual(Recorded, choice.Port);
+
+        var status = Program.IngressFor(choice, SettingsFile);
+
+        Assert.True(status.CanReceiveHooks);
+        Assert.Equal(choice.Port, status.Port);
+        Assert.Null(status.Fault);
+        Assert.False(status.IsShown);
+        Assert.Empty(new NoticeBoard(status).Texts);
+    }
+
+    /// <summary>
+    /// A pin on a free port, with a stranger on the recorded port, binds the pin (the second case
+    /// the reviewer measured: 52979 was free, and the start stayed deaf).
     /// </summary>
     [Fact]
-    public void A_start_without_ingress_on_a_found_port_says_what_to_do()
+    public void A_free_pin_is_bound_though_a_stranger_holds_the_recorded_port()
     {
-        var choice = PortSelection.Choose(Base, "S-1-5-21-1-2-3-1001", recorded: null, _ => PortOccupant.Free);
+        const int Recorded = 52977;
+        const int Pin = 52979;
+
+        Assert.Equal(StartupAction.StartNormally, StartupDecision.For(holdsGate: true, PortOccupant.Unrecognised));
+
+        var choice = PortSelection.Choose(
+            Base, "S-1-5-21-1-2-3-1001", Recorded, port => port == Recorded ? PortOccupant.Unrecognised : PortOccupant.Free, pinned: Pin);
+
         Assert.True(choice.Found);
+        Assert.Equal(PortSource.Pinned, choice.Source);
+        Assert.Equal(Pin, choice.Port);
 
-        var status = Program.IngressFor(StartupAction.StartWithoutIngress, choice, SettingsFile);
+        var status = Program.IngressFor(choice, SettingsFile);
 
-        Assert.Equal($"port {Number(choice.Port)} taken · free a port and restart", status.Fault);
-        Assert.Contains("restart", status.Text, StringComparison.Ordinal);
-
-        Assert.Null(Program.IngressFor(StartupAction.StartNormally, choice, SettingsFile).Fault);
+        Assert.True(status.CanReceiveHooks);
+        Assert.Equal(Pin, status.Port);
+        Assert.False(status.IsShown);
     }
 
     /// <summary>The host told that its port is unavailable says the same.</summary>

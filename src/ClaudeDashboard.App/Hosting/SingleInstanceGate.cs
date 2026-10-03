@@ -41,11 +41,11 @@ namespace ClaudeDashboard.App.Hosting;
 /// and exit saying it had worked.
 /// </para>
 /// <para>
-/// <strong>What this does not fix.</strong> Two signed-in users still cannot both receive hooks:
-/// a loopback bind is machine-wide, so the second gets a dashboard that can hear nothing
-/// (<see cref="StartupAction.StartWithoutIngress"/>). The scoping here decides only that the
-/// second one is told so loudly instead of vanishing. The underlying limit is filed separately;
-/// fixing it means the port stops being fixed, which Impl §3.1 decides deliberately.
+/// <strong>Two signed-in users each get a port.</strong> A loopback bind is machine-wide, so when
+/// this was written the second user got a dashboard that could hear nothing. Since T1.21 the port
+/// is chosen per user (Impl §3.1), and since the T1.57 review another user's dashboard on the
+/// recorded port is a candidate the choice skips, not a reason to start deaf. The scoping here
+/// still decides that a dashboard on our port is told apart from our own copy.
 /// </para>
 /// </remarks>
 public sealed class SingleInstanceGate : IDisposable

@@ -1,4 +1,5 @@
 using System.IO;
+using System.Text.RegularExpressions;
 
 namespace ClaudeDashboard.Tests.Architecture;
 
@@ -436,7 +437,8 @@ public sealed class StartupHookGuardTests
         Assert.Equal(Expected, StatementAt(code, ".ReconcileAtStart("));
 
         var hooks = code.IndexOf("StartupHookInstall.RunAtStart(", StringComparison.Ordinal);
-        var reconcile = code.IndexOf(Expected, StringComparison.Ordinal);
+        // By the token, whose statement is pinned above: a call split across lines is the same call.
+        var reconcile = code.IndexOf(".ReconcileAtStart(", StringComparison.Ordinal);
 
         Assert.True(hooks >= 0, "Program.cs no longer calls StartupHookInstall.RunAtStart.");
         Assert.True(
@@ -469,7 +471,7 @@ public sealed class StartupHookGuardTests
         Assert.Equal(1, GuardScan.Occurrences(code, "settingsWindows ="));
         Assert.Equal(Host, StatementAt(code, "settingsWindows ="));
 
-        var subscription = code.IndexOf(Subscription, StringComparison.Ordinal);
+        var subscription = code.IndexOf("SettingsRequested", StringComparison.Ordinal);
         var run = code.IndexOf("app.Run(window)", StringComparison.Ordinal);
 
         Assert.True(run >= 0, "Program.cs no longer runs the application with the window.");
@@ -491,7 +493,15 @@ public sealed class StartupHookGuardTests
         var start = code.LastIndexOfAny([';', '{', '}'], at) + 1;
         var end = code.IndexOf(';', at) + 1;
 
-        return string.Join(' ', code[start..end].Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        var joined = string.Join(' ', code[start..end].Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+
+        // A call split across lines, before or after a dot, or before its parenthesis, is the same
+        // call (T1.57 review, the reviewer's plant d): drop the spaces the line breaks became there.
+        joined = Regex.Replace(joined, @"\s*\.\s*", ".");
+
+        // Only before the parenthesis of a call: after a name, a generic's '>' or an indexer's ']'.
+        // An operator before a parenthesis keeps its space ("+= (_, _) =>").
+        return Regex.Replace(joined, @"(?<=[\w>\]])\s+\(", "(");
     }
 
     /// <summary>The call's arguments, split on the commas at its own depth and trimmed.</summary>

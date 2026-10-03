@@ -37,7 +37,14 @@ public sealed class StartupDecisionTests
             StartupAction.SignalAndExit,
             StartupDecision.For(holdsGate: true, PortOccupant.OurInstance));
 
-    // ---- Case 4: the gate is free, so it has said nothing, and the port must not decide alone ----
+    // ---- Case 4: the gate is ours, and the port must not decide alone ------------------------------
+    //
+    // Until the T1.57 review these four cells answered StartWithoutIngress: a dashboard that ran and
+    // heard nothing. That came from T1.15's single fixed port. Since T1.21 the port is chosen per
+    // user, and an occupant of the recorded port that is not our copy is a candidate the choice
+    // skips (Impl §3.1, §5.3). Measured by the reviewer: a stranger on the recorded port left the
+    // dashboard deaf while its choice had found a free port. So each cell now starts normally, and
+    // PortSelection.Choose picks the port (PortRemedyTests holds that end to end).
 
     /// <summary>
     /// 4b. Another user's dashboard holds the port. Not our duplicate.
@@ -49,33 +56,33 @@ public sealed class StartupDecisionTests
     /// window on their desktop and leave this user with no dashboard and no explanation.
     /// </remarks>
     [Fact]
-    public void With_another_users_dashboard_on_the_port_it_starts_without_ingress() =>
+    public void With_another_users_dashboard_on_the_port_it_starts_and_lets_the_choice_walk_on() =>
         Assert.Equal(
-            StartupAction.StartWithoutIngress,
+            StartupAction.StartNormally,
             StartupDecision.For(holdsGate: true, PortOccupant.OtherInstance));
 
     /// <summary>4c. A stranger, or an old build that cannot say who it is.</summary>
     [Fact]
-    public void With_an_unrecognised_answer_on_the_port_it_starts_without_ingress() =>
+    public void With_an_unrecognised_answer_on_the_port_it_starts_and_lets_the_choice_walk_on() =>
         Assert.Equal(
-            StartupAction.StartWithoutIngress,
+            StartupAction.StartNormally,
             StartupDecision.For(holdsGate: true, PortOccupant.Unrecognised));
 
     /// <summary>4d. Something that accepts the connection and never answers.</summary>
     [Fact]
-    public void With_a_silent_socket_on_the_port_it_starts_without_ingress() =>
+    public void With_a_silent_socket_on_the_port_it_starts_and_lets_the_choice_walk_on() =>
         Assert.Equal(
-            StartupAction.StartWithoutIngress,
+            StartupAction.StartNormally,
             StartupDecision.For(holdsGate: true, PortOccupant.Silent));
 
     /// <summary>
     /// An occupant this build does not recognise still starts. Degrade, never crash: a dashboard
-    /// that runs half-deaf and says so can be diagnosed, and one that exits cannot.
+    /// that starts can say what is wrong, and one that exits cannot.
     /// </summary>
     [Fact]
     public void With_an_occupant_this_build_does_not_know_it_still_starts() =>
         Assert.Equal(
-            StartupAction.StartWithoutIngress,
+            StartupAction.StartNormally,
             StartupDecision.For(holdsGate: true, (PortOccupant)999));
 
     // ---- The gate is held, so a copy of us is alive; the only question is reaching it ----------

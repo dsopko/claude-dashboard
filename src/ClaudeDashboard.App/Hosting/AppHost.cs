@@ -402,14 +402,15 @@ public static class AppHost
             // listening.txt for the port when it runs, so changing the port changes nothing in
             // Claude Code's settings. Telling a stuck operator to go and edit a URL there would
             // send them looking for something this build never writes.
+            //
+            // The line is the notice's own text (T1.57 review). It used to say "Port N is held by
+            // another process", which turned false when a start stayed deaf on a port its own choice
+            // had found free. The notice is made from the choice, so it says what is true: every port
+            // tried was in use, or the pin is held, and what to do about it.
             logger.Error(
-                "Port {Port} is held by another process, so the dashboard cannot receive hooks and " +
-                "every session will be missing. It is starting anyway, with the reason in the tray " +
-                "tooltip. Free that port, or set a different \"port\" in {SettingsFile}, then restart " +
-                "the dashboard. Claude Code's hook settings need no change: the hook finds the new " +
-                "port by itself.",
-                ingress.Port,
-                resolved.SettingsFile);
+                "The dashboard did not bind a port, so it cannot receive hooks and every session will be " +
+                "missing. It is starting anyway, with the same words in the window and the tray: {Notice}",
+                ingress.Text);
         }
 
         return app;
