@@ -82,7 +82,7 @@ public sealed class IngressAnnouncement
         if (!_ingress.CanReceiveHooks)
         {
             _logger.Warning(
-                "Not announcing ingress: port {Port} is held by another process, so an announcement " +
+                "Not announcing ingress: this dashboard did not bind port {Port}, so an announcement " +
                 "would send hook payloads — including prompts — to whatever holds it.",
                 _ingress.Port);
 

@@ -431,7 +431,7 @@ Each capability fails soft. The product continues with less.
 | If this fails… | …the system does this | The product still |
 |---|---|---|
 | The dashboard does not run | The hook script finds no announcement and stops | Leaves each Claude Code session untouched. The events of that time are lost |
-| No free port | The dashboard starts and announces nothing. The log, the tray and the window say what to do: free a port, or change the pin, then restart. Nothing retries | Shows its window; receives nothing |
+| No free port | A port held by another program is skipped, and the next one is tried. With no free port, or the pinned port held, the dashboard starts and announces nothing. The log, the tray and the window say what to do: free a port, or change the pin, then restart. Nothing retries | Shows its window; receives nothing |
 | Claude Code is not connected | The dashboard shows a notice with what to do | Runs; receives nothing until it is connected |
 | The event log cannot be written | The dashboard writes one warning when it fails (not for a failed retry), says so in the window and the tray, and tries again each minute | Shows and sounds as usual. The events of each minute that cannot be written are lost |
 | The sound device fails | Silence, a log line, and a notice in the window and the tray: no sound device. The record says each sound was dropped, not played | Shows as usual. A device that is listed, active and silent (the volume at zero, a monitor with no speakers) cannot be told apart from one that works |
@@ -556,4 +556,4 @@ The text above says what is true now. This list says when each rule changed, for
 | 2026-10-03 | The event log tries again each minute, and the window and the tray say when history is not recorded (§IV.7). Before, it stopped until the next start. §II.2: `error_type` is also read when `error` is not a string | T1.54; issue #71 |
 | 2026-10-03 | No sound device is a notice in the window and the tray, and the record says a dropped sound was dropped (§IV.7). The event log writes one warning when it fails, not for a failed retry | T1.55; issue #72 |
 | 2026-10-03 | A settings file that does not parse is kept aside and a fresh one written, and the window and the tray say so (§IV.7). Before, it was "left as it is" until the next save wrote the defaults over it | T1.56; issue #73 |
-| 2026-10-03 | A port that is taken says what to do, in the tray and the window. A start whose settings were unreadable leaves start with Windows as it found it (§IV.7) | T1.57; issue #14 |
+| 2026-10-03 | A port that is taken says what to do, in the tray and the window. A program on the port the dashboard last used no longer leaves it deaf: it tries the next port. A start whose settings were unreadable leaves start with Windows as it found it (§IV.7) | T1.57; issue #14 |

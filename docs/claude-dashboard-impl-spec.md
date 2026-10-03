@@ -413,7 +413,7 @@ The colour is the worst state of all sessions (`StatusSummary.Of`, then `TrayVis
 
 - A named `Mutex` (`SingleInstanceGate`) is taken at start. It is local to the logon session, and its name holds a hash of the data folder path. If it is held, this process is the second instance.
 - The second instance reads the port from `port.txt` and the token from `listening.txt`, sends `POST /show`, and exits.
-- The port corroborates only. After a hard stop, any program can hold the port. `GET /health` says if the holder is a copy of this dashboard, a different user's dashboard, or a stranger.
+- The port corroborates only. After a hard stop, any program can hold the port. `GET /health` says if the holder is a copy of this dashboard, a different user's dashboard, or a stranger. **Only a copy of this dashboard changes the start**: it is signalled. Any other holder of the port in `port.txt` is a candidate that the port choice skips (§3.1), and the start goes on. Until the T1.57 review such a holder left the dashboard without a port (`StartWithoutIngress`, from T1.15's single fixed port) although its choice had found a free one; that action is removed.
 - **A dashboard with no port still starts.** The tray tooltip and the window's notice row give the cause and what to do (§3.1).
 
 ### 5.4 DPI and window placement
@@ -1032,4 +1032,4 @@ The text above says what is true now. This list says when each part changed.
 | 2026-10-03 | The store tries again each minute (§8.3). The notice row is a list, and history not recorded is a notice (§5.6.1); the tooltip leads with each notice (§5.2) | T1.54; issue #71 |
 | 2026-10-03 | The player reports what it did, and a dropped sound is `SoundDropped` (Part 7, §8.3). No sound device is a notice (§5.2, §5.6.1). The store writes the stack on its first Warning only | T1.55; issue #72 |
 | 2026-10-03 | A settings file that does not parse is kept aside and a fresh one written; one that cannot be opened refuses saves for the run (§8.1, §8.2, §9.4). The settings notice (§5.2, §5.6.1) | T1.56; issue #73 |
-| 2026-10-03 | A port that is taken says what to do, in the log, the tray and the window; the port fault is the first notice on the board (§3.1, §5.2, §5.3, §5.6.1). A start whose settings were unreadable leaves start with Windows as it found it (§8.2, §10.1) | T1.57; issue #14 |
+| 2026-10-03 | A port that is taken says what to do, in the log, the tray and the window; the port fault is the first notice on the board (§3.1, §5.2, §5.3, §5.6.1). A program on the port in `port.txt` no longer leaves the dashboard deaf: the choice walks on (§5.3). A start whose settings were unreadable leaves start with Windows as it found it (§8.2, §10.1) | T1.57; issue #14 |

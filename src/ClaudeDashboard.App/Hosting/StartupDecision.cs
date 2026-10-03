@@ -3,14 +3,19 @@ namespace ClaudeDashboard.App.Hosting;
 /// <summary>What this process should do about the instance already out there (Impl §5.3).</summary>
 public enum StartupAction
 {
-    /// <summary>Nothing else is here. Start, and bind the configured port.</summary>
-    StartNormally = 1,
-
     /// <summary>
-    /// Somebody else holds the port and it is not a copy of us. Start anyway — the dashboard is
-    /// useful with a window and a tray even when it can hear nothing — but say so loudly.
+    /// No copy of us is serving. Start, and bind the port that <see cref="PortSelection.Choose"/>
+    /// finds: a port held by anyone else is only a candidate that is skipped (Impl §3.1).
     /// </summary>
-    StartWithoutIngress = 2,
+    /// <remarks>
+    /// <strong>Value 2 is gone, and so is "start without ingress" (T1.57 review, the director's
+    /// ruling of 2026-10-03).</strong> It came from T1.15, when there was one fixed port: a stranger
+    /// on it left nowhere else to go. Since T1.21 the port is chosen per user, and a stranger on the
+    /// port in <c>port.txt</c> is one candidate among several; the choice walks on. Starting deaf
+    /// there left the dashboard hearing nothing while its own choice had found a free port, and its
+    /// notice blamed a port that was free. The other values keep their numbers.
+    /// </remarks>
+    StartNormally = 1,
 
     /// <summary>A copy of us on this data folder is serving. Ask it to surface, then exit.</summary>
     SignalAndExit = 3,
@@ -45,10 +50,13 @@ public enum StartupAction
 /// per data folder, so a healthy dashboard on our port may belong to another signed-in user.
 /// </para>
 /// <para>
-/// <strong>Every unresolved case starts rather than exits.</strong> A dashboard that runs
-/// half-deaf and says so can be diagnosed; one that exits without a window has no channel left
-/// to explain itself with. The single exception is a gate held by a live copy of us, where
-/// starting would mean two Registries on one data folder.
+/// <strong>Every unresolved case starts rather than exits.</strong> A dashboard that starts can
+/// say what is wrong; one that exits without a window has no channel left to explain itself with.
+/// The single exception is a gate held by a live copy of us, where starting would mean two
+/// Registries on one data folder. <strong>When this process holds the gate, the occupant of the
+/// recorded port decides only one thing:</strong> whether it is a copy of us to signal. Anything
+/// else on that port is a candidate the port choice skips (Impl §3.1, §5.3); only a pin that is
+/// taken, or a walk that runs out, leaves the dashboard without a port.
 /// </para>
 /// </remarks>
 public static class StartupDecision
@@ -72,8 +80,9 @@ public static class StartupDecision
 
                 // Another user's dashboard, a stranger, a silent socket, or anything a later
                 // build invents. All of them mean the port is not ours to use and not ours to
-                // signal, and none of them is a reason for this user to have no dashboard.
-                _ => StartupAction.StartWithoutIngress,
+                // signal, and none of them is a reason for this user to have no dashboard: the port
+                // choice skips it and binds the next free candidate (T1.57 review).
+                _ => StartupAction.StartNormally,
             };
         }
 
@@ -110,7 +119,7 @@ public static class StartupDecision
             "if no dashboard appears, end the other process and try again.",
 
         // Deliberately not "free the port and restart". The reachable version of this is a
-        // dashboard that already started without ingress because something else held the port —
+        // dashboard that already started without ingress because no port was free, or its pin was taken —
         // so a dashboard *is* running, it simply cannot be asked to surface, and telling the
         // operator to restart it would have them close the only one they have.
         //

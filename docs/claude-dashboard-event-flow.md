@@ -122,11 +122,11 @@ The dashboard writes the script first and `listening.txt` second, so an old scri
 The dashboard tries to bind each candidate. The first free port is used.
 
 1. The port that the operator set as `port` in the dashboard's settings. If this port is in use, the dashboard does not try another.
-2. The port in `port.txt`.
+2. The port in `port.txt`. If another program holds it, it is skipped like any taken candidate: the start goes on to the next one (the T1.57 review; until then the start stayed deaf here).
 3. A port derived from the user's SID: `52789` plus an offset from 0 to 999. The offset comes from SHA-256.
 4. The next ports above the derived port, 32 at most.
 
-If no port is free, the dashboard starts and cannot receive events. It writes no `listening.txt`. The tray tooltip and an Error line in the log give the cause.
+If no port is free, or the pinned port is taken, the dashboard starts and cannot receive events. It writes no `listening.txt`. The log, the tray tooltip and the window's notice row say what to do: free a port, or change the pin, then restart (T1.57).
 
 ---
 
@@ -325,7 +325,7 @@ The tick is not an event. It causes changes that no hook causes:
 |---|---|
 | The dashboard is closed | There is no `listening.txt`, so the script exits and opens no socket. The events of that time are lost. The dashboard does not get them later |
 | The dashboard was killed | `listening.txt` stays and names the old port and a token that nothing accepts now. The script posts to that port, and each post fails in the background. If a different program takes the port, it receives the payloads, which contain prompts. The next start writes the file again, with a new token |
-| A different program has the port at start | The dashboard starts and cannot receive events. It writes no `listening.txt`. The tray tooltip gives the cause |
+| A different program has a port at start | The dashboard skips that port and binds the next free one (section 2.4). Only when no port is free, or the pinned port is taken, does it start without one: it writes no `listening.txt`, and the log, the tray and the window say what to do. Until the T1.57 review a program on the port in `port.txt` left the dashboard deaf although its choice had found a free port |
 | The plugin is not registered, or is turned off | No event arrives. The next start registers it if the rules of section 2.2 permit. If not, the window and the tray show a notice with what to do |
 | An old hook from a build before the plugin is in Claude Code's settings | Events arrive through the old hook. The dashboard registers no plugin beside it, and shows a notice that asks the operator to remove the hook |
 | A hook reads `listening.txt` just before a restart replaces it | That one post carries the old token and gets `401`. The next hook reads the new file |
