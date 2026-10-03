@@ -269,6 +269,10 @@ public sealed class UnprotectedTextInventory
         // the plugin's id, never from a payload; and the tray's copy of the window's one.
         "HookNotice.Text", "HookNotice.TrayText", "TrayViewModel.NoticeText",
 
+        // The history notice (T1.54, issue #71): two fixed texts. The board's tray text is the shown
+        // notices' tray texts joined, each of them classified here.
+        "HistoryNotice.Text", "HistoryNotice.TrayText", "NoticeBoard.TrayText",
+
         // Start with Windows (issue #36): the installed exe's path and its quoted Run data; a line of
         // fixed text, or the registry's own refusal message; and that refusal message itself.
         "StartWithWindows.ExePath", "StartWithWindows.RunData", "SettingsViewModel.Note", "StartupState.Problem",

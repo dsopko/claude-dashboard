@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using ClaudeDashboard.App.Configuration;
+using ClaudeDashboard.App.Ui;
 using ClaudeDashboard.Core.Ports;
 
 namespace ClaudeDashboard.App.Setup;
@@ -51,7 +52,8 @@ public enum HookNoticeKind
 /// is the only route by which Claude Code reaches the dashboard, and the dashboard works round
 /// nothing: when the plugin is missing, turned off, or could not be registered, it says so here,
 /// with what to do. The window shows <see cref="Text"/>; the tray tooltip leads with
-/// <see cref="TrayText"/>, the way it leads with a port that is taken.
+/// <see cref="TrayText"/>, the way it leads with a port that is taken. It is the first source of
+/// the <see cref="NoticeBoard"/> (T1.54), so it leads the notice row and the tooltip.
 /// </para>
 /// <para>
 /// <strong>Two kinds of notice, and they clear differently.</strong> Most say "nothing is
@@ -86,7 +88,7 @@ public enum HookNoticeKind
 /// thread. Raised as property changes so a binding made earlier still follows.
 /// </para>
 /// </remarks>
-public sealed class HookNotice : INotifyPropertyChanged
+public sealed class HookNotice : INotice
 {
     /// <summary>The tray's short form for a turned-off plugin, in the voice of its other faults.</summary>
     public const string PluginDisabledShort = "plugin off · not receiving hooks";

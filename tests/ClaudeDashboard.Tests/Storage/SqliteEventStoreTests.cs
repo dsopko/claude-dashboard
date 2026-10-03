@@ -292,6 +292,95 @@ public sealed class SqliteEventStoreTests : IDisposable
         Assert.Equal(1, store.FailedCount);
     }
 
+    // ---- It tries again each minute (T1.54, issue #71) -----------------------------------------
+
+    /// <summary>
+    /// <strong>A failure, then a working file: the event 59 seconds later is not written, and the
+    /// event 60 seconds later is</strong> (the operator's ruling in #71). The history notice shows
+    /// from the failure and clears on that write, and the recovery line counts what was lost.
+    /// </summary>
+    /// <remarks>
+    /// A folder where the file must be makes the open fail on every machine. Deleting it makes the
+    /// path writable again, but the store must not look until a minute has passed: the event at 59
+    /// seconds is lost without an attempt, and the file is still absent after it.
+    /// </remarks>
+    [Fact]
+    public void After_a_failure_the_next_write_waits_a_minute_and_the_notice_clears_on_it()
+    {
+        var log = new RecordingLogSink();
+        var clock = new FakeClock();
+        var path = Db();
+        Directory.CreateDirectory(path);
+
+        using var store = new SqliteEventStore(path, Logger(log), clock);
+        var notice = new HistoryNotice(() => store.Available == false);
+
+        Assert.False(store.Append(TestEvents.Hook("""{"n":1}""")));
+        notice.Tick(clock.Now);
+        Assert.True(notice.IsShown);
+
+        Directory.Delete(path);
+
+        clock.Advance(TimeSpan.FromSeconds(59));
+        Assert.False(store.Append(TestEvents.Hook("""{"n":2}""")));
+        Assert.False(File.Exists(path), "the store attempted a write before the minute was up");
+        notice.Tick(clock.Now);
+        Assert.True(notice.IsShown);
+
+        clock.Advance(TimeSpan.FromSeconds(1));
+        Assert.True(store.Append(TestEvents.Hook("""{"n":3}""")));
+        notice.Tick(clock.Now);
+        Assert.False(notice.IsShown);
+        Assert.True(store.Available);
+
+        Assert.Equal(["""{"n":3}"""], ForeignSqliteReader.Column(path, "SELECT payload_json FROM events"));
+
+        // One Warning at the failure, and one Information line on recovery with the lost count: the
+        // event that failed and the one that arrived inside the minute.
+        Assert.Single(log.Events, entry => entry.Level >= LogEventLevel.Warning);
+        var recovered = Assert.Single(log.Events, entry => entry.Level == LogEventLevel.Information && entry.MessageTemplate.Text.Contains(" again.", StringComparison.Ordinal));
+        Assert.Equal(LogEventLevel.Information, recovered.Level);
+        Assert.Equal("2", recovered.Properties["LostCount"].ToString());
+        Assert.Equal(0, store.LostCount);
+    }
+
+    /// <summary>
+    /// A retry that fails writes no log line, and the minute starts again from it. The next write
+    /// after that is the first one at least a minute after the failed retry.
+    /// </summary>
+    [Fact]
+    public void A_failed_retry_is_silent_and_waits_a_minute_from_itself()
+    {
+        var log = new RecordingLogSink();
+        var clock = new FakeClock();
+        var path = Db();
+        Directory.CreateDirectory(path);
+
+        using var store = new SqliteEventStore(path, Logger(log), clock);
+
+        Assert.False(store.Append(TestEvents.Hook("{}")));
+
+        clock.Advance(TimeSpan.FromSeconds(60));
+        Assert.False(store.Append(TestEvents.Hook("{}")));
+        Assert.Equal(2, store.FailedCount);
+
+        Directory.Delete(path);
+
+        clock.Advance(TimeSpan.FromSeconds(59));
+        Assert.False(store.Append(TestEvents.Hook("{}")));
+        Assert.Equal(2, store.FailedCount);
+
+        clock.Advance(TimeSpan.FromSeconds(1));
+        Assert.True(store.Append(TestEvents.Hook("{}")));
+
+        Assert.Single(log.Events, entry => entry.Level >= LogEventLevel.Warning);
+        var recovered = Assert.Single(log.Events, entry => entry.Level == LogEventLevel.Information && entry.MessageTemplate.Text.Contains(" again.", StringComparison.Ordinal));
+        Assert.Equal("3", recovered.Properties["LostCount"].ToString());
+
+        // The open announcement is not written on a recovery: the recovery line is the one line.
+        Assert.DoesNotContain(log.Events, entry => entry.MessageTemplate.Text.StartsWith("Recording events to {DatabaseFile}. It is", StringComparison.Ordinal));
+    }
+
     /// <summary>The failure message names the file, not the payload.</summary>
     [Fact]
     public void The_failure_message_names_the_file_and_not_the_body()

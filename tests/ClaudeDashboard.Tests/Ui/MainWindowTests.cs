@@ -1634,7 +1634,7 @@ public sealed class MainWindowTests(StaHarness harness, Xunit.Abstractions.ITest
                     HiddenBefore: hiddenBefore,
                     VisibleAfter: window.NoticeRow.IsVisible,
                     Height: window.NoticeRow.ActualHeight,
-                    Text: window.NoticeText.Text,
+                    Lines: NoticeLines(window),
                     Tooltip: tray.Tooltip);
             }
             finally
@@ -1646,8 +1646,118 @@ public sealed class MainWindowTests(StaHarness harness, Xunit.Abstractions.ITest
         Assert.True(seen.HiddenBefore, "the notice row must be hidden while there is nothing to say");
         Assert.True(seen.VisibleAfter, "the notice row must be visible once a start finds the plugin turned off");
         Assert.True(seen.Height > 0, "the visible notice row must take room in the window");
-        Assert.Equal(ClaudeDashboard.App.Setup.HookNotice.PluginDisabledText, seen.Text);
+        Assert.Equal([ClaudeDashboard.App.Setup.HookNotice.PluginDisabledText], seen.Lines);
         Assert.StartsWith(ClaudeDashboard.App.Setup.HookNotice.PluginDisabledShort, seen.Tooltip, StringComparison.Ordinal);
+    }
+
+    /// <summary>The visible lines of the realized notice row, top to bottom.</summary>
+    private static List<string> NoticeLines(MainWindow window) =>
+        [.. StaHarness.FindAll<TextBlock>(window.NoticeLines)
+            .Where(block => block.IsVisible)
+            .Select(TextOf)];
+
+    /// <summary>
+    /// <strong>Two notices at once both show, in order, both lead the tooltip, and each clears by
+    /// its own rule</strong> (T1.54, issue #71).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The plugin notice comes first and the history notice second, because that is the board's
+    /// order, not the order they were shown in: the history notice is shown first here.
+    /// </para>
+    /// <para>
+    /// Then each rule, against the other notice still showing. An event does not clear a plugin that
+    /// is turned off while Claude Code's settings still say off. A write that succeeds clears the
+    /// history notice and leaves the plugin notice. A failing store shows it again. An event, once
+    /// the settings say on, clears the plugin notice and leaves the history notice.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void Two_notices_show_in_order_lead_the_tooltip_and_clear_by_their_own_rules()
+    {
+        var clock = new FakeClock();
+        var pluginOn = false;
+        var failing = true;
+
+        var hook = new ClaudeDashboard.App.Setup.HookNotice();
+        hook.ConfirmPluginWith(() => pluginOn, clock);
+        var history = new ClaudeDashboard.App.Storage.HistoryNotice(() => failing);
+
+        var seen = _harness.Invoke(() =>
+        {
+            using var registry = new RegistryHarness();
+            using var policy = new MotionPolicy(() => false, observeChanges: false);
+            using var viewModel = new MainViewModel(
+                registry.Projection, policy, new StubAckPublisher(),
+                new FakeClipboard(), new RosterStore(new RecordingEventSink()), new RecordingRosterPersistence());
+            using var board = new NoticeBoard(hook, history);
+            using var tray = TestTrays.For(registry.Projection, clock: clock, notices: board);
+
+            var window = new MainWindow(viewModel, tray);
+            using var bindings = new BindingErrorWatch();
+
+            (List<string> Lines, string Tooltip) Look()
+            {
+                _harness.Pump(DispatcherPriority.Background);
+                window.UpdateLayout();
+                return (window.NoticeRow.IsVisible ? NoticeLines(window) : [], tray.Tooltip);
+            }
+
+            try
+            {
+                Realize(window);
+
+                // The history first, on the tick; then the plugin.
+                tray.Tick(clock.Now);
+                hook.ShowPluginDisabled();
+                var both = Look();
+
+                // An event while the settings still say off: both stay.
+                hook.EventArrived();
+                var afterEventOff = Look();
+
+                // A write succeeds: the history clears on the next tick, the plugin stays.
+                failing = false;
+                clock.Advance(TimeSpan.FromSeconds(15));
+                tray.Tick(clock.Now);
+                var afterWrite = Look();
+
+                // The store fails again, and the settings now say on: an event clears the plugin.
+                failing = true;
+                clock.Advance(TimeSpan.FromSeconds(15));
+                tray.Tick(clock.Now);
+                pluginOn = true;
+                clock.Advance(ClaudeDashboard.App.Setup.HookNotice.RecheckInterval);
+                hook.EventArrived();
+                var afterEventOn = Look();
+
+                Assert.Empty(bindings.Problems);
+
+                return (both, afterEventOff, afterWrite, afterEventOn);
+            }
+            finally
+            {
+                window.Hide();
+            }
+        });
+
+        const string Plugin = ClaudeDashboard.App.Setup.HookNotice.PluginDisabledShort;
+        const string History = ClaudeDashboard.App.Storage.HistoryNotice.TrayShort;
+        var pluginText = ClaudeDashboard.App.Setup.HookNotice.PluginDisabledText;
+        const string HistoryText = ClaudeDashboard.App.Storage.HistoryNotice.WindowText;
+
+        Assert.Equal([pluginText, HistoryText], seen.both.Lines);
+        Assert.StartsWith($"{Plugin} · {History}", seen.both.Tooltip, StringComparison.Ordinal);
+
+        Assert.Equal([pluginText, HistoryText], seen.afterEventOff.Lines);
+
+        Assert.Equal([pluginText], seen.afterWrite.Lines);
+        Assert.StartsWith(Plugin, seen.afterWrite.Tooltip, StringComparison.Ordinal);
+        Assert.DoesNotContain(History, seen.afterWrite.Tooltip, StringComparison.Ordinal);
+
+        Assert.Equal([HistoryText], seen.afterEventOn.Lines);
+        Assert.StartsWith(History, seen.afterEventOn.Tooltip, StringComparison.Ordinal);
+        Assert.DoesNotContain(Plugin, seen.afterEventOn.Tooltip, StringComparison.Ordinal);
     }
 
     /// <summary>

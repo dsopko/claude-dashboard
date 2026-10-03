@@ -244,7 +244,7 @@ public static class AppHost
             sp.GetRequiredService<IngressStatus>(),
             sp.GetRequiredService<ILogger>(),
             sp.GetRequiredService<DecisionRecorder>(),
-            sp.GetRequiredService<HookNotice>()));
+            sp.GetRequiredService<NoticeBoard>()));
         builder.Services.AddSingleton<TrayIcon>();
         builder.Services.AddSingleton<StateBoard>();
         // The durable event log (T1.17). The archive is the channel the consumer hands records
@@ -261,12 +261,29 @@ public static class AppHost
         // writer, and the final events of a run vanished — caught by HookToDatabaseTests under
         // full-suite load, where the consumer loses the race with shutdown.
         builder.Services.AddSingleton<EventArchive>();
-        builder.Services.AddSingleton<IEventStore, SqliteEventStore>();
+        builder.Services.AddSingleton(sp => new SqliteEventStore(
+            sp.GetRequiredService<DashboardPaths>(),
+            sp.GetRequiredService<ILogger>(),
+            sp.GetRequiredService<Core.Ports.IClock>()));
+        builder.Services.AddSingleton<IEventStore>(sp => sp.GetRequiredService<SqliteEventStore>());
         builder.Services.AddSingleton<EventArchiveWriter>();
         builder.Services.AddHostedService(sp => sp.GetRequiredService<EventArchiveWriter>());
 
         builder.Services.AddHostedService(sp => sp.GetRequiredService<EventConsumer>());
         builder.Services.AddSingleton<EventConsumer>();
+
+        // The notice row and the tooltip's faults (T1.54, issue #71): the hook route first, then the
+        // history. The history notice reads the store's published state on the tray's tick; it never
+        // touches the file, so the UI thread never waits on the disk. A later notice (#72, #73, #14) is
+        // one more source here.
+        builder.Services.AddSingleton(sp =>
+        {
+            var store = sp.GetRequiredService<SqliteEventStore>();
+            return new HistoryNotice(() => store.Available == false);
+        });
+        builder.Services.AddSingleton(sp => new NoticeBoard(
+            sp.GetRequiredService<HookNotice>(),
+            sp.GetRequiredService<HistoryNotice>()));
 
         // The seam the composition guard reads (T1.12b; ServiceCompositionTests). A built
         // WebApplication does not publish its own descriptors — measured on a clean host, not
