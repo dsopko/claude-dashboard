@@ -25,7 +25,7 @@ This document follows one event from a Claude Code session to the window, the sp
         │  (3) checks the token, reads the body, answers 200 with an empty body
         │  (4) maps the body to an event and stamps the arrival time
         ▼
- Event channel                            1,024 events, drop-oldest
+ Event channel                            1,024: noise shed after; 16,384: drop-oldest
         │  (5) one reader
         ▼
  Event consumer                           one thread, the only writer
@@ -230,7 +230,7 @@ The dashboard does not interpret the fields that it does not read, but the archi
 
 ## 7. Step 5: The channel and the consumer
 
-**The event channel** holds 1,024 events. A write never blocks. When the channel is full, it discards the oldest event, writes a Warning, and records an `EventDropped` decision with the reason `pipeline`.
+**The event channel** holds 1,024 events before it sheds anything. A write never blocks. At 1,024 or more queued, it refuses only noise at the door: a `PostToolBatch`, and a `Notification` whose kind moves no state (`idle_prompt`, `agent_completed`, an unrecognised type). Every other event is still written, in order. Each shed event records an `EventDropped` decision with the reason `noise`. Only at 16,384 queued does it discard its oldest event, with the reason `pipeline`. The log has one Warning when shedding starts and one Information line when the queue is short again, and the window says "fell behind" or "events lost" (T1.58, issue #3). Until T1.58 a full channel discarded its oldest event, which could be a permission prompt.
 
 **The event consumer** is the one reader. It is also the only thread that changes the Registry and the sound engine. Neither has a lock. For each wake-up, the consumer takes all the events that are available and handles them in sequence:
 
@@ -330,7 +330,7 @@ The tick is not an event. It causes changes that no hook causes:
 | An old hook from a build before the plugin is in Claude Code's settings | Events arrive through the old hook. The dashboard registers no plugin beside it, and shows a notice that asks the operator to remove the hook |
 | A hook reads `listening.txt` just before a restart replaces it | That one post carries the old token and gets `401`. The next hook reads the new file |
 | The script cannot be rewritten at start | The dashboard tries three times, then writes one Error line. An old script sends no token, so its hooks get `401` until the next start |
-| The event channel is full | The oldest event is discarded. The log and the decisions table record it |
+| The event channel is full | Only noise is shed: tool batches, and notifications that move no state. The window says "fell behind" for 5 minutes after the last shed. At the hard limit of 16,384 the oldest event is discarded and the window says "events lost" until the next start. The decisions table records each, and the log the start and the end (T1.58) |
 | The disk is slow | The archive channel fills and discards its oldest records. The count goes into the log at shutdown. The window and the sound continue |
 | `dashboard.db` cannot be opened or written | The store writes one Warning when it fails (not for a failed retry), and the window and the tray say "history not recorded". It tries again each minute; the events of that minute are lost. The write that succeeds clears the notice and writes one line with the count lost (T1.54, issue #71) |
 | Windows has no sound output | Each sound is dropped and recorded as `SoundDropped`, not as played. The window and the tray say "no sound device", and the notice clears at the tick after a device returns. Nothing is replayed (T1.55, issue #72) |

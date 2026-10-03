@@ -63,7 +63,7 @@ Three results follow:
                           (later) Navigator ─┘   Focus Observer ──▶ Intake (as ack events)
 ```
 
-**Each change to the world goes through Intake, on one path.** An Ack from a click is an event. A mute is an event. In Phase 3, an acknowledgment that the Focus Observer infers is an event too. Nothing changes the Registry from the side. This is the property that lets the Registry have one writer and no locks, and it is the property that a second interface can use: it sends the same events.
+**Each change to the world goes through Intake, on one path.** An Ack from a click is an event. A mute is an event. In Phase 3, an acknowledgment that the Focus Observer infers is an event too. Nothing changes the Registry from the side. This is the property that lets the Registry have one writer and no locks, and it is the property that a second interface can use: it sends the same events. Intake is bounded, and when it falls behind it sheds only events that repeat information: a batch of tool calls, or a notification that changes no state. An event that can change what the operator sees is never shed for want of room (§IV.7).
 
 ### I.4 Deployment shape
 
@@ -436,6 +436,7 @@ Each capability fails soft. The product continues with less.
 | The event log cannot be written | The dashboard writes one warning when it fails (not for a failed retry), says so in the window and the tray, and tries again each minute | Shows and sounds as usual. The events of each minute that cannot be written are lost |
 | The sound device fails | Silence, a log line, and a notice in the window and the tray: no sound device. The record says each sound was dropped, not played | Shows as usual. A device that is listed, active and silent (the volume at zero, a monitor with no speakers) cannot be told apart from one that works |
 | The settings file cannot be read | A file that does not parse is renamed to `settings.error-<time>.json`, a fresh file with the defaults is written, and the window and the tray say so. A file that cannot be opened is left alone, and nothing is saved until a restart | Runs on the defaults. This start registers no plugin and leaves start with Windows as it found it |
+| Intake falls behind | Only events that repeat information are shed, and the window says it fell behind. If even state-changing events flood, the oldest are dropped and the window says events were lost | Shows every permission, question, error and finish that arrives. A row may lag until its session's next event |
 | The pin to all desktops fails | The window is on one desktop | Runs |
 | The reconciliation sweep *(not built)* | The event stream only | Shows each session from its next event on |
 | Tab-level UIA *(later)* | Window-level focus and activation | Acknowledges and goes to the window |
@@ -557,3 +558,4 @@ The text above says what is true now. This list says when each rule changed, for
 | 2026-10-03 | No sound device is a notice in the window and the tray, and the record says a dropped sound was dropped (§IV.7). The event log writes one warning when it fails, not for a failed retry | T1.55; issue #72 |
 | 2026-10-03 | A settings file that does not parse is kept aside and a fresh one written, and the window and the tray say so (§IV.7). Before, it was "left as it is" until the next save wrote the defaults over it | T1.56; issue #73 |
 | 2026-10-03 | A port that is taken says what to do, in the tray and the window. A program on the port the dashboard last used no longer leaves it deaf: it tries the next port. A start whose settings were unreadable leaves start with Windows as it found it (§IV.7) | T1.57; issue #14 |
+| 2026-10-03 | Intake sheds only events that repeat information when it falls behind, and says so (§I.3, §IV.7). Before, it dropped its oldest event, which could be a permission prompt | T1.58; issue #3 |
