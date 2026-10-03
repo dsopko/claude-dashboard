@@ -1829,6 +1829,72 @@ public sealed class MainWindowTests(StaHarness harness, Xunit.Abstractions.ITest
         Assert.DoesNotContain(Sound, seen.afterDevice.Tooltip, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// <strong>The settings notice shows with the others, last, in the board's order</strong>
+    /// (T1.56, issue #73), and leads the tooltip after them. <c>BindingErrorWatch</c> is clean.
+    /// </summary>
+    [Fact]
+    public void The_settings_notice_shows_last_with_the_others()
+    {
+        var clock = new FakeClock();
+        var paths = new ClaudeDashboard.App.Configuration.DashboardPaths(@"C:\data\ClaudeDashboard");
+        var start = new ClaudeDashboard.App.Configuration.SettingsAtStart(
+            new ClaudeDashboard.App.Configuration.SettingsLoadResult(
+                new ClaudeDashboard.App.Configuration.DashboardSettings(),
+                ClaudeDashboard.App.Configuration.SettingsLoadOutcome.Unreadable),
+            BackupFile: @"C:\data\ClaudeDashboard\settings.error-20261003-140509.json");
+
+        var hook = new ClaudeDashboard.App.Setup.HookNotice();
+        hook.ShowClaudeCodeNotInstalled();
+        var history = new ClaudeDashboard.App.Storage.HistoryNotice(() => true);
+        var sound = new ClaudeDashboard.App.Adapters.SoundDeviceNotice(new SettableOutput { HasOutput = false });
+        var settings = new ClaudeDashboard.App.Configuration.SettingsNotice(start, paths);
+
+        var seen = _harness.Invoke(() =>
+        {
+            using var registry = new RegistryHarness();
+            using var policy = new MotionPolicy(() => false, observeChanges: false);
+            using var viewModel = new MainViewModel(
+                registry.Projection, policy, new StubAckPublisher(),
+                new FakeClipboard(), new RosterStore(new RecordingEventSink()), new RecordingRosterPersistence());
+            using var board = new NoticeBoard(hook, history, sound, settings);
+            using var tray = TestTrays.For(registry.Projection, clock: clock, notices: board);
+
+            var window = new MainWindow(viewModel, tray);
+            using var bindings = new BindingErrorWatch();
+
+            try
+            {
+                Realize(window);
+                tray.Tick(clock.Now);
+                _harness.Pump(DispatcherPriority.Background);
+                window.UpdateLayout();
+
+                Assert.Empty(bindings.Problems);
+
+                return (Lines: NoticeLines(window), tray.Tooltip);
+            }
+            finally
+            {
+                window.Hide();
+            }
+        });
+
+        Assert.Equal(
+            [
+                ClaudeDashboard.App.Setup.HookNotice.ClaudeCodeNotInstalledText,
+                ClaudeDashboard.App.Storage.HistoryNotice.WindowText,
+                ClaudeDashboard.App.Adapters.SoundDeviceNotice.WindowText,
+                ClaudeDashboard.App.Configuration.SettingsNotice.KeptAsideText("settings.error-20261003-140509.json", paths.Root),
+            ],
+            seen.Lines);
+        Assert.StartsWith(
+            $"{ClaudeDashboard.App.Setup.HookNotice.NoClaudeCodeShort} · {ClaudeDashboard.App.Storage.HistoryNotice.TrayShort} · " +
+            $"{ClaudeDashboard.App.Adapters.SoundDeviceNotice.TrayShort} · {ClaudeDashboard.App.Configuration.SettingsNotice.TrayShort}",
+            seen.Tooltip,
+            StringComparison.Ordinal);
+    }
+
     /// <summary>An output state the test sets, in place of a player.</summary>
     private sealed class SettableOutput : ClaudeDashboard.App.Adapters.ISoundOutput
     {

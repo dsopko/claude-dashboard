@@ -139,7 +139,8 @@ public sealed class MainSwitchTests : IDisposable
             && HookPlugin.IsFolderOf(paths, HookPlugin.MarketplaceFolder(settings));
     }
 
-    private static Restore Set(string name, string? value)
+    /// <summary>Sets an environment variable until the result is disposed. Also used by BadSettingsLeftAloneTests.</summary>
+    internal static IDisposable Set(string name, string? value)
     {
         var previous = Environment.GetEnvironmentVariable(name);
         Environment.SetEnvironmentVariable(name, value);

@@ -276,6 +276,12 @@ public sealed class UnprotectedTextInventory
         // The sound device notice (T1.55, issue #72): two fixed texts.
         "SoundDeviceNotice.Text", "SoundDeviceNotice.TrayText",
 
+        // The settings keep-aside (T1.56, issue #73): the backup's full path; why a keep-aside
+        // failed, which is Windows' own I/O message and names a file; and the notice, built from fixed
+        // text, the backup's file name and the data folder. No setting value and no parse text.
+        "SettingsAtStart.BackupFile", "SettingsAtStart.KeepAsideProblem",
+        "SettingsNotice.Text", "SettingsNotice.TrayText",
+
         // Start with Windows (issue #36): the installed exe's path and its quoted Run data; a line of
         // fixed text, or the registry's own refusal message; and that refusal message itself.
         "StartWithWindows.ExePath", "StartWithWindows.RunData", "SettingsViewModel.Note", "StartupState.Problem",
