@@ -404,7 +404,7 @@ The colour is the worst state of all sessions (`StatusSummary.Of`, then `TrayVis
 
 - Mute all is the volume control. Pause is "off duty". Pause is the one deliberate exception to "the tray tells the truth".
 - The glyph for pause is different from the grey of "all quiet".
-- **The tooltip leads with what the operator cannot see.** First the faults, joined by ` · `: no port, then the tray text of each notice in the notice row's order (not connected to Claude Code, then `history not recorded`, then `no sound device`; §5.6.1). Then `paused · click to resume`, then `muted 24 min`, then the counts. The minutes of a mute are rounded up.
+- **The tooltip leads with what the operator cannot see.** First the faults, joined by ` · `: no port, then the tray text of each notice in the notice row's order (not connected to Claude Code, then `history not recorded`, then `no sound device`, then `settings not read · using defaults`; §5.6.1). Then `paused · click to resume`, then `muted 24 min`, then the counts. The minutes of a mute are rounded up.
 - A mute ends by a test of the time, not by a timer. Thus the tooltip is computed again on each tick.
 - **Pause does not survive a restart.**
 - Mute and pause do not stop the events. The Registry stays correct, and the window shows the truth.
@@ -438,7 +438,7 @@ Top to bottom:
 1. **The caption:** the icon, "Claude Dashboard", the **counts strip**, a help slot that does nothing yet, and the buttons Minimize, Maximize and "Close to the tray".
 2. **The counts row:** shown only when the caption is too narrow for the counts.
 3. **The toolbar:** `Grouped | Flat` · `Select` · `Mute all` · `Ack all`.
-4. **The notice row:** a short list, one line for each notice that is shown, in a fixed order: the connection to Claude Code (§9.4), then `History is not being recorded: the database could not be written. The dashboard tries again each minute.` (§8.3), then `No sound device. Notices and nudges are silent until Windows has an output device.` (Part 7). Hidden when none is shown. Two can be true at one time, so it is a list (T1.54, issue #71). Each notice has its own window text, its own tray text and its own rule for when it clears. `NoticeBoard` orders them; a new notice is one more `INotice` source, and the board does not change. The tray colour does not change for a notice.
+4. **The notice row:** a short list, one line for each notice that is shown, in a fixed order: the connection to Claude Code (§9.4), then `History is not being recorded: the database could not be written. The dashboard tries again each minute.` (§8.3), then `No sound device. Notices and nudges are silent until Windows has an output device.` (Part 7), then the settings notice (§8.2). Hidden when none is shown. Two can be true at one time, so it is a list (T1.54, issue #71). Each notice has its own window text, its own tray text and its own rule for when it clears. `NoticeBoard` orders them; a new notice is one more `INotice` source, and the board does not change. The tray colour does not change for a notice.
 5. **The body:** the rows.
 
 **The counts strip** reads `11 sessions · 3 need you · 5 unread · 8 working`. The total always shows. A band with zero is left out. Quiet and Ended have no count. The counts are of sessions, not of rows, so a collapsed group still counts. When the space is short, the strip drops words before numbers; its tooltip always has the full sentence.
@@ -666,6 +666,7 @@ Location: **`%LOCALAPPDATA%\ClaudeDashboard\`**. The variable `CLAUDE_DASHBOARD_
 | File or folder | Written by | When | Content |
 |---|---|---|---|
 | `settings.json` | The dashboard, and the operator by hand | At quit (the window's place); when the operator remembers a roster; at the Settings window; at `--install-hooks` and `--remove-hooks` | §8.2 |
+| `settings.error-<yyyyMMdd-HHmmss>.json` | The dashboard, by a rename | At a start that finds `settings.json` does not parse (§8.2) | The operator's file, byte for byte. The dashboard never writes or deletes it |
 | `dashboard.db` | The archive writer | For each event | §8.3. **It holds prompts and answers** |
 | `logs\dashboard-<date>.log` | Serilog | Always | §8.4 |
 | `port.txt` | The dashboard | After a bind. Never deleted | The port that this user last bound. An *input* to the next start and to a second instance |
@@ -680,7 +681,13 @@ The install is in a different folder: `%LocalAppData%\dsopko.ClaudeDashboard\` (
 
 ### 8.2 `settings.json`
 
-The dashboard's own settings. A person can edit it: comments and a comma at the end of a list are accepted. **A file that cannot be read never stops the start.** The dashboard then runs on the defaults, writes an Error line, and leaves the file as it is.
+The dashboard's own settings. A person can edit it: comments and a comma at the end of a list are accepted. **A file that cannot be read never stops the start, and is never overwritten** (T1.56, the operator's ruling of 2026-10-03 on issue #73). Until T1.56 the dashboard ran on the defaults and "left the file as it is", which held only until the next save wrote the defaults over it (issue #26).
+
+- **A file that does not parse** (bad JSON, a wrong type, a bare `null`) is renamed to `settings.error-<yyyyMMdd-HHmmss>.json` in the same folder, local time, with `-2`, `-3` when the name is taken. It is a move: the bytes do not change. A fresh `settings.json` with the defaults takes its place, so later saves go to it. The fresh file is written first under a temporary name, so a failure at any step leaves the bad file where it was (`SettingsStore.PrepareForStart`).
+- **Only the first instance that will show the window does it**, after the single-instance decision and before anything else reads the file: `Program` hands this start's first load to `AppHost.Build`, which reads the file no more. A second instance that stands down and the one-shot switches (`--install-hooks`, `--remove-hooks`, `--replay`) leave the file byte for byte.
+- **This start registers no plugin** (§9.4). The first load is the authority for the whole start (`SettingsAtStart.Original`), though the fresh file says `installHooksAtStart: true`. The next start reads the fresh file and registers the plugin unless the operator copied `"installHooksAtStart": false` back.
+- **A file that cannot be opened at all** (no permission, or another program holds it), **or a keep-aside that fails**, is left alone. The dashboard runs on the defaults, and `SettingsStore.Save` refuses every save for the rest of the run, with one Warning line for each refused save. Every save site goes through it: the window's place at quit, the rosters, the Settings window and the `installHooksAtStart` record.
+- **One Error line** names the backup's full path, or why the file was left alone, with the parse problem. No setting value is logged. The window notice and the tray (`settings not read · using defaults`) show it until the next start; neither shows the parse problem.
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
@@ -701,7 +708,7 @@ The dashboard's own settings. A person can edit it: comments and a comma at the 
 - A `sound` value that is absent or out of range takes Core's default. The file never holds a second copy of a default.
 - The `rosters` section is made valid when it is read (§2.5). Each correction is logged with the roster's name and never a member.
 - **Not built:** keys for the nudge intervals, the Unread nudge, the stale time, the choice of sounds, mutes and the default view. Those values are fixed in the code.
-- **Known defects:** a save truncates the file before it writes (issue #7). A save after a failed read can replace a malformed file with the defaults (issue #26).
+- **Known defects:** a save truncates the file before it writes (issue #7). A save after a failed read no longer replaces a malformed file with the defaults: the file is kept aside first (T1.56; issue #26 described the loss).
 
 ### 8.3 `dashboard.db`
 
@@ -901,7 +908,7 @@ The read is defensive:
 | The plugin enabled | Nothing | None |
 | The plugin turned off | Nothing: an install would turn it on again | The command that turns it on |
 | A plugin of the same name from a different data folder | Nothing | Names the other folder |
-| The dashboard's own settings will not read | Nothing: the opt-out is unknown | Repair or delete that file, or run `--install-hooks` |
+| The dashboard's own settings will not read | Nothing: the opt-out was in that file. This start's first load decides, not the fresh file (§8.2) | Kept aside: the settings notice only, which says to copy the settings back, and `installHooksAtStart: false` if the plugin had been removed. Could not be opened: repair or delete that file, or run `--install-hooks` |
 | `installHooksAtStart` is `false` | Nothing | The plugin was removed; `--install-hooks` puts it back |
 | None of the above | Registers the plugin | Registered: restart the open sessions |
 | …and `claude.exe` is not found | Nothing more | The two commands to run by hand |
@@ -1024,3 +1031,4 @@ The text above says what is true now. This list says when each part changed.
 | 2026-10-03 | `StopFailure` gives its kind in `error`, read before `error_type` (§3.5, §9.1). A second error of another kind changes the kind | T1.53; issue #67 |
 | 2026-10-03 | The store tries again each minute (§8.3). The notice row is a list, and history not recorded is a notice (§5.6.1); the tooltip leads with each notice (§5.2) | T1.54; issue #71 |
 | 2026-10-03 | The player reports what it did, and a dropped sound is `SoundDropped` (Part 7, §8.3). No sound device is a notice (§5.2, §5.6.1). The store writes the stack on its first Warning only | T1.55; issue #72 |
+| 2026-10-03 | A settings file that does not parse is kept aside and a fresh one written; one that cannot be opened refuses saves for the run (§8.1, §8.2, §9.4). The settings notice (§5.2, §5.6.1) | T1.56; issue #73 |

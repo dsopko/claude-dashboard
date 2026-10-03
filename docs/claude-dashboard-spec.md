@@ -435,7 +435,7 @@ Each capability fails soft. The product continues with less.
 | Claude Code is not connected | The dashboard shows a notice with what to do | Runs; receives nothing until it is connected |
 | The event log cannot be written | The dashboard writes one warning when it fails (not for a failed retry), says so in the window and the tray, and tries again each minute | Shows and sounds as usual. The events of each minute that cannot be written are lost |
 | The sound device fails | Silence, a log line, and a notice in the window and the tray: no sound device. The record says each sound was dropped, not played | Shows as usual. A device that is listed, active and silent (the volume at zero, a monitor with no speakers) cannot be told apart from one that works |
-| The settings file cannot be read | Defaults in memory; the file is left as it is | Runs |
+| The settings file cannot be read | A file that does not parse is renamed to `settings.error-<time>.json`, a fresh file with the defaults is written, and the window and the tray say so. A file that cannot be opened is left alone, and nothing is saved until a restart | Runs on the defaults. This start registers no plugin |
 | The pin to all desktops fails | The window is on one desktop | Runs |
 | The reconciliation sweep *(not built)* | The event stream only | Shows each session from its next event on |
 | Tab-level UIA *(later)* | Window-level focus and activation | Acknowledges and goes to the window |
@@ -448,6 +448,8 @@ Phase 1 is at the bottom of each ladder and works alone.
 **A lost feature must still show on screen.** The event log once wrote one warning and stopped until the next start, and nothing on screen changed: the operator found out days later, looking for a record that was not there (issue #71). Now the window and the tray say "history not recorded", and the log tries again each minute, by the operator's ruling. A disk that is full for a minute costs a minute of history, not the rest of the day. The events of that minute are lost, not held in memory: a queue would keep the operator's words for as long as the disk stays full.
 
 **A silent dashboard must say that it is silent.** Sound is how the dashboard gets the operator's attention, so a dashboard with no output device that looks healthy is the failure it exists to prevent (issue #72). The window and the tray say "no sound device", by the operator's ruling of 2026-10-03: a notice row and a tooltip line, and no mark on the tray icon, which keeps its five colours. The record tells the truth too: a sound the player dropped is recorded as dropped, not as played. The sound rules do not change: a dropped notice still counts as announced, and nothing is replayed when a device returns, because a stack of old sounds at that moment is noise.
+
+**The operator's settings are never overwritten.** One wrong character in the dashboard's own `settings.json` used to put it on its defaults, with one log line as the only sign, and the next save wrote the defaults over the file (issues #73 and #26). By the operator's ruling of 2026-10-03, a file that does not parse is renamed, byte for byte, a fresh file with the defaults takes its place, and the window says where the old one is. The start that does this registers no plugin, because an opt-out may be in the file it could not read. A file that cannot be opened at all may be perfectly good, so it is left alone, and the dashboard saves nothing until it restarts.
 
 ### IV.8 Threat surface summary
 
@@ -553,3 +555,4 @@ The text above says what is true now. This list says when each rule changed, for
 | 2026-10-03 | The kind of an Error row is read from `error`, the field the wire sends. A second error of another kind changes the row | T1.53; issue #67 |
 | 2026-10-03 | The event log tries again each minute, and the window and the tray say when history is not recorded (§IV.7). Before, it stopped until the next start. §II.2: `error_type` is also read when `error` is not a string | T1.54; issue #71 |
 | 2026-10-03 | No sound device is a notice in the window and the tray, and the record says a dropped sound was dropped (§IV.7). The event log writes one warning when it fails, not for a failed retry | T1.55; issue #72 |
+| 2026-10-03 | A settings file that does not parse is kept aside and a fresh one written, and the window and the tray say so (§IV.7). Before, it was "left as it is" until the next save wrote the defaults over it | T1.56; issue #73 |

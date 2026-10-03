@@ -95,7 +95,7 @@ At each start, the dashboard reads Claude Code's settings. It asks Claude Code t
 2. Claude Code's settings file is absent, or it can be read and parsed.
 3. Those settings hold no hook from a build before the plugin. Both together would post each event twice.
 4. The plugin is not enabled already, is not turned off, and is not held by a different data folder.
-5. The dashboard's own settings file is absent, or it can be read.
+5. The dashboard's own settings file is absent, or it can be read. This start's first load decides: a file that did not parse is kept aside and a fresh one written (Impl §8.2), and that start still registers nothing.
 6. `installHooksAtStart` is `true` in the dashboard's settings. This is the default.
 
 To register, the dashboard runs the `claude` program two times: `claude plugin marketplace add <the plugin folder>` and `claude plugin install claude-dashboard@claude-dashboard`.
