@@ -694,6 +694,35 @@ The work in GitHub milestone 3, "Observability 1": issues #3, #14, #67, #71, #72
   - Both suite counts.
 - **Guardrails:** no test opens a real port for this; the probe is a function. Tests never touch the operator's real `Run` value or `StartupApproved` mark (T1.50's seam). No poller. No setting value on screen or in the log.
 - **Review fix (2026-10-03, director):** the review found that a stranger on the port in `port.txt` makes a first instance start deaf (`StartupDecision.For` gives `StartWithoutIngress`) even when the walk found a free port; the window then calls the free port "in use", and a pin does not help, because the decision probes `port.txt`'s port before the pin is looked at. **That contradicts the specifications**, which are right: Impl §3.1 ("only the pin tries no other"), Impl §5.3 ("the port corroborates only"), and T1.21's acceptance ("a `port.txt` naming a taken port falls through to the derivation"). `StartWithoutIngress` dates from T1.15's single fixed port and was not updated by T1.21. **The fix is in the decision:** a first instance that holds the gate starts normally whatever holds the recorded port, unless it is a copy of this dashboard (which is still signalled), and `PortSelection.Choose` decides the port. Every message then tells the truth by construction. A test reproduces the review's live case (a stranger on `port.txt`'s port, no pin) and binds the walked port; a second with a pin on a free port binds the pin. The `AppHost` error line that calls the chosen port "held by another process" must be true in every remaining case. Also the review's nit: `StartupHookGuardTests.StatementAt` removes whitespace around `.` and before `(`.
+- **Done 2026-10-03:** PR #85, merged as `0501a86`, `333ac12`, `dba2430` (one fix cycle). `StartWithoutIngress` is removed; a first instance starts normally unless a copy of itself holds the recorded port. The reviewer repeated both failing live runs: each bound a port and answered `/health`.
+
+**T1.58 — A full queue sheds only events that change nothing**
+- **Goal:** a permission prompt, a question, an error, a finish, a prompt, an Ack or any other event that can change what the board shows is never thrown away because the queue is full. Only events that repeat information are shed. The window says when events were shed. For issue #3.
+- **Depends:** T1.54 (the board), T1.37 (the decisions record), T1.9 (the pipeline)
+- **Realizes:** the operator's ruling of 2026-10-03 on #3: **shed only noise**; a test that fails if the queue cannot keep up; a notice on screen. It supersedes Impl Part 4's "drop-oldest" for the event channel.
+- **Deliverables:**
+  - **Noise, by kind, decided at ingress without reading the Registry:** `PostToolBatch`, and a `Notification` whose kind changes no state (`idle_prompt`, `agent_completed`; take the list from `SessionRegistry.TargetOf`, not by hand, or pin the two together with a test). Everything else, including every UI-published event (`Ack`, `SoundCommand`, `RostersChanged`), is never noise.
+  - **The admission rule.** While the queue holds fewer than the capacity (1,024), every event is written. At or above it, a noise event is refused at the door (the newest is shed, not the oldest), and every other event is still written. Order is kept: nothing already queued is removed.
+  - **A hard limit** for the case where state-changing events themselves flood (a fault, never seen): at 16,384 queued, the oldest event is dropped as today, so memory stays bounded. Degrade, never crash.
+  - **The safe direction, documented:** a shed `PostToolBatch` that would have resumed a blocked session leaves the row red until the session's next event. A row that is too loud for a moment is the safe failure; a row that is silent while Claude waits is the one this task removes. Say so in Impl Part 4.
+  - **The record and the log:** a shed event records `EventDropped` with reason `noise` and the event kind in `detail`; a hard-limit drop records reason `pipeline` as today. The log writes one Warning when shedding starts, with no line for each event, and one Information line when the queue is below the capacity again, with the count shed. Today's Warning for each dropped event would bury the log in the one situation where it matters.
+  - **The notice**, a board source after the settings notice. While noise was shed in the last 5 minutes: window "The dashboard fell behind and skipped repeated tool events. Rows may lag until each session's next event." Tray: `fell behind`. It clears 5 minutes after the last shed, on the tick. If the hard limit dropped any event: window "The dashboard fell far behind and lost events. A row may be wrong until its session's next event; restart the dashboard to be sure." Tray: `events lost`. That one stays until the next start.
+  - **The bound, asserted.** A test drives the real consumer on the expensive path, state-changing events that each apply, raise `SessionChanged`, run the sound policy and reach the projection, and fails if 1,024 of them take longer than a generous limit (choose it, at least 50 times the measured time on this box, and report both numbers). It fails if someone later puts blocking work on the consumer loop, which is how #3 becomes reachable. It must not be flaky: report 20 runs.
+  - The archive channel (`EventArchive`, drop-oldest to the database writer) is not changed: a drop there loses history, not state. Say so in Impl Part 4.
+  - Documents, in the same change: Impl Part 4 (the channel), §5.2, §5.6.1, §8.3 (`EventDropped`'s reasons); TS where the event channel or its loss is described (find it); the event flow's channel section and §11; Design §9. One row each in TS Appendix D, Impl Appendix C and Design §13.
+- **Acceptance:**
+  - #3's reproduction at capacity 2: a `UserPromptSubmit` applied, then a permission `Notification` and two `PostToolBatch` published unread: the session ends in `NeedsPermission`, and a `PostToolBatch` is shed.
+  - At capacity, a `Stop`, an `Ack` and a `SoundCommand` are each written; a `PostToolBatch` and an `idle_prompt` are each shed.
+  - Order: the events written come out in the order they went in.
+  - The hard limit drops the oldest and shows the second notice.
+  - The noise notice shows after a shed and clears 5 minutes after the last one under a fake clock.
+  - The noise list and `SessionRegistry.TargetOf` agree (a test that fails if one changes without the other).
+  - One Warning and one Information line for a burst of 10,000 shed events.
+  - The throughput test, with its 20 runs reported.
+  - A realized-window test with `BindingErrorWatch` clean.
+  - Plants: (a) drop-oldest restored, and the reproduction fails; (b) `Notification` of every kind treated as noise, and the at-capacity test fails; (c) one `Thread.Sleep(10)` added on the consumer path, and the throughput test fails.
+  - Both suite counts.
+- **Guardrails:** `/hook` still answers `200` empty for a shed event: shedding happens after the answer is decided and never changes it. The sink never blocks a request thread. One writer to the Registry. No payload, title or prompt in a log line, a record or a notice.
 
 ---
 
