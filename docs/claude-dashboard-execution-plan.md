@@ -711,7 +711,7 @@ The work in GitHub milestone 3, "Observability 1": issues #3, #14, #67, #71, #72
   - The archive channel (`EventArchive`, drop-oldest to the database writer) is not changed: a drop there loses history, not state. Say so in Impl Part 4.
   - Documents, in the same change: Impl Part 4 (the channel), §5.2, §5.6.1, §8.3 (`EventDropped`'s reasons); TS where the event channel or its loss is described (find it); the event flow's channel section and §11; Design §9. One row each in TS Appendix D, Impl Appendix C and Design §13.
 - **Acceptance:**
-  - #3's reproduction at capacity 2: a `UserPromptSubmit` applied, then a permission `Notification` and two `PostToolBatch` published unread: the session ends in `NeedsPermission`, and a `PostToolBatch` is shed.
+  - #3's reproduction at capacity 2: a `UserPromptSubmit` applied, then a permission `Notification` and two `PostToolBatch` published unread: the permission prompt is applied (the transition log has `Working` to `NeedsPermission`, and the permission sound plays through the engine), and one `PostToolBatch` is shed. The session then ends in `Working`, because the batch that was written resumes a blocked session (TS §II.2); under drop-oldest the permission is dropped and `NeedsPermission` never happens. (Corrected 2026-10-03 at the coder's question: the first text asked for a final `NeedsPermission`, which contradicts §II.2.)
   - At capacity, a `Stop`, an `Ack` and a `SoundCommand` are each written; a `PostToolBatch` and an `idle_prompt` are each shed.
   - Order: the events written come out in the order they went in.
   - The hard limit drops the oldest and shows the second notice.
