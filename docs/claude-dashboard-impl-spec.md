@@ -323,7 +323,7 @@ How it crosses threads: `StateBoard` listens to `SessionChanged` and `NudgeSched
  Kestrel request threads (many)              UI thread (clicks)
         │  IEventSink.TryPublish                   │  IEventSink.TryPublish
         ▼                                           ▼
- Channel<InboundEvent>   1,024 events, drop-oldest, one reader
+ Channel<InboundEvent>   1,024: noise shed after; 16,384: drop-oldest; one reader
         │
         ▼
  EventConsumer (one thread: the only writer)
@@ -341,7 +341,16 @@ How it crosses threads: `StateBoard` listens to `SessionChanged` and `NudgeSched
  EventArchiveWriter (one thread) ─▶ dashboard.db
 ```
 
-- **The channel** is bounded at 1,024 and drops its oldest event when full. A write never blocks. A drop writes a warning and a decision row.
+- **The channel sheds only noise** (T1.58, the operator's ruling of 2026-10-03 on issue #3). Until T1.58 it dropped its oldest event when full, and the oldest could be the permission prompt the operator most needed. A write never blocks.
+  - **Below 1,024 queued** (`EventPipeline.DefaultCapacity`), every event is written.
+  - **At or above 1,024**, a noise event is refused at the door: the newest is shed, not the oldest. Every other event is still written. Nothing already queued is removed, so order is kept.
+  - **Noise is decided by kind, at the door, without reading the Registry** (`PipelineNoise`): a `PostToolBatch`, and a `Notification` whose kind moves no state. The kinds come from `SessionRegistry.TargetOf(NotificationKind)`: today `idle_prompt`, `agent_completed` and an unrecognised type. An event the window or the operator publishes (`Ack`, `SoundCommand`, `RostersChanged`) is never noise.
+  - **The safe direction.** A shed `PostToolBatch` that would have resumed a blocked session leaves the row red until the session's next event. A row that is too loud for a moment is the safe failure; a row that is silent while Claude waits is the one this removes.
+  - **A hard limit of 16,384** (16 times the capacity) is for a flood of state-changing events, a fault never seen: there the oldest event is dropped, as before, so memory stays bounded.
+  - **The record:** each shed event records `EventDropped` with reason `noise` and its kind in the detail; each drop at the hard limit, reason `pipeline` (§8.3). **The log:** one Warning when shedding starts, and one Information line when the queue is below 1,024 again, with the counts. No line for each event: that would bury the log in the one situation where it matters. `/hook` still answers `200` with an empty body.
+  - **The notices** (§5.6.1): `fell behind` while noise was shed in the last 5 minutes, cleared on the tick; `events lost` after a drop at the hard limit, until the next start.
+  - **The bound is asserted.** `QueueThroughputTests` drives the real consumer through 1,024 state-changing events (each applied, raising `SessionChanged`, running the sound policy and reaching the projection) and fails above 5 seconds. Measured on the development box: 31 to 45 ms. Blocking work on the consumer loop is how a full queue becomes reachable, and this test catches it.
+- **The archive channel is not changed:** it still drops its oldest record when full. A drop there loses history, not state: the Registry, the window and the sounds already have the event. It writes a decision row with reason `archive`.
 - **`EventConsumer`** is the one hosted service that reads the channel. It is also the only thread that changes the Registry and the sound engine. It runs the tick in the same loop. A second loop or a second timer would be a second writer.
 - **The tick** runs each 15 seconds, in this sequence: the silence sweep, then `Evaluate`, then the roster groups. Then it tells the UI the time.
 - **After each batch of events** the consumer looks at the roster groups again.
@@ -404,7 +413,7 @@ The colour is the worst state of all sessions (`StatusSummary.Of`, then `TrayVis
 
 - Mute all is the volume control. Pause is "off duty". Pause is the one deliberate exception to "the tray tells the truth".
 - The glyph for pause is different from the grey of "all quiet".
-- **The tooltip leads with what the operator cannot see.** First the faults, joined by ` · `: the tray text of each notice in the notice row's order (the port, not connected to Claude Code, then `history not recorded`, then `no sound device`, then `settings not read · using defaults`; §5.6.1). The port fault is a notice on the board like the others, so it shows once, first (T1.57). Then `paused · click to resume`, then `muted 24 min`, then the counts. The minutes of a mute are rounded up.
+- **The tooltip leads with what the operator cannot see.** First the faults, joined by ` · `: the tray text of each notice in the notice row's order (the port, not connected to Claude Code, then `history not recorded`, then `no sound device`, then `settings not read · using defaults`, then `fell behind`, then `events lost`; §5.6.1). The port fault is a notice on the board like the others, so it shows once, first (T1.57). Then `paused · click to resume`, then `muted 24 min`, then the counts. The minutes of a mute are rounded up.
 - A mute ends by a test of the time, not by a timer. Thus the tooltip is computed again on each tick.
 - **Pause does not survive a restart.**
 - Mute and pause do not stop the events. The Registry stays correct, and the window shows the truth.
@@ -438,7 +447,7 @@ Top to bottom:
 1. **The caption:** the icon, "Claude Dashboard", the **counts strip**, a help slot that does nothing yet, and the buttons Minimize, Maximize and "Close to the tray".
 2. **The counts row:** shown only when the caption is too narrow for the counts.
 3. **The toolbar:** `Grouped | Flat` · `Select` · `Mute all` · `Ack all`.
-4. **The notice row:** a short list, one line for each notice that is shown, in a fixed order: the port (§3.1), then the connection to Claude Code (§9.4), then `History is not being recorded: the database could not be written. The dashboard tries again each minute.` (§8.3), then `No sound device. Notices and nudges are silent until Windows has an output device.` (Part 7), then the settings notice (§8.2). Hidden when none is shown. Two can be true at one time, so it is a list (T1.54, issue #71). Each notice has its own window text, its own tray text and its own rule for when it clears. `NoticeBoard` orders them; a new notice is one more `INotice` source, and the board does not change. The tray colour does not change for a notice.
+4. **The notice row:** a short list, one line for each notice that is shown, in a fixed order: the port (§3.1), then the connection to Claude Code (§9.4), then `History is not being recorded: the database could not be written. The dashboard tries again each minute.` (§8.3), then `No sound device. Notices and nudges are silent until Windows has an output device.` (Part 7), then the settings notice (§8.2), then the two queue notices (Part 4): "The dashboard fell behind and skipped repeated tool events. Rows may lag until each session's next event." and "The dashboard fell far behind and lost events. A row may be wrong until its session's next event; restart the dashboard to be sure." Hidden when none is shown. Two can be true at one time, so it is a list (T1.54, issue #71). Each notice has its own window text, its own tray text and its own rule for when it clears. `NoticeBoard` orders them; a new notice is one more `INotice` source, and the board does not change. The tray colour does not change for a notice.
 5. **The body:** the rows.
 
 **The counts strip** reads `11 sessions · 3 need you · 5 unread · 8 working`. The total always shows. A band with zero is left out. Quiet and Ended have no count. The counts are of sessions, not of rows, so a collapsed group still counts. When the space is short, the strip drops words before numbers; its tooltip always has the full sentence.
@@ -772,7 +781,7 @@ An event that the Registry declined is in the table too. A `SoundCommand` and a 
 | `SoundDropped` | A sound that the player dropped, in place of the played row (T1.55) | `NoOutput` or `Failed` · `kind=… sound=…`, then `rung=… waitedMinutes=…` for a nudge, or `group=… members=…` for a group sound |
 | `MuteApplied` | A `SoundCommand` | `MuteAll`, `UnmuteAll`, `PauseMonitoring` or `ResumeMonitoring` · `until=…` |
 | `MuteExpired` | A timed mute ended, seen on the tick | `until=…` |
-| `EventDropped` | A full channel dropped its oldest | `pipeline` or `archive` |
+| `EventDropped` | The event channel shed noise at its capacity, or a full channel dropped its oldest (Part 4) | `noise` · `kind=… type=…` (the shed event's kind), or `pipeline` (the event channel's hard limit) or `archive` |
 | `ApplyFailed` | `Apply` threw | The **type** of the exception |
 | `TrayLightChanged` | The tray colour changed | The worst state; the colours are in `from_state` and `to_state` |
 | `WindowSurfaced` | A `/show` | — |
@@ -1033,3 +1042,4 @@ The text above says what is true now. This list says when each part changed.
 | 2026-10-03 | The player reports what it did, and a dropped sound is `SoundDropped` (Part 7, §8.3). No sound device is a notice (§5.2, §5.6.1). The store writes the stack on its first Warning only | T1.55; issue #72 |
 | 2026-10-03 | A settings file that does not parse is kept aside and a fresh one written; one that cannot be opened refuses saves for the run (§8.1, §8.2, §9.4). The settings notice (§5.2, §5.6.1) | T1.56; issue #73 |
 | 2026-10-03 | A port that is taken says what to do, in the log, the tray and the window; the port fault is the first notice on the board (§3.1, §5.2, §5.3, §5.6.1). A program on the port in `port.txt` no longer leaves the dashboard deaf: the choice walks on (§5.3). A start whose settings were unreadable leaves start with Windows as it found it (§8.2, §10.1) | T1.57; issue #14 |
+| 2026-10-03 | The event channel sheds only noise when full, and drops the oldest only at a hard limit of 16,384; the bound is asserted (Part 4, §8.3). Two queue notices (§5.2, §5.6.1) | T1.58; issue #3 |
