@@ -399,14 +399,14 @@ public sealed partial class MainViewModel : ObservableObject, IUiTickTarget, IDi
     /// gives: a binding will not invoke a disabled command, but anything holding the command
     /// object can. And the re-check is per session, not per click — the flag says <em>some</em>
     /// session is eligible, and publishing for the rest would be publishing acks the Registry
-    /// will decline. That is not free: the channel is bounded at
-    /// <see cref="Pipeline.EventPipeline.DefaultCapacity"/> — 1,024 — and drops its
-    /// <em>oldest</em> entry when full (Impl §4), so a declined ack is how a real event gets
-    /// evicted. Eligible-only publishing keeps one click at exactly one ack per waiting
-    /// session; only more than 1,024 sessions waiting at once could make the click itself
-    /// overflow the channel, and what drops then is the oldest entry queued — its own acks when
-    /// the channel was empty, a real hook event when the consumer is behind — a scale three
-    /// orders past the dashboard's world, accepted rather than defended against.
+    /// will decline. That is not free: the channel is bounded. An ack is never noise, so a full
+    /// queue does not shed it (T1.58), but every ack is queued work, and at the hard limit
+    /// (<see cref="Pipeline.EventPipeline.HardLimitFactor"/> times
+    /// <see cref="Pipeline.EventPipeline.DefaultCapacity"/>, 16,384) the channel drops its
+    /// <em>oldest</em> entry (Impl §4). Eligible-only publishing keeps one click at exactly one ack
+    /// per waiting session; only more than 16,384 sessions waiting at once could make the click
+    /// itself reach that limit, a scale four orders past the dashboard's world, accepted rather
+    /// than defended against.
     /// </para>
     /// </remarks>
     [RelayCommand(CanExecute = nameof(CanAckAll))]

@@ -36,6 +36,11 @@ public interface IEventSink
     /// drop its oldest entry when full, this simply always returns <see langword="true"/>;
     /// the contract still holds.
     /// </para>
+    /// <para>
+    /// <strong>An event shed by policy counts as accepted</strong> (T1.58): a full queue refuses
+    /// noise at the door, and the pipeline records each one where it is shed, so the caller writes
+    /// no line for each.
+    /// </para>
     /// <para><strong>Never throws.</strong> A full or completed pipeline is a
     /// <see langword="false"/>, not an exception.</para>
     /// </remarks>

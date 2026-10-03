@@ -276,6 +276,9 @@ public sealed class UnprotectedTextInventory
         // The sound device notice (T1.55, issue #72): two fixed texts.
         "SoundDeviceNotice.Text", "SoundDeviceNotice.TrayText",
 
+        // The queue notices (T1.58, issue #3): fixed texts.
+        "FellBehindNotice.Text", "FellBehindNotice.TrayText", "EventsLostNotice.Text", "EventsLostNotice.TrayText",
+
         // The settings keep-aside (T1.56, issue #73): the backup's full path; why a keep-aside
         // failed, which is Windows' own I/O message and names a file; and the notice, built from fixed
         // text, the backup's file name and the data folder. No setting value and no parse text.
