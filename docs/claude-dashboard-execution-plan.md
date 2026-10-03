@@ -588,6 +588,28 @@ The work in GitHub milestone 3, "Observability 1": issues #3, #14, #67, #71, #72
   - Documents, in the same change: TS §II.2 and Appendix C (remove the row); Impl §3.5 (`errorKind`) and §9.1; the hooks reference, discrepancy 4 (it stays a discrepancy; the "known defect" note goes); Core and App §6.3 (the row "The error kind"). One row each in TS Appendix D and Impl Appendix C.
 - **Acceptance:** a mapper test with the payload as the wire sends it (`"error": "rate_limit"`) gives `ErrorKind` `rate_limit`; a payload with only `error_type` still maps; a Registry test: Error with kind A, then a `StopFailure` with kind B, moves the detail to B, and a second B is a duplicate; a realized-window test shows the kind beside the badge with `BindingErrorWatch` clean; a `/state` test answers `"errorKind": "rate_limit"`; plant: revert the mapper to `error_type` first, and the wire-shape test fails; both suite counts.
 - **Guardrails:** the error kind is an identifier, but `error_message` (if it ever arrives) is operator-adjacent text: it is not read, stored in a new field, shown or logged. No change to the state machine beyond the duplicate rule above.
+- **Done 2026-10-03:** PR #75, merged as `e8fc89e`, `26da745`. The archive held `rate_limit` 14, `server_error` 3, `authentication_failed` 1; `server_error` was added to `StopFailureKinds`. Carried to T1.54: TS §II.2 says `error_type` is read "only when `error` is absent"; it is also read when `error` is not a string (Impl §9.1 is right).
+
+**T1.54 — The window says when history is not recorded, and the notice row holds a list**
+- **Goal:** when the dashboard cannot write `dashboard.db`, the window and the tray say so, and the store tries again each minute instead of giving up until a restart. The notice row becomes a short list, so that #72, #73 and #14 can each add a notice. For issue #71.
+- **Depends:** T1.51 (the notice row and `HookNotice`), T1.37 (the decisions record that the store writes)
+- **Realizes:** the operator's ruling in #71: **try again each minute**. TS §IV.7 ("the event log cannot be written") changes from "writes one warning and stops the log" to "says so on screen and tries again each minute".
+- **Deliverables:**
+  - **A list of notices.** The notice row shows each active notice on its own line, in a fixed order: the plugin and connection notices of T1.51 first, then "history not recorded". Each notice has its own window text, its own tray text and its own rule for when it clears. The plugin notices keep their present texts and rules exactly. Later tasks add: no sound device (#72), settings not read (#73), port taken (#14). Design the list so that each of those is one new source, not a change to the list.
+  - **The tray tooltip** leads with the ingress fault, then each notice's tray text, joined by ` · ` as today, then the counts.
+  - **The history notice.** Window: "History is not being recorded: the database could not be written. The dashboard tries again each minute." Tray: `history not recorded`. The tray colour does not change. It shows while the store's last write failed, and clears at the first write that succeeds.
+  - **The retry.** After a failed write, the store attempts the next write no sooner than 60 seconds after the failure. The events that arrive in that minute are counted as lost, not queued. The time comes from an injected clock. **No new timer and no new thread:** the attempt rides on the next event, and the notice is read on the 15-second tick that already refreshes the tray. The value the tick reads is written on the archive thread, so it is published safely (`Volatile` or equivalent).
+  - **The log:** one Warning when the store first fails (as today, with the "no further attempt" sentence replaced); no line for a failed retry; one Information line when it records again, with the count of lost events.
+  - Documents, in the same change: TS §IV.7 (the row); TS §II.2, where the T1.53 nit says `error_type` is read "only when `error` is absent" (make it "absent or not a string", two places); Impl §5.2 (what leads the tooltip), §5.6.1 item 4 (the notice row is a list) and §8.3 (the store tries again); Design §9 (Notice). One row each in TS Appendix D, Impl Appendix C and Design §13.
+- **Acceptance:**
+  - With a scratch `CLAUDE_DASHBOARD_HOME` whose `dashboard.db` is a folder: one hook post shows the notice and the tray text; the session row still appears and the sound engine still plays (asserted through its path, not by reading state).
+  - Under a fake clock: a failure, then a working file, then an event 59 seconds later is not written and an event 60 seconds later is; the notice clears on that write; the lost count in the log line is right.
+  - Two notices at once (a plugin notice and the history notice) both show in the window, in order, and both lead the tooltip. Each clears by its own rule.
+  - The present plugin notice tests pass unchanged, or each change to one is justified in the report.
+  - A realized-window test with `BindingErrorWatch` clean.
+  - Plants: (a) the store never retries, and the clock test fails; (b) the list shows only its first notice, and the two-notice test fails.
+  - Both suite counts.
+- **Guardrails:** degrade, never crash: a failing store never throws into the consumer. No payload, title or prompt in the log or a notice. `/state` does not change in this task. The retry never blocks the consumer thread for longer than a normal write.
 
 ---
 
