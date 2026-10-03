@@ -74,13 +74,14 @@ public sealed class EventPipelineTests
     }
 
     /// <summary>
-    /// Drop-oldest means <c>TryWrite</c> always succeeds, so a loss would be invisible unless
-    /// the channel reports it. It does, and the report is what makes the choice survivable.
+    /// At the hard limit the oldest event is dropped, and the drop is counted (T1.58: the hard limit
+    /// is the old drop-oldest, kept so memory stays bounded). The events here change state, so none
+    /// is shed at the capacity; the hard limit is set to the capacity to reach it in ten events.
     /// </summary>
     [Fact]
-    public void Overflow_drops_the_oldest_and_says_so()
+    public void At_the_hard_limit_the_oldest_is_dropped_and_counted()
     {
-        var pipeline = new EventPipeline(Logger.None, capacity: 4);
+        var pipeline = new EventPipeline(Logger.None, capacity: 4, hardLimit: 4);
 
         for (var i = 0; i < 10; i++)
         {

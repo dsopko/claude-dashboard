@@ -190,7 +190,10 @@ public static class AppHost
         // requirement rather than a simplification.
         // One shared region: a thread inside the Registry cannot also be inside the sound engine.
         builder.Services.AddSingleton<SingleWriterGuard>();
-        builder.Services.AddSingleton<EventPipeline>();
+        // By factory, with the clock that stamps the last shed for the notice (T1.58).
+        builder.Services.AddSingleton(sp => new EventPipeline(
+            sp.GetRequiredService<ILogger>(),
+            clock: sp.GetRequiredService<Core.Ports.IClock>()));
         builder.Services.AddSingleton<IEventSink>(sp => sp.GetRequiredService<EventPipeline>().Sink);
         // Built through the container rather than beside the settings, because RosterStore announces
         // every change on the pipeline and so needs the sink — which only exists once EventPipeline
@@ -301,12 +304,26 @@ public static class AppHost
         // The settings notice last (T1.56, issue #73). It is fixed by what this start did with its
         // settings file, and stays until the next start.
         builder.Services.AddSingleton(new SettingsNotice(settingsAtStart, resolved));
+        // The queue last (T1.58, issue #3): fell behind, then events lost. Both read the pipeline on
+        // the tray's tick, through values it publishes with Interlocked.
+        builder.Services.AddSingleton(sp =>
+        {
+            var pipeline = sp.GetRequiredService<EventPipeline>();
+            return new FellBehindNotice(() => pipeline.LastShedAt);
+        });
+        builder.Services.AddSingleton(sp =>
+        {
+            var pipeline = sp.GetRequiredService<EventPipeline>();
+            return new EventsLostNotice(() => pipeline.DroppedCount);
+        });
         builder.Services.AddSingleton(sp => new NoticeBoard(
             sp.GetRequiredService<IngressStatus>(),
             sp.GetRequiredService<HookNotice>(),
             sp.GetRequiredService<HistoryNotice>(),
             sp.GetRequiredService<SoundDeviceNotice>(),
-            sp.GetRequiredService<SettingsNotice>()));
+            sp.GetRequiredService<SettingsNotice>(),
+            sp.GetRequiredService<FellBehindNotice>(),
+            sp.GetRequiredService<EventsLostNotice>()));
 
         // The seam the composition guard reads (T1.12b; ServiceCompositionTests). A built
         // WebApplication does not publish its own descriptors — measured on a clean host, not
@@ -355,9 +372,16 @@ public static class AppHost
         var decisions = app.Services.GetRequiredService<DecisionRecorder>();
         var wallClock = app.Services.GetRequiredService<Core.Ports.IClock>();
 
-        app.Services.GetRequiredService<EventPipeline>().Dropped = dropped =>
+        // A shed event is noise refused at the door (reason "noise", its kind in the detail); a lost
+        // one was the oldest, dropped at the hard limit (reason "pipeline", as before T1.58).
+        // Identifiers only: the hook name, and a notification's type, which is wire vocabulary.
+        app.Services.GetRequiredService<EventPipeline>().Dropped = (dropped, why) =>
             decisions.External(new Storage.Decision(
-                wallClock.Now, dropped.SessionId.Value, Storage.DecisionKind.EventDropped, Reason: "pipeline"));
+                wallClock.Now,
+                dropped.SessionId.Value,
+                Storage.DecisionKind.EventDropped,
+                Reason: why == PipelineDrop.Shed ? "noise" : "pipeline",
+                Detail: why == PipelineDrop.Shed ? EventPipeline.KindOf(dropped) : null));
 
         app.Services.GetRequiredService<EventArchive>().Dropped = record =>
             decisions.External(new Storage.Decision(

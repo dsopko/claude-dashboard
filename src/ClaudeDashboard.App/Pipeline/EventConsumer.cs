@@ -299,6 +299,10 @@ public sealed class EventConsumer : BackgroundService
                 EchoToUi(_clock.Now);
             }
         }
+
+        // The queue is shorter now: if it had been shedding, this is where it says it caught up
+        // (T1.58). A volatile read when it was not behind.
+        _pipeline.NoteDrained();
     }
 
     private void Apply(InboundEvent inboundEvent)

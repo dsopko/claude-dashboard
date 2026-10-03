@@ -968,7 +968,17 @@ public sealed class SessionRegistry(SingleWriterGuard guard)
     /// so it moves nothing either, and now says so.
     /// </para>
     /// </remarks>
-    private static SessionState? TargetOf(Notification notification) => notification.Kind switch
+    private static SessionState? TargetOf(Notification notification) => TargetOf(notification.Kind);
+
+    /// <summary>
+    /// The state a <see cref="Notification"/> of <paramref name="kind"/> moves a session to, or null
+    /// when it moves none. See the remarks on <see cref="TargetOf(Notification)"/>.
+    /// </summary>
+    /// <remarks>
+    /// Public for one reader: the event pipeline sheds a notification that moves no state when its
+    /// queue is full (T1.58), and it takes that list from here so the two cannot drift apart.
+    /// </remarks>
+    public static SessionState? TargetOf(NotificationKind kind) => kind switch
     {
         NotificationKind.PermissionPrompt => SessionState.NeedsPermission,
         NotificationKind.AgentNeedsInput => SessionState.NeedsQuestion,
