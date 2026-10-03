@@ -98,8 +98,8 @@ This is the full list. Core emits nothing else.
 |---|---|---|---|
 | A session changed | The event `SessionRegistry.SessionChanged` | `Added` or `Updated`, and the new immutable `Session` | Three, in App (section 5) |
 | A nudge moved the schedule | The event `SoundPolicyEngine.NudgeScheduleAdvanced` | Nothing | `StateBoard` |
-| Play this sound | The port `ISoundPlayer.Play(sound, gain, fade)` | An intent | `NAudioSoundPlayer` |
-| A sound decision | The port `IDecisionSink` | Played, or suppressed and the cause | `DecisionRecorder` |
+| Play this sound | The port `ISoundPlayer.Play(sound, gain, fade)` | An intent. The player answers `Queued`, `NoOutput` or `Failed` (T1.55) | `NAudioSoundPlayer` |
+| A sound decision | The port `IDecisionSink` | Played, dropped and why, or suppressed and the cause | `DecisionRecorder` |
 | The result of an event | The return value `ApplyOutcome` | Applied, Ignored, Stale, Duplicate, Uncorrelated | `EventConsumer` |
 | The sessions that went silent | The return value of `SweepSilent` | The session and its silence | `EventConsumer` |
 | A roster group settled | The return value of `RosterGroupWatch.Observe` | Settled, Unsettled, MisMarked | `EventConsumer` |
@@ -153,7 +153,7 @@ No part of this layer is about Windows or about WPF. It is in App because App is
 
 | Adapter | Files | Port |
 |---|---|---|
-| Sound | `Adapters/NAudioSoundPlayer.cs`, `SoundCatalog.cs`, `AudioEndpoints.cs` | `ISoundPlayer` |
+| Sound | `Adapters/NAudioSoundPlayer.cs`, `SoundCatalog.cs`, `AudioEndpoints.cs`, `ISoundOutput.cs`, `SoundDeviceNotice.cs` | `ISoundPlayer` |
 | Clock | `Adapters/SystemClock.cs` | `IClock` |
 | Virtual desktops | `Adapters/VirtualDesktopService.cs` | `IVirtualDesktopService` |
 | Tray icon | `Ui/TrayIcon.cs`, `TrayIcons.cs` | None |
