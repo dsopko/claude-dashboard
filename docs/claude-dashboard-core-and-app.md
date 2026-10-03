@@ -134,7 +134,7 @@ No part of this layer is about Windows or about WPF. It is in App because App is
 |---|---|---|
 | Ingress | `Ingress/IngressEndpoints.cs`, `IngressToken.cs` | Kestrel on loopback. `/hook`, `/show`, `/health`, `/state` |
 | Wire to domain | `Ingress/HookPayload.cs`, `HookEventMapper.cs`, `HookEventNames.cs`, `BackgroundTaskReader.cs`, `SessionCronReader.cs` | The only place where a wire value becomes a domain value. Stamps the arrival time |
-| The channel | `Pipeline/EventPipeline.cs` | 1,024 events, drop-oldest. Implements `IEventSink` |
+| The channel | `Pipeline/EventPipeline.cs` | Sheds only noise at 1,024 queued: a tool batch, or a notification that moves no state (T1.58). Drops the oldest only at the hard limit of 16,384 (Impl Part 4). Implements `IEventSink` |
 | The one thread | `Pipeline/EventConsumer.cs` | Reads the channel, calls `Apply`, and runs the 15-second tick |
 | The decisions record | `Pipeline/DecisionRecorder.cs`, `Storage/` | Each event and its decisions go to `dashboard.db` |
 | The read model | `Ingress/StateBoard.cs`, `StateReport.cs`, `OperatorText.cs` | An immutable report for `/state`, built on the consumer thread |
