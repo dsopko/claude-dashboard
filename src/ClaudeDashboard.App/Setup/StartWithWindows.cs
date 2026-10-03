@@ -1,5 +1,6 @@
 using System.IO;
 using System.Security;
+using ClaudeDashboard.App.Configuration;
 using Microsoft.Win32;
 using Serilog;
 
@@ -98,6 +99,12 @@ public enum StartupReconcileOutcome
 
     /// <summary>The registry refused; one Warning was logged and the start went on.</summary>
     Failed = 5,
+
+    /// <summary>
+    /// Left as found: this start could not read the dashboard's settings, which hold the operator's
+    /// choice (T1.56's review).
+    /// </summary>
+    SettingsUnreadable = 6,
 }
 
 /// <summary>What Windows has for this dashboard, as the Settings window shows it.</summary>
@@ -212,6 +219,35 @@ public sealed class StartWithWindows
     /// as a second install of the dashboard under another pack ID; that is accepted, because only
     /// a test install makes two.
     /// </remarks>
+    /// <summary>
+    /// <see cref="Reconcile"/> for a start, from what the start found in its settings file.
+    /// </summary>
+    /// <remarks>
+    /// <strong>A start whose settings were unreadable leaves Windows as it found it</strong>: the
+    /// <c>Run</c> value and the <c>StartupApproved</c> mark both. The operator's choice was in the file
+    /// it could not read, and the defaults say "on": reconciling would turn on what the operator may
+    /// have turned off. The same reason that start registers no plugin (T1.32), extended to start
+    /// with Windows by the director's ruling of 2026-10-03. A file kept aside, a file that cannot be
+    /// opened and a rename that failed are all unreadable: <see cref="SettingsAtStart.Original"/>
+    /// decides, not the fresh file.
+    /// </remarks>
+    /// <exception cref="ArgumentNullException"><paramref name="start"/> is null.</exception>
+    public StartupReconcileOutcome ReconcileAtStart(SettingsAtStart start)
+    {
+        ArgumentNullException.ThrowIfNull(start);
+
+        if (start.Original.Outcome == SettingsLoadOutcome.Unreadable)
+        {
+            _logger.Information(
+                "Start with Windows was left as Windows has it: this start could not read the dashboard's " +
+                "settings, which hold that choice.");
+
+            return StartupReconcileOutcome.SettingsUnreadable;
+        }
+
+        return Reconcile(start.Original.Settings.StartWithWindows);
+    }
+
     public StartupReconcileOutcome Reconcile(bool wanted)
     {
         if (RunData is null)

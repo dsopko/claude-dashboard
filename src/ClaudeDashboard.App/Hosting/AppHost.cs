@@ -106,9 +106,11 @@ public static class AppHost
         {
             var chosen = PortSelection.ForDataFolder(resolved, loaded.Settings);
 
-            ingress = ingressAvailable && chosen.Found
-                ? IngressStatus.Healthy(chosen.Port)
-                : IngressStatus.Unavailable(chosen.Port);
+            ingress = !chosen.Found
+                ? IngressStatus.NotBound(chosen, resolved.SettingsFile)
+                : ingressAvailable
+                    ? IngressStatus.Healthy(chosen.Port)
+                    : IngressStatus.Unavailable(chosen.Port, settingsFile: resolved.SettingsFile);
         }
 
         var builder = WebApplication.CreateSlimBuilder();
@@ -285,11 +287,11 @@ public static class AppHost
         builder.Services.AddHostedService(sp => sp.GetRequiredService<EventConsumer>());
         builder.Services.AddSingleton<EventConsumer>();
 
-        // The notice row and the tooltip's faults (T1.54, issue #71): the hook route first, then the
-        // history, then the sound device (T1.55, issue #72), then the settings file (T1.56, issue #73).
-        // The history and sound notices read a published state on the tray's tick; neither touches
-        // the file or the device, so the UI thread never waits on a disk or a driver. A later notice
-        // (#14) is one more source here.
+        // The notice row and the tooltip's faults (T1.54, issue #71): the port first (T1.57, issue #14),
+        // then the hook route, then the history, then the sound device (T1.55, issue #72), then the
+        // settings file (T1.56, issue #73). The port is the one path for the ingress fault: the tray adds
+        // no term of its own. The history and sound notices read a published state on the tray's tick;
+        // neither touches the file or the device, so the UI thread never waits on a disk or a driver.
         builder.Services.AddSingleton(sp =>
         {
             var store = sp.GetRequiredService<SqliteEventStore>();
@@ -300,6 +302,7 @@ public static class AppHost
         // settings file, and stays until the next start.
         builder.Services.AddSingleton(new SettingsNotice(settingsAtStart, resolved));
         builder.Services.AddSingleton(sp => new NoticeBoard(
+            sp.GetRequiredService<IngressStatus>(),
             sp.GetRequiredService<HookNotice>(),
             sp.GetRequiredService<HistoryNotice>(),
             sp.GetRequiredService<SoundDeviceNotice>(),
@@ -537,6 +540,9 @@ public static class AppHost
         return logger;
     }
 
+    /// <summary>A message to put inside a sentence: trimmed, and without its own final full stop.</summary>
+    private static string? Clause(string? message) => message?.Trim().TrimEnd('.');
+
     private static void ReportStartup(
         ILogger logger,
         DashboardPaths paths,
@@ -590,30 +596,33 @@ public static class AppHost
 
             // ONE Error line for the start (T1.56): what was wrong, and what this start did about it.
             // The problem is the parser's or Windows' message, which names a position or a file and
-            // never a setting value.
+            // never a setting value. It ends in its own full stop, which is trimmed so the line does not
+            // read ".." (T1.56's review).
             case SettingsLoadOutcome.Unreadable when settingsAtStart is { KeptAside: true, BackupFile: { } backup }:
                 logger.Error(
                     "Settings file {File} could not be read: {Problem}. It was renamed to {Backup}, and a new " +
-                    "settings file with the defaults was written. This start registers no plugin.",
+                    "settings file with the defaults was written. This start registers no plugin and leaves " +
+                    "start with Windows as it found it.",
                     paths.SettingsFile,
-                    loaded.Problem,
+                    Clause(loaded.Problem),
                     backup);
                 break;
 
             case SettingsLoadOutcome.Unreadable when settingsAtStart is { SavesRefused: true }:
                 logger.Error(
                     "Settings file {File} could not be read: {Problem}. It was left as it is: {KeepAside}. " +
-                    "Using defaults, and no settings are saved until the dashboard restarts.",
+                    "Using defaults, and no settings are saved until the dashboard restarts. This start registers " +
+                    "no plugin and leaves start with Windows as it found it.",
                     paths.SettingsFile,
-                    loaded.Problem,
-                    settingsAtStart.KeepAsideProblem ?? "it could not be opened");
+                    Clause(loaded.Problem),
+                    Clause(settingsAtStart.KeepAsideProblem) ?? "it could not be opened");
                 break;
 
             case SettingsLoadOutcome.Unreadable:
                 logger.Error(
                     "Settings file {File} could not be read: {Problem}. Using defaults; the file is left as it is.",
                     paths.SettingsFile,
-                    loaded.Problem);
+                    Clause(loaded.Problem));
                 break;
 
             default:

@@ -36,6 +36,13 @@ public sealed partial class SettingsViewModel : ObservableObject
         "Windows has Claude Dashboard turned off in Settings › Apps › Startup or in Task Manager. " +
         "Tick the box to turn it back on.";
 
+    /// <summary>
+    /// Why the choice will not last past this run: the settings file could not be opened, so this run
+    /// saves nothing (T1.56, from its review).
+    /// </summary>
+    public const string NotRememberedNote =
+        "This choice is not remembered: the settings file could not be opened.";
+
     private readonly StartWithWindows _startup;
     private readonly SettingsStore _store;
     private readonly ILogger _logger;
@@ -81,8 +88,15 @@ public sealed partial class SettingsViewModel : ObservableObject
             return;
         }
 
-        Remember(value);
+        var remembered = Remember(value);
         Show(_startup.Apply(value));
+
+        // After Show, which sets the note from Windows' state: a choice Windows took but the file
+        // did not keep must say so, or the next start quietly undoes it.
+        if (!remembered)
+        {
+            Note = NotRememberedNote;
+        }
     }
 
     private void Show(StartupState state)
@@ -105,7 +119,8 @@ public sealed partial class SettingsViewModel : ObservableObject
     }
 
     /// <summary>Records the choice in the dashboard's settings, so a start keeps to it.</summary>
-    private void Remember(bool value)
+    /// <returns>Whether the file holds the choice now.</returns>
+    private bool Remember(bool value)
     {
         var loaded = _store.Load();
 
@@ -115,21 +130,24 @@ public sealed partial class SettingsViewModel : ObservableObject
                 "Could not record \"startWithWindows\": {Problem}. The dashboard's settings file was left as it is.",
                 loaded.Problem);
 
-            return;
+            return false;
         }
 
         if (loaded.Settings.StartWithWindows == value)
         {
-            return;
+            return true;
         }
 
         try
         {
-            _store.Save(loaded.Settings with { StartWithWindows = value });
+            // False when this run refuses saves (T1.56); the store has logged it.
+            return _store.Save(loaded.Settings with { StartWithWindows = value });
         }
         catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException)
         {
             _logger.Warning(ex, "Could not record \"startWithWindows\" in the dashboard's settings.");
+
+            return false;
         }
     }
 }

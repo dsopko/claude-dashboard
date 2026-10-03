@@ -1895,6 +1895,57 @@ public sealed class MainWindowTests(StaHarness harness, Xunit.Abstractions.ITest
             StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// <strong>The port notice is the first line of the notice row</strong> (T1.57, issue #14),
+    /// before a plugin notice, and leads the tooltip once. <c>BindingErrorWatch</c> is clean.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void The_port_notice_leads_the_row_and_the_tooltip(bool pinned)
+    {
+        var clock = new FakeClock();
+        var port = pinned
+            ? ClaudeDashboard.App.Hosting.IngressStatus.PinnedPortTaken(52961)
+            : ClaudeDashboard.App.Hosting.IngressStatus.Unavailable(52888, 52888, 52920, @"C:\data\ClaudeDashboard\settings.json");
+
+        var hook = new ClaudeDashboard.App.Setup.HookNotice();
+        hook.ShowPluginDisabled();
+
+        var seen = _harness.Invoke(() =>
+        {
+            using var registry = new RegistryHarness();
+            using var policy = new MotionPolicy(() => false, observeChanges: false);
+            using var viewModel = new MainViewModel(
+                registry.Projection, policy, new StubAckPublisher(),
+                new FakeClipboard(), new RosterStore(new RecordingEventSink()), new RecordingRosterPersistence());
+            using var board = new NoticeBoard(port, hook);
+            using var tray = TestTrays.For(registry.Projection, clock: clock, notices: board);
+
+            var window = new MainWindow(viewModel, tray);
+            using var bindings = new BindingErrorWatch();
+
+            try
+            {
+                Realize(window);
+                _harness.Pump(DispatcherPriority.Background);
+                window.UpdateLayout();
+
+                Assert.Empty(bindings.Problems);
+
+                return (Lines: NoticeLines(window), tray.Tooltip);
+            }
+            finally
+            {
+                window.Hide();
+            }
+        });
+
+        Assert.Equal([port.Text!, ClaudeDashboard.App.Setup.HookNotice.PluginDisabledText], seen.Lines);
+        Assert.Contains(pinned ? "52961" : "52888 to 52920", seen.Lines[0], StringComparison.Ordinal);
+        Assert.StartsWith($"{port.Fault} · {ClaudeDashboard.App.Setup.HookNotice.PluginDisabledShort}", seen.Tooltip, StringComparison.Ordinal);
+    }
+
     /// <summary>An output state the test sets, in place of a player.</summary>
     private sealed class SettableOutput : ClaudeDashboard.App.Adapters.ISoundOutput
     {

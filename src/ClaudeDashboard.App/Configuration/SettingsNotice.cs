@@ -15,10 +15,11 @@ namespace ClaudeDashboard.App.Configuration;
 /// was the only sign.
 /// </para>
 /// <para>
-/// <strong>Two texts, one per case.</strong> A file that did not parse was renamed and a fresh one
+/// <strong>Three texts, one per case.</strong> A file that did not parse was renamed and a fresh one
 /// written (<see cref="SettingsStore.PrepareForStart"/>): the text names the backup and the folder,
-/// and says how to get the settings back. A file that could not be opened, or kept aside, was left
-/// alone: the text says no settings are saved until a restart. Neither shows a setting value or the
+/// and says how to get the settings back. A file that could not be opened, or one that opened but
+/// could not be kept aside, was left alone: each has its own text, and each says no settings are
+/// saved until a restart. Neither shows a setting value or the
 /// parse error; the error is in the log only.
 /// </para>
 /// <para>
@@ -42,6 +43,10 @@ public sealed class SettingsNotice : INotice
         if (start is { KeptAside: true, BackupFile: { } backup })
         {
             Text = KeptAsideText(Path.GetFileName(backup), paths.Root);
+        }
+        else if (start is { SavesRefused: true, KeepAsideProblem: not null })
+        {
+            Text = NotKeptAsideText(paths.Root);
         }
         else if (start is { SavesRefused: true })
         {
@@ -70,10 +75,18 @@ public sealed class SettingsNotice : INotice
     public static string KeptAsideText(string backupName, string folder) =>
         $"settings.json could not be read. It was renamed to {backupName}, and a new settings.json " +
         $"with the defaults was written in {folder}. Copy your settings back from the renamed file, " +
-        "then restart the dashboard. If you had removed the plugin with --remove-hooks, copy " +
-        "\"installHooksAtStart\": false back too, or the next start connects it again.";
+        "then restart the dashboard. Copy \"installHooksAtStart\": false and \"startWithWindows\": false back " +
+        "too, if you had set them, or the next start turns them on again.";
 
-    /// <summary>The window's text when the file could not be opened, or kept aside.</summary>
+    /// <summary>
+    /// The window's text when the file opened but could not be kept aside: the rename failed (T1.56's
+    /// review). It is not "could not be opened", which would send the operator to the wrong cause.
+    /// </summary>
+    public static string NotKeptAsideText(string folder) =>
+        $"settings.json in {folder} could not be read or kept aside, so the dashboard runs on its defaults " +
+        "and saves no settings until it is restarted.";
+
+    /// <summary>The window's text when the file could not be opened.</summary>
     public static string NotOpenedText(string folder) =>
         $"settings.json in {folder} could not be opened, so the dashboard runs on its defaults and " +
         "saves no settings until it is restarted.";

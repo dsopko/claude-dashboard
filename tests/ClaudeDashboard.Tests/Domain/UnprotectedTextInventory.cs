@@ -322,7 +322,9 @@ public sealed class UnprotectedTextInventory
         // else, so it has no session text to print.
         "ClaudeCliResult.Output", "DashboardPaths.PluginFolder", "HookPresence.ForeignPlugin",
         "PluginInstaller.PluginFolder", "PluginResult.Problem",
-        "IngressStatus.Fault",
+        // T1.57: the port notice's window text and its tray copy: fixed text, port numbers and the
+        // path of settings.json.
+        "IngressStatus.Fault", "IngressStatus.Text", "IngressStatus.TrayText",
         "SettingsLoadResult.Problem",
         "ShowSignalResult.Problem", "SingleInstanceGate.Name", "SqliteEventStore.Path",
     };

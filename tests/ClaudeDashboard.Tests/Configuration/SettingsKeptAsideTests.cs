@@ -230,6 +230,10 @@ public sealed class SettingsKeptAsideTests : IDisposable
         Assert.Empty(Backups());
         Assert.Equal(Hash(BadBytes), HashOf(_paths.SettingsFile));
         Assert.False(Store().Save(new DashboardSettings()));
+
+        // Its own text: the file opened, so "could not be opened" would send the operator to the
+        // wrong cause (T1.56's review).
+        Assert.Equal(SettingsNotice.NotKeptAsideText(_paths.Root), new SettingsNotice(start, _paths).Text);
     }
 
     /// <summary>
@@ -262,6 +266,41 @@ public sealed class SettingsKeptAsideTests : IDisposable
         var settings = SettingsWindowFor(Store());
         settings.StartsWithWindows = !settings.StartsWithWindows;
         Assert.Equal(good, File.ReadAllText(_paths.SettingsFile));
+    }
+
+    /// <summary>
+    /// <strong>The Settings window says when a choice is not remembered</strong> (T1.56's review): the
+    /// box follows Windows, and the note says the file will not keep it.
+    /// </summary>
+    [Fact]
+    public void The_settings_window_says_a_refused_choice_is_not_remembered()
+    {
+        File.WriteAllText(_paths.SettingsFile, """{ "startWithWindows": false }""");
+
+        using (new FileStream(_paths.SettingsFile, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            var store = Store();
+            store.PrepareForStart(store.Load(), When);
+        }
+
+        var settings = SettingsWindowFor(Store());
+        settings.StartsWithWindows = !settings.StartsWithWindows;
+
+        Assert.Equal(SettingsViewModel.NotRememberedNote, settings.Note);
+        Assert.True(settings.HasNote);
+    }
+
+    /// <summary>The control: with saves allowed, the choice is remembered and no such note shows.</summary>
+    [Fact]
+    public void The_settings_window_shows_no_such_note_when_the_choice_is_saved()
+    {
+        File.WriteAllText(_paths.SettingsFile, """{ "startWithWindows": false }""");
+
+        var settings = SettingsWindowFor(Store());
+        settings.StartsWithWindows = true;
+
+        Assert.NotEqual(SettingsViewModel.NotRememberedNote, settings.Note);
+        Assert.True(Store().Load().Settings.StartWithWindows);
     }
 
     /// <summary>The Settings window's view model over <paramref name="store"/>, with a fake registry.</summary>
