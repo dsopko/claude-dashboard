@@ -570,6 +570,25 @@ Tasks landing after T1.20. Each one puts the acceptance document out of date in 
 
 **Ordering ruled 2026-09-02:** the packaging workstream — `PKG.1` → `PKG.2` → `PKG.3` → T1.33 → `PKG.4` in the [Packaging Execution Plan](claude-dashboard-packaging-execution-plan.md) — runs **ahead of T2.1**. Appendix A is unchanged; the packaging plan carries its own order.
 
+### Milestone 1F — Observability, and small fixes
+
+The work in GitHub milestone 3, "Observability 1": issues #3, #14, #67, #71, #72 and #73 (#68 was closed by T1.52). Each task is written here before it is dispatched. Code moves through a branch in the coder's own worktree and a pull request; nothing reaches `main` without the reviewer's APPROVE.
+
+**Order, set 2026-10-03 (director):** T1.53 (#67) first, because it needs no ruling and touches nothing the others touch. Then #71, which turns the one notice into a short list; #72, #73 and #14 each add a source to that list, so they follow it. #3 is independent and waits for its ruling.
+
+**T1.53 — An Error row says which error it was**
+- **Goal:** a session in Error shows the kind of error (`rate_limit`, `overloaded`, and so on) beside its badge and in `/state`. Closes issue #67.
+- **Depends:** T1.41 (the mapper's present shape), T1.46 (`/state`)
+- **Realizes:** the wire is the authority where it disagrees with the documentation (hooks reference, Discrepancies). All 18 archived `StopFailure` events carry `error`; none carries `error_type` or `matcher` (event flow §13, measured 2026-09-29).
+- **Deliverables:**
+  - `HookPayload` binds `error`. `HookEventMapper` reads `error` first, then `error_type`, then `matcher`, then the empty string.
+  - The row shows the raw value, so a kind that `StopFailureKinds` does not name still reaches the operator. `StopFailureKinds` gains no names unless the archive shows them.
+  - The second effect in #67 is intended: a second `StopFailure` with a **different** kind on a session already in Error is no longer declined as a duplicate. It changes the row's detail. The same kind twice is still a duplicate.
+  - Before the row shows the values, read the distinct values of `error` in a **copy** of the operator's `dashboard.db` (copy the file and its `-wal` to a scratch folder; never open the original). Report the distinct values and their counts. They are identifiers, not operator text.
+  - Documents, in the same change: TS §II.2 and Appendix C (remove the row); Impl §3.5 (`errorKind`) and §9.1; the hooks reference, discrepancy 4 (it stays a discrepancy; the "known defect" note goes); Core and App §6.3 (the row "The error kind"). One row each in TS Appendix D and Impl Appendix C.
+- **Acceptance:** a mapper test with the payload as the wire sends it (`"error": "rate_limit"`) gives `ErrorKind` `rate_limit`; a payload with only `error_type` still maps; a Registry test: Error with kind A, then a `StopFailure` with kind B, moves the detail to B, and a second B is a duplicate; a realized-window test shows the kind beside the badge with `BindingErrorWatch` clean; a `/state` test answers `"errorKind": "rate_limit"`; plant: revert the mapper to `error_type` first, and the wire-shape test fails; both suite counts.
+- **Guardrails:** the error kind is an identifier, but `error_message` (if it ever arrives) is operator-adjacent text: it is not read, stored in a new field, shown or logged. No change to the state machine beyond the duplicate rule above.
+
 ---
 
 ## Part 4 — Phases 2–7 task outlines
