@@ -723,6 +723,9 @@ The work in GitHub milestone 3, "Observability 1": issues #3, #14, #67, #71, #72
   - Plants: (a) drop-oldest restored, and the reproduction fails; (b) `Notification` of every kind treated as noise, and the at-capacity test fails; (c) one `Thread.Sleep(10)` added on the consumer path, and the throughput test fails.
   - Both suite counts.
 - **Guardrails:** `/hook` still answers `200` empty for a shed event: shedding happens after the answer is decided and never changes it. The sink never blocks a request thread. One writer to the Registry. No payload, title or prompt in a log line, a record or a notice.
+- **Done 2026-10-03:** PR #87, merged as `91b7b9e`, `9c7668a`, `7741bca` (one fix cycle, documents only). The noise list is pinned to `SessionRegistry.TargetOf`. The throughput test took about 35 ms unloaded and at most 119 ms with every core busy, against a 5,000 ms limit.
+
+**Milestone 1F, first pass, closed 2026-10-03:** every open issue in GitHub milestone 3 has a merged change (T1.53 to T1.58). Not built from the observability review, and not in milestone 3: the hook self-test and "last hook received" (#74), a health block in `/state`, an Activity window, start and stop rows in the database, and indexes.
 
 ---
 
