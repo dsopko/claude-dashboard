@@ -432,12 +432,13 @@
             </Border>
 
             <!--
-                ==== Notice: what a start found about the hook route (the ruling of 2026-10-01) ====
-                Collapsed unless there is something to say. Today that is one case: Claude Code has
-                the dashboard's plugin turned off, the dashboard leaves it off, and so receives
-                nothing — which must not look like a quiet day. The DataContext is the tray's view
-                model, set in the constructor, so the window and the tray tooltip read one notice.
-                Amber, the colour of a state that needs the operator but is not an error.
+                ==== Notice: what the operator must see, not only in the log ====
+                Collapsed unless there is something to say: the hook route (the ruling of
+                2026-10-01), and whether history is recorded (T1.54, issue #71). Each shown notice
+                is its own line, in the board's fixed order, because two can be true at one time.
+                The DataContext is the tray's view model, set in the constructor, so the window and
+                the tray tooltip read one list. Amber, the colour of a state that needs the operator
+                but is not an error.
             -->
             <Border x:Name="NoticeRow"
                     Grid.Row="3"
@@ -446,10 +447,16 @@
                     BorderBrush="{StaticResource HairlineBrush}"
                     BorderThickness="0,0,0,1"
                     Visibility="{Binding HasNotice, Converter={StaticResource BoolToVisible}}">
-                <TextBlock x:Name="NoticeText"
-                           Text="{Binding NoticeText}"
-                           Foreground="{StaticResource AmberBrush}"
-                           TextWrapping="Wrap" />
+                <ItemsControl x:Name="NoticeLines" ItemsSource="{Binding NoticeTexts}" Focusable="False">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding Mode=OneWay}"
+                                       Margin="0,2"
+                                       Foreground="{StaticResource AmberBrush}"
+                                       TextWrapping="Wrap" />
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
             </Border>
 
             <!-- ==== Body: the rows, in the order T1.10 assembled them ========================= -->

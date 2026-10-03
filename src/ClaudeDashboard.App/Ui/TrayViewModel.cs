@@ -48,7 +48,7 @@ public sealed partial class TrayViewModel : ObservableObject, IUiTickTarget, IDi
     private readonly IngressStatus _ingress;
     private readonly ILogger _logger;
     private readonly Pipeline.IDecisionLog? _decisions;
-    private readonly Setup.HookNotice? _notice;
+    private readonly NoticeBoard? _notices;
 
     private DateTimeOffset _now;
     private bool _disposed;
@@ -84,10 +84,11 @@ public sealed partial class TrayViewModel : ObservableObject, IUiTickTarget, IDi
     /// place that says otherwise must not be able to go missing.
     /// </param>
     /// <param name="logger">Where a refused publish is recorded.</param>
-    /// <param name="notice">
-    /// What a start found about the hook route that the operator must see (the ruling of
-    /// 2026-10-01): its short form leads the tooltip, and the window shows its text through
-    /// <see cref="NoticeText"/>. The host passes it; a test that is not about it may omit it.
+    /// <param name="notices">
+    /// What the operator must see on screen, not only in the log: the hook route (the ruling of
+    /// 2026-10-01) and the history (T1.54, issue #71). Their short forms lead the tooltip, after the
+    /// ingress fault, and the window shows their texts through <see cref="NoticeTexts"/>. The host
+    /// passes it; a test that is not about it may omit it.
     /// </param>
     /// <exception cref="ArgumentNullException">Any argument is null.</exception>
     public TrayViewModel(
@@ -98,7 +99,7 @@ public sealed partial class TrayViewModel : ObservableObject, IUiTickTarget, IDi
         IngressStatus ingress,
         ILogger logger,
         Pipeline.IDecisionLog? decisions = null,
-        Setup.HookNotice? notice = null)
+        NoticeBoard? notices = null)
     {
         ArgumentNullException.ThrowIfNull(projection);
         ArgumentNullException.ThrowIfNull(modes);
@@ -114,11 +115,11 @@ public sealed partial class TrayViewModel : ObservableObject, IUiTickTarget, IDi
         _ingress = ingress;
         _logger = logger;
         _decisions = decisions;
-        _notice = notice;
+        _notices = notices;
 
-        if (_notice is not null)
+        if (_notices is not null)
         {
-            _notice.PropertyChanged += OnNoticeChanged;
+            _notices.PropertyChanged += OnNoticeChanged;
         }
         _now = clock.Now;
 
@@ -148,13 +149,19 @@ public sealed partial class TrayViewModel : ObservableObject, IUiTickTarget, IDi
     public string MuteAllLabel => IsMuted ? "Unmute all" : "Mute all";
 
     /// <summary>
-    /// What the window shows about the hook route, or null when there is nothing to say (the ruling
-    /// of 2026-10-01). The window binds its notice row to this.
+    /// The texts the window's notice row shows, one line each, in the board's fixed order (T1.54).
+    /// Empty when there is nothing to say. The window binds its notice row to this.
     /// </summary>
-    public string? NoticeText => _notice?.Text;
+    public IReadOnlyList<string> NoticeTexts => _notices?.Texts ?? [];
+
+    /// <summary>
+    /// The same texts as one string, a line each, or null when there is nothing to say: the
+    /// notice row as it reads, for a reader that is not the window.
+    /// </summary>
+    public string? NoticeText => NoticeTexts.Count == 0 ? null : string.Join(Environment.NewLine, NoticeTexts);
 
     /// <summary>Whether the window shows its notice row.</summary>
-    public bool HasNotice => _notice?.IsShown == true;
+    public bool HasNotice => _notices?.HasAny == true;
 
     /// <summary>What the pause menu item reads. It toggles rather than adding a second item.</summary>
     public string PauseLabel => IsPaused ? "Resume monitoring" : "Pause monitoring";
@@ -206,6 +213,11 @@ public sealed partial class TrayViewModel : ObservableObject, IUiTickTarget, IDi
     public void Tick(DateTimeOffset now)
     {
         _now = now;
+
+        // The notices first: a source that reads the world on the clock (the history) changes
+        // here, and the tooltip below then leads with it.
+        _notices?.Tick(now);
+
         Refresh();
     }
 
@@ -220,9 +232,9 @@ public sealed partial class TrayViewModel : ObservableObject, IUiTickTarget, IDi
         _disposed = true;
         _projection.Sessions.CollectionChanged -= OnSessionsChanged;
 
-        if (_notice is not null)
+        if (_notices is not null)
         {
-            _notice.PropertyChanged -= OnNoticeChanged;
+            _notices.PropertyChanged -= OnNoticeChanged;
         }
     }
 
@@ -230,6 +242,7 @@ public sealed partial class TrayViewModel : ObservableObject, IUiTickTarget, IDi
 
     private void OnNoticeChanged(object? sender, PropertyChangedEventArgs e)
     {
+        OnPropertyChanged(nameof(NoticeTexts));
         OnPropertyChanged(nameof(NoticeText));
         OnPropertyChanged(nameof(HasNotice));
         Refresh();
@@ -268,8 +281,9 @@ public sealed partial class TrayViewModel : ObservableObject, IUiTickTarget, IDi
         IsMuted = muted;
         Icon = TrayIcons.For(Colour, paused);
         // A dead ingress and a plugin that is off both mean "receiving nothing", and either may
-        // be true alone, so both lead the tooltip when both are.
-        var fault = string.Join(" · ", new[] { _ingress.Fault, _notice?.TrayText }.Where(text => !string.IsNullOrEmpty(text)));
+        // be true alone, so both lead the tooltip when both are. The ingress fault first, then
+        // each notice in the board's order (T1.54).
+        var fault = string.Join(" · ", new[] { _ingress.Fault, _notices?.TrayText }.Where(text => !string.IsNullOrEmpty(text)));
 
         Tooltip = TrayTooltip.For(summary, paused, muted ? mutedUntil : null, _now, fault.Length == 0 ? null : fault);
 

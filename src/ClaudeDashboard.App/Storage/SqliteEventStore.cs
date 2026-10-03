@@ -1,7 +1,9 @@
 using System.IO;
 using System.Globalization;
+using ClaudeDashboard.App.Adapters;
 using ClaudeDashboard.App.Configuration;
 using ClaudeDashboard.Core.Events;
+using ClaudeDashboard.Core.Ports;
 using Microsoft.Data.Sqlite;
 using Serilog;
 
@@ -57,8 +59,18 @@ namespace ClaudeDashboard.App.Storage;
 /// </para>
 /// <para>
 /// <strong>A dead disk is not a dead dashboard (TS §IV.7).</strong> If the file cannot be opened,
-/// created or written, this says so exactly once, stops trying, and returns
-/// <see langword="false"/> for ever after. The dashboard runs with no history.
+/// created or written, this says so once in the log and returns <see langword="false"/>. The
+/// dashboard runs on, with no history, and the window says so (T1.54, issue #71).
+/// </para>
+/// <para>
+/// <strong>It tries again each minute (the operator's ruling in #71).</strong> After a failed
+/// write, the next attempt is the first write at least <see cref="RetryAfter"/> after the failure.
+/// The records that arrive in between are counted as lost, not queued: a queue would hold the
+/// operator's words in memory for as long as the disk stays full. No timer and no thread do this.
+/// The attempt rides on the next record, on the writer's thread, so it costs one normal write at
+/// most. A full disk that frees up after a minute costs a minute of history, not the rest of the
+/// day. A failed retry writes no log line; the write that succeeds writes one, with the count of
+/// records lost.
 /// </para>
 /// </remarks>
 public sealed class SqliteEventStore : IEventStore, IDisposable
@@ -120,39 +132,77 @@ public sealed class SqliteEventStore : IEventStore, IDisposable
         VALUES ($event_id, $ts, $session_id, $kind, $from_state, $to_state, $reason, $detail);
         """;
 
+    /// <summary>
+    /// The least time from a failed write to the next attempt (the operator's ruling in #71).
+    /// </summary>
+    public static readonly TimeSpan RetryAfter = TimeSpan.FromSeconds(60);
+
+    // Available, as an int, so that it can be published with Volatile: the writer's thread sets
+    // it, and the UI thread's tick reads it for the history notice.
+    private const int Unknown = 0;
+    private const int Up = 1;
+    private const int Down = 2;
+
     private readonly string _path;
     private readonly ILogger _logger;
+    private readonly IClock _clock;
 
     private SqliteConnection? _connection;
-    private bool _unavailable;
+    private DateTimeOffset? _failedAt;
+    private bool _announced;
     private bool _disposed;
+    private int _available = Unknown;
 
     /// <summary>Creates the store over the dashboard's data folder.</summary>
-    /// <exception cref="ArgumentNullException">Any argument is null.</exception>
-    public SqliteEventStore(DashboardPaths paths, ILogger logger)
-        : this(Located(paths), logger)
+    /// <param name="paths">The data folder.</param>
+    /// <param name="logger">Where the open, the first failure and a recovery are logged.</param>
+    /// <param name="clock">The clock that spaces the attempts after a failure; the system clock if null.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="paths"/> or <paramref name="logger"/> is null.</exception>
+    public SqliteEventStore(DashboardPaths paths, ILogger logger, IClock? clock = null)
+        : this(Located(paths), logger, clock)
     {
     }
 
     /// <summary>Creates the store over an explicit file, so tests can use a temporary one.</summary>
-    /// <exception cref="ArgumentNullException">Any argument is null.</exception>
-    public SqliteEventStore(string path, ILogger logger)
+    /// <param name="path">The database file.</param>
+    /// <param name="logger">Where the open, the first failure and a recovery are logged.</param>
+    /// <param name="clock">The clock that spaces the attempts after a failure; the system clock if null.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="path"/> or <paramref name="logger"/> is null.</exception>
+    public SqliteEventStore(string path, ILogger logger, IClock? clock = null)
     {
         ArgumentNullException.ThrowIfNull(path);
         ArgumentNullException.ThrowIfNull(logger);
 
         _path = path;
         _logger = logger;
+        _clock = clock ?? new SystemClock();
     }
 
-    /// <summary>How many rows have been written. Diagnostic only.</summary>
+    /// <summary>How many records have been written. Diagnostic only.</summary>
     public long WrittenCount { get; private set; }
 
-    /// <summary>How many rows were lost to a failing disk. Diagnostic only.</summary>
+    /// <summary>How many attempts to write failed. Diagnostic only.</summary>
     public long FailedCount { get; private set; }
 
-    /// <summary>Whether the store has given up. Null until the first attempt.</summary>
-    public bool? Available { get; private set; }
+    /// <summary>
+    /// How many records were lost since the last failure began: those whose write failed, and those
+    /// that arrived before the next attempt was due. Zero again once a write succeeds.
+    /// </summary>
+    public long LostCount { get; private set; }
+
+    /// <summary>
+    /// Whether the last write succeeded: null before the first attempt, then true or false.
+    /// </summary>
+    /// <remarks>
+    /// The one member read from another thread: the history notice reads it on the UI thread's tick.
+    /// It is published with <see cref="Volatile"/>, so the tick never reads a stale value for long.
+    /// </remarks>
+    public bool? Available => Volatile.Read(ref _available) switch
+    {
+        Up => true,
+        Down => false,
+        _ => null,
+    };
 
     /// <summary>The file this store writes to.</summary>
     public string Path => _path;
@@ -170,7 +220,12 @@ public sealed class SqliteEventStore : IEventStore, IDisposable
     {
         ArgumentNullException.ThrowIfNull(record);
 
-        if (_unavailable || _disposed || record.IsEmpty)
+        if (_disposed || record.IsEmpty)
+        {
+            return false;
+        }
+
+        if (Waiting())
         {
             return false;
         }
@@ -220,6 +275,7 @@ public sealed class SqliteEventStore : IEventStore, IDisposable
             transaction.Commit();
 
             WrittenCount++;
+            Recorded();
 
             return true;
         }
@@ -242,7 +298,12 @@ public sealed class SqliteEventStore : IEventStore, IDisposable
     {
         ArgumentNullException.ThrowIfNull(decisions);
 
-        if (_unavailable || _disposed || decisions.Count == 0)
+        if (_disposed || decisions.Count == 0)
+        {
+            return false;
+        }
+
+        if (Waiting())
         {
             return false;
         }
@@ -254,6 +315,7 @@ public sealed class SqliteEventStore : IEventStore, IDisposable
             using var transaction = connection.BeginTransaction();
             WriteDecisions(connection, transaction, eventId, decisions);
             transaction.Commit();
+            Recorded();
 
             return true;
         }
@@ -404,32 +466,86 @@ public sealed class SqliteEventStore : IEventStore, IDisposable
         }
 
         _connection = connection;
-        Available = true;
 
-        _logger.Information(
-            "Recording events to {DatabaseFile}. It is not pruned before Phase 5 and holds hook " +
-            "payloads, so it grows by roughly {BytesPerDay} bytes a day on typical traffic.",
-            _path,
-            TypicalBytesPerDay);
+        // Once per process, not once per connection. A connection made while a failure is open is
+        // announced by the recovery line instead, with what was lost: one line, not two (T1.54).
+        var first = !_announced;
+        _announced = true;
+
+        if (first && _failedAt is null)
+        {
+            _logger.Information(
+                "Recording events to {DatabaseFile}. It is not pruned before Phase 5 and holds hook " +
+                "payloads, so it grows by roughly {BytesPerDay} bytes a day on typical traffic.",
+                _path,
+                TypicalBytesPerDay);
+        }
 
         return connection;
     }
 
+    /// <summary>
+    /// Whether this record falls inside the minute after a failure, and so is lost without an
+    /// attempt. Counts it if so.
+    /// </summary>
+    private bool Waiting()
+    {
+        if (_failedAt is not { } failedAt || _clock.Now - failedAt >= RetryAfter)
+        {
+            return false;
+        }
+
+        LostCount++;
+
+        return true;
+    }
+
+    /// <summary>A write succeeded. After a failure, says so once, with what was lost.</summary>
+    private void Recorded()
+    {
+        Volatile.Write(ref _available, Up);
+
+        if (_failedAt is null)
+        {
+            return;
+        }
+
+        _logger.Information(
+            "Recording events to {DatabaseFile} again. {LostCount} records were lost while it could " +
+            "not be written; each is one event with its decisions, or the decisions of one tick.",
+            _path,
+            LostCount);
+
+        _failedAt = null;
+        LostCount = 0;
+    }
+
+    /// <summary>A write failed: the record is lost, and the next attempt waits a minute.</summary>
     private void Unavailable(Exception ex)
     {
-        _unavailable = true;
-        Available = false;
+        var first = _failedAt is null;
+
+        _failedAt = _clock.Now;
+        LostCount++;
+        Volatile.Write(ref _available, Down);
 
         _connection?.Dispose();
         _connection = null;
 
-        // ONCE. A failing disk fails on every event, and a line per event would bury the log in
-        // the one situation where the operator most needs to read it.
+        if (!first)
+        {
+            // A retry that fails writes nothing. The disk said why at the first failure, and a line
+            // a minute for a disk that stays full would bury that line.
+            return;
+        }
+
+        // ONCE per failure. A failing disk fails on every event, and a line per event would bury the
+        // log in the one situation where the operator most needs to read it.
         _logger.Warning(
             ex,
             "Cannot record events to {DatabaseFile}, so the dashboard runs with no history. This " +
-            "is a lost feature, not a fault: everything on screen still works. No further attempt " +
-            "will be made until restart.",
+            "is a lost feature, not a fault: everything on screen still works, and the window says " +
+            "so. The dashboard tries again each minute, and says so here when it records again.",
             _path);
     }
 }
