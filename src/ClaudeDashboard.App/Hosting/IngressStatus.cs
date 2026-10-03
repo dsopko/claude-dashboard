@@ -1,4 +1,6 @@
+using System.ComponentModel;
 using System.Globalization;
+using ClaudeDashboard.App.Ui;
 
 namespace ClaudeDashboard.App.Hosting;
 
@@ -18,27 +20,70 @@ namespace ClaudeDashboard.App.Hosting;
 /// No new tray colour. Adding one would be a design change, and the design document is the
 /// authority on what the glyph may say.
 /// </para>
+/// <para>
+/// <strong>Each fault says what to do, in the tray and in the window</strong> (T1.57, issue #14).
+/// The tray line is short and ends in the remedy; the window's notice row carries the long form.
+/// It is the first source on the <see cref="NoticeBoard"/>, so the tooltip shows it once, first,
+/// through the same path as every other notice. Nothing retries: the dashboard asks once, by
+/// binding, and says what to do.
+/// </para>
 /// </remarks>
-public sealed class IngressStatus
+public sealed class IngressStatus : INotice
 {
-    private IngressStatus(int port, string? fault)
+    private IngressStatus(int port, string? fault, string? notice)
     {
         Port = port;
         Fault = fault;
+        Text = notice;
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>Never raised: the status is fixed for the life of the process.</remarks>
+    public event PropertyChangedEventHandler? PropertyChanged
+    {
+        add { }
+        remove { }
     }
 
     /// <summary>Ingress is bound to <paramref name="port"/> and hooks will arrive.</summary>
-    public static IngressStatus Healthy(int port) => new(port, null);
+    public static IngressStatus Healthy(int port) => new(port, null, null);
 
     /// <summary>
     /// The configured port could not be used, so no hook addressed to it will ever arrive.
     /// </summary>
+    /// <param name="port">The port named in the tray line: the derived port when the walk ran out.</param>
+    /// <param name="firstTried">The first port tried; <paramref name="port"/> when not given.</param>
+    /// <param name="lastTried">The last port tried; <paramref name="port"/> when not given.</param>
+    /// <param name="settingsFile">The full path of <c>settings.json</c>, named in the window text.</param>
     /// <remarks>
     /// The tooltip line is short on purpose: it goes in front of the counts, and a tray tooltip
-    /// that runs to a paragraph is one nobody reads. The long form is in the log.
+    /// that runs to a paragraph is one nobody reads. It ends in the remedy, and "restart" already
+    /// says that nothing arrives until then (T1.57). The long form is the window notice and the log.
     /// </remarks>
-    public static IngressStatus Unavailable(int port) =>
-        new(port, string.Create(CultureInfo.CurrentCulture, $"port {port} taken · not receiving hooks"));
+    public static IngressStatus Unavailable(int port, int? firstTried = null, int? lastTried = null, string settingsFile = "settings.json") =>
+        new(
+            port,
+            string.Create(CultureInfo.CurrentCulture, $"port {port} taken · free a port and restart"),
+            $"The dashboard cannot receive anything: every port it tried is in use ({Number(firstTried ?? port)} to {Number(lastTried ?? port)}). " +
+            $"Free one of them, or pin a free port with \"port\" in {settingsFile}, then restart the dashboard. " +
+            "Claude Code's settings need no change: the hook finds the new port by itself.");
+
+    /// <summary>The fault for a port choice that secured no port, or the one a start declined (T1.57).</summary>
+    /// <param name="choice">How the port was chosen: the pin, and every candidate tried.</param>
+    /// <param name="settingsFile">The full path of <c>settings.json</c>.</param>
+    public static IngressStatus NotBound(PortChoice choice, string settingsFile)
+    {
+        ArgumentNullException.ThrowIfNull(choice);
+
+        if (choice.PinRefused)
+        {
+            return PinnedPortTaken(choice.Port);
+        }
+
+        return choice.Attempts.Count == 0
+            ? Unavailable(choice.Port, settingsFile: settingsFile)
+            : Unavailable(choice.Port, choice.Attempts[0].Port, choice.Attempts[^1].Port, settingsFile);
+    }
 
     /// <summary>
     /// A port the operator pinned in <c>settings.json</c> is held by something else.
@@ -62,13 +107,28 @@ public sealed class IngressStatus
     /// </para>
     /// </remarks>
     public static IngressStatus PinnedPortTaken(int port) =>
-        new(port, string.Create(CultureInfo.CurrentCulture, $"pinned port {port} taken · not receiving hooks"));
+        new(
+            port,
+            string.Create(CultureInfo.CurrentCulture, $"pinned port {port} taken · unpin it or free it, then restart"),
+            $"The dashboard cannot receive anything: port {Number(port)} is pinned in settings.json and another program " +
+            "holds it. Free that port, or change or remove the \"port\" setting, then restart the dashboard.");
 
     /// <summary>The port ingress was asked to use — the one hooks are addressed to.</summary>
     public int Port { get; }
 
     /// <summary>The tooltip line, or null when there is nothing wrong.</summary>
     public string? Fault { get; }
+
+    /// <summary>The window's notice text: the long form, with the remedy. Null when there is nothing wrong.</summary>
+    public string? Text { get; }
+
+    /// <inheritdoc/>
+    public string? TrayText => Fault;
+
+    /// <inheritdoc/>
+    public bool IsShown => Fault is not null;
+
+    private static string Number(int port) => port.ToString(CultureInfo.CurrentCulture);
 
     /// <summary>Whether hooks can reach this process.</summary>
     public bool CanReceiveHooks => Fault is null;

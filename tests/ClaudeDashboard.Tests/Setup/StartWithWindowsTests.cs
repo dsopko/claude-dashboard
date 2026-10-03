@@ -1,3 +1,4 @@
+using ClaudeDashboard.App.Configuration;
 using ClaudeDashboard.App.Setup;
 using ClaudeDashboard.Tests.Fakes;
 using Serilog.Events;
@@ -30,6 +31,57 @@ public sealed class StartWithWindowsTests
     private StartWithWindows Installed() => new(_registry, Exe, _logger);
 
     private StartWithWindows Portable() => new(_registry, null, _logger);
+
+    // ---- A start whose settings were unreadable (T1.56's review, the director's ruling of 2026-10-03)
+
+    private static SettingsAtStart Unreadable(string? backup = null, bool refused = false, string? problem = null) =>
+        new(
+            new SettingsLoadResult(new DashboardSettings(), SettingsLoadOutcome.Unreadable, "bad"),
+            BackupFile: backup,
+            SavesRefused: refused,
+            KeepAsideProblem: problem);
+
+    /// <summary>
+    /// <strong>A start whose settings were unreadable leaves the <c>Run</c> value and Windows' mark as
+    /// it found them</strong>: the file kept aside, the file that could not be opened, and the rename
+    /// that failed. The defaults say "on"; the operator's choice was in the file.
+    /// </summary>
+    [Theory]
+    [InlineData("kept aside")]
+    [InlineData("cannot open")]
+    [InlineData("rename failed")]
+    public void An_unreadable_start_leaves_the_run_value_and_the_mark_as_found(string kind)
+    {
+        var start = kind switch
+        {
+            "kept aside" => Unreadable(backup: @"C:datasettings.error-20261003-140509.json"),
+            "cannot open" => Unreadable(refused: true),
+            _ => Unreadable(refused: true, problem: "The process cannot access the file."),
+        };
+
+        // Absent, and Windows has it off: what an operator who unticked it would leave.
+        _registry.Approval[Name] = SettingsOff;
+
+        Assert.Equal(StartupReconcileOutcome.SettingsUnreadable, Installed().ReconcileAtStart(start));
+        Assert.False(_registry.Run.ContainsKey(Name));
+        Assert.Equal(SettingsOff, _registry.Approval[Name]);
+        Assert.Empty(_registry.Writes);
+    }
+
+    /// <summary>The control: a normal start still reconciles from its settings.</summary>
+    [Fact]
+    public void A_normal_start_still_reconciles()
+    {
+        var start = new SettingsAtStart(new SettingsLoadResult(new DashboardSettings { StartWithWindows = true }, SettingsLoadOutcome.Loaded));
+
+        Assert.Equal(StartupReconcileOutcome.Written, Installed().ReconcileAtStart(start));
+        Assert.Equal(Data, _registry.Run[Name]);
+
+        var missing = new SettingsAtStart(new SettingsLoadResult(new DashboardSettings { StartWithWindows = false }, SettingsLoadOutcome.Missing));
+
+        Assert.Equal(StartupReconcileOutcome.Removed, Installed().ReconcileAtStart(missing));
+        Assert.False(_registry.Run.ContainsKey(Name));
+    }
 
     // ---- The table (issue #36, design point 2) ------------------------------------------------------
 

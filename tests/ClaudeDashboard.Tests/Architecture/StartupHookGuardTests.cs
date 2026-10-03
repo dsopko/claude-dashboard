@@ -426,10 +426,14 @@ public sealed class StartupHookGuardTests
     {
         var code = GuardScan.CodeOnly(Program());
 
-        const string Expected = "host.Services.GetRequiredService<StartWithWindows>().Reconcile(settings.StartWithWindows);";
+        // T1.57: the start hands over what it found in its settings file, and ReconcileAtStart leaves
+        // Windows as it found it after an unreadable file (StartWithWindowsTests holds that by
+        // behaviour). A direct Reconcile here would reconcile from the defaults of a file it could not read.
+        const string Expected = "host.Services.GetRequiredService<StartWithWindows>().ReconcileAtStart(start);";
 
-        Assert.Equal(1, GuardScan.Occurrences(code, ".Reconcile("));
-        Assert.Equal(Expected, StatementAt(code, ".Reconcile("));
+        Assert.Equal(0, GuardScan.Occurrences(code, ".Reconcile("));
+        Assert.Equal(1, GuardScan.Occurrences(code, ".ReconcileAtStart("));
+        Assert.Equal(Expected, StatementAt(code, ".ReconcileAtStart("));
 
         var hooks = code.IndexOf("StartupHookInstall.RunAtStart(", StringComparison.Ordinal);
         var reconcile = code.IndexOf(Expected, StringComparison.Ordinal);

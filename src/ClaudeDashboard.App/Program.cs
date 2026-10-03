@@ -193,7 +193,7 @@ public static class Program
                 host = AppHost.Build(
                     paths,
                     onShow: () => surfacer!.Request(),
-                    ingress: IngressFor(action, choice),
+                    ingress: IngressFor(action, choice, paths.SettingsFile),
                     settingsAtStart: start);
 
                 // Between Build and Start, and that ordering is load-bearing rather than
@@ -248,8 +248,9 @@ public static class Program
 
                 // Start with Windows (issue #36): make the Run value match "startWithWindows". An
                 // installed copy only; Windows' own off switch is left alone; a refusal is one
-                // Warning and the start goes on.
-                host.Services.GetRequiredService<StartWithWindows>().Reconcile(settings.StartWithWindows);
+                // Warning and the start goes on. A start whose settings were unreadable leaves it as it
+                // found it, as it registers no plugin: the choice was in the file it could not read.
+                host.Services.GetRequiredService<StartWithWindows>().ReconcileAtStart(start);
 
                 var policy = host.Services.GetRequiredService<UnhandledExceptionPolicy>();
 
@@ -491,16 +492,18 @@ public static class Program
     /// under the dashboard: the operator chose that port, and the tooltip says "pinned" so they
     /// know which setting is the thing to change.
     /// </remarks>
-    private static IngressStatus IngressFor(StartupAction action, PortChoice choice)
+    internal static IngressStatus IngressFor(StartupAction action, PortChoice choice, string settingsFile)
     {
         if (action == StartupAction.StartNormally && choice.Found)
         {
             return IngressStatus.Healthy(choice.Port);
         }
 
-        return choice.PinRefused
-            ? IngressStatus.PinnedPortTaken(choice.Port)
-            : IngressStatus.Unavailable(choice.Port);
+        // A choice that found a port, under a start that will not bind it (a stranger on the port in
+        // port.txt), keeps the line it has always had, now with its remedy (T1.57).
+        return choice.Found
+            ? IngressStatus.Unavailable(choice.Port, settingsFile: settingsFile)
+            : IngressStatus.NotBound(choice, settingsFile);
     }
 
     /// <summary>Says how the port was arrived at, once the logger that can record it exists.</summary>
@@ -513,7 +516,7 @@ public static class Program
     /// Found by reading a live run rather than by a test: nothing asserts on a line that is never
     /// written.
     /// </remarks>
-    private static void ReportPortChoice(Serilog.ILogger logger, PortChoice choice, bool isSid)
+    internal static void ReportPortChoice(Serilog.ILogger logger, PortChoice choice, bool isSid)
     {
         if (!isSid)
         {
@@ -553,7 +556,9 @@ public static class Program
         {
             logger.Error(
                 "No free loopback port after {Attempts} attempts from base {Base}. The dashboard will " +
-                "start and will not hear anything. Candidates: {Trail}",
+                "start and will not hear anything. Candidates: {Trail}. Free one of them, or pin a free port " +
+                "with \"port\" in settings.json, then restart the dashboard. Claude Code's hook settings need " +
+                "no change: the hook finds the new port by itself.",
                 choice.Attempts.Count,
                 DashboardSettings.IngressPortBase,
                 choice.Trail);

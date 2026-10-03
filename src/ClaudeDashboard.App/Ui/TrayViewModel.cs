@@ -45,10 +45,10 @@ public sealed partial class TrayViewModel : ObservableObject, IUiTickTarget, IDi
     private readonly ISoundModeReader _modes;
     private readonly IEventSink _sink;
     private readonly IClock _clock;
-    private readonly IngressStatus _ingress;
     private readonly ILogger _logger;
     private readonly Pipeline.IDecisionLog? _decisions;
-    private readonly NoticeBoard? _notices;
+    private readonly NoticeBoard _notices;
+    private readonly bool _ownsNotices;
 
     private DateTimeOffset _now;
     private bool _disposed;
@@ -112,15 +112,14 @@ public sealed partial class TrayViewModel : ObservableObject, IUiTickTarget, IDi
         _modes = modes;
         _sink = sink;
         _clock = clock;
-        _ingress = ingress;
         _logger = logger;
         _decisions = decisions;
-        _notices = notices;
-
-        if (_notices is not null)
-        {
-            _notices.PropertyChanged += OnNoticeChanged;
-        }
+        // The ingress fault reaches the tooltip through the board and nowhere else (T1.57): the host's
+        // board has it as its first source. A tray given no board makes one that holds it, so a fault
+        // cannot go missing for want of a board.
+        _notices = notices ?? new NoticeBoard(ingress);
+        _ownsNotices = notices is null;
+        _notices.PropertyChanged += OnNoticeChanged;
         _now = clock.Now;
 
         _projection.Sessions.CollectionChanged += OnSessionsChanged;
@@ -152,7 +151,7 @@ public sealed partial class TrayViewModel : ObservableObject, IUiTickTarget, IDi
     /// The texts the window's notice row shows, one line each, in the board's fixed order (T1.54).
     /// Empty when there is nothing to say. The window binds its notice row to this.
     /// </summary>
-    public IReadOnlyList<string> NoticeTexts => _notices?.Texts ?? [];
+    public IReadOnlyList<string> NoticeTexts => _notices.Texts;
 
     /// <summary>
     /// The same texts as one string, a line each, or null when there is nothing to say: the
@@ -161,7 +160,7 @@ public sealed partial class TrayViewModel : ObservableObject, IUiTickTarget, IDi
     public string? NoticeText => NoticeTexts.Count == 0 ? null : string.Join(Environment.NewLine, NoticeTexts);
 
     /// <summary>Whether the window shows its notice row.</summary>
-    public bool HasNotice => _notices?.HasAny == true;
+    public bool HasNotice => _notices.HasAny;
 
     /// <summary>What the pause menu item reads. It toggles rather than adding a second item.</summary>
     public string PauseLabel => IsPaused ? "Resume monitoring" : "Pause monitoring";
@@ -216,7 +215,7 @@ public sealed partial class TrayViewModel : ObservableObject, IUiTickTarget, IDi
 
         // The notices first: a source that reads the world on the clock (the history) changes
         // here, and the tooltip below then leads with it.
-        _notices?.Tick(now);
+        _notices.Tick(now);
 
         Refresh();
     }
@@ -232,9 +231,11 @@ public sealed partial class TrayViewModel : ObservableObject, IUiTickTarget, IDi
         _disposed = true;
         _projection.Sessions.CollectionChanged -= OnSessionsChanged;
 
-        if (_notices is not null)
+        _notices.PropertyChanged -= OnNoticeChanged;
+
+        if (_ownsNotices)
         {
-            _notices.PropertyChanged -= OnNoticeChanged;
+            _notices.Dispose();
         }
     }
 
@@ -280,12 +281,9 @@ public sealed partial class TrayViewModel : ObservableObject, IUiTickTarget, IDi
         IsPaused = paused;
         IsMuted = muted;
         Icon = TrayIcons.For(Colour, paused);
-        // A dead ingress and a plugin that is off both mean "receiving nothing", and either may
-        // be true alone, so both lead the tooltip when both are. The ingress fault first, then
-        // each notice in the board's order (T1.54).
-        var fault = string.Join(" · ", new[] { _ingress.Fault, _notices?.TrayText }.Where(text => !string.IsNullOrEmpty(text)));
-
-        Tooltip = TrayTooltip.For(summary, paused, muted ? mutedUntil : null, _now, fault.Length == 0 ? null : fault);
+        // Every fault leads the tooltip through the board, in its order: the port first (T1.57), then
+        // each notice (T1.54). One path, so the port fault shows once.
+        Tooltip = TrayTooltip.For(summary, paused, muted ? mutedUntil : null, _now, _notices.TrayText);
 
         OnPropertyChanged(nameof(MuteAllLabel));
         OnPropertyChanged(nameof(PauseLabel));
