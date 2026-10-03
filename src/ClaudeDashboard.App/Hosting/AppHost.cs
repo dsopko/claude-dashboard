@@ -59,22 +59,31 @@ public static class AppHost
     /// Claude Code's configuration folder. Null resolves it the way Claude Code does. Tests pass a
     /// scratch folder, so a host never reads the operator's real Claude Code settings.
     /// </param>
+    /// <param name="settingsAtStart">
+    /// What <see cref="Program"/> did with the settings file at this start (T1.56): its first load,
+    /// and the backup or the refusal. When given, the host runs on that first load and does not read
+    /// the file again, so this start is the start the first load describes. Null reads the file here,
+    /// as every test that is not about the settings does.
+    /// </param>
     public static WebApplication Build(
         DashboardPaths? paths = null,
         Action? onShow = null,
         bool ingressAvailable = true,
         IngressStatus? ingress = null,
-        ClaudeCodePaths? claude = null)
+        ClaudeCodePaths? claude = null,
+        SettingsAtStart? settingsAtStart = null)
     {
         var resolved = paths ?? new DashboardPaths();
         var foldersReady = resolved.TryEnsureCreated(out var folderFailure);
 
-        var settingsStore = new SettingsStore(resolved);
-        var loaded = settingsStore.Load();
+        var loaded = settingsAtStart?.Original ?? new SettingsStore(resolved).Load();
 
         var logger = CreateLogger(resolved, loaded.Settings.Logging, foldersReady);
 
-        ReportStartup(logger, resolved, loaded, foldersReady, folderFailure);
+        // With the logger, so that a save the run refuses says so (T1.56).
+        var settingsStore = new SettingsStore(resolved, logger);
+
+        ReportStartup(logger, resolved, loaded, foldersReady, folderFailure, settingsAtStart);
 
         // Rosters, normalised on the way out of the file: a hand edit can hold a name in two
         // rosters or a roster with no members, and RosterBook can represent neither. Each
@@ -277,19 +286,24 @@ public static class AppHost
         builder.Services.AddSingleton<EventConsumer>();
 
         // The notice row and the tooltip's faults (T1.54, issue #71): the hook route first, then the
-        // history, then the sound device (T1.55, issue #72). The history and sound notices read a
-        // published state on the tray's tick; neither touches the file or the device, so the UI thread
-        // never waits on a disk or a driver. A later notice (#73, #14) is one more source here.
+        // history, then the sound device (T1.55, issue #72), then the settings file (T1.56, issue #73).
+        // The history and sound notices read a published state on the tray's tick; neither touches
+        // the file or the device, so the UI thread never waits on a disk or a driver. A later notice
+        // (#14) is one more source here.
         builder.Services.AddSingleton(sp =>
         {
             var store = sp.GetRequiredService<SqliteEventStore>();
             return new HistoryNotice(() => store.Available == false);
         });
         builder.Services.AddSingleton(sp => new SoundDeviceNotice(sp.GetRequiredService<ISoundOutput>()));
+        // The settings notice last (T1.56, issue #73). It is fixed by what this start did with its
+        // settings file, and stays until the next start.
+        builder.Services.AddSingleton(new SettingsNotice(settingsAtStart, resolved));
         builder.Services.AddSingleton(sp => new NoticeBoard(
             sp.GetRequiredService<HookNotice>(),
             sp.GetRequiredService<HistoryNotice>(),
-            sp.GetRequiredService<SoundDeviceNotice>()));
+            sp.GetRequiredService<SoundDeviceNotice>(),
+            sp.GetRequiredService<SettingsNotice>()));
 
         // The seam the composition guard reads (T1.12b; ServiceCompositionTests). A built
         // WebApplication does not publish its own descriptors — measured on a clean host, not
@@ -528,7 +542,8 @@ public static class AppHost
         DashboardPaths paths,
         SettingsLoadResult loaded,
         bool foldersReady,
-        string? folderFailure)
+        string? folderFailure,
+        SettingsAtStart? settingsAtStart)
     {
         // The version first, before anything else says anything (PKG.2): it is what PKG.4's gate
         // and every later support question reads, and first is the one position nobody has to
@@ -571,6 +586,27 @@ public static class AppHost
                 logger.Information(
                     "No settings file at {File}; using defaults.",
                     paths.SettingsFile);
+                break;
+
+            // ONE Error line for the start (T1.56): what was wrong, and what this start did about it.
+            // The problem is the parser's or Windows' message, which names a position or a file and
+            // never a setting value.
+            case SettingsLoadOutcome.Unreadable when settingsAtStart is { KeptAside: true, BackupFile: { } backup }:
+                logger.Error(
+                    "Settings file {File} could not be read: {Problem}. It was renamed to {Backup}, and a new " +
+                    "settings file with the defaults was written. This start registers no plugin.",
+                    paths.SettingsFile,
+                    loaded.Problem,
+                    backup);
+                break;
+
+            case SettingsLoadOutcome.Unreadable when settingsAtStart is { SavesRefused: true }:
+                logger.Error(
+                    "Settings file {File} could not be read: {Problem}. It was left as it is: {KeepAside}. " +
+                    "Using defaults, and no settings are saved until the dashboard restarts.",
+                    paths.SettingsFile,
+                    loaded.Problem,
+                    settingsAtStart.KeepAsideProblem ?? "it could not be opened");
                 break;
 
             case SettingsLoadOutcome.Unreadable:

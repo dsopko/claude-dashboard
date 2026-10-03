@@ -508,6 +508,74 @@ public sealed class AppHostTests : IDisposable
     }
 
     /// <summary>
+    /// <strong>A start whose settings file does not parse</strong> (T1.56, issue #73): the backup
+    /// holds the original bytes, the new file the defaults, the notice and the tray text show, the
+    /// host does not read the file again, one Error line names the backup, and no plugin is
+    /// registered.
+    /// </summary>
+    [Fact]
+    public void A_start_whose_settings_do_not_parse_keeps_them_aside_and_says_so()
+    {
+        var fresh = new DashboardPaths(Path.Combine(_root, "bad-settings"));
+        Directory.CreateDirectory(fresh.Root);
+        var bad = Encoding.UTF8.GetBytes("""{ "port": }""");
+        File.WriteAllBytes(fresh.SettingsFile, bad);
+
+        var store = new SettingsStore(fresh);
+        var start = store.PrepareForStart(store.Load(), DateTime.Now);
+
+        using var host = AppHost.Build(fresh, claude: _claude, settingsAtStart: start);
+
+        if (host.Services.GetService<Serilog.ILogger>() is IDisposable disposable)
+        {
+            _loggers.Add(disposable);
+        }
+
+        Assert.Equal(bad, File.ReadAllBytes(start.BackupFile!));
+        Assert.Equal(SettingsLoadOutcome.Loaded, new SettingsStore(fresh).Load().Outcome);
+
+        var tray = host.Services.GetRequiredService<TrayViewModel>();
+        tray.Tick(DateTimeOffset.Now);
+
+        Assert.Contains(
+            SettingsNotice.KeptAsideText(Path.GetFileName(start.BackupFile!), fresh.Root),
+            tray.NoticeTexts);
+        Assert.Contains(SettingsNotice.TrayShort, tray.Tooltip, StringComparison.Ordinal);
+
+        // No plugin: a claude that records every call, against a scratch Claude Code folder.
+        var cli = new ClaudeDashboard.Tests.Fakes.FakeClaudeCli(_claude);
+        Directory.CreateDirectory(_claude.ConfigDirectory);
+        var logger = host.Services.GetRequiredService<Serilog.ILogger>();
+
+        StartupHookInstall.RunAtStart(
+            host.Services.GetRequiredService<HookCheck>(),
+            start,
+            logger,
+            new PluginInstaller(cli, fresh, logger),
+            host.Services.GetRequiredService<HookNotice>());
+
+        Assert.Empty(cli.Calls);
+        Assert.False(host.Services.GetRequiredService<HookNotice>().IsShown);
+
+        var log = ReadLogsIn(fresh.LogFolder);
+        Assert.Equal(1, CountOf(log, "It was renamed to"));
+        Assert.Contains(start.BackupFile!, log, StringComparison.Ordinal);
+        Assert.DoesNotContain("Settings loaded from", log, StringComparison.Ordinal);
+    }
+
+    private static int CountOf(string text, string part)
+    {
+        var count = 0;
+
+        for (var at = text.IndexOf(part, StringComparison.Ordinal); at >= 0; at = text.IndexOf(part, at + part.Length, StringComparison.Ordinal))
+        {
+            count++;
+        }
+
+        return count;
+    }
+
+    /// <summary>
     /// A malformed settings file leaves the defaults in the container, logs the reason where the
     /// operator can find it, and <strong>still starts a host that serves</strong>.
     /// </summary>

@@ -186,6 +186,11 @@ public static class StartupHookInstall
     /// <param name="logger">Where what was done is recorded.</param>
     /// <param name="plugin">The plugin installer.</param>
     /// <param name="notice">Where the operator is shown that the dashboard is not connected.</param>
+    /// <param name="settingsKeptAside">
+    /// Whether this start renamed an unreadable settings file and wrote a fresh one (T1.56). The
+    /// opt-out notice, which says to fix or delete the file, is then wrong advice and is not shown:
+    /// the settings notice says what this start did. Nothing is registered either way.
+    /// </param>
     /// <returns>How the start left the connection.</returns>
     /// <exception cref="ArgumentNullException">Any argument is null.</exception>
     public static HookStartOutcome Run(
@@ -194,7 +199,8 @@ public static class StartupHookInstall
         SettingsLoadOutcome settingsOutcome,
         ILogger logger,
         PluginInstaller plugin,
-        HookNotice notice)
+        HookNotice notice,
+        bool settingsKeptAside = false)
     {
         ArgumentNullException.ThrowIfNull(check);
         ArgumentNullException.ThrowIfNull(logger);
@@ -212,7 +218,7 @@ public static class StartupHookInstall
 
         if (Refusal(presence, installAtStart, settingsOutcome) is { } refusal)
         {
-            Show(refusal, presence, check, logger, notice);
+            Show(refusal, presence, check, logger, notice, settingsKeptAside);
 
             return refusal;
         }
@@ -252,12 +258,43 @@ public static class StartupHookInstall
         }
     }
 
+    /// <summary>
+    /// <see cref="Run"/> for a start, from what the start found in its settings file (T1.56).
+    /// </summary>
+    /// <remarks>
+    /// <strong>The start's first load is the authority, never the file as it is now.</strong> A
+    /// start that kept an unreadable file aside has written a fresh one that says
+    /// <c>installHooksAtStart: true</c>. Reading that would turn this start into an ordinary one and
+    /// register a plugin the operator may have removed: the opt-out was in the file that did not
+    /// read (T1.32). So this reads <see cref="SettingsAtStart.Original"/> and nothing else.
+    /// </remarks>
+    /// <exception cref="ArgumentNullException">Any argument is null.</exception>
+    public static HookStartOutcome RunAtStart(
+        HookCheck check,
+        SettingsAtStart start,
+        ILogger logger,
+        PluginInstaller plugin,
+        HookNotice notice)
+    {
+        ArgumentNullException.ThrowIfNull(start);
+
+        return Run(
+            check,
+            start.Original.Settings.InstallHooksAtStart,
+            start.Original.Outcome,
+            logger,
+            plugin,
+            notice,
+            settingsKeptAside: start.KeptAside);
+    }
+
     private static void Show(
         HookStartOutcome refusal,
         HookPresence presence,
         HookCheck check,
         ILogger logger,
-        HookNotice notice)
+        HookNotice notice,
+        bool settingsKeptAside)
     {
         switch (refusal)
         {
@@ -295,6 +332,15 @@ public static class StartupHookInstall
 
             case HookStartOutcome.OtherDataFolder:
                 notice.ShowOtherDataFolder(presence.ForeignPlugin!);
+                break;
+
+            case HookStartOutcome.OptOutUnknown when settingsKeptAside:
+                // The file was renamed and a fresh one written (T1.56): "fix or delete the file" would
+                // be wrong advice, and the settings notice already says what this start did.
+                logger.Information(
+                    "The dashboard's own settings file could not be read and was kept aside, so this " +
+                    "start registered no plugin. The next start registers it unless \"installHooksAtStart\" " +
+                    "is set to false in the new settings file.");
                 break;
 
             case HookStartOutcome.OptOutUnknown:
@@ -396,7 +442,11 @@ public static class StartupHookInstall
 
         try
         {
-            store.Save(loaded.Settings with { InstallHooksAtStart = wanted });
+            if (!store.Save(loaded.Settings with { InstallHooksAtStart = wanted }))
+            {
+                // Saves are refused for this run (T1.56); the store has said so.
+                return false;
+            }
 
             logger.Information(
                 "{Switch}: \"installHooksAtStart\" is now {Value} in the dashboard's own settings.",

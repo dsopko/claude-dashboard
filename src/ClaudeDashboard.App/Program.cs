@@ -150,7 +150,8 @@ public static class Program
                 // The whole load result is kept, not just the settings: the hook install below has
                 // to know whether InstallHooksAtStart was read or defaulted from a file that would
                 // not read, because a recorded --remove-hooks lives in exactly that file.
-                var loaded = new SettingsStore(paths).Load();
+                var settingsFile = new SettingsStore(paths);
+                var loaded = settingsFile.Load();
                 var settings = loaded.Settings;
 
                 // WHERE THE FIRST INSTANCE ACTUALLY IS, WHICH IS NO LONGER A CONSTANT. While the
@@ -178,13 +179,22 @@ public static class Program
                     return StandDown(paths, settings, action, probe, recorded ?? settings.Port);
                 }
 
+                // A SETTINGS FILE THAT DOES NOT PARSE IS KEPT ASIDE HERE, AND ONLY HERE (T1.56, issue
+                // #73). After the single-instance decision, so a second instance that is about to stand
+                // down, and the one-shot switches above, leave the file byte for byte. Before AppHost.Build,
+                // which is the next thing that would read the file: Build is handed this start's first
+                // load and reads nothing again. The first load stays the authority for the whole start:
+                // the hook install below reads it, not the fresh file, so this start registers no plugin.
+                var start = settingsFile.PrepareForStart(loaded, DateTime.Now);
+
                 // §3.1's three attempts. Binding is the only question asked of any of them.
                 var choice = ChoosePort(settings, recorded, gate.Name, out var isSid);
 
                 host = AppHost.Build(
                     paths,
                     onShow: () => surfacer!.Request(),
-                    ingress: IngressFor(action, choice));
+                    ingress: IngressFor(action, choice),
+                    settingsAtStart: start);
 
                 // Between Build and Start, and that ordering is load-bearing rather than
                 // stylistic: Build composes and Start binds the socket, so no /show can arrive
@@ -229,10 +239,9 @@ public static class Program
                 // it (issues #39 and #30). In every case where the dashboard is left unconnected,
                 // it says so on screen: a dashboard that receives nothing looks exactly like a
                 // quiet day.
-                StartupHookInstall.Run(
+                StartupHookInstall.RunAtStart(
                     host.Services.GetRequiredService<HookCheck>(),
-                    settings.InstallHooksAtStart,
-                    loaded.Outcome,
+                    start,
                     host.Services.GetRequiredService<Serilog.ILogger>(),
                     host.Services.GetRequiredService<PluginInstaller>(),
                     host.Services.GetRequiredService<HookNotice>());

@@ -113,7 +113,7 @@ public sealed class StartupHookGuardTests
         // The positive search runs against code only, so a commented-out call cannot satisfy it
         // (fix cycle 2). The negative ones deliberately stay on the raw text: a forbidden call
         // appearing even in a comment is worth a failure that gets read.
-        Assert.Contains("StartupHookInstall.Run(", GuardScan.CodeOnly(program), StringComparison.Ordinal);
+        Assert.Contains("StartupHookInstall.RunAtStart(", GuardScan.CodeOnly(program), StringComparison.Ordinal);
 
         Assert.DoesNotContain(".Install()", program, StringComparison.Ordinal);
         Assert.DoesNotContain(".Remove()", program, StringComparison.Ordinal);
@@ -171,7 +171,7 @@ public sealed class StartupHookGuardTests
     {
         var code = GuardScan.CodeOnly(Program());
 
-        const string Call = "StartupHookInstall.Run(";
+        const string Call = "StartupHookInstall.RunAtStart(";
 
         foreach (var line in code.Split('\n'))
         {
@@ -195,14 +195,21 @@ public sealed class StartupHookGuardTests
             code.IndexOf(Call, StringComparison.Ordinal) + Call.Length,
             out var closed);
 
-        Assert.True(closed, "The StartupHookInstall.Run call is never closed, which cannot compile.");
+        Assert.True(closed, "The StartupHookInstall.RunAtStart call is never closed, which cannot compile.");
         Assert.True(
-            arguments.Count >= 3,
-            $"The StartupHookInstall.Run call has {arguments.Count} argument(s); the flag and the " +
-            "outcome are expected as the second and third.");
+            arguments.Count >= 2,
+            $"The StartupHookInstall.RunAtStart call has {arguments.Count} argument(s); the start is " +
+            "expected as the second.");
 
-        Assert.Equal("settings.InstallHooksAtStart", arguments[1]);
-        Assert.Equal("loaded.Outcome", arguments[2]);
+        // T1.56: the flag and the outcome travel inside the start, and RunAtStart reads them from its
+        // first load (SettingsKeptAsideTests holds that by behaviour). What only this guard can hold
+        // is that the start handed over is the one made from the first load: not a fresh read, and
+        // not a start built from a literal.
+        Assert.Equal("start", arguments[1]);
+        Assert.Equal(1, GuardScan.Occurrences(code, "var start = "));
+        Assert.Equal(1, GuardScan.Occurrences(code, ".PrepareForStart("));
+        Assert.Equal("var start = settingsFile.PrepareForStart(loaded, DateTime.Now);", StatementAt(code, "var start = "));
+        Assert.Equal("var loaded = settingsFile.Load();", StatementAt(code, "var loaded = "));
     }
 
     /// <summary>
@@ -221,25 +228,25 @@ public sealed class StartupHookGuardTests
     {
         var code = GuardScan.CodeOnly(Program());
 
-        const string Start = "StartupHookInstall.Run(";
+        const string Start = "StartupHookInstall.RunAtStart(";
 
         var arguments = TopLevelArguments(
             code,
             code.IndexOf(Start, StringComparison.Ordinal) + Start.Length,
             out var closed);
 
-        Assert.True(closed, "The StartupHookInstall.Run call is never closed, which cannot compile.");
+        Assert.True(closed, "The StartupHookInstall.RunAtStart call is never closed, which cannot compile.");
         Assert.True(
-            arguments.Count == 6,
-            $"The StartupHookInstall.Run call has {arguments.Count} argument(s); the plugin installer " +
-            "is expected as the fifth and the notice as the sixth.");
+            arguments.Count == 5,
+            $"The StartupHookInstall.RunAtStart call has {arguments.Count} argument(s); the plugin installer " +
+            "is expected as the fourth and the notice as the fifth.");
         Assert.Equal("host.Services.GetRequiredService<HookCheck>()", arguments[0]);
-        Assert.Equal("host.Services.GetRequiredService<PluginInstaller>()", arguments[4]);
+        Assert.Equal("host.Services.GetRequiredService<PluginInstaller>()", arguments[3]);
 
         // The notice (the rulings of 2026-10-01): the host's own, which the tray and the window
         // are bound to. Without it a start that leaves the dashboard unconnected says so only in
         // the log, and the window shows a quiet day.
-        Assert.Equal("host.Services.GetRequiredService<HookNotice>()", arguments[5]);
+        Assert.Equal("host.Services.GetRequiredService<HookNotice>()", arguments[4]);
 
         const string Switch = "HookSwitches.Run(";
 
@@ -424,10 +431,10 @@ public sealed class StartupHookGuardTests
         Assert.Equal(1, GuardScan.Occurrences(code, ".Reconcile("));
         Assert.Equal(Expected, StatementAt(code, ".Reconcile("));
 
-        var hooks = code.IndexOf("StartupHookInstall.Run(", StringComparison.Ordinal);
+        var hooks = code.IndexOf("StartupHookInstall.RunAtStart(", StringComparison.Ordinal);
         var reconcile = code.IndexOf(Expected, StringComparison.Ordinal);
 
-        Assert.True(hooks >= 0, "Program.cs no longer calls StartupHookInstall.Run.");
+        Assert.True(hooks >= 0, "Program.cs no longer calls StartupHookInstall.RunAtStart.");
         Assert.True(
             reconcile > hooks,
             "Program.cs makes the Run value match the setting before the hook install. It belongs " +
