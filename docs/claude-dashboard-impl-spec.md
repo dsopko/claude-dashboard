@@ -289,7 +289,7 @@ Each hook that the dashboard registers only observes. `/hook` answers `200` with
 | `enteredAt` | instant | When the session entered `state` |
 | `lastActivity` | instant | When a transition last changed something |
 | `lastHeardAt` | instant | When an event last arrived |
-| `errorKind` | string or null | In `Error` only. Today it is an empty string (issue #67) |
+| `errorKind` | string or null | In `Error` only. The kind as Claude Code sent it, for example `rate_limit`. Empty if the event carried none (§9.1) |
 | `nextNudgeAt` | instant or null | The due time of the next nudge. See below |
 | `waitingOn` | array | The background tasks that the session waits on. Empty if none |
 
@@ -799,12 +799,13 @@ Fields read from each event: `hook_event_name`, `session_id`, `prompt_id`, `tran
 | `Notification`, `agent_needs_input` | → `NeedsQuestion` | `notification_type` |
 | `Notification`, any other type | No change | `notification_type` |
 | `Stop` | → `Unread`, or `Waiting`, or back to the state before a quiet tick. Keeps the answer | `last_assistant_message`; `background_tasks` (`id`, `type`, `status`, `description` of each); `session_crons` (`prompt` of each) |
-| `StopFailure` | → `Error` | `error_type` (*the wire sends `error`: issue #67*) |
+| `StopFailure` | → `Error`. A second `StopFailure` of another kind changes the kind; the same kind again is a duplicate | `error`, then `error_type` |
 | `SessionEnd` | → `Ended` | `reason` |
 | `CwdChanged` | The group is found again | — |
 | `PostToolBatch` | `NeedsPermission`, `NeedsQuestion`, `Error`, `Interrupted` → `Working`, or `Waiting` if the session waits. **Never from `Unread`** | — |
 
 - For `SessionStart`, `Notification`, `StopFailure` and `SessionEnd`, the mapper reads the field `matcher` if the named field is absent.
+- `StopFailure` gives its kind in `error`, not in the `error_type` that Claude Code's documentation names. All 18 archived events carry `error`, and none carries `error_type` (hooks reference, discrepancy 4). The mapper reads `error`, then `error_type`, then `matcher`. `HookPayload.Error` is held raw, as a `JsonElement`, and only a JSON string is read: an `error` of any other shape is passed over for the next name, and never costs the event. `error_message` is not bound.
 - A hook payload has no time. The mapper stamps the arrival time from `IClock`.
 - A `background_tasks` list or a `session_crons` list that is malformed reads as empty.
 - A task's `command` is never read.
@@ -1006,3 +1007,4 @@ The text above says what is true now. This list says when each part changed.
 | 2026-10-01 | The plugin is the only route; no write of Claude Code's settings. Start with Windows through the `Run` key; the scheduled task is removed | T1.49, T1.50, T1.51; issues #30, #36, #65 |
 | 2026-10-02 | v0.2. Written again to agree with the code. Added: §2.5 to §2.7, §3.5, §5.6, §8.1 to §8.5 | — |
 | 2026-10-02 | The log file follows `logging.minimumLevel` (§8.2, §8.4). The no-write guard pins the files that may write (§9.3) | T1.52; issues #68, #65 |
+| 2026-10-03 | `StopFailure` gives its kind in `error`, read before `error_type` (§3.5, §9.1). A second error of another kind changes the kind | T1.53; issue #67 |

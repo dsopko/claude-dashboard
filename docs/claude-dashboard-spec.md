@@ -112,7 +112,7 @@ The dashboard registers eight events.
 | **Notification**, type `agent_needs_input` | Claude is blocked on an answer | State → **Needs You — Question** | `notification_type` |
 | **Notification**, all other types | For example `idle_prompt`: nothing occurred for some time | **No state change** | `notification_type` |
 | **Stop** | Claude finishes its response | State → **Unread**, or **Waiting** if background work still runs. Keep the answer | `last_assistant_message`, `background_tasks`, `session_crons` |
-| **StopFailure** | The turn stops on an API error | State → **Error**. Keep the kind of error | `error_type` |
+| **StopFailure** | The turn stops on an API error | State → **Error**. Keep the kind of error | `error`, or `error_type` if `error` is absent |
 | **SessionEnd** | The session terminates | State → **Ended** | `reason` |
 | **CwdChanged** | The working directory changes | Find the group again | None |
 | **PostToolBatch** | A batch of tool calls is complete, before the next model call | The turn runs: a session that was blocked, in error or silent goes back to **Working** | None |
@@ -131,7 +131,9 @@ Two rules about what an event must *not* do, each learned from use:
 - **`idle_prompt` is not a question.** `agent_needs_input` is a request. `idle_prompt` is the absence of one: Claude Code sends it because a session sat untouched, and each finished session does that. When the dashboard read it as a question, each Unread row became red and blinking about ninety seconds after it finished. Idleness already has its place: a result that nobody read is Unread, and one that was read is Quiet. The general rule is in the Design (§4): *an absence of activity must never make a session louder.*
 - **An unknown type changes nothing.** Claude Code has twelve notification types and ten error kinds, and it can add more. A type that the dashboard does not know is kept in the log and changes no state.
 
-*Known defect (issue #67):* on the wire, `StopFailure` gives its kind in a field named `error`. The dashboard reads `error_type`. Thus the kind of an Error row is empty today. The state is still correct.
+**The kind of error comes from `error`, the field the wire sends.** Claude Code's documentation names the field `error_type`, but all 18 archived `StopFailure` events carry `error`, and none carries `error_type` (issue #67). Where the two disagree, the wire is the authority. The dashboard reads `error` first, and `error_type` only when `error` is absent, in case a later Claude Code follows its documentation. The row shows the kind as it arrives, so a kind the dashboard does not know still reaches the operator. It never reads `error_message`: that is prose about the operator's turn.
+
+A second `StopFailure` with a different kind, on a session already in Error, changes the kind on the row. It is a real change, not a duplicate. The same kind twice is a duplicate.
 
 ### II.3 Correlation and identity
 
@@ -516,7 +518,6 @@ One list for all the documents. Each item is marked *not built* where it appears
 | A control for always-on-top | Impl §5.4 | A key in the settings file only |
 | A count badge on the tray light | Design §9 | No digits. The counts are in the tooltip |
 | The reconciliation sweep | §III.6 | Not built |
-| The kind of an Error row | §II.2 | Always empty: the wire field is `error` and the dashboard reads `error_type` (issue #67) |
 | A restart of the dashboard after a crash | Earlier text of Impl §10.1 | Given up by ruling when the start moved to the `Run` key (Impl §10.1) |
 | "Open terminal" on an open row | Design §9 | The button is in the markup and is hidden until Phase 2 |
 | Navigator, Focus Observer, grouping by desktop, history search, the settings interface (but one checkbox), the remote surface | Part III, Part V | Phases 2 to 7 |
@@ -545,3 +546,4 @@ The text above says what is true now. This list says when each rule changed, for
 | 2026-09-30 | The token is made at each start and travels in the announcement file. An environment variable is no longer used | T1.48; issue #57 |
 | 2026-10-01 | The hook is registered as a Claude Code plugin. The dashboard never writes Claude Code's settings. Start with Windows | T1.49, T1.50, T1.51; issues #30, #36, #65 |
 | 2026-10-02 | v0.3. This document is written again to agree with the code. The dated correction blocks became this table | — |
+| 2026-10-03 | The kind of an Error row is read from `error`, the field the wire sends. A second error of another kind changes the row | T1.53; issue #67 |
