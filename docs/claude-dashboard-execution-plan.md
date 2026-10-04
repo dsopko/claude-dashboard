@@ -1063,6 +1063,40 @@ The work in GitHub milestone 3, "Observability 1": issues #3, #14, #67, #71, #72
   - Plants: (a) the name taken from the event and not from the Registry, and the clock-decision test fails; (b) the column check removed so that the upgrade runs twice, and the second-start test fails; (c) the name written into `detail`, and the guard test fails.
   - Both suite counts; build clean, 0 warnings.
 - **Guardrails:** no new table. No change to the hook script or the plugin. No change to the indexes, the prune or its rule. No name in a log line. Tests use scratch folders and only a copy of the operator's database.
+- **Done 2026-10-04:** PR #104, merged as `148e775`, `6e595a8` (no fix cycle). The upgrade runs at each open and adds a column only when `pragma_table_info` lacks it, in one transaction; a failure leaves the file at version 1 with none of the columns. On a copy of the operator's database it took 7 ms, with 26,401 events and 8,340 decisions unchanged and the file size unchanged. `TypicalBytesPerDay` rose from 340,000 to 350,000 (a typical day measured 315,392 bytes with a name and a path on each row). **The coder's rulings, accepted:** an empty path stores NULL; the column step runs at every open; a new file gets the columns by the same `ALTER` step; a decision from another thread takes the name from the Registry only. **Found by the review, older than this task (T1.54):** a `dashboard.db` that is read-only at start never recovers, even after it is made writable, because `Microsoft.Data.Sqlite` pools the read-only handle and each retry gets it back. Taken to the operator as a separate issue. Nits, not fixed: the column check is case-sensitive, but SQLite names are not; no test holds an empty path stored as NULL; `ForeignSqliteReader` calls a busy prepare a "shape" problem.
+
+**T1.70 — The Activity window shows what the dashboard did, in plain words**
+- **Goal:** a window named **Activity** lists what the dashboard did since it started, newest first, in plain words, with the session's name and project on each line. An operator who hears a sound can open it and see what made the sound. For issue #97.
+- **Depends:** T1.69 (`session_title` and `decisions.cwd`), T1.60 (the `runs` table: this run's start), T1.61 ("last heard from Claude Code"), T1.37 (the decisions record), T1.54 (the history notice)
+- **Realizes:** #97 as written, without the speaker sign (moved to #99, T1.67), and the operator's rulings of 2026-10-04: **this start only**; the name is "Activity"; the three "small additions" were built in milestone 4, and only "last heard from Claude Code" at the top of this window is new. A click on a line and "Show activity" on a row are T1.71. Director's rulings:
+  - **One record: the database.** At open, the window reads this run's decisions from `dashboard.db` (rows from this run's `started_at` on). After that, new lines come from the archive writer **after each commit**, so the window never shows a line that the database does not hold. If the store cannot write, no new lines come, and the window shows the history notice of T1.54 at its top.
+  - **The read** is on a background thread, with its own read-only connection and a short busy timeout. Never on the UI thread, and never through the writer's connection. No line is shown twice, and none is lost between the read and the first live line (the row id tells them apart).
+  - **What shows:** what happened to the operator's sessions and to sound. A starting table, which the coder may change with a reason:
+    - shown: `SessionAdded`, `StateMoved`, `SilenceSwept`, `SessionEnded`, `AckApplied`, `NoticePlayed`, `NudgePlayed`, `GroupNoticePlayed`, `NoticeSuppressed`, `SoundDropped`, `MuteApplied`, `MuteExpired`;
+    - not shown (the dashboard's own records, for a developer with SQL): `SessionRefreshed`, `EventDeclined`, `GroupRederived`, `AckDeclined`, `TaskTypeUnrecognised`, `EventDropped`, `ApplyFailed`, `HookRefused`, `HourlySummary`, `TrayLightChanged`, `WindowSurfaced`, `RosterEdited`.
+  - **The writer posts to the window only while it is open,** and only for a batch that holds a shown line: one post for each such commit, never one for each event.
+  - **No limit on the lines within one start.** The list is virtualized.
+- **Deliverables:**
+  - **The window:** it opens from the tray menu and from the toolbar. One window: a second open brings it to the front. It remembers its place and size like the main window. It moves nothing: the motion rule holds.
+  - **A line:** the time (`14:32`; a day name before it when the line is not from today), `♪` for a sound that played, what occurred in plain words, the session's name, the project, and the detail.
+    - **Plain words, never code names:** "working again", not `PostToolBatch`; "went quiet: no event for 10 minutes", not `silence`. A "no sound" line says why: muted, paused, the group owns the sound, announced before, or no sound device. Put the full table of words, kind by kind and reason by reason, in the documents. A test holds that every shown kind and reason has words, and that no enum name reaches the screen.
+    - **The name:** `session_title`. A row with no name shows the first eight characters of the session id. A group's sound (no session) shows the group's name.
+    - **The project:** the last folder of `decisions.cwd`, by the rule that the main window uses (`RowVisuals.WorkspaceLabel`), so one project has one name in both windows. Hover gives the full path. A line with no path shows nothing there.
+  - **Wide and narrow:** in a wide window, one line in columns. In a narrow window, two lines, like a row in the main window, with the second line small and grey. As the window gets narrower, the detail goes first, then the project. The time, the `♪`, what occurred and the name never go. Hover on a line holds everything.
+  - **The top of the window:** "last heard from Claude Code …", the same text as the tooltip (T1.61), and the history notice when it is shown.
+  - **Screen reader:** each line reads as one sentence.
+  - **Documents, in the same change:** Design (a new subsection for the Activity window, after §9, and one row in §13); Impl §5 (a new subsection: the window, its source, the table of words, the layout); TS where the windows are described, and Appendix C if it lists the window as not built; the event flow, where the writer commits; Core and App (what a second interface would need to show the same lines). One row each in TS Appendix D and Impl Appendix C.
+- **Acceptance:**
+  - A run with decisions of every kind: the window shows the shown kinds, newest first, and none of the others.
+  - The read at open and the live lines: a line committed during the read shows once. A line handed to a store that cannot write never shows, and the history notice is at the top.
+  - The read runs off the UI thread (a test or the code path shows it), and the writer is never held by it beyond the busy timeout.
+  - Every shown kind and reason has words; no enum name is on screen.
+  - A row with no name shows the short id; a group's sound shows the group's name; the project is the same text as the main window's for the same path, and the hover has the full path.
+  - Realized-window tests, with `BindingErrorWatch` clean: the wide form, the narrow form, and the order in which the detail and then the project go.
+  - No title, prompt or path in a log line.
+  - Plants: (a) the live lines taken before the commit, and the store-cannot-write test fails; (b) the check of the row id removed, and the line-once test fails; (c) the project dropped before the detail, and the narrow test fails.
+  - Both suite counts; build clean, 0 warnings.
+- **Guardrails:** no new table and no change to what is written. No change to the hook script or the plugin. No change to any rule about states, order or sound. No prompt or answer in the window. The writer's thread is never held by the window. Tests use scratch folders, never the operator's data folder.
 
 ---
 
