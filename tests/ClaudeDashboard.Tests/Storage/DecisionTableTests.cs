@@ -66,7 +66,8 @@ public sealed class DecisionTableTests : IDisposable
 
         Assert.Equal(2, rows.Count);
         Assert.All(rows, row => Assert.Equal(eventId, row[0]));
-        Assert.Equal(TestEvents.At.ToString("o", CultureInfo.InvariantCulture), rows[0][1]);
+        // UTC in the one form since T1.62 (issue #80).
+        Assert.Equal(TestEvents.At.UtcDateTime.ToString("o", CultureInfo.InvariantCulture), rows[0][1]);
         Assert.Equal("s-1", rows[0][2]);
         Assert.Equal(nameof(DecisionKind.SessionAdded), rows[0][3]);
         Assert.Equal(nameof(DecisionKind.StateMoved), rows[1][3]);

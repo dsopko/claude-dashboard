@@ -107,7 +107,7 @@ public sealed class HookHealthTests
 
     /// <summary>
     /// A burst of 1,000 refusals within one second writes one row at once, for the first, and the
-    /// tick writes the other 999 as one last row. No refusal goes unrecorded.
+    /// tick writes the other 999 as one last row. No refusal goes unrecorded while the dashboard runs.
     /// </summary>
     [Fact]
     public void A_burst_of_a_thousand_refusals_writes_one_row_and_the_tick_the_rest()

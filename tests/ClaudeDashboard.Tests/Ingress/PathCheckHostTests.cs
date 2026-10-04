@@ -301,7 +301,8 @@ public sealed class PathCheckHostTests : IAsyncLifetime, IDisposable
 
     /// <summary>
     /// AppHost's own board puts the self-test notice and the refused notice directly after the
-    /// plugin notice, and before the settings notice (T1.61 review: they could move unseen).
+    /// plugin notice, and before the history and settings notices (T1.61 review: they could move
+    /// unseen; the history notice since T1.62).
     /// </summary>
     [Fact]
     public void The_real_board_puts_the_two_notices_directly_after_the_plugin_notice()
@@ -311,6 +312,9 @@ public sealed class PathCheckHostTests : IAsyncLifetime, IDisposable
 
         try
         {
+            // A directory where the database must be: the history cannot be recorded, so its notice shows.
+            Directory.CreateDirectory(paths.DatabaseFile);
+
             var loaded = new SettingsStore(paths).Load();
             var start = new SettingsAtStart(loaded, BackupFile: Path.Combine(root, "settings.error-20261004-090000.json"));
 
@@ -329,16 +333,21 @@ public sealed class PathCheckHostTests : IAsyncLifetime, IDisposable
                 health.Refused(clock.Now);
             }
 
+            var store = services.GetRequiredService<SqliteEventStore>();
+            Assert.False(store.Append(new ArchiveRecord(null, [new Decision(clock.Now, null, DecisionKind.SilenceSwept)])));
+
             var board = services.GetRequiredService<NoticeBoard>();
             board.Tick(clock.Now);
 
             var texts = board.Texts.ToList();
             var plugin = texts.IndexOf(HookNotice.PluginDisabledText);
+            var history = texts.IndexOf(HistoryNotice.WindowText);
             var settings = texts.FindIndex(text => text.Contains("settings.error-20261004-090000.json", StringComparison.Ordinal));
 
             Assert.True(plugin >= 0, string.Join(Environment.NewLine, texts));
             Assert.Equal(SelfTestNotice.Describe(failed), texts[plugin + 1]);
             Assert.Equal(RefusedNotice.WindowText, texts[plugin + 2]);
+            Assert.True(history > plugin + 2, string.Join(Environment.NewLine, texts));
             Assert.True(settings > plugin + 2, string.Join(Environment.NewLine, texts));
         }
         finally
