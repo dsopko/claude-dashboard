@@ -1,4 +1,5 @@
 using ClaudeDashboard.Core.Events;
+using ClaudeDashboard.Core.Ports;
 using Microsoft.Extensions.Hosting;
 using Serilog;
 
@@ -23,14 +24,32 @@ namespace ClaudeDashboard.App.Storage;
 /// about, and leaves whoever debugs it unable to tell "never ran" from "ran and wrote nothing" —
 /// the same absence that cost this project a diagnosis three times.
 /// </para>
+/// <para>
+/// <strong>It writes this process's row in <c>runs</c> (T1.60, issue #78).</strong> The time is
+/// taken when the host has started, which is after ingress has bound or failed, and before
+/// <c>listening.txt</c> names this run, so no hook of this run is older than its start. The row is
+/// written by this writer's loop, never by the consumer or the UI thread. A run so short that the
+/// loop never ran writes it at the stop, before the drain. The stop time is set after the drain and
+/// before the store closes; a kill, a crash or a host disposed without a stop leaves it empty.
+/// </para>
 /// </remarks>
-public sealed class EventArchiveWriter : BackgroundService
+public sealed class EventArchiveWriter
+ : BackgroundService
 {
     private readonly EventArchive _archive;
     private readonly IEventStore _store;
     private readonly ILogger _logger;
+    private readonly RunStart? _run;
+    private readonly IClock? _clock;
+    private readonly CancellationToken _hostStarted;
+    private readonly TaskCompletionSource<DateTimeOffset> _startedAt =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-    /// <summary>Creates the writer.</summary>
+    private CancellationTokenRegistration _startedRegistration;
+    private int _startTried;
+    private long _runId;
+
+    /// <summary>Creates the writer, with no row in <c>runs</c>: for tests of the archive alone.</summary>
     /// <exception cref="ArgumentNullException">Any argument is null.</exception>
     public EventArchiveWriter(EventArchive archive, IEventStore store, ILogger logger)
     {
@@ -41,6 +60,31 @@ public sealed class EventArchiveWriter : BackgroundService
         _archive = archive;
         _store = store;
         _logger = logger;
+    }
+
+    /// <summary>Creates the writer that also records this run (T1.60).</summary>
+    /// <param name="archive">The channel it drains.</param>
+    /// <param name="store">The file.</param>
+    /// <param name="logger">Where the start and the stop are logged.</param>
+    /// <param name="run">What the run row holds beside its times.</param>
+    /// <param name="clock">The clock that stamps the start and the stop.</param>
+    /// <param name="hostStarted">Cancelled when the host has started: ingress has bound or failed.</param>
+    /// <exception cref="ArgumentNullException">Any reference argument is null.</exception>
+    public EventArchiveWriter(
+        EventArchive archive,
+        IEventStore store,
+        ILogger logger,
+        RunStart run,
+        IClock clock,
+        CancellationToken hostStarted)
+        : this(archive, store, logger)
+    {
+        ArgumentNullException.ThrowIfNull(run);
+        ArgumentNullException.ThrowIfNull(clock);
+
+        _run = run;
+        _clock = clock;
+        _hostStarted = hostStarted;
     }
 
     /// <summary>How many events this writer handed to the store. Diagnostic only.</summary>
@@ -60,6 +104,13 @@ public sealed class EventArchiveWriter : BackgroundService
     /// </remarks>
     public override async Task StartAsync(CancellationToken cancellationToken)
     {
+        if (_run is not null)
+        {
+            // Synchronous, on the thread that starts the host: the time is taken before Start returns,
+            // so before the announcement, and no hook this run accepts can be older than it.
+            _startedRegistration = _hostStarted.Register(() => _startedAt.TrySetResult(_clock!.Now));
+        }
+
         await base.StartAsync(cancellationToken).ConfigureAwait(false);
 
         _logger.Information("Event archive writer started.");
@@ -70,6 +121,14 @@ public sealed class EventArchiveWriter : BackgroundService
     {
         try
         {
+            if (_run is not null)
+            {
+                // Until the host has started, or is stopping. Records queued meanwhile wait in the
+                // channel, so the run row is the first thing this run writes.
+                await Task.WhenAny(_startedAt.Task, Task.Delay(Timeout.Infinite, stoppingToken)).ConfigureAwait(false);
+                WriteRunStart();
+            }
+
             await foreach (var record in _archive.Reader.ReadAllAsync(stoppingToken).ConfigureAwait(false))
             {
                 Write(record);
@@ -108,12 +167,24 @@ public sealed class EventArchiveWriter : BackgroundService
     {
         await base.StopAsync(cancellationToken).ConfigureAwait(false);
 
+        // A run so short that the loop never ran: its start row, before the records it queued.
+        WriteRunStart();
+
         while (_archive.Reader.TryRead(out var record))
         {
             Write(record);
         }
 
         _archive.ReportDrops();
+
+        // AFTER the drain, and before the container closes the store (T1.60): a stop time means every
+        // record this run queued before it stopped was written first.
+        if (Volatile.Read(ref _runId) is var runId and > 0)
+        {
+            _store.StopRun(runId, _clock!.Now);
+        }
+
+        _startedRegistration.Dispose();
 
         _logger.Information(
             "Event archive writer stopped after {Written} written and {Refused} refused.",
@@ -133,5 +204,29 @@ public sealed class EventArchiveWriter : BackgroundService
         // Counted, not logged. The store has already said once why it cannot write, and a line
         // per lost row would bury that one line under thousands.
         RefusedCount++;
+    }
+
+    /// <summary>
+    /// Writes the run row once, if the host has started. Lost like any other record when the disk
+    /// refuses, and counted by the store; never retried, because a late row would say the wrong time.
+    /// </summary>
+    private void WriteRunStart()
+    {
+        if (_run is null || !_startedAt.Task.IsCompletedSuccessfully || Interlocked.Exchange(ref _startTried, 1) == 1)
+        {
+            return;
+        }
+
+        if (_store.StartRun(_run, _startedAt.Task.Result) is { } id)
+        {
+            Volatile.Write(ref _runId, id);
+        }
+    }
+
+    /// <inheritdoc/>
+    public override void Dispose()
+    {
+        _startedRegistration.Dispose();
+        base.Dispose();
     }
 }

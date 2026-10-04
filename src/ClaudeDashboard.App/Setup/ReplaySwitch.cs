@@ -33,14 +33,22 @@ namespace ClaudeDashboard.App.Setup;
 /// all of this.
 /// </para>
 /// <para>
-/// <strong>Replay assumes one uninterrupted run, and the live dashboard never had one.</strong>
-/// The live Registry starts empty at every process start; replay runs the whole history as one
-/// process, because restarts were never archived. A session that went quiet before a restart
-/// was forgotten live but stays tracked here, so the nudge ladder and the silence sweep keep
-/// working on it: over the operator's real database one session that never sent another event
-/// produced a question nudge every ten minutes for four weeks — 4,076 of 5,168 nudge rows.
-/// Nudge and sweep rows are therefore the would-haves of a dashboard that never restarted, and
-/// restarts move more rows than anything else replay cannot know.
+/// <strong>Replay forgets every session at each start, as the live dashboard does (T1.60, issue
+/// #78).</strong> The live Registry starts empty at every process start, and since T1.60 each start
+/// is a row in <c>runs</c>. When the next tick or event is at or after a run's <c>started_at</c>,
+/// replay first starts a new Registry and sound engine state, empty, and then goes on. The times
+/// are compared as parsed instants, never as text: <c>events</c> holds local times with their
+/// offsets until #80, and <c>runs</c> holds UTC, so text would order an event in <c>+02:00</c>
+/// against a start in <c>Z</c> wrongly.
+/// </para>
+/// <para>
+/// <strong>History older than the first run row replays as one uninterrupted run, as it did before
+/// T1.60.</strong> Restarts before then were never archived. A session that went quiet before such
+/// a restart was forgotten live but stays tracked here, so the nudge ladder and the silence sweep
+/// keep working on it: over the operator's real database, one uninterrupted run, one session that
+/// never sent another event produced a question nudge every ten minutes for four weeks (4,076 of
+/// 5,168 nudge rows). The summary line says how many runs replay saw, and whether older history
+/// had none.
 /// </para>
 /// <para>
 /// <strong>Ticks.</strong> Between events, ticks are synthesised at the live fifteen-second
@@ -51,7 +59,7 @@ namespace ClaudeDashboard.App.Setup;
 /// history it produced no sweep the live log did not also carry.
 /// </para>
 /// <para>
-/// It never modifies <c>events</c>. It writes only <c>decisions</c> rows, and refuses a database
+/// It never modifies <c>events</c> or <c>runs</c>. It writes only <c>decisions</c> rows, and refuses a database
 /// whose <c>decisions</c> table is not empty: it appends, so a second run would double every row.
 /// </para>
 /// </remarks>
@@ -112,6 +120,7 @@ public static class ReplaySwitch
         using var store = new SqliteEventStore(databasePath, logger);
 
         IReadOnlyList<SqliteEventStore.ArchivedEvent> history;
+        IReadOnlyList<string> runStarts;
 
         try
         {
@@ -127,6 +136,7 @@ public static class ReplaySwitch
             }
 
             history = store.ReadEvents();
+            runStarts = store.ReadRunStarts();
         }
         catch (Exception ex) when (ex is Microsoft.Data.Sqlite.SqliteException or IOException or InvalidOperationException)
         {
@@ -134,20 +144,48 @@ public static class ReplaySwitch
             return 1;
         }
 
-        var clock = new ReplayClock();
-        var guard = new SingleWriterGuard();
-        var registry = new SessionRegistry(guard);
-        var rosters = new RosterStore(new DiscardingSink());
-        var archive = new EventArchive(logger);
-        var recorder = new DecisionRecorder(registry, rosters, archive, logger);
-        var engine = new SoundPolicyEngine(new SilentPlayer(), clock, guard, new SoundPolicyOptions(), recorder);
-        var mapper = new HookEventMapper(clock);
+        // Each start, as an instant. Parsed, never compared as text (see the remarks).
+        var starts = new List<DateTimeOffset>();
+        var unparsedRuns = 0L;
 
-        // The live composition's own subscription, mirrored: the engine hears every change on
-        // the thread that applied it (AppHost wires this identically). Replay has no roster book
-        // — rosters were never archived — so the effective group is the workspace one.
-        registry.SessionChanged += (_, e) =>
-            engine.OnSessionChanged(e.Session, GroupKeys.Effective(e.Session, rosters.Book));
+        foreach (var text in runStarts)
+        {
+            if (DateTimeOffset.TryParse(text, null, System.Globalization.DateTimeStyles.RoundtripKind, out var start))
+            {
+                starts.Add(start);
+            }
+            else
+            {
+                unparsedRuns++;
+            }
+        }
+
+        starts.Sort();
+
+        var clock = new ReplayClock();
+        var archive = new EventArchive(logger);
+        var mapper = new HookEventMapper(clock);
+        var run = new ReplayRun(archive, clock, logger);
+        var nextStart = 0;
+        var beforeFirstRun = 0L;
+
+        // A start at or before this instant begins a new run: the Registry and the sound engine
+        // start again, empty, as a live start does. Called before each tick and each event.
+        void EnterRunsUpTo(DateTimeOffset at)
+        {
+            var crossed = false;
+
+            while (nextStart < starts.Count && starts[nextStart] <= at)
+            {
+                nextStart++;
+                crossed = true;
+            }
+
+            if (crossed)
+            {
+                run = new ReplayRun(archive, clock, logger);
+            }
+        }
 
         var written = 0L;
         var skipped = 0L;
@@ -157,20 +195,20 @@ public static class ReplaySwitch
         long Tick(DateTimeOffset tick)
         {
             clock.Now = tick;
-            recorder.BeginTick(tick);
+            run.Recorder.BeginTick(tick);
 
             try
             {
-                foreach (var silent in registry.SweepSilent(tick, SilenceWatch.DefaultThreshold))
+                foreach (var silent in run.Registry.SweepSilent(tick, SilenceWatch.DefaultThreshold))
                 {
-                    recorder.Swept(silent);
+                    run.Recorder.Swept(silent);
                 }
 
-                engine.Evaluate(tick);
+                run.Engine.Evaluate(tick);
             }
             finally
             {
-                recorder.Complete();
+                run.Recorder.Complete();
             }
 
             return Drain(store, archive, eventId: null);
@@ -200,15 +238,25 @@ public static class ReplaySwitch
             {
                 for (var tick = last + TickInterval; tick < at; tick += TickInterval)
                 {
+                    EnterRunsUpTo(tick);
                     ticks++;
                     written += Tick(tick);
                 }
+
+                EnterRunsUpTo(at);
 
                 if (at > last)
                 {
                     ticks++;
                     written += Tick(at);
                 }
+            }
+
+            EnterRunsUpTo(at);
+
+            if (starts.Count > 0 && nextStart == 0)
+            {
+                beforeFirstRun++;
             }
 
             // Forward only: a stale straggler must not drag the tick cursor backwards into
@@ -222,11 +270,11 @@ public static class ReplaySwitch
                 continue;
             }
 
-            recorder.BeginEvent(inboundEvent);
+            run.Recorder.BeginEvent(inboundEvent);
 
             try
             {
-                var before = registry.Sessions.TryGetValue(inboundEvent.SessionId, out var tracked)
+                var before = run.Registry.Sessions.TryGetValue(inboundEvent.SessionId, out var tracked)
                     ? tracked
                     : null;
 
@@ -234,11 +282,11 @@ public static class ReplaySwitch
 
                 try
                 {
-                    outcome = registry.Apply(inboundEvent);
+                    outcome = run.Registry.Apply(inboundEvent);
                 }
                 catch (Exception ex)
                 {
-                    recorder.ApplyFailed(inboundEvent, ex);
+                    run.Recorder.ApplyFailed(inboundEvent, ex);
                     logger.Warning(
                         "Replaying event {EventId} ({EventType}) threw {ExceptionType}; recorded and continuing.",
                         row.Id,
@@ -247,27 +295,47 @@ public static class ReplaySwitch
                     continue;
                 }
 
-                var after = registry.Sessions.TryGetValue(inboundEvent.SessionId, out var changed)
+                var after = run.Registry.Sessions.TryGetValue(inboundEvent.SessionId, out var changed)
                     ? changed
                     : null;
 
-                recorder.RecordOutcome(inboundEvent, before, outcome, after);
+                run.Recorder.RecordOutcome(inboundEvent, before, outcome, after);
             }
             finally
             {
-                recorder.Complete();
+                run.Recorder.Complete();
                 written += Drain(store, archive, row.Id);
             }
         }
 
         report($"Replayed {history.Count} events and {ticks} synthesised ticks; wrote {written} decisions rows; skipped {skipped} rows that would not parse.");
-        report("Replay cannot know what was never archived: restarts, mutes, roster edits and the audio device are absent, " +
-            "every sound row is a would-have, acks archived before T1.37 do not appear, and an archived ack replays as Manual.");
-        report("Replay runs the whole history as one uninterrupted process; the live dashboard forgot every session at each " +
-            "restart. Nudge and sweep rows are what a dashboard that never restarted would have done, and a session that " +
-            "went quiet before a restart can be nudged here for as long as the history runs.");
+        report("Replay cannot know what was never archived: mutes, roster edits and the audio device are absent, " +
+            "restarts before the first runs row are absent, every sound row is a would-have, acks archived before " +
+            "T1.37 do not appear, and an archived ack replays as Manual.");
+
+        if (starts.Count == 0)
+        {
+            report("The database has no runs rows (they are written from T1.60), so replay runs the whole history as one " +
+                "uninterrupted process; the live dashboard forgot every session at each restart. Nudge and sweep rows are " +
+                "what a dashboard that never restarted would have done, and a session that went quiet before a restart " +
+                "can be nudged here for as long as the history runs.");
+        }
+        else
+        {
+            report($"Replay saw {starts.Count} runs and forgot every session at each start, as the live dashboard does. " +
+                (beforeFirstRun > 0
+                    ? $"{beforeFirstRun} events came before the first run and replayed as one uninterrupted run, as before " +
+                        "T1.60: their nudge and sweep rows are what a dashboard that never restarted would have done."
+                    : "No history came before the first run."));
+        }
+
+        if (unparsedRuns > 0)
+        {
+            report($"Ignored {unparsedRuns} runs rows whose start time would not parse.");
+        }
 
         return 0;
+
     }
 
     /// <summary>Moves the record the recorder just built into the database, against the known id.</summary>
@@ -331,6 +399,36 @@ public static class ReplaySwitch
         {
             return null;
         }
+    }
+
+    /// <summary>
+    /// What a live start creates empty (T1.60): the Registry, the sound engine and the recorder that
+    /// watches them, wired as AppHost wires them. One per run.
+    /// </summary>
+    private sealed class ReplayRun
+    {
+        public ReplayRun(EventArchive archive, ReplayClock clock, ILogger logger)
+        {
+            var guard = new SingleWriterGuard();
+            var rosters = new RosterStore(new DiscardingSink());
+
+            Registry = new SessionRegistry(guard);
+            Recorder = new DecisionRecorder(Registry, rosters, archive, logger);
+            Engine = new SoundPolicyEngine(new SilentPlayer(), clock, guard, new SoundPolicyOptions(), Recorder);
+
+            // The live composition's own subscription, mirrored: the engine hears every change on
+            // the thread that applied it (AppHost wires this identically). Replay has no roster book
+            // (rosters were never archived), so the effective group is the workspace one.
+            var engine = Engine;
+            Registry.SessionChanged += (_, e) =>
+                engine.OnSessionChanged(e.Session, GroupKeys.Effective(e.Session, rosters.Book));
+        }
+
+        public SessionRegistry Registry { get; }
+
+        public DecisionRecorder Recorder { get; }
+
+        public SoundPolicyEngine Engine { get; }
     }
 
     private sealed class ReplayClock : IClock

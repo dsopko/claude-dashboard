@@ -51,6 +51,20 @@ public sealed class EventArchiveWriterTests : IDisposable
 
             return false;
         }
+
+        public long? StartRun(RunStart run, DateTimeOffset startedAt)
+        {
+            Attempts++;
+
+            return null;
+        }
+
+        public bool StopRun(long runId, DateTimeOffset stoppedAt)
+        {
+            Attempts++;
+
+            return false;
+        }
     }
 
     /// <summary>What the channel is given reaches the file.</summary>

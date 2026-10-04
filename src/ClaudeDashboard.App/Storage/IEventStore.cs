@@ -43,4 +43,18 @@ public interface IEventStore
     /// </remarks>
     /// <returns><see langword="true"/> if the record was written.</returns>
     bool Append(ArchiveRecord record);
+
+    /// <summary>
+    /// Writes this process's row in <c>runs</c>, with no stop time (T1.60). Never throws.
+    /// </summary>
+    /// <remarks>
+    /// Lost like any other record when the disk refuses, and counted, but not retried: a start that
+    /// is written a minute late would say the wrong time.
+    /// </remarks>
+    /// <returns>The row's id, for <see cref="StopRun"/>; null if it was not written.</returns>
+    long? StartRun(RunStart run, DateTimeOffset startedAt);
+
+    /// <summary>Sets the stop time on a row <see cref="StartRun"/> wrote (T1.60). Never throws.</summary>
+    /// <returns><see langword="true"/> if the time was written.</returns>
+    bool StopRun(long runId, DateTimeOffset stoppedAt);
 }

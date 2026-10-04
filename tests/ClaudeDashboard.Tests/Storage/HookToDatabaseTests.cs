@@ -167,8 +167,9 @@ public sealed class HookToDatabaseTests : IAsyncLifetime, IDisposable
     /// <summary>Events with no session id are not archived, because they are not events.</summary>
     /// <remarks>
     /// Ingress rejects them before mapping, so nothing reaches the archive. Asserted through the
-    /// foreign reader's refusal: no database was ever created, which is a stronger statement than
-    /// an empty table.
+    /// foreign reader: the events table is empty. Until T1.60 no database was created at all; since
+    /// then every start writes its runs row, and that row is the control that this is the file the
+    /// run wrote (issue #78).
     /// </remarks>
     [Fact]
     public async Task A_hook_ingress_rejects_never_reaches_the_file()
@@ -179,9 +180,8 @@ public sealed class HookToDatabaseTests : IAsyncLifetime, IDisposable
         await _app.StopAsync();
         (_store as IDisposable)?.Dispose();
 
-        // The store opens lazily, so a run that archived nothing leaves no file at all.
-        Assert.Throws<ForeignReadFailed>(
-            () => ForeignSqliteReader.Column(_paths.DatabaseFile, "SELECT payload_json FROM events"));
+        Assert.Empty(ForeignSqliteReader.Column(_paths.DatabaseFile, "SELECT payload_json FROM events"));
+        Assert.Single(ForeignSqliteReader.Column(_paths.DatabaseFile, "SELECT id FROM runs"));
     }
 
     private string ReadLogs()

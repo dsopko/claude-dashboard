@@ -47,9 +47,9 @@ namespace ClaudeDashboard.App.Storage;
 /// 95 active days:
 /// </para>
 /// <list type="bullet">
-///   <item><description><strong>a typical day: about 288 KiB</strong> — see <see cref="TypicalBytesPerDay"/>.</description></item>
+///   <item><description><strong>a typical day: about 280 KiB</strong> — see <see cref="TypicalBytesPerDay"/>.</description></item>
 ///   <item><description><strong>the busiest day in 95: about 2.6 MiB</strong>, roughly nine times a typical one.</description></item>
-///   <item><description><strong>a year of typical days: about 103 MiB</strong>, unpruned.</description></item>
+///   <item><description><strong>a year of typical days: about 100 MiB</strong>, unpruned.</description></item>
 /// </list>
 /// <para>
 /// Those are upper bounds by construction — the per-day counts come from transcript entries, which
@@ -92,7 +92,9 @@ public sealed class SqliteEventStore : IEventStore, IDisposable
     /// <remarks>
     /// <para>
     /// <strong>Measured at T1.17 through this store, at real payload sizes.</strong> A typical day
-    /// wrote 294,912 bytes; this is that, rounded up. It exists because the file is unpruned until
+    /// wrote 294,912 bytes; this is that, rounded up. Since T1.60 the figure is the growth, less the
+    /// pages an empty file already holds: 286,720 bytes, because a new table costs a page that a day
+    /// does not add. It exists because the file is unpruned until
     /// Phase 5 and holds the operator's prompts and Claude's answers: "retention is Phase 5" is
     /// only reassuring if somebody has said what Phase 5 will be cleaning up.
     /// </para>
@@ -131,6 +133,29 @@ public sealed class SqliteEventStore : IEventStore, IDisposable
             reason      TEXT,
             detail      TEXT
         );
+
+        -- One row per start of the dashboard (T1.60, issue #78). stopped_at stays NULL until a
+        -- clean stop, so a kill or a crash shows as a start with no stop. Times are UTC and end
+        -- in Z from the first row. port is NULL when ingress could not bind. No operator text:
+        -- data_root is the one path, and it is the dashboard's own folder.
+        CREATE TABLE IF NOT EXISTS runs (
+            id          INTEGER PRIMARY KEY,
+            started_at  TEXT    NOT NULL,
+            stopped_at  TEXT,
+            version     TEXT    NOT NULL,
+            port        INTEGER,
+            data_root   TEXT    NOT NULL
+        );
+        """;
+
+    private const string InsertRun = """
+        INSERT INTO runs (started_at, version, port, data_root)
+        VALUES ($started_at, $version, $port, $data_root);
+        SELECT last_insert_rowid();
+        """;
+
+    private const string StopRunStatement = """
+        UPDATE runs SET stopped_at = $stopped_at WHERE id = $id;
         """;
 
     private const string Insert = """
@@ -373,6 +398,90 @@ public sealed class SqliteEventStore : IEventStore, IDisposable
         }
     }
 
+    /// <inheritdoc/>
+    public long? StartRun(RunStart run, DateTimeOffset startedAt)
+    {
+        ArgumentNullException.ThrowIfNull(run);
+
+        lock (_gate)
+        {
+            if (_disposed || Waiting())
+            {
+                return null;
+            }
+
+            try
+            {
+                var connection = Connect();
+
+                using var command = connection.CreateCommand();
+                command.CommandText = InsertRun;
+                command.Parameters.AddWithValue("$started_at", Utc(startedAt));
+                command.Parameters.AddWithValue("$version", run.Version);
+                command.Parameters.AddWithValue("$port", (object?)run.Port ?? DBNull.Value);
+                command.Parameters.AddWithValue("$data_root", run.DataRoot);
+
+                var id = (long)command.ExecuteScalar()!;
+
+                WrittenCount++;
+                Recorded();
+
+                return id;
+            }
+            catch (Exception ex) when (ex is SqliteException or IOException or UnauthorizedAccessException or InvalidOperationException)
+            {
+                FailedCount++;
+
+                Unavailable(ex);
+
+                return null;
+            }
+        }
+    }
+
+    /// <inheritdoc/>
+    public bool StopRun(long runId, DateTimeOffset stoppedAt)
+    {
+        lock (_gate)
+        {
+            if (_disposed || Waiting())
+            {
+                return false;
+            }
+
+            try
+            {
+                var connection = Connect();
+
+                using var command = connection.CreateCommand();
+                command.CommandText = StopRunStatement;
+                command.Parameters.AddWithValue("$stopped_at", Utc(stoppedAt));
+                command.Parameters.AddWithValue("$id", runId);
+                command.ExecuteNonQuery();
+
+                WrittenCount++;
+                Recorded();
+
+                return true;
+            }
+            catch (Exception ex) when (ex is SqliteException or IOException or UnauthorizedAccessException or InvalidOperationException)
+            {
+                FailedCount++;
+
+                Unavailable(ex);
+
+                return false;
+            }
+        }
+    }
+
+    /// <summary>
+    /// A time as the runs table holds it: UTC, round-trip format, ending in <c>Z</c> (T1.60). The
+    /// other two tables keep local text until #80; this one never held that form.
+    /// </summary>
+    internal static string Utc(DateTimeOffset at) =>
+        at.UtcDateTime.ToString("o", CultureInfo.InvariantCulture);
+
     private static void WriteDecisions(
         SqliteConnection connection,
         SqliteTransaction transaction,
@@ -456,6 +565,40 @@ public sealed class SqliteEventStore : IEventStore, IDisposable
         }
 
         return rows;
+    }
+
+    /// <summary>
+    /// Every run's <c>started_at</c>, as text, in id order — where replay forgets its sessions
+    /// (T1.60). Never modifies anything.
+    /// </summary>
+    /// <remarks>
+    /// Text, not parsed here: the caller compares instants, and a row that does not parse is the
+    /// caller's to count. Connecting runs the schema step, so a database older than T1.60 gains an
+    /// empty table and reads none, which replays as one run, as before.
+    /// </remarks>
+    /// <exception cref="ObjectDisposedException">The store is closed.</exception>
+    public IReadOnlyList<string> ReadRunStarts()
+    {
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+
+            var connection = Connect();
+
+            using var command = connection.CreateCommand();
+            command.CommandText = "SELECT started_at FROM runs ORDER BY id;";
+
+            var starts = new List<string>();
+
+            using var reader = command.ExecuteReader();
+
+            while (reader.Read())
+            {
+                starts.Add(reader.GetString(0));
+            }
+
+            return starts;
+        }
     }
 
     /// <summary>How many decisions rows the file already holds — replay's refusal check (T1.37).</summary>
