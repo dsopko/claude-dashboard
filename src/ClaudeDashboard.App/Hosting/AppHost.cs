@@ -308,7 +308,50 @@ public static class AppHost
         builder.Services.AddHostedService(sp => sp.GetRequiredService<EventArchiveWriter>());
 
         builder.Services.AddHostedService(sp => sp.GetRequiredService<EventConsumer>());
-        builder.Services.AddSingleton<EventConsumer>();
+        // By factory (T1.65, issue #76): the consumer also keeps the health board, which counts since the
+        // start and by the hour, writes the hourly summary inside the tick, and publishes the snapshot
+        // /state reads. Each source is read on the consumer thread, from a value its owner publishes.
+        builder.Services.AddSingleton(sp =>
+        {
+            var pipeline = sp.GetRequiredService<EventPipeline>();
+            var archive = sp.GetRequiredService<EventArchive>();
+            var hookHealth = sp.GetRequiredService<HookHealth>();
+            var writer = sp.GetRequiredService<EventArchiveWriter>();
+            var store = sp.GetRequiredService<SqliteEventStore>();
+            var output = sp.GetRequiredService<ISoundOutput>();
+            var modes = sp.GetRequiredService<ISoundModeReader>();
+
+            return new HealthBoard(
+                new HealthSources
+                {
+                    Version = StartupVersion.Value,
+                    Port = ingress.CanReceiveHooks ? ingress.Port : null,
+                    CanReceive = ingress.CanReceiveHooks,
+                    Shed = () => pipeline.ShedCount,
+                    Lost = () => pipeline.DroppedCount,
+                    ArchiveDropped = () => archive.DroppedCount,
+                    Refused = () => hookHealth.RefusedCount,
+                    NotWritten = () => writer.RefusedCount,
+                    DatabaseAvailable = () => store.Available,
+                    SoundOutput = () => output.HasOutput,
+                    Paused = () => modes.IsMonitoringPaused,
+                    MutedUntil = () => modes.AllMutedUntil,
+                },
+                sp.GetRequiredService<Core.Ports.IClock>(),
+                sp.GetRequiredService<ILogger>());
+        });
+        builder.Services.AddSingleton(sp => new EventConsumer(
+            sp.GetRequiredService<EventPipeline>(),
+            sp.GetRequiredService<SessionRegistry>(),
+            sp.GetRequiredService<SoundPolicyEngine>(),
+            sp.GetRequiredService<Core.Ports.IClock>(),
+            sp.GetRequiredService<SingleWriterGuard>(),
+            sp.GetRequiredService<ILogger>(),
+            sp.GetRequiredService<IUiTick>(),
+            sp.GetRequiredService<EventArchive>(),
+            sp.GetRequiredService<RosterStore>(),
+            sp.GetRequiredService<DecisionRecorder>(),
+            health: sp.GetRequiredService<HealthBoard>()));
 
         // The notice row and the tooltip's faults (T1.54, issue #71): the port first (T1.57, issue #14),
         // then the hook route, then the self-test and the refused messages (T1.61, issue #74), then the

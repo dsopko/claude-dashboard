@@ -263,6 +263,15 @@ public sealed class DecisionRecorder : IDecisionSink, IDecisionLog
         _ => null,
     };
 
+    /// <summary>The hourly summary (T1.65): the counts in <paramref name="detail"/>, inside the tick's scope.</summary>
+    public void HourlySummary(string detail, bool partial) =>
+        Add(new Decision(
+            _now,
+            null,
+            DecisionKind.HourlySummary,
+            Reason: partial ? "partial" : null,
+            Detail: detail));
+
     /// <summary>The silence sweep moved a session (T1.30's rows, now durable).</summary>
     public void Swept(SilentSession silent) =>
         Add(new Decision(

@@ -95,6 +95,13 @@ public enum DecisionKind
     /// </summary>
     HookRefused = 42,
 
+    /// <summary>
+    /// The hourly summary (T1.65, issue #76): the counts since the previous summary, at the first tick
+    /// after each full UTC clock hour. <c>event_id</c> and <c>session_id</c> are NULL; <c>reason</c> is
+    /// <c>partial</c> for the first one after a start; <c>detail</c> holds the counts as identifiers.
+    /// </summary>
+    HourlySummary = 43,
+
     // ---- UI -----------------------------------------------------------------------------------
 
     /// <summary>The tray light changed; <c>from_state</c>/<c>to_state</c> carry the colours.</summary>
