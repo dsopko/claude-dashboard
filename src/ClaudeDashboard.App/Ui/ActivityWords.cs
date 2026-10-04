@@ -116,6 +116,22 @@ public static class ActivityWords
     /// <summary>The first characters of a session id, for a row with no name: as the main window's id.</summary>
     public const int ShortIdLength = SessionViewModel.IdPreviewLength;
 
+    /// <summary>
+    /// The kinds that are about a sound, played or not: a record's lines of these kinds go on top of its other
+    /// lines, so the change that caused the sound sits directly under it (the T1.70 review).
+    /// </summary>
+    public static readonly IReadOnlySet<DecisionKind> Sounds = new HashSet<DecisionKind>
+    {
+        DecisionKind.NoticePlayed,
+        DecisionKind.NudgePlayed,
+        DecisionKind.GroupNoticePlayed,
+        DecisionKind.NoticeSuppressed,
+        DecisionKind.SoundDropped,
+    };
+
+    /// <summary>Whether a line of this kind is about a sound, played or not.</summary>
+    public static bool IsSound(DecisionKind kind) => Sounds.Contains(kind);
+
     /// <summary>Whether the window shows this kind.</summary>
     public static bool IsShown(DecisionKind kind) => Shown.Contains(kind);
 

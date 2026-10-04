@@ -98,9 +98,8 @@ public sealed class ActivityPipelineTests : IAsyncLifetime
             return _activity.Lines.Any(line => line.Line.Played);
         }));
 
-        // In the record's own order, newest first: the engine plays the notice while the event is applied, and
-        // the recorder adds the state change after it, as the archive stores them.
-        Assert.Equal(["needs permission", "permission", "new session"], _activity.Lines.Select(line => line.What));
+        // The sound on top of its record, the change that caused it directly under it (the T1.70 review).
+        Assert.Equal(["permission", "needs permission", "new session"], _activity.Lines.Select(line => line.What));
         Assert.All(_activity.Lines, line => Assert.Equal((Title, "payments-api", Cwd), (line.Name, line.Project, line.ProjectPath)));
 
         var lines = _log.Events.Select(e => e.RenderMessage(CultureInfo.InvariantCulture)).ToList();

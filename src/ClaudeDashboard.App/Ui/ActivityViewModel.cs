@@ -20,8 +20,11 @@ public enum ActivityLayout
     NoProject = 4,
 }
 
-/// <summary>One line on screen (T1.70): the words, with the time as it read when the line arrived.</summary>
-public sealed class ActivityLineViewModel
+/// <summary>
+/// One line on screen (T1.70): the words, and the time as it reads today. When the local date changes the log
+/// asks it to read the time again (<see cref="Reread"/>), so yesterday's line gains its day name.
+/// </summary>
+public sealed class ActivityLineViewModel : ObservableObject
 {
     /// <summary>Wraps <paramref name="line"/>, with its time read against <paramref name="now"/>.</summary>
     /// <exception cref="ArgumentNullException"><paramref name="line"/> is null.</exception>
@@ -41,7 +44,7 @@ public sealed class ActivityLineViewModel
     public long Id => Line.Id;
 
     /// <summary>"14:32", or "Mon 23:58" for a line not from today.</summary>
-    public string Time { get; }
+    public string Time { get; private set; }
 
     /// <summary>"♪" for a sound that played; empty otherwise.</summary>
     public string Sign => Line.Played ? "♪" : string.Empty;
@@ -68,7 +71,23 @@ public sealed class ActivityLineViewModel
     public bool HasDetail => Line.Detail.Length > 0;
 
     /// <summary>The line as one sentence: the screen reader's name, and the hover, which holds everything.</summary>
-    public string Sentence { get; }
+    public string Sentence { get; private set; }
+
+    /// <summary>Reads the time again against <paramref name="now"/>, and says so if it changed. UI thread only.</summary>
+    public void Reread(DateTimeOffset now)
+    {
+        var time = Line.TimeText(now);
+
+        if (time == Time)
+        {
+            return;
+        }
+
+        Time = time;
+        Sentence = Line.Sentence(now);
+        OnPropertyChanged(nameof(Time));
+        OnPropertyChanged(nameof(Sentence));
+    }
 }
 
 /// <summary>
@@ -140,5 +159,8 @@ public sealed partial class ActivityViewModel : ObservableObject, IUiTickTarget
     {
         _now = now;
         OnPropertyChanged(nameof(LastHeardText));
+
+        // The day name follows the day: the log reads the lines' times again when the date changes.
+        Log.Tick(now);
     }
 }

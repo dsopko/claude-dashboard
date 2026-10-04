@@ -83,7 +83,8 @@ public sealed class ActivityWindowTests(StaHarness harness)
     /// <summary>
     /// <strong>One window, made at start:</strong> lines are added while it is hidden and show when it opens,
     /// with nothing built again (its list is the log's own list). A second open brings the same window to the
-    /// front, closing only hides it, and at quit it closes.
+    /// front, closing only hides it, and at quit it closes. The list is collapsed while the window is hidden, so
+    /// a new line costs no layout then (the T1.70 review), and visible while it is shown.
     /// </summary>
     [Fact]
     public void The_window_is_made_at_start_and_only_hidden()
@@ -106,7 +107,10 @@ public sealed class ActivityWindowTests(StaHarness harness)
                 place: OffScreen);
 
             var window = host.Create();
+            // By name, not by the visual tree: a window not yet shown has none.
+            var list = (ListBox)window.FindName("ActivityList");
             Assert.False(window.IsVisible);
+            Assert.Equal(Visibility.Collapsed, list.Visibility);
 
             // Lines while it is hidden.
             log.Decided([Nudge("Reviewer")]);
@@ -119,6 +123,7 @@ public sealed class ActivityWindowTests(StaHarness harness)
             _harness.Pump(DispatcherPriority.Background);
 
             Assert.Same(window, shown);
+            Assert.Equal(Visibility.Visible, list.Visibility);
             Assert.Same(window, host.Show());
             Assert.Equal(1, made);
             Assert.Same(log.Lines, StaHarness.Find<ListBox>(window, list => list.Name == "ActivityList")!.ItemsSource);
@@ -128,6 +133,7 @@ public sealed class ActivityWindowTests(StaHarness harness)
             _harness.Pump(DispatcherPriority.Background);
 
             Assert.False(window.IsVisible);
+            Assert.Equal(Visibility.Collapsed, list.Visibility);
             Assert.Same(window, host.Window);
             Assert.True(window.IsLoaded, "Closing must hide the window, not close it.");
 
