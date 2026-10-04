@@ -45,6 +45,9 @@ public sealed class HookSelfTest
 
     private Task<SelfTestResult>? _running;
 
+    /// <summary>The hook round trip's timing (T1.66). Set once at composition; none when null.</summary>
+    public Pipeline.Timing? RoundTrip { get; set; }
+
     /// <summary>Creates the self-test over the dashboard's data folder.</summary>
     /// <exception cref="ArgumentNullException">Any argument is null.</exception>
     public HookSelfTest(DashboardPaths paths, HookHealth health, IClock clock, ILogger logger)
@@ -185,6 +188,9 @@ public sealed class HookSelfTest
 
         if (result.Passed)
         {
+            // A test that arrived is a round trip; one that did not is the notice's business, not a time.
+            RoundTrip?.Record(TimeSpan.FromMilliseconds(roundTripMs ?? 0));
+
             // The real cost of one message on this machine, measured at each start.
             _logger.Information("The test message from the hook script arrived in {RoundTripMs} ms.", roundTripMs);
         }

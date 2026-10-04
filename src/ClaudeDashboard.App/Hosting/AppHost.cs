@@ -65,13 +65,18 @@ public static class AppHost
     /// the file again, so this start is the start the first load describes. Null reads the file here,
     /// as every test that is not about the settings does.
     /// </param>
+    /// <param name="startup">
+    /// The start-up phases <see cref="Program"/> marks (T1.66), shown in <c>/state</c> once the start
+    /// has logged them. Null gives an empty set, as every test that is not about the start does.
+    /// </param>
     public static WebApplication Build(
         DashboardPaths? paths = null,
         Action? onShow = null,
         bool ingressAvailable = true,
         IngressStatus? ingress = null,
         ClaudeCodePaths? claude = null,
-        SettingsAtStart? settingsAtStart = null)
+        SettingsAtStart? settingsAtStart = null,
+        StartupPhases? startup = null)
     {
         var resolved = paths ?? new DashboardPaths();
         var foldersReady = resolved.TryEnsureCreated(out var folderFailure);
@@ -311,6 +316,10 @@ public static class AppHost
         // By factory (T1.65, issue #76): the consumer also keeps the health board, which counts since the
         // start and by the hour, writes the hourly summary inside the tick, and publishes the snapshot
         // /state reads. Each source is read on the consumer thread, from a value its owner publishes.
+        // The timings that would show a stall (T1.66, issue #86), kept in memory and never in the
+        // database, and the start-up phases Program marks.
+        builder.Services.AddSingleton<Timings>();
+        builder.Services.AddSingleton(startup ?? new StartupPhases());
         builder.Services.AddSingleton(sp => new HealthBoard(
             HealthSourcesFor(
                 ingress,
@@ -322,7 +331,9 @@ public static class AppHost
                 sp.GetRequiredService<ISoundOutput>(),
                 sp.GetRequiredService<ISoundModeReader>()),
             sp.GetRequiredService<Core.Ports.IClock>(),
-            sp.GetRequiredService<ILogger>()));
+            sp.GetRequiredService<ILogger>(),
+            sp.GetRequiredService<Timings>(),
+            sp.GetRequiredService<StartupPhases>()));
         builder.Services.AddSingleton(sp => new EventConsumer(
             sp.GetRequiredService<EventPipeline>(),
             sp.GetRequiredService<SessionRegistry>(),
@@ -440,6 +451,17 @@ public static class AppHost
                 null,
                 Storage.DecisionKind.HookRefused,
                 Detail: string.Create(CultureInfo.InvariantCulture, $"refused={count}")));
+
+        // The three timings measured off the consumer (T1.66): each is handed over with Interlocked, so
+        // the consumer never waits on the window, the self-test or a lock.
+        var timings = app.Services.GetRequiredService<Timings>();
+        app.Services.GetRequiredService<EventArchive>().Backlog = timings.ArchiveBacklog;
+        app.Services.GetRequiredService<HookSelfTest>().RoundTrip = timings.HookRoundTrip;
+
+        if (app.Services.GetRequiredService<IUiDispatcher>() is WpfDispatcher dispatcher)
+        {
+            dispatcher.Hop = timings.UiHop;
+        }
 
         app.Services.GetRequiredService<EventArchive>().Dropped = record =>
             decisions.External(new Storage.Decision(

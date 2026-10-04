@@ -150,6 +150,9 @@ public static class Program
                 // The whole load result is kept, not just the settings: the hook install below has
                 // to know whether InstallHooksAtStart was read or defaulted from a file that would
                 // not read, because a recorded --remove-hooks lives in exactly that file.
+                // The start-up phases (T1.66): a stopwatch around each, logged once before the window runs.
+                var phases = new StartupPhases();
+
                 var settingsFile = new SettingsStore(paths);
                 var loaded = settingsFile.Load();
                 var settings = loaded.Settings;
@@ -186,15 +189,19 @@ public static class Program
                 // load and reads nothing again. The first load stays the authority for the whole start:
                 // the hook install below reads it, not the fresh file, so this start registers no plugin.
                 var start = settingsFile.PrepareForStart(loaded, DateTime.Now);
+                phases.Mark("settings");
 
                 // §3.1's three attempts. Binding is the only question asked of any of them.
                 var choice = ChoosePort(settings, recorded, gate.Name, out var isSid);
+                phases.Mark("port");
 
                 host = AppHost.Build(
                     paths,
                     onShow: () => surfacer!.Request(),
                     ingress: IngressFor(choice, paths.SettingsFile),
-                    settingsAtStart: start);
+                    settingsAtStart: start,
+                    startup: phases);
+                phases.Mark("build");
 
                 // Between Build and Start, and that ordering is load-bearing rather than
                 // stylistic: Build composes and Start binds the socket, so no /show can arrive
@@ -209,6 +216,7 @@ public static class Program
                 surfacer = new WindowSurfacer(host.Services.GetRequiredService<Serilog.ILogger>());
 
                 host.Start();
+                phases.Mark("start");
 
                 if (gate.TookOverFromACrash)
                 {
@@ -228,11 +236,13 @@ public static class Program
                 // an old script would meet a dashboard that requires a token it never sends, for
                 // as long as the rewrite took, and every hook in that window would be refused.
                 HookScript.EnsureWrittenAtStart(paths, host.Services.GetRequiredService<Serilog.ILogger>());
+                phases.Mark("script");
 
                 // AFTER Start, never before — between announcing and binding there would be a
                 // window in which the script posts to a port nothing answers.
                 announcement = host.Services.GetRequiredService<IngressAnnouncement>();
                 announcement.Announce();
+                phases.Mark("announce");
 
                 // The self-test (T1.61, issue #74): AFTER the announcement, because the script reads
                 // listening.txt to find the port and the token. On a pool thread: the start never waits.
@@ -249,12 +259,14 @@ public static class Program
                     host.Services.GetRequiredService<Serilog.ILogger>(),
                     host.Services.GetRequiredService<PluginInstaller>(),
                     host.Services.GetRequiredService<HookNotice>());
+                phases.Mark("plugin");
 
                 // Start with Windows (issue #36): make the Run value match "startWithWindows". An
                 // installed copy only; Windows' own off switch is left alone; a refusal is one
                 // Warning and the start goes on. A start whose settings were unreadable leaves it as it
                 // found it, as it registers no plugin: the choice was in the file it could not read.
                 host.Services.GetRequiredService<StartWithWindows>().ReconcileAtStart(start);
+                phases.Mark("startWithWindows");
 
                 var policy = host.Services.GetRequiredService<UnhandledExceptionPolicy>();
 
@@ -304,6 +316,9 @@ public static class Program
 
                 var settingsWindows = host.Services.GetRequiredService<SettingsWindowHost>();
                 tray.ViewModel.SettingsRequested += (_, _) => settingsWindows.Show();
+
+                phases.Mark("window");
+                phases.Log(host.Services.GetRequiredService<Serilog.ILogger>());
 
                 var exitCode = app.Run(window);
 

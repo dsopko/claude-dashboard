@@ -158,6 +158,11 @@ public sealed class PathCheckHostTests : IAsyncLifetime, IDisposable
         Assert.True(result.Passed, $"The test message did not arrive: {result.Cause}.");
         Assert.NotNull(result.RoundTripMs);
 
+        // The round trip is also a timing (T1.66), through AppHost's own wiring.
+        var roundTrip = _app.Services.GetRequiredService<ClaudeDashboard.App.Pipeline.Timings>().HookRoundTrip.SinceStart;
+        Assert.Equal(1, roundTrip.Count);
+        Assert.Equal(result.RoundTripMs!.Value, roundTrip.WorstShown, precision: 0);
+
         var notice = new SelfTestNotice(Health);
         notice.Tick(DateTimeOffset.Now);
         Assert.False(notice.IsShown);

@@ -295,8 +295,8 @@ public sealed record SelfTestResult(bool Passed, long? RoundTripMs, DateTimeOffs
 /// <remarks>
 /// <c>lastHeardAt</c> and <c>selfTest</c> are read from <see cref="HookHealth"/> at the request. The
 /// other members are the consumer's last published snapshot (<see cref="Pipeline.HealthBoard"/>), up
-/// to one tick old, and null before the first tick. T1.66 adds its timings as one more member; none
-/// of these moves. Identifiers and numbers only.
+/// to one tick old, and null before the first tick. T1.66 added its timings as one more member, and
+/// none of these moved. Identifiers and numbers only.
 /// </remarks>
 /// <param name="LastHeardAt">When the last real message was accepted, in UTC, or null since start.</param>
 /// <param name="SelfTest">The last self-test, or null before the first has finished.</param>
@@ -326,6 +326,9 @@ public sealed record HealthEntry(DateTime? LastHeardAt, SelfTestEntry? SelfTest)
     /// <summary>The counts since the start, for the present hour, and for the last summary.</summary>
     public CountsEntry? Counts { get; init; }
 
+    /// <summary>The timings that would show a stall, since the start, and the start-up phases (T1.66).</summary>
+    public TimingsEntry? Timings { get; init; }
+
     /// <summary>This entry with the consumer's snapshot, or as it is when there is none yet.</summary>
     public HealthEntry With(Pipeline.HealthSnapshot? snapshot) => snapshot is null
         ? this
@@ -349,7 +352,53 @@ public sealed record HealthEntry(DateTime? LastHeardAt, SelfTestEntry? SelfTest)
                 snapshot is { LastHour: { } hour, LastHourFrom: { } from, LastHourTo: { } to }
                     ? new LastHourEntry(from.UtcDateTime, to.UtcDateTime, snapshot.LastHourPartial, hour)
                     : null),
+            Timings = snapshot.Timings is { } timings ? TimingsEntry.From(timings) : null,
         };
+}
+
+/// <summary>The timings in <c>health</c> (T1.66, issue #86): each since the start.</summary>
+/// <param name="QueueWait">Arrival to apply.</param>
+/// <param name="TickLateness">When the tick was due to when it ran.</param>
+/// <param name="ApplyTime">One <c>SessionRegistry.Apply</c>.</param>
+/// <param name="ArchiveBacklog">The archive channel's count at each hand-off.</param>
+/// <param name="UiHop">A post to the window's dispatcher until the posted work runs.</param>
+/// <param name="HookRoundTrip">The self-test's round trip.</param>
+/// <param name="Startup">The start-up phases, or null before the start has logged them.</param>
+public sealed record TimingsEntry(
+    TimingEntry QueueWait,
+    TimingEntry TickLateness,
+    TimingEntry ApplyTime,
+    TimingEntry ArchiveBacklog,
+    TimingEntry UiHop,
+    TimingEntry HookRoundTrip,
+    IReadOnlyList<Hosting.StartupPhase>? Startup)
+{
+    /// <summary>The entry for a snapshot's timings, in #86's order.</summary>
+    public static TimingsEntry From(Pipeline.TimingsSnapshot timings)
+    {
+        ArgumentNullException.ThrowIfNull(timings);
+
+        var figures = timings.Figures.Select(TimingEntry.From).ToList();
+
+        return new TimingsEntry(figures[0], figures[1], figures[2], figures[3], figures[4], figures[5], timings.Startup);
+    }
+}
+
+/// <summary>One timing in <c>health</c>: count, average, worst and limit, in its unit.</summary>
+/// <param name="Count">How many values.</param>
+/// <param name="Average">Their average, in milliseconds or records.</param>
+/// <param name="Worst">The largest.</param>
+/// <param name="Limit">The value above which it warns.</param>
+/// <param name="Unit"><c>Milliseconds</c> or <c>Records</c>.</param>
+public sealed record TimingEntry(long Count, double Average, double Worst, double Limit, Pipeline.TimingUnit Unit)
+{
+    /// <summary>The entry for one figure.</summary>
+    public static TimingEntry From(Pipeline.TimingFigure figure)
+    {
+        ArgumentNullException.ThrowIfNull(figure);
+
+        return new TimingEntry(figure.Count, figure.Average, figure.WorstShown, figure.LimitShown, figure.Unit);
+    }
 }
 
 /// <summary>Ingress in <c>health</c>.</summary>

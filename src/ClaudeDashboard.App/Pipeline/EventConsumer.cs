@@ -250,6 +250,9 @@ public sealed class EventConsumer : BackgroundService
                 }
                 else
                 {
+                    // Tick lateness (T1.66): when the tick was due to when it ran.
+                    _health?.Timings?.TickLateness.Record(woke - nextTick);
+
                     Tick();
                     nextTick = woke + _tickInterval;
                 }
@@ -266,11 +269,19 @@ public sealed class EventConsumer : BackgroundService
 
         // The same counts in the same form as the hourly summary, since the start (T1.65). No summary
         // row here: the consumer has drained, so a decision written now has no scope to leave in.
-        _logger.Information(
-            "Event consumer stopped. Since the start: {Counts:l}",
-            (_health?.Gather(Counts) ?? new HealthCounts(
-                AppliedCount, DeclinedCount, UncorrelatedCount, 0, 0, 0, 0, 0, TickCount, SilencedCount, SettledCount))
-                .ToDetail());
+        // And the run's worst cases (T1.66): the runs row gets no column for them (director's ruling).
+        var counts = (_health?.Gather(Counts) ?? new HealthCounts(
+            AppliedCount, DeclinedCount, UncorrelatedCount, 0, 0, 0, 0, 0, TickCount, SilencedCount, SettledCount))
+            .ToDetail();
+
+        if (_health?.Worst() is { } worst)
+        {
+            _logger.Information("Event consumer stopped. Since the start: {Counts:l}. Worst: {Worst:l}", counts, worst);
+        }
+        else
+        {
+            _logger.Information("Event consumer stopped. Since the start: {Counts:l}", counts);
+        }
     }
 
     /// <summary>Awaits a branch, turning cancellation into "stop" rather than an exception.</summary>
@@ -334,6 +345,11 @@ public sealed class EventConsumer : BackgroundService
                 // One non-blocking TryWrite per event, or two when decisions born on other
                 // threads are pending — Complete sends those as their own record first, so they
                 // never borrow this event's id. Either way the consumer never waits on a disk.
+                // Queue wait (T1.66): the event's Timestamp is its arrival, stamped by the clock on the
+                // request thread (HookEventMapper) or by the window that published it; this clock now
+                // is the apply. A wait over a second is a stall, said once.
+                _health?.Timings?.QueueWait.Record(_clock.Now - inboundEvent.Timestamp);
+
                 _recorder.BeginEvent(inboundEvent);
 
                 try
@@ -368,6 +384,9 @@ public sealed class EventConsumer : BackgroundService
 
                     ApplyOutcome outcome;
 
+                    // Apply time (T1.66): a stopwatch around the one call that a slow rule would slow.
+                    var applying = System.Diagnostics.Stopwatch.GetTimestamp();
+
                     try
                     {
                         outcome = _registry.Apply(inboundEvent);
@@ -377,6 +396,8 @@ public sealed class EventConsumer : BackgroundService
                         _recorder.ApplyFailed(inboundEvent, ex);
                         throw;
                     }
+
+                    _health?.Timings?.ApplyTime.Record(System.Diagnostics.Stopwatch.GetElapsedTime(applying));
 
                     var after = _registry.Sessions.TryGetValue(inboundEvent.SessionId, out var changed)
                         ? changed
