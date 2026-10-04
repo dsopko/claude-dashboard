@@ -807,6 +807,36 @@ The work in GitHub milestone 3, "Observability 1": issues #3, #14, #67, #71, #72
 - **Guardrails:** no edit to `post-status.cmd`. `/hook` answers `200` empty with no decision field, for the test event too. No payload, title, prompt or token in a log line, a notice or `/state`. Tests run a scratch copy of the script against a test host and a scratch data folder; they never run the operator's installed script, read the operator's `listening.txt`, or post to a real dashboard. No poller: "last heard" is read on the tick that already runs.
 - **Addition (2026-10-03, at the coder's question):** the operator's comment on #74 (2026-10-03 21:18 UTC), which this block missed, is part of the task. Each refused post writes one decision row, kind `HookRefused` (the next free number), through `DecisionRecorder.External` from the Kestrel thread, as `EventDropped` does: `event_id` NULL, `session_id` NULL, reason and detail empty. A refused post is not trusted, so nothing from its body or headers reaches the row. The tooltip threshold is a named constant with its reason beside it. Impl §8.3 lists the kind.
 - **Ruling (2026-10-04, operator, review cycle 1):** at most **one `HookRefused` row a second**, with the count of refusals since the last row in `detail`; the tick writes what a stopped flood leaves. The review measured one row for each refused post at about 100 MB a minute during a flood, with no real record lost. The memory that held every refusal of the last 10 minutes keeps at most three, and a test holds the one-time value of the self-test.
+- **Done 2026-10-04:** PR #90, merged as `07bdbf0`, `6f54bde`, `fe36a70`, `39ce083` (one fix cycle). The review found that a flood of refused posts made memory grow without limit (the window kept every refusal), and that no test held the self-test's one-time value. Both were fixed with the operator's row ruling. Measured by the reviewer with a 5-second flood of about 33,000 wrong-token posts a second: 3 refusal times held (154,746 before), 5 rows (9 MB before), and 46 of 46 real prompts recorded. The self-test arrived in 147 ms in a live start. Carried to T1.62: two nits.
+
+**T1.62 — Times in the history database are stored in UTC**
+- **Goal:** every time in `dashboard.db` is UTC text, so a time range that crosses a clock change compares correctly as text. Existing rows are converted once, and the file records a schema version. For issue #80.
+- **Depends:** T1.60 (the `runs` table, already in UTC), T1.59 (the store's lock), T1.54 (the store's retry)
+- **Realizes:** the ruling in #80: **keep the times in UTC.** Display stays local. It is the first upgrade step the database has had; until now the schema step only creates what is absent.
+- **Deliverables:**
+  - **One form, everywhere:** `UtcDateTime.ToString("o", CultureInfo.InvariantCulture)`, which gives seven fractional digits and `Z`, for example `2026-10-02T12:03:11.1230000Z`. Not `ToUniversalTime().ToString("o")` on a `DateTimeOffset`, which gives `+00:00` (T1.60's correction). Text order equals time order only if every row has the same form, so new rows, converted rows and `runs` rows must all match. One helper writes it, and every writer of `ts`, `started_at` and `stopped_at` uses it.
+  - **The conversion, once.** In the schema step, on the archive writer's thread, when `PRAGMA user_version` is 0: read each `ts` in `events` and `decisions`, parse it, write it back in the one form, and set `user_version` to 1, all in one transaction. The start never waits for it, because the store opens on the writer's thread. Records that arrive meanwhile wait in the archive channel.
+  - **A time that will not parse** is left as it is and counted. The conversion does not fail because of one bad row.
+  - **If the conversion fails** (disk full, file locked), the transaction rolls back, `user_version` stays 0, and the store follows T1.54's rule: the history notice, and another attempt a minute later.
+  - **Say what was done:** one Information line, with the number of rows converted, the number left as they were, and the time it took. No `ts` value and no payload in it.
+  - **Readers:** replay already parses each `ts` as a `DateTimeOffset`; confirm that it reads both forms, and find every other reader of `ts`. Display and log lines stay in local time.
+  - **The documented queries:** the `$from` and `$to` of the query in Impl Part 4 are now UTC text. Say so, and show how to read a time as local in SQLite (`datetime(ts, 'localtime')`). The same applies to the query in event flow §12.
+  - **Carried from T1.61's review:**
+    - (a) Impl §3.2 and the `RefusedRowEvery` remarks say that no refusal goes unrecorded. The refusals since the last row are lost at a stop, so the text must say "while the dashboard runs", or a flush at the stop must make it true. Choose one and say which.
+    - (b) The real-board order test also shows the history notice, so it holds the order of the two notices against history as well as against settings.
+  - **Documents, in the same change:** Impl §8.3 and Part 4 (the note on `ts`, and the query); event flow §9 and §12; TS where the database's times are described (find it). One row each in Impl Appendix C and, if TS changes, TS Appendix D.
+- **Acceptance:**
+  - Two rows written one second apart across a simulated offset change (`+02:00` then `+01:00`) come back in the order they were written, by `ORDER BY ts`.
+  - A database with old-form rows in both tables, opened by the store, has `user_version` 1 afterwards. Every `ts` is in the one form and names the same instant as before. The row count and the row ids are unchanged.
+  - A second open does not convert again (the Information line is not repeated).
+  - A row with a time that will not parse is left as it is, and counted.
+  - A conversion that fails rolls back: the old rows are unchanged, `user_version` is 0, and the history notice shows.
+  - New `events`, `decisions` and `runs` rows all have the one form (a test over all three).
+  - Replay over a converted file gives the same decisions as over the same history in the old form.
+  - **On a copy of the operator's database** (copy `dashboard.db` and its `-wal` to a scratch folder; never open the original): run the conversion. Report the rows converted, the rows left as they were, the time it took and the size before and after. They are counts, not operator text.
+  - Plants: (a) the conversion skips `decisions`, and the both-tables test fails; (b) the new-row writer uses `ToUniversalTime().ToString("o")`, and the one-form test fails.
+  - Both suite counts; build clean, 0 warnings.
+- **Guardrails:** tests use scratch folders, and only a copy of the operator's database. The conversion never changes a payload, a row id or a row count. No `VACUUM` (the operator's #81 ruling). No `ts` value or payload in a log line. Replay opens its file through the store, so replay over a file that was never converted converts it first: the instants and the rows are unchanged, and only the form of the time changes. Say so where the documents state that replay never modifies `events` (T1.37).
 
 ---
 
