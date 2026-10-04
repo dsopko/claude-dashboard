@@ -137,7 +137,7 @@ public static class ReplaySwitch
             {
                 report($"REFUSED: {databasePath} already holds {existing} decisions rows. Replay appends, " +
                     "so running it again would double them, and a copy the live dashboard recorded " +
-                    "into would hold both sets. Replay a copy with an empty decisions table. Nothing was written.");
+                    "into would hold both sets. Replay a copy with an empty decisions table. No decisions were written.");
                 return 1;
             }
 
@@ -146,7 +146,7 @@ public static class ReplaySwitch
         }
         catch (Exception ex) when (ex is Microsoft.Data.Sqlite.SqliteException or IOException or InvalidOperationException)
         {
-            report($"FAILED: could not read events from {databasePath}: {ex.GetType().Name}. Nothing was written.");
+            report($"FAILED: could not read events from {databasePath}: {ex.GetType().Name}. No decisions were written.");
             return 1;
         }
 

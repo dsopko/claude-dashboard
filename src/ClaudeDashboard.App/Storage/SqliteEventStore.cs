@@ -47,9 +47,9 @@ namespace ClaudeDashboard.App.Storage;
 /// 95 active days:
 /// </para>
 /// <list type="bullet">
-///   <item><description><strong>a typical day: about 280 KiB</strong> — see <see cref="TypicalBytesPerDay"/>.</description></item>
+///   <item><description><strong>a typical day: about 292 KiB</strong> — see <see cref="TypicalBytesPerDay"/>.</description></item>
 ///   <item><description><strong>the busiest day in 95: about 2.6 MiB</strong>, roughly nine times a typical one.</description></item>
-///   <item><description><strong>a year of typical days: about 100 MiB</strong>, unpruned.</description></item>
+///   <item><description><strong>a year of typical days: about 104 MiB</strong>, unpruned.</description></item>
 /// </list>
 /// <para>
 /// Those are upper bounds by construction — the per-day counts come from transcript entries, which
@@ -94,7 +94,8 @@ public sealed class SqliteEventStore : IEventStore, IDisposable
     /// <strong>Measured at T1.17 through this store, at real payload sizes.</strong> A typical day
     /// wrote 294,912 bytes; this is that, rounded up. Since T1.60 the figure is the growth, less the
     /// pages an empty file already holds: 286,720 bytes, because a new table costs a page that a day
-    /// does not add. It exists because the file is unpruned until
+    /// does not add. Since T1.63 it includes the six indexes: 299,008 bytes, under the constant by
+    /// less than 1 %, so the next change that adds to each row may need the constant raised. It exists because the file is unpruned until
     /// Phase 5 and holds the operator's prompts and Claude's answers: "retention is Phase 5" is
     /// only reassuring if somebody has said what Phase 5 will be cleaning up.
     /// </para>
@@ -146,6 +147,25 @@ public sealed class SqliteEventStore : IEventStore, IDisposable
             port        INTEGER,
             data_root   TEXT    NOT NULL
         );
+        """;
+
+    /// <summary>
+    /// The indexes (T1.63, issue #79): a query by session, by time or by kind reads only the rows it
+    /// needs. Run after the T1.62 conversion, never with the tables: see <c>Connect</c>.
+    /// </summary>
+    /// <remarks>
+    /// <c>ix_decisions_kind_ts</c> serves "every sound played between 14:00 and 14:10", the inner
+    /// query of Impl Part 4. The others serve a session's rows in order (Impl Part 4, event flow
+    /// §12), an event's decisions, and a time range. Each is <c>IF NOT EXISTS</c>, so an existing file
+    /// gains them at its next connection and a later one costs nothing.
+    /// </remarks>
+    private const string Indexes = """
+        CREATE INDEX IF NOT EXISTS ix_events_session_id    ON events (session_id, id);
+        CREATE INDEX IF NOT EXISTS ix_events_ts            ON events (ts);
+        CREATE INDEX IF NOT EXISTS ix_decisions_session_id ON decisions (session_id, id);
+        CREATE INDEX IF NOT EXISTS ix_decisions_event_id   ON decisions (event_id);
+        CREATE INDEX IF NOT EXISTS ix_decisions_ts         ON decisions (ts);
+        CREATE INDEX IF NOT EXISTS ix_decisions_kind_ts    ON decisions (kind, ts);
         """;
 
     private const string InsertRun = """
@@ -698,6 +718,17 @@ public sealed class SqliteEventStore : IEventStore, IDisposable
             // The first upgrade step this file has had (T1.62). On the writer's thread, like every
             // connection, so the start never waits; records that arrive meanwhile wait in the channel.
             ConvertTimesOnce(connection);
+
+            // THEN THE INDEXES (T1.63), and the order is certain because it is this sequence: one
+            // connection, one thread, under the store's lock, the conversion's transaction committed
+            // before this line runs. On an old file the conversion then rewrites no index entries, and
+            // the indexes are built once from the converted times. A failure here is caught below like
+            // any other, and the next attempt, a minute later, creates what is still absent.
+            using (var indexes = connection.CreateCommand())
+            {
+                indexes.CommandText = Indexes;
+                indexes.ExecuteNonQuery();
+            }
         }
         catch
         {
