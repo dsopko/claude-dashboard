@@ -187,7 +187,7 @@ Each phase can ship alone. Phase 7 is the reason that the domain model stays apa
 - An Unread row that is never acknowledged: fade it after some hours, or leave it? Today it stays.
 - Subagents: show each as a row, or keep them under the parent? Today a background agent's events arrive under the parent session, and a parent that waits on one is Waiting.
 - Queued prompts: show a "1 queued" hint on a working row?
-- Retention: settled. The event log keeps 30 days by default, as a setting, and `0` keeps everything (issue #81).
+- Retention: settled. The event log keeps as many days as Claude Code keeps its own sessions (`cleanupPeriodDays`, 30 by default), so it does not keep text that Claude Code has deleted (issue #102). It replaced the log's own setting (issue #81).
 - More than one observer: two people, or two devices with separate acknowledgments. Today "seen" is a state of the session, so there is one observer.
 
 ## 13. Change history
@@ -212,3 +212,4 @@ Each phase can ship alone. Phase 7 is the reason that the domain model stays apa
 | 2026-10-03 | The dashboard tests the path from Claude Code, and says when messages cannot arrive or are refused. The tooltip's last item says when it last heard from Claude Code | Issue #74 |
 | 2026-10-04 | The event log keeps 30 days by default, as a setting | Issue #81 |
 | 2026-10-04 | A speaker sign on the row that made a sound, for one minute: only a sound that played, on the member whose finish settled a group and never on the heading, still, and the first thing to go in a narrow row (§9) | T1.67; issue #99 |
+| 2026-10-04 | The event log follows Claude Code's `cleanupPeriodDays` and has no retention setting of its own (§12) | Issue #102 |
