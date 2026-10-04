@@ -241,7 +241,7 @@ The dashboard does not interpret the fields that it does not read, but the archi
 
 Step 4 is in a `finally` block. Thus an event is archived when the Registry declines it, and when `Apply` throws. An exception is logged, and the consumer continues.
 
-The same loop runs **the tick** each 15 seconds. The tick does three tasks: the silence sweep, the nudge schedule, and the roster groups. The loop also wakes when a roster group is due to settle. It uses no second timer, because a second thread would write to the Registry.
+The same loop runs **the tick** each 15 seconds. The tick does three tasks: the silence sweep, the nudge schedule, and the roster groups. It then publishes the dashboard's counts for `/state`'s `health` object, and at the first tick after each full UTC clock hour writes the hourly summary (T1.65). The loop also wakes when a roster group is due to settle. It uses no second timer, because a second thread would write to the Registry.
 
 ---
 
@@ -320,6 +320,7 @@ The tick is not an event. It causes changes that no hook causes:
 - **The silence sweep.** A Working session that sent no event for 10 minutes becomes Interrupted. Claude Code sends nothing when the operator stops a turn, so silence is the only signal.
 - **Nudges.** The sound engine plays a nudge that is due.
 - **Roster groups.** A group settles 1.5 seconds after its last member stops, and the group plays one notice.
+- **The counts.** The health snapshot for `/state`, and once an hour an Information line and an `HourlySummary` decision row with the counts since the previous summary (T1.65).
 
 ---
 
@@ -347,7 +348,7 @@ The tick is not an event. It causes changes that no hook causes:
 
 ## 12. How to see the path work
 
-**The log.** The file is `%LocalAppData%\ClaudeDashboard\logs\dashboard-<date>.log`. At each start it shows the port and its source, and the announcement in `listening.txt`. It shows a line about the plugin only if the plugin was absent, was turned off, was registered at this start, or could not be checked. The file keeps lines at the level `logging.minimumLevel` sets, Information by default. Set it to `Debug` to see each decision as it is made, and each event the Registry declined. The decisions table holds the same record, and is the one to query.
+**The log.** The file is `%LocalAppData%\ClaudeDashboard\logs\dashboard-<date>.log`. At each start it shows the port and its source, and the announcement in `listening.txt`. It shows a line about the plugin only if the plugin was absent, was turned off, was registered at this start, or could not be checked. The file keeps lines at the level `logging.minimumLevel` sets, Information by default. Set it to `Debug` to see each decision as it is made, and each event the Registry declined. The decisions table holds the same record, and is the one to query. Once an hour the log has a line `Hourly summary, … applied=… declined=… …`, and the decisions table an `HourlySummary` row with the same counts; `/state`'s `health.counts` has them at any moment (T1.65).
 
 **The self-test.** At each start the log has `The test message from the hook script arrived in <n> ms`: the cost of one message on this machine, measured. The Settings window's **Test connection** button runs it again and shows the result beside it. `/state` has `health.lastHeardAt` and `health.selfTest` (T1.61).
 
