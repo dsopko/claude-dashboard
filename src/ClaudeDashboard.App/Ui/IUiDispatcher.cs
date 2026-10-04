@@ -32,6 +32,9 @@ public sealed class WpfDispatcher(Serilog.ILogger logger) : IUiDispatcher
 {
     private readonly Serilog.ILogger _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
+    /// <summary>The UI hop's timing (T1.66). Set once at composition; none when null.</summary>
+    public ClaudeDashboard.App.Pipeline.Timing? Hop { get; set; }
+
     /// <inheritdoc/>
     public void Post(Action work)
     {
@@ -45,6 +48,22 @@ public sealed class WpfDispatcher(Serilog.ILogger logger) : IUiDispatcher
             return;
         }
 
-        dispatcher.InvokeAsync(work, DispatcherPriority.Background);
+        // The UI hop (T1.66): from this post to the moment the posted work runs, recorded on the UI
+        // thread with Interlocked, so the consumer never waits on it.
+        if (Hop is not { } hop)
+        {
+            dispatcher.InvokeAsync(work, DispatcherPriority.Background);
+            return;
+        }
+
+        var posted = System.Diagnostics.Stopwatch.GetTimestamp();
+
+        dispatcher.InvokeAsync(
+            () =>
+            {
+                hop.Record(System.Diagnostics.Stopwatch.GetElapsedTime(posted));
+                work();
+            },
+            DispatcherPriority.Background);
     }
 }

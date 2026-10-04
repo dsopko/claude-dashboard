@@ -80,6 +80,12 @@ public sealed class EventArchive
     /// </remarks>
     public long DroppedCount { get; private set; }
 
+    /// <summary>
+    /// The archive backlog (T1.66): told the channel's count at each hand-off, on the consumer thread.
+    /// Set once at composition.
+    /// </summary>
+    public Pipeline.Timing? Backlog { get; set; }
+
     /// <summary>How many events were handed over for writing. Diagnostic only.</summary>
     public long OfferedCount { get; private set; }
 
@@ -114,7 +120,12 @@ public sealed class EventArchive
 
         OfferedCount++;
 
-        return _channel.Writer.TryWrite(record);
+        var written = _channel.Writer.TryWrite(record);
+
+        // A slow disk shows here first: records drop at the capacity (1,024), and this warns at 512.
+        Backlog?.Record(_channel.Reader.Count);
+
+        return written;
     }
 
     /// <summary>Closes the channel so the writer drains and stops.</summary>

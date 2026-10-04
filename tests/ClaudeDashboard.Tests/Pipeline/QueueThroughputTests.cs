@@ -77,6 +77,11 @@ public sealed class QueueThroughputTests(ITestOutputHelper output)
 
         Assert.Equal(0, pipeline.ShedCount);
 
+        // The timings as the product wires them (T1.66): queue wait, apply time and the archive backlog
+        // are measured on this path, so their cost is inside the bound.
+        var timings = new Timings(Logger.None);
+        archive.Backlog = timings.ArchiveBacklog;
+
         using var consumer = new EventConsumer(
             pipeline,
             registry,
@@ -89,7 +94,8 @@ public sealed class QueueThroughputTests(ITestOutputHelper output)
             rosters,
             recorder,
             tickInterval: TimeSpan.FromHours(1),
-            silenceThreshold: TimeSpan.FromHours(1));
+            silenceThreshold: TimeSpan.FromHours(1),
+            health: new HealthBoard(new HealthSources(), clock, Logger.None, timings));
 
         var watch = Stopwatch.StartNew();
         await consumer.StartAsync(CancellationToken.None);

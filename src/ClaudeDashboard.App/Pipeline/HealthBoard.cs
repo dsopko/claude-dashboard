@@ -34,6 +34,7 @@ public sealed class HealthBoard
     private readonly HealthSources _sources;
     private readonly ILogger _logger;
     private readonly DateTimeOffset _startedAt;
+    private readonly Hosting.StartupPhases? _startup;
 
     private HealthSnapshot? _current;
     private DateTimeOffset _periodStart;
@@ -45,8 +46,18 @@ public sealed class HealthBoard
     private bool _first = true;
 
     /// <summary>Creates the board over its sources. The start time is the clock's now.</summary>
-    /// <exception cref="ArgumentNullException">Any argument is null.</exception>
-    public HealthBoard(HealthSources sources, IClock clock, ILogger logger)
+    /// <param name="sources">Where it reads the counts the consumer does not keep.</param>
+    /// <param name="clock">The clock of the start time.</param>
+    /// <param name="logger">Where the hourly lines go.</param>
+    /// <param name="timings">The timings that would show a stall (T1.66); none when null.</param>
+    /// <param name="startup">The start-up phases (T1.66); none when null.</param>
+    /// <exception cref="ArgumentNullException">A required argument is null.</exception>
+    public HealthBoard(
+        HealthSources sources,
+        IClock clock,
+        ILogger logger,
+        Timings? timings = null,
+        Hosting.StartupPhases? startup = null)
     {
         ArgumentNullException.ThrowIfNull(sources);
         ArgumentNullException.ThrowIfNull(clock);
@@ -55,8 +66,13 @@ public sealed class HealthBoard
         _sources = sources;
         _logger = logger;
         _startedAt = clock.Now;
+        Timings = timings;
+        _startup = startup;
         _periodStart = _startedAt;
     }
+
+    /// <summary>The timings that would show a stall (T1.66), or null in a board made without them.</summary>
+    public Timings? Timings { get; }
 
     /// <summary>The last snapshot, or null before the first tick. Read from any thread.</summary>
     public HealthSnapshot? Current => Volatile.Read(ref _current);
@@ -104,6 +120,16 @@ public sealed class HealthBoard
                 now.UtcDateTime.ToString("o", CultureInfo.InvariantCulture),
                 detail);
 
+            // The hour's timings beside it (T1.66): the figures of the hour, which then start again.
+            if (Timings is { } timings)
+            {
+                _logger.Information(
+                    "Hourly timings, from {From:l} to {To:l}: {Timings:l}",
+                    _periodStart.UtcDateTime.ToString("o", CultureInfo.InvariantCulture),
+                    now.UtcDateTime.ToString("o", CultureInfo.InvariantCulture),
+                    string.Join("; ", timings.All.Select(timing => timing.TakeHour().ToDetail())));
+            }
+
             _lastHour = hour;
             _lastHourFrom = _periodStart;
             _lastHourTo = now;
@@ -130,8 +156,19 @@ public sealed class HealthBoard
             _lastHour,
             _lastHourFrom,
             _lastHourTo,
-            _lastHourPartial));
+            _lastHourPartial,
+            Timings is { } measured
+                ? new TimingsSnapshot([.. measured.All.Select(timing => timing.SinceStart)], _startup?.Finished)
+                : null));
     }
+
+    /// <summary>
+    /// The run's worst cases, for the stop line (T1.66): <c>queueWait=2.1ms tickLateness=0ms …</c>, or
+    /// null in a board made without timings.
+    /// </summary>
+    public string? Worst() => Timings is { } timings
+        ? string.Join(" ", timings.All.Select(timing => $"{timing.Name}={TimingFigure.Show(timing.Unit, timing.SinceStart.Worst)}"))
+        : null;
 
     /// <summary>The start of the UTC clock hour that holds <paramref name="at"/>.</summary>
     private static DateTime HourOf(DateTimeOffset at)
@@ -255,7 +292,7 @@ public sealed record HealthCounts(
 
 /// <summary>
 /// What <c>/state</c>'s <c>health</c> object shows from the consumer: one immutable value per tick
-/// (T1.65). T1.66 adds its timings as a new member; no member here moves.
+/// (T1.65). T1.66 added its timings as the last member; no member moved.
 /// </summary>
 /// <param name="Version">The informational version.</param>
 /// <param name="StartedAt">When this board was made, at the host's start.</param>
@@ -272,6 +309,7 @@ public sealed record HealthCounts(
 /// <param name="LastHourFrom">Where the last summary began.</param>
 /// <param name="LastHourTo">Where it ended.</param>
 /// <param name="LastHourPartial">Whether the last summary was the partial first one.</param>
+/// <param name="Timings">The timings since the start and the start-up phases (T1.66), or null.</param>
 public sealed record HealthSnapshot(
     string Version,
     DateTimeOffset StartedAt,
@@ -287,4 +325,10 @@ public sealed record HealthSnapshot(
     HealthCounts? LastHour,
     DateTimeOffset? LastHourFrom,
     DateTimeOffset? LastHourTo,
-    bool LastHourPartial);
+    bool LastHourPartial,
+    TimingsSnapshot? Timings = null);
+
+/// <summary>The timings in the snapshot (T1.66).</summary>
+/// <param name="Figures">The six measured timings since the start, in #86's order.</param>
+/// <param name="Startup">The start-up phases, or null before the start has logged them.</param>
+public sealed record TimingsSnapshot(IReadOnlyList<TimingFigure> Figures, IReadOnlyList<Hosting.StartupPhase>? Startup);

@@ -337,6 +337,8 @@ public sealed class UnprotectedTextInventory
         "RunStart.DataRoot", "RunStart.Version",
         // T1.65: the informational version in the health snapshot and in /state's health object.
         "HealthEntry.Version", "HealthSnapshot.Version", "HealthSources.Version",
+        // T1.66: the identifiers of a timing and of a start-up phase, fixed in the code.
+        "StartupPhase.Name", "Timing.Name", "TimingFigure.Name",
         "SettingsLoadResult.Problem",
         "ShowSignalResult.Problem", "SingleInstanceGate.Name", "SqliteEventStore.Path",
     };
