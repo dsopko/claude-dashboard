@@ -173,7 +173,7 @@ A window named **Activity** lists what the dashboard did since it started, newes
 - **The project** is the last folder of the session's path, by the main window's rule, so one project has one name in both windows. The hover gives the full path.
 - **Wide, one line in columns. Narrow, two lines** like a row in the main window, the second small and grey. Narrower still, the detail goes first, then the project. The time, the `♪`, what occurred and the name never go, and the hover on a line holds everything.
 - **At the top:** when the dashboard last heard from Claude Code, in the tray tooltip's words.
-- **This start only, in memory:** the window is a log of what the dashboard did since it started, kept from the start whether the window is open or not. It never reads the database. The newest 20,000 lines are kept, and the bottom says so when older ones have gone.
+- **This start only, in memory:** the window is a log of what the dashboard did since it started, kept from the start whether the window is open or not. It never reads the database. Between 19,000 and 20,000 of the newest lines are kept, and the bottom says so when older ones have gone. Within one moment, a sound's line sits on top, with what caused it directly under it.
 - It moves nothing. A click on a line and "Show activity" on a row come next (#97).
 
 
