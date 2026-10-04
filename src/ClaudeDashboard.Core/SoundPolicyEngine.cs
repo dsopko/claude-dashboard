@@ -281,8 +281,16 @@ public sealed class SoundPolicyEngine : ISoundModeReader
     /// <param name="group">The roster group that settled.</param>
     /// <param name="settledAt">When the settle was observed.</param>
     /// <param name="quietSince">When the group went quiet: its latest member's entry instant.</param>
+    /// <param name="settledBy">
+    /// The member whose change settled the group (<see cref="RosterSettle.SettledBy"/>), whose row the
+    /// group's notice and its reminder mark (T1.67). Empty when the caller does not say: no row is marked.
+    /// </param>
     /// <exception cref="ArgumentException"><paramref name="group"/> names no group.</exception>
-    public void OnRosterGroupSettled(GroupKey group, DateTimeOffset settledAt, DateTimeOffset? quietSince = null)
+    public void OnRosterGroupSettled(
+        GroupKey group,
+        DateTimeOffset settledAt,
+        DateTimeOffset? quietSince = null,
+        SessionId settledBy = default)
     {
         if (group.IsEmpty)
         {
@@ -311,6 +319,7 @@ public sealed class SoundPolicyEngine : ISoundModeReader
         {
             NextNudgeAt = _options.UnreadNudgeAfter is { } after ? settledAt + after : null,
             QuietSince = quietSince,
+            SettledBy = settledBy,
         };
 
         Play(GroupNotice, group, SoundId.Finished, _options.NoticeGain, TimeSpan.Zero,
@@ -579,8 +588,9 @@ public sealed class SoundPolicyEngine : ISoundModeReader
     /// <para>
     /// <strong>The engine decides the row</strong>, so a second interface gets the same answer. A
     /// session's own sound marks that session. A group's own sound marks the member whose state
-    /// entry instant is the group's quiet instant: the member whose finish settled the group. See
-    /// <see cref="MarkOf"/>.
+    /// entry instant is the group's quiet instant: the member whose change settled the group, which the
+    /// settle pass reads from the groups as they stand and hands to <see cref="OnRosterGroupSettled"/>.
+    /// See <see cref="MarkOf"/>.
     /// </para>
     /// <para>
     /// Raised on the thread that played the sound, inside the single-writer region. A handler
@@ -695,12 +705,18 @@ public sealed class SoundPolicyEngine : ISoundModeReader
     /// </para>
     /// <para>
     /// <strong>A group's own sound</strong> (its finished notice, or its one reminder) arrives with
-    /// no session, because it belongs to the group. It marks the member whose state entry instant is
-    /// the group's quiet instant (T1.44): the member whose finish settled the group. The reminder
-    /// reads the same settle, so it marks the same member. If no member matches (it left the
-    /// group, or it changed state since), or the settle has no quiet instant, no row gets the sign.
-    /// Two members that entered at the same instant are settled by the lower id, ordinal, so the
-    /// answer does not depend on the order of a dictionary.
+    /// no session, because it belongs to the group. It marks the member that the settle pass named
+    /// (<see cref="RosterSettle.SettledBy"/>): the member whose state entry instant is the group's
+    /// quiet instant, read from the groups as they stand. The reminder reads the same settle, so it
+    /// marks the same member, and a quiet tick that restores the settle restores the member with it.
+    /// A settle that named no member marks no row.
+    /// </para>
+    /// <para>
+    /// <strong>Why the engine does not choose the member itself.</strong> The first version matched the
+    /// quiet instant against this type's own copy of each session's group. That copy changes only in
+    /// <see cref="OnSessionChanged"/>, so after a roster edit it still held the old group, and a roster
+    /// formed over finished sessions marked no row (the T1.67 review). The settle pass has the fresh
+    /// groups; the rule is still Core's.
     /// </para>
     /// </remarks>
     private SessionId? MarkOf(SessionId session, GroupKey group)
@@ -710,24 +726,9 @@ public sealed class SoundPolicyEngine : ISoundModeReader
             return session;
         }
 
-        if (!_groups.TryGetValue(group, out var settled) || settled.QuietSince is not { } since)
-        {
-            return null;
-        }
-
-        SessionId? found = null;
-
-        foreach (var (id, tracked) in _tracked)
-        {
-            if (tracked.Group == group
-                && tracked.EnteredAt == since
-                && (found is not { } other || string.CompareOrdinal(id.Value, other.Value) < 0))
-            {
-                found = id;
-            }
-        }
-
-        return found;
+        return _groups.TryGetValue(group, out var settled) && !settled.SettledBy.IsEmpty
+            ? settled.SettledBy
+            : null;
     }
 
     /// <summary>The sound a state announces itself with, or null if it announces nothing.</summary>
@@ -790,6 +791,9 @@ public sealed class SoundPolicyEngine : ISoundModeReader
 
         /// <summary>When the group went quiet, for recognising the same settle again (T1.44).</summary>
         public DateTimeOffset? QuietSince { get; init; }
+
+        /// <summary>The member whose change settled the group, whose row its sounds mark (T1.67).</summary>
+        public SessionId SettledBy { get; init; }
     }
 
     /// <summary>What the engine remembers about one session.</summary>
