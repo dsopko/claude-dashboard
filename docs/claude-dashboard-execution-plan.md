@@ -892,6 +892,39 @@ The work in GitHub milestone 3, "Observability 1": issues #3, #14, #67, #71, #72
   - Plants: (a) decisions with no event are not pruned, and the first test fails; (b) the 24-hour schedule removed, and the daily test fails; (c) `[JsonExtensionData]` (or the merge) removed, and the unknown-key test fails.
   - Both suite counts; build clean, 0 warnings.
 - **Guardrails:** tests use scratch folders and only a copy of the operator's database. Never touch the operator's real `settings.json` or `dashboard.db`. No `VACUUM`. No delete outside the one transaction. No payload or row time in a log line.
+- **Done 2026-10-04:** PR #94, merged as `26ca381`, `43ae56d` (no fix cycle). Through `SqliteEventStore.Prune` on a copy of the operator's database, a 30-day prune deleted 5,370 events and 2 decisions with no event in 76 ms, and the file size did not change. Its history spans 37.6 days at about 2.7 MB a day, so 30 days hold about 81 MB; the synthetic day is about 9 times smaller, and both figures are in the documents. T1.64 also found that the port's repaired-value sentence was built but never logged, and logs it. The full suite took about 3 minutes in the review against about 52 seconds before, and the code from before milestone 4 is just as slow under the same conditions. The time is in two `MainWindowTests` width sweeps while the console was locked, so no task caused it. Carried to T1.65: the port value in that sentence, and a test for a prune inside the retry minute.
+
+**T1.65 — The dashboard shows its counts while it runs, and writes a summary each hour**
+- **Goal:** what the dashboard counts (events applied, declined and dropped, posts refused, records not written, what the tick did) can be read at any moment in `/state`. A summary is written to the log and to the decisions table each hour, so the counts are seen even though the dashboard almost never quits cleanly. For issue #76.
+- **Depends:** T1.61 (the `health` object in `/state`, and `HookHealth.RefusedCount`), T1.60 (the `runs` table: the version and the start), T1.58 (the event channel's shed and dropped counts), T1.54 (the store's state)
+- **Realizes:** #76 as written, and the director's rulings of 2026-10-04, made while the operator was away (the operator delegated the remaining decisions of milestone 4):
+  - **The Activity window is not built** (the operator's ruling of 2026-10-03). The counts are shown in `/state` and in the log.
+  - **The hourly summary is written at the first tick after each full clock hour, in UTC**, and covers the time since the previous summary. The first one after a start is therefore partial and says so. Why: a reader looks for "the 14:00 row", and a gap between rows shows the hours when the dashboard was not running.
+  - **`--replay` writes no hourly summary.** A summary describes a running process, and replay is not one.
+  - **No summary row at a stop.** At a stop the consumer has already drained, so a decision written then has no scope to leave in (T1.62). The stop keeps its Information line, which now gives the same counts in the same form.
+- **Deliverables:**
+  - **The counts.** Since the start and for the present hour: applied, declined, uncorrelated, dropped (the event channel's shed and hard-limit drops, and the archive's drops, each named), refused (`HookHealth.RefusedCount`), records not written (the store's failed and lost counts), and the tick's work (ticks, sweeps, settles). Take each count from the place that already keeps it, and find any that is kept nowhere.
+  - **A health snapshot**, built on the consumer thread at each tick and published the way `StateBoard` publishes its report (one immutable object, swapped in safely). A request thread reads the snapshot and never a live field, the Registry or the sound engine. It holds the version, the start time (UTC), the ingress state (the port, or that it cannot receive), the database state (writing, not writing, or not yet known), the sound output state, the mute and pause modes, the counts since the start and for the last full hour, and `countedAt` (UTC), so a reader knows the counts can be up to one tick old.
+  - **`/state`'s `health` object** gains these fields beside `lastHeardAt` and `selfTest`, which stay as they are. Design the snapshot so that T1.66 can add its timings to it without moving a field.
+  - **The hourly summary:**
+    - one Information line with the counts for the hour, as identifiers and numbers;
+    - one `decisions` row of a new kind, `HourlySummary` (the next free number after 42), with `event_id` and `session_id` NULL and the same counts in `detail` (`applied=212 declined=1840 dropped=0 …`), written on the consumer thread inside the tick, like every other decision.
+    - No new timer and no new thread: the 15-second tick already runs.
+  - **The stop line** in `EventConsumer` gives the same counts in the same form as the hourly line, since the start.
+  - **Must-be-zero counts that move:** dropped and uncorrelated already warn, refused has its notice (T1.61), and a store failure has its notice and its recovery line (T1.54). Confirm each in the code, and add nothing that is already there.
+  - **Carried from T1.64's review:**
+    - (a) `SettingsStore.PortProblem`'s sentence, now logged by T1.64's repaired-value Warning, contains the raw `port` value (`The "port" setting is {port} , which…`). Director's ruling: drop the value, which also removes the stray " , ", because T1.56 set that no setting value is logged. Impl §8.2 says the log names the setting and the repair, not the value.
+    - (b) No test holds that a prune inside the store's retry minute is skipped without counting a lost record (the reviewer's plant f passed). Add one.
+  - **Documents, in the same change:** Impl §3.5 (the `health` fields), §8.3 (`HourlySummary`), §8.4 (the hourly line and the stop line); event flow, where the tick and the log are described; TS where the dashboard's self-reporting is described (find it). One row each in Impl Appendix C and, if TS changes, TS Appendix D.
+- **Acceptance:**
+  - Under a fake clock, a run that crosses two clock hours writes two hourly lines and two `HourlySummary` rows at the first tick after each hour. Their counts agree with each other and with `/state` at that moment. The first one is marked partial.
+  - The hour's counts reset at each summary, and the counts since the start do not.
+  - `/state` answers every new `health` field with the right types. A request never touches the Registry or the engine: a test, or the code path, shows that the endpoint reads only the published snapshot.
+  - Replay over a history that spans hours writes no `HourlySummary` row.
+  - No title, prompt, payload or path other than the data folder in the line, the row or `health`.
+  - Plants: (a) the hour's counts are not reset, and the reset test fails; (b) the summary written at every tick, and the two-hours test fails; (c) `/state` reads a live consumer field, and the snapshot test fails (or explain why that plant cannot be observed and choose another).
+  - Both suite counts; build clean, 0 warnings.
+- **Guardrails:** one writer to the Registry; the request thread never waits on the consumer. Identifiers and numbers only. No change to the notices, the event channel or the store's retry. Tests use scratch folders.
 
 ---
 
