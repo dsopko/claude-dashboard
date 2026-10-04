@@ -257,7 +257,7 @@ public sealed class PathCheckHostTests : IAsyncLifetime, IDisposable
 
     /// <summary>
     /// A refused post writes exactly one HookRefused row with no event and no session, and nothing
-    /// from its body. It does not move "last heard". An accepted post writes no such row and does.
+    /// from its body. Its detail is the count, one. It does not move "last heard". An accepted post writes no such row and does.
     /// </summary>
     [Fact]
     public async Task A_refused_post_writes_one_row_and_an_accepted_post_none()
@@ -290,10 +290,68 @@ public sealed class PathCheckHostTests : IAsyncLifetime, IDisposable
             "FROM decisions WHERE kind = 'HookRefused'");
 
         var row = Assert.Single(rows);
-        Assert.Equal(["NULL", "NULL", "NULL", "NULL"], row);
+        // At most one row a second, with the count (the ruling of 2026-10-04): one refusal, one row.
+        Assert.Equal(["NULL", "NULL", "NULL", "refused=1"], row);
 
         var everything = string.Join("|", ForeignSqliteReader.Query(_paths.DatabaseFile, "SELECT * FROM decisions").SelectMany(r => r));
         Assert.DoesNotContain(Marker, everything, StringComparison.Ordinal);
+    }
+
+    // ---- The board ----------------------------------------------------------------------------
+
+    /// <summary>
+    /// AppHost's own board puts the self-test notice and the refused notice directly after the
+    /// plugin notice, and before the settings notice (T1.61 review: they could move unseen).
+    /// </summary>
+    [Fact]
+    public void The_real_board_puts_the_two_notices_directly_after_the_plugin_notice()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "claude-dashboard-tests", Guid.NewGuid().ToString("N"));
+        var paths = new DashboardPaths(root);
+
+        try
+        {
+            var loaded = new SettingsStore(paths).Load();
+            var start = new SettingsAtStart(loaded, BackupFile: Path.Combine(root, "settings.error-20261004-090000.json"));
+
+            using var host = AppHost.Build(paths, settingsAtStart: start);
+            var services = host.Services;
+            var clock = services.GetRequiredService<IClock>();
+
+            services.GetRequiredService<HookNotice>().ShowPluginDisabled();
+
+            var health = services.GetRequiredService<HookHealth>();
+            var failed = new SelfTestResult(false, null, clock.Now, SelfTestCause.NothingArrived);
+            health.Finished(failed);
+
+            for (var i = 0; i < HookHealth.RefusalsToShow; i++)
+            {
+                health.Refused(clock.Now);
+            }
+
+            var board = services.GetRequiredService<NoticeBoard>();
+            board.Tick(clock.Now);
+
+            var texts = board.Texts.ToList();
+            var plugin = texts.IndexOf(HookNotice.PluginDisabledText);
+            var settings = texts.FindIndex(text => text.Contains("settings.error-20261004-090000.json", StringComparison.Ordinal));
+
+            Assert.True(plugin >= 0, string.Join(Environment.NewLine, texts));
+            Assert.Equal(SelfTestNotice.Describe(failed), texts[plugin + 1]);
+            Assert.Equal(RefusedNotice.WindowText, texts[plugin + 2]);
+            Assert.True(settings > plugin + 2, string.Join(Environment.NewLine, texts));
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(root, recursive: true);
+            }
+            catch (IOException)
+            {
+                // Disposable temp folder.
+            }
+        }
     }
 
     // ---- The Settings button ------------------------------------------------------------------
