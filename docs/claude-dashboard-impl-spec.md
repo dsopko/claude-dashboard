@@ -360,7 +360,7 @@ How it crosses threads: `StateBoard` listens to `SessionChanged` and `NudgeSched
 - **The UI hop.** `SessionProjection` takes the immutable `Session` from the event arguments and posts it to the dispatcher. On the UI thread it replaces that one session in an `ObservableCollection<Session>`. No UI code reads the Registry.
 - **A click** never changes the domain directly. An Ack, a mute and a pause are events in the channel. The row changes when the Registry's answer comes back.
 
-**The archive and the decision record.** After the consumer applied an event and the sound engine decided, the consumer gives the event and its decisions to the archive as one record. The archive's own thread writes them in one transaction (§8.3). The consumer never waits for the disk.
+**The archive and the decision record.** After the consumer applied an event and the sound engine decided, the consumer gives the event and its decisions to the archive as one record. The archive's own thread writes them in one transaction (§8.3). The consumer never waits for the disk. The store may be closed while it writes, by a host disposed without a stop: the close waits for the current write to commit, and a write after the close is dropped without a sound (no log line, no change to the history notice), because the store is going away.
 
 To answer "why did that sound play?":
 
@@ -1043,3 +1043,4 @@ The text above says what is true now. This list says when each part changed.
 | 2026-10-03 | A settings file that does not parse is kept aside and a fresh one written; one that cannot be opened refuses saves for the run (§8.1, §8.2, §9.4). The settings notice (§5.2, §5.6.1) | T1.56; issue #73 |
 | 2026-10-03 | A port that is taken says what to do, in the log, the tray and the window; the port fault is the first notice on the board (§3.1, §5.2, §5.3, §5.6.1). A program on the port in `port.txt` no longer leaves the dashboard deaf: the choice walks on (§5.3). A start whose settings were unreadable leaves start with Windows as it found it (§8.2, §10.1) | T1.57; issue #14 |
 | 2026-10-03 | The event channel sheds only noise when full, and drops the oldest only at a hard limit of 16,384; the bound is asserted (Part 4, §8.3). Two queue notices (§5.2, §5.6.1) | T1.58; issue #3 |
+| 2026-10-03 | The history store may be closed while it writes: the close waits for the current write, and a write after it is dropped without a sound (Part 4) | T1.59; issue #84 |
