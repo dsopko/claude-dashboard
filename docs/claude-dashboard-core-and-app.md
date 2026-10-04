@@ -98,7 +98,7 @@ This is the full list. Core emits nothing else.
 |---|---|---|---|
 | A session changed | The event `SessionRegistry.SessionChanged` | `Added` or `Updated`, and the new immutable `Session` | Three, in App (section 5) |
 | A nudge moved the schedule | The event `SoundPolicyEngine.NudgeScheduleAdvanced` | Nothing | `StateBoard` |
-| A sound played, and the row it marks | The event `SoundPolicyEngine.SoundMarked` | The session (for a group's sound, the member whose finish settled it), the sound and the instant. Only a sound that the player queued (T1.67) | `SoundSigns` |
+| A sound played, and the row it marks | The event `SoundPolicyEngine.SoundMarked` | The session (for a group's sound, the member whose change settled it: `RosterSettle.SettledBy`, which the settle pass passes in), the sound and the instant. Only a sound that the player queued (T1.67) | `SoundSigns` |
 | Play this sound | The port `ISoundPlayer.Play(sound, gain, fade)` | An intent. The player answers `Queued`, `NoOutput` or `Failed` (T1.55) | `NAudioSoundPlayer` |
 | A sound decision | The port `IDecisionSink` | Played, dropped and why, or suppressed and the cause | `DecisionRecorder` |
 | The result of an event | The return value `ApplyOutcome` | Applied, Ignored, Stale, Duplicate, Uncorrelated | `EventConsumer` |
