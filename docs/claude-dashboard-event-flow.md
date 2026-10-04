@@ -305,6 +305,8 @@ The name and the path are the Registry's, as they are after the event is applied
 
 The consumer never waits for the disk. The decisions of a tick have no event, so their `event_id` is NULL.
 
+**The Activity window** (T1.70). On the consumer thread, just before it hands a record to the archive, the recorder hands the same decisions to the Activity window's log (`DecisionRecorder.Decided`, `ActivityLog`). A record with a shown line becomes one post to the UI thread, which adds the lines to the one list in memory; a record without one becomes none. The window never reads `dashboard.db`, so what the store does next changes nothing in it (Impl §5.7).
+
 **Every `ts` is UTC,** in one form: seven fractional digits and `Z`, for example `2026-10-02T12:03:11.1230000Z`. Rows written before T1.62 had the local offset; the store converts them once, the first time it opens the file, and sets `PRAGMA user_version` to 1 (T1.62). The next step adds the name and path columns where they are not, and sets it to 2 (T1.69).
 
 **The run.** The same writer also writes one row in `runs` for each start of the dashboard, when the host has started: the time in UTC, the version, the port that ingress bound and the data folder. A clean stop sets `stopped_at` after the last records are written; a kill leaves it empty (T1.60).

@@ -427,7 +427,7 @@ The colour is the worst state of all sessions (`StatusSummary.Of`, then `TrayVis
 - **The counts are in the tooltip.** A 16-pixel icon cannot show digits. The tooltip gives each Needs You kind: `2 permissions · 1 error · 1 question · 2 unread · 3 working`. A zero count is left out. With all counts zero it reads `all quiet`.
 - **No animation.**
 - **Left click:** show or hide the window.
-- **Right click:** `Open` · `Mute all` (or `Unmute all`) · `Mute all for 30 min` · `Pause monitoring` (or `Resume monitoring`) · `Settings…` · `Quit`.
+- **Right click:** `Open` · `Activity…` (§5.7) · `Mute all` (or `Unmute all`) · `Mute all for 30 min` · `Pause monitoring` (or `Resume monitoring`) · `Settings…` · `Quit`.
 
 **Mute all and Pause monitoring**
 
@@ -485,6 +485,7 @@ Top to bottom:
 |---|---|
 | `Grouped` / `Flat` | A toggle with two segments. One is always raised |
 | `Select` | Starts selection mode (§5.6.8). In the mode it becomes `Selecting · 2 chosen`, `Group these` and `Cancel` |
+| `Activity` | Opens the Activity window (§5.7), or brings it to the front: the tray menu's own command |
 | `Mute all` / `Unmute all` | The same command as the tray menu |
 | `Ack all` | Sends one Ack for each session that `Acknowledgment.Applies` to. Lit when one or more sessions wait |
 
@@ -640,6 +641,62 @@ The mode ends when the operator groups, cancels, or hides the window.
 
 `EventConsumer` is the only caller of `UiTick`. A test holds that, because the view models do not check that time goes forward.
 
+### 5.7 The Activity window
+
+**What it is** (T1.70, issue #97; the operator's rulings of 2026-10-04): a window named **Activity** that lists what the dashboard did since it started, newest first, in plain words, with the session's name and project on each line. An operator who hears a sound opens it and sees what made the sound: the top `♪` line. **This start only.** A click on a line and "Show activity" on a row are T1.71, *not built*.
+
+**It opens** from the tray menu (`Activity…`) and from the toolbar (`Activity`), which share one command (`TrayViewModel.OpenActivityCommand`). **One window, made at start and always there** (`ActivityWindowHost.Create`, in `Program`): opening it only shows it or brings it to the front, and closing it only hides it. It remembers its place and size in `settings.json`, under `activityWindow` (§8.2), saved when it is hidden and when it closes at quit. It moves nothing: no storyboard, no fade, and the motion rule holds.
+
+**Where the lines come from: the consumer's decisions, in memory** (the operator's ruling of 2026-10-04, made while the task was in progress). **The window never reads `dashboard.db`.**
+
+- **One list from the start** (`ActivityLog`): made with the host, before the first event. The recorder tells it with each record's decisions, the same ones it hands to the archive, on the consumer thread (`DecisionRecorder.Decided`, before `EventArchive.TryArchive`). A record that holds a shown line becomes **one dispatcher post**, and a record without one becomes none: never one post for each event. On the consumer thread the log only picks the shown decisions, numbers them and posts; the words are made on the UI thread, where the post adds the lines at the top. The consumer never waits on the UI thread.
+- **The store's state changes nothing here.** The log is told before the archive is, so a line that the store could not write still shows: the window is a log of what the dashboard did, not of what it recorded. No type of the window holds a store, a connection or the data folder.
+- **The window's list is the log's list.** It is bound once, when the window is made; lines are added while the window is hidden, and nothing is built again when it opens. The list is virtualized (a `VirtualizingStackPanel`, recycling): a hidden window draws nothing, and an open one realizes only the rows in view, 20,000 lines or not.
+- **The newest 20,000 lines are kept** (`ActivityLog.Limit`). When a new line would pass the limit, the oldest goes, and the bottom of the window then says: `Older lines are not kept: the window keeps the newest 20,000.` Why: a safety net for a dashboard that runs for weeks. A normal three weeks is a few thousand lines.
+- **Newest first, in the record's own order:** within one event, the order the consumer decided in, which is the order the archive stores. So a permission prompt shows `needs permission` above `♪ permission`, because the engine plays the notice while the event is applied and the recorder adds the state change after it.
+- **The cost:** T1.58's throughput test, with the log wired as in the product, cleared 1,024 events in 25.5 to 35.4 ms over ten runs (24.4 to 31.8 ms before), against its limit of 5,000 ms.
+
+**What shows:** what happened to the operator's sessions and to sound. Shown: `SessionAdded`, `StateMoved`, `SilenceSwept`, `SessionEnded`, `AckApplied`, `NoticePlayed`, `NudgePlayed`, `GroupNoticePlayed`, `NoticeSuppressed`, `SoundDropped`, `MuteApplied`, `MuteExpired`. Not shown, because they are the dashboard's own records, for a developer with SQL: `SessionRefreshed`, `EventDeclined`, `GroupRederived`, `AckDeclined`, `TaskTypeUnrecognised`, `EventDropped`, `ApplyFailed`, `HookRefused`, `HourlySummary`, `TrayLightChanged`, `WindowSurfaced`, `RosterEdited`. This is the block's table, unchanged.
+
+**A line:** the time (`14:32`, local; `Mon 23:58` when the line is not from today), `♪` for a sound that played, what occurred, the session's name, the project and the detail.
+
+- **The name:** the decision's `SessionTitle` (T1.69), the name as it was at that moment. With no name, the first eight characters of the session id, as the main window shows it. A group's sound, which has no session, shows the group's name by the heading's rule (the roster's name).
+- **The project:** the last folder of the decision's `Cwd`, by `RowVisuals.WorkspaceLabel`, so one project has one name in both windows. The hover gives the full path. A line with no path shows nothing there.
+- **The hover on a line** holds everything, as one sentence: `14:32, sound played, permission, Reviewer, project penn-quote, reminder, waiting 7 min.` A screen reader reads the same sentence.
+
+**The words** (`ActivityWords`; `Ui/ActivityWordsTests.cs` holds that every shown kind and every reason has words, and that no enum name reaches the screen). A value this build does not know shows no words of its own: no detail for a reason, "changed" for a state, "a sound" for a sound.
+
+| Kind | `♪` | What occurred | Detail |
+|---|---|---|---|
+| `SessionAdded` | | new session | the state it started in (below) |
+| `StateMoved` | | the state it entered (below); `working again` when it goes back to `Working` | by `reason`: `ScheduledPrompt` its scheduled job ran · `MachinePrompt` a prompt that nobody typed · `AutoAcknowledgment` a new prompt, so the last result counts as seen · `QuietTick` its scheduled job ran and changed nothing · none: nothing |
+| `SilenceSwept` | | went quiet | no event for *N* minutes |
+| `SessionEnded` | | ended | |
+| `AckApplied` | | seen | `Manual` you acknowledged it · `InferredFocus` you looked at it |
+| `NoticePlayed` | ♪ | the sound (below) | |
+| `NudgePlayed` | ♪ | the sound | reminder, waiting *N* min |
+| `GroupNoticePlayed` | ♪ | finished | `notice` the whole group finished · `nudge` reminder for the group |
+| `NoticeSuppressed` | | no sound | the sound, then why: `MonitoringPaused` monitoring is paused · `AllMuted` all sound is muted · `SessionMuted` this session is muted · `GroupMuted` its group is muted · `GroupDone` its group owns the sound · `AlreadyAnnounced` announced before |
+| `SoundDropped` | | no sound | the sound, then why: `NoOutput` no sound device · `Failed` the sound could not play |
+| `MuteApplied` | | `MuteAll` all sound muted · `UnmuteAll` sound on · `PauseMonitoring` monitoring paused · `ResumeMonitoring` monitoring resumed | until *15:02*, for a timed mute |
+| `MuteExpired` | | sound on again | the timed mute ended |
+
+The states: `NeedsPermission` needs permission · `NeedsQuestion` asks a question · `Error` stopped on an error · `Unread` finished · `Working` working · `Waiting` waiting on background work · `Acked` seen · `Interrupted` went quiet · `Ended` ended. The sounds, by the names of their files (Part 7): finished · permission · question · error.
+
+**Wide and narrow** (`ActivityViewModel.LayoutFor`, by the window's width):
+
+| Width | Layout |
+|---|---|
+| 620 and over | One line, in columns: time · `♪` · what occurred · name · project · detail |
+| 420 to 620 | Two lines, as a row in the main window. The second, small and grey: project · detail |
+| 320 to 420 | Two lines; **the detail goes first** |
+| under 320 | One line; **then the project goes**. The time, the `♪`, what occurred and the name never go |
+
+**The top of the window:** `last heard from Claude Code …`, the tray tooltip's own words (`TrayTooltip.LastHeard`, T1.61), moved by the consumer's tick. Nothing else: the history notice of T1.54 is in the main window, because the store's state changes nothing here.
+
+**No title, prompt or path in a log line.** The log, the words and the view model log nothing. The recorder logs only the type of an exception if the hand-off throws.
+
+
 ---
 
 ## Part 6 — Windows integration adapters (Phases 2 to 4)
@@ -713,7 +770,7 @@ Location: **`%LOCALAPPDATA%\ClaudeDashboard\`**. The variable `CLAUDE_DASHBOARD_
 
 | File or folder | Written by | When | Content |
 |---|---|---|---|
-| `settings.json` | The dashboard, and the operator by hand | At quit (the window's place); when the operator remembers a roster; at the Settings window; at `--install-hooks` and `--remove-hooks` | §8.2 |
+| `settings.json` | The dashboard, and the operator by hand | At quit (the window's place, and the Activity window's); when the Activity window closes; when the operator remembers a roster; at the Settings window; at `--install-hooks` and `--remove-hooks` | §8.2 |
 | `settings.error-<yyyyMMdd-HHmmss>.json` | The dashboard, by a rename | At a start that finds `settings.json` does not parse (§8.2) | The operator's file, byte for byte. The dashboard never writes or deletes it |
 | `dashboard.db` | The archive writer | For each event; at each start and clean stop (`runs`) | §8.3. **It holds prompts and answers** |
 | `logs\dashboard-<date>.log` | Serilog | Always | §8.4 |
@@ -751,6 +808,7 @@ The dashboard's own settings. A person can edit it: comments and a comma at the 
 | `sound.nudgeOnError` | boolean | `true` | If a session in Error is nudged |
 | `window.left`, `window.top`, `window.width`, `window.height` | number | None | Where the window was |
 | `window.alwaysOnTop` | boolean | `false` | If the window stays above other windows |
+| `activityWindow.left`, `activityWindow.top`, `activityWindow.width`, `activityWindow.height` | number | None | Where the Activity window was (§5.7, T1.70). It opens at 640 × 480 the first time |
 | `history.retentionDays` | — | — | **No longer used** (T1.68, issue #102): the history follows Claude Code's `cleanupPeriodDays` (§8.3). A file that has the key keeps it, unchanged, by the rule for keys a version does not know, and each start logs one Information line that it is no longer used, never its value. Until T1.68 it was the days the history kept, 30 by default |
 | `rosters` | object | `{}` | Each key is a roster's name. Each value is the list of session names in it |
 
@@ -1183,3 +1241,4 @@ The text above says what is true now. This list says when each part changed.
 | 2026-10-04 | A speaker sign on the row that made a sound, for one minute: only a queued sound, with the row that Core decides (`SoundMarked`; for a group, the member that the settle pass names from the groups as they stand, an ended member included), ended by the tick, still, and the first thing to go in a narrow row (`MetaLine`) (§2.4, §2.5, §5.6.3, §5.6.5, §5.6.6, §5.6.9) | T1.67; issue #99 |
 | 2026-10-04 | The history follows Claude Code's `cleanupPeriodDays`, read at each prune from `~/.claude/settings.json` and judged in Core (`HistoryRetention`), strict JSON: 30 days when the key is absent; nothing deleted for a file that cannot be read or a value Claude Code would not use; the rule line, again only when it changes. `history.retentionDays` is no longer used, kept in the file and logged once. A settling member that leaves its roster keeps the reminder's sign (§5.6.3, §8.2, §8.3, §9.3, Appendix B) | T1.68; issue #102 |
 | 2026-10-04 | `events` gains `session_title`, and `decisions` gains `session_title` and `cwd`: the Registry's name and full path after the event is applied, NULL for a decision with no session. The upgrade checks the columns and is safe on every open; `user_version` is 2. The name is in no other column and in no log line. The growth constant is 350,000 (§3.4, §8.3) | T1.69; issue #98 |
+| 2026-10-04 | The Activity window: a log in memory of the consumer's shown decisions since the start, one post for each batch with a shown line, the newest 20,000 kept, never read from `dashboard.db`; made at start and only hidden; plain words for every shown kind and reason; the name, the short id or the group; the project with its path on hover; one line wide, two lines narrow, the detail going first; "last heard" at the top; `activityWindow` in the settings (§5.2, §5.6.1, §5.7, §8.2) | T1.70; issue #97 |
