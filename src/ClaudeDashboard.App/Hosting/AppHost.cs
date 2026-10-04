@@ -216,7 +216,8 @@ public static class AppHost
         // the only mutator and can therefore announce unconditionally; reading a file at startup is
         // not a change to a running system, and an announcement here would put an event at the head
         // of the pipeline before the consumer has started.
-        builder.Services.AddSingleton(sp => new RosterStore(sp.GetRequiredService<IEventSink>(), book));
+        builder.Services.AddSingleton(sp => new RosterStore(
+            sp.GetRequiredService<IEventSink>(), book, sp.GetRequiredService<Core.Ports.IClock>()));
         builder.Services.AddSingleton<SessionRegistry>();
         builder.Services.AddSingleton<SoundCatalog>();
         builder.Services.AddSingleton<ISoundPlayer, NAudioSoundPlayer>();

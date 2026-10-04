@@ -79,7 +79,7 @@ public sealed class QueueThroughputTests(ITestOutputHelper output)
 
         // The timings as the product wires them (T1.66): queue wait, apply time and the archive backlog
         // are measured on this path, so their cost is inside the bound.
-        var timings = new Timings(Logger.None);
+        var timings = new Timings(Logger.None, clock);
         archive.Backlog = timings.ArchiveBacklog;
 
         using var consumer = new EventConsumer(

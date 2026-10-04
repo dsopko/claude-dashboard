@@ -103,6 +103,13 @@ public sealed class HealthBoard
     /// <param name="recorder">The decisions recorder, with the tick's scope open.</param>
     public void Tick(DateTimeOffset now, ConsumerCounts consumer, DecisionRecorder? recorder)
     {
+        // The all-clears, on this tick only: a figure clears a full minute after its last value over the
+        // limit (T1.66 review).
+        foreach (var timing in Timings?.All ?? [])
+        {
+            timing.CheckClear(now);
+        }
+
         var counts = Gather(consumer);
 
         if (HourOf(now) > HourOf(_periodStart))

@@ -1,4 +1,5 @@
 using System.Globalization;
+using ClaudeDashboard.Core.Ports;
 using Serilog;
 
 namespace ClaudeDashboard.App.Pipeline;
@@ -25,14 +26,19 @@ public enum TimingUnit
 /// stall, not to measure speed (#86).
 /// </para>
 /// <para>
-/// <strong>Warn once.</strong> One Warning when a value crosses the limit, one Information line
-/// when a value is back under it, and nothing for each value in between. Never a line for each event.
+/// <strong>Warn once, and clear after a quiet minute</strong> (the director's ruling on the T1.66
+/// review). One Warning when a value first crosses the limit. The all-clear comes only when
+/// <see cref="ClearAfter"/> has passed with no value over the limit, checked on the consumer's tick
+/// (<see cref="CheckClear"/>). A figure that flaps around its limit therefore writes at most one
+/// Warning and one all-clear a minute, and the all-clear means the stall is over. Never a line for
+/// each event.
 /// </para>
 /// </remarks>
 public sealed class Timing
 {
     private readonly ILogger _logger;
     private readonly string _meaning;
+    private readonly IClock _clock;
 
     private long _count;
     private long _total;
@@ -41,6 +47,11 @@ public sealed class Timing
     private long _hourTotal;
     private long _hourWorst;
     private int _over;
+    private long _lastOverTicks;
+    private long _skipped;
+
+    /// <summary>How long with no value over the limit before the all-clear.</summary>
+    public static readonly TimeSpan ClearAfter = TimeSpan.FromMinutes(1);
 
     /// <summary>Creates a timing.</summary>
     /// <param name="name">The identifier, as <c>/state</c> and the lines name it.</param>
@@ -48,18 +59,21 @@ public sealed class Timing
     /// <param name="limit">The value above which it warns, in the unit's storage (ticks or records).</param>
     /// <param name="meaning">What a warning means, for the Warning line.</param>
     /// <param name="logger">Where the warning and its all-clear go.</param>
+    /// <param name="clock">The clock of the last over-limit value, for the all-clear.</param>
     /// <exception cref="ArgumentNullException">A reference argument is null.</exception>
-    public Timing(string name, TimingUnit unit, long limit, string meaning, ILogger logger)
+    public Timing(string name, TimingUnit unit, long limit, string meaning, ILogger logger, IClock clock)
     {
         ArgumentException.ThrowIfNullOrEmpty(name);
         ArgumentNullException.ThrowIfNull(meaning);
         ArgumentNullException.ThrowIfNull(logger);
+        ArgumentNullException.ThrowIfNull(clock);
 
         Name = name;
         Unit = unit;
         Limit = limit;
         _meaning = meaning;
         _logger = logger;
+        _clock = clock;
     }
 
     /// <summary>The identifier.</summary>
@@ -90,26 +104,64 @@ public sealed class Timing
         Interlocked.Add(ref _hourTotal, value);
         Raise(ref _hourWorst, value);
 
-        if (value > Limit)
+        if (value <= Limit)
         {
-            if (Interlocked.Exchange(ref _over, 1) == 0)
-            {
-                _logger.Warning(
-                    "The {Timing:l} was {Value:l}, over its limit of {Limit:l}. {Meaning:l} The next line on this says when it is back under.",
-                    Name,
-                    Show(value),
-                    Show(Limit),
-                    _meaning);
-            }
+            return;
         }
-        else if (Interlocked.Exchange(ref _over, 0) == 1)
+
+        // The instant first, then the flag: CheckClear reads them in the other order.
+        Interlocked.Exchange(ref _lastOverTicks, _clock.Now.UtcTicks);
+
+        if (Interlocked.Exchange(ref _over, 1) == 0)
         {
-            _logger.Information(
-                "The {Timing:l} is back under its limit of {Limit:l}: {Value:l}.",
+            _logger.Warning(
+                "The {Timing:l} was {Value:l}, over its limit of {Limit:l}. {Meaning:l} A line says when it has been back under for a minute.",
                 Name,
+                Show(value),
                 Show(Limit),
-                Show(value));
+                _meaning);
         }
+    }
+
+    /// <summary>
+    /// A value that could not be measured, such as an event with no arrival instant: counted, and not
+    /// recorded. Any thread.
+    /// </summary>
+    public void Skip() => Interlocked.Increment(ref _skipped);
+
+    /// <summary>How many values were skipped since the start.</summary>
+    public long Skipped => Interlocked.Read(ref _skipped);
+
+    /// <summary>
+    /// On the consumer's tick: writes the one all-clear when the figure was over its limit and
+    /// <see cref="ClearAfter"/> has passed since the last value over it.
+    /// </summary>
+    public void CheckClear(DateTimeOffset now)
+    {
+        var seen = Interlocked.Read(ref _lastOverTicks);
+
+        if (Volatile.Read(ref _over) == 0 || now.UtcTicks - seen < ClearAfter.Ticks)
+        {
+            return;
+        }
+
+        if (Interlocked.CompareExchange(ref _over, 0, 1) != 1)
+        {
+            return;
+        }
+
+        // A value crossed while this ran: the stall is not over.
+        if (Interlocked.Read(ref _lastOverTicks) != seen)
+        {
+            Interlocked.Exchange(ref _over, 1);
+            return;
+        }
+
+        _logger.Information(
+            "The {Timing:l} is back under its limit of {Limit:l}: no value over it for {Minutes:l} minute.",
+            Name,
+            Show(Limit),
+            ClearAfter.TotalMinutes.ToString(CultureInfo.InvariantCulture));
     }
 
     /// <summary>A copy of the figure since the start. Any thread.</summary>
@@ -119,7 +171,8 @@ public sealed class Timing
         Interlocked.Read(ref _count),
         Interlocked.Read(ref _total),
         Interlocked.Read(ref _worst),
-        Limit);
+        Limit,
+        Interlocked.Read(ref _skipped));
 
     /// <summary>
     /// The figure for the hour so far, and a fresh hour after it. The consumer, at the hourly summary.
@@ -160,7 +213,8 @@ public sealed class Timing
 /// <param name="Total">Their sum, in the unit's storage.</param>
 /// <param name="Worst">The largest, in the unit's storage.</param>
 /// <param name="Limit">The value above which it warns.</param>
-public sealed record TimingFigure(string Name, TimingUnit Unit, long Count, long Total, long Worst, long Limit)
+/// <param name="Skipped">Values that could not be measured, since the start (an event with no arrival instant).</param>
+public sealed record TimingFigure(string Name, TimingUnit Unit, long Count, long Total, long Worst, long Limit, long Skipped = 0)
 {
     /// <summary>The average, in milliseconds or records; 0 with no values.</summary>
     public double Average => Count == 0 ? 0 : Convert(Unit, Total) / Count;
@@ -195,29 +249,30 @@ public sealed record TimingFigure(string Name, TimingUnit Unit, long Count, long
 public sealed class Timings
 {
     /// <summary>Creates the six timings.</summary>
-    /// <exception cref="ArgumentNullException"><paramref name="logger"/> is null.</exception>
-    public Timings(ILogger logger)
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    public Timings(ILogger logger, IClock clock)
     {
         ArgumentNullException.ThrowIfNull(logger);
+        ArgumentNullException.ThrowIfNull(clock);
 
         QueueWait = new Timing(
             "queueWait", TimingUnit.Milliseconds, TimeSpan.FromSeconds(1).Ticks,
-            "The one thread that applies events is behind or stuck: rows and sounds are late.", logger);
+            "The one thread that applies events is behind or stuck: rows and sounds are late.", logger, clock);
         TickLateness = new Timing(
             "tickLateness", TimingUnit.Milliseconds, TimeSpan.FromSeconds(5).Ticks,
-            "Something blocked the thread that applies events: nudges and the silence sweep are late too.", logger);
+            "Something blocked the thread that applies events: nudges and the silence sweep are late too.", logger, clock);
         ApplyTime = new Timing(
             "applyTime", TimingUnit.Milliseconds, TimeSpan.FromMilliseconds(50).Ticks,
-            "Applying one event to the sessions took too long: a rule got slow.", logger);
+            "Applying one event to the sessions took too long: a rule got slow.", logger, clock);
         ArchiveBacklog = new Timing(
             "archiveBacklog", TimingUnit.Records, 512,
-            "The disk is slow: records are dropped at 1,024.", logger);
+            "The disk is slow: records are dropped at 1,024.", logger, clock);
         UiHop = new Timing(
             "uiHop", TimingUnit.Milliseconds, TimeSpan.FromMilliseconds(500).Ticks,
-            "The window's thread is stalled: the rows on screen are late.", logger);
+            "The window's thread is stalled: the rows on screen are late.", logger, clock);
         HookRoundTrip = new Timing(
             "hookRoundTrip", TimingUnit.Milliseconds, TimeSpan.FromSeconds(1).Ticks,
-            "The hook script, curl or a firewall is slow: each message from Claude Code costs this.", logger);
+            "The hook script, curl or a firewall is slow: each message from Claude Code costs this.", logger, clock);
     }
 
     /// <summary>Arrival to apply: the event's <c>Timestamp</c>, stamped at arrival, to the consumer's clock.</summary>
