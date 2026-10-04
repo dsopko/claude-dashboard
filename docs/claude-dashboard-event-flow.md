@@ -299,6 +299,8 @@ When an event changes a session, the Registry raises `SessionChanged` on the con
 
 The consumer never waits for the disk. The decisions of a tick have no event, so their `event_id` is NULL.
 
+**The run.** The same writer also writes one row in `runs` for each start of the dashboard, when the host has started: the time in UTC, the version, the port that ingress bound and the data folder. A clean stop sets `stopped_at` after the last records are written; a kill leaves it empty (T1.60).
+
 ---
 
 ## 10. Events that do not come from Claude Code
