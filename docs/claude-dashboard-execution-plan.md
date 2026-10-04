@@ -962,9 +962,9 @@ The work in GitHub milestone 3, "Observability 1": issues #3, #14, #67, #71, #72
 
 **Milestone 1F, second pass, closed 2026-10-04:** every issue in GitHub milestone 4 has a merged change: T1.59 (#84), T1.60 (#78), T1.61 (#74), T1.62 (#80), T1.63 (#79), T1.64 (#81 and #93), T1.65 (#76) and T1.66 (#86). `main` builds with 0 warnings, and both suites pass, 2096 of 2096. From T1.64 on, the director ruled alone, with the operator's delegation of 2026-10-04 ("make the best decisions you can without me"); each ruling is in its block. **Not built, and left for a later milestone:** the Activity window (the operator's ruling of 2026-10-03). **Before an installed copy takes T1.64:** the first start deletes history older than `history.retentionDays` (default 30). An operator who wants to keep it quits the dashboard, sets the key to `0`, then installs (README, Install).
 
-**Milestone 1F, third pass: GitHub milestone 5, "Observability 3".** Issues #99, #98 and #97. Each task is written here before it is dispatched, as in the first two passes. The operator may add an issue during the milestone. It goes in after the task in progress, unless the operator says that it is urgent.
+**Milestone 1F, third pass: GitHub milestone 5, "Observability 3".** Issues #99, #102, #98 and #97 (#102 added at the operator's word on 2026-10-04, after T1.67 began). Each task is written here before it is dispatched, as in the first two passes. The operator may add an issue during the milestone. It goes in after the task in progress, unless the operator says that it is urgent.
 
-**Order, set 2026-10-04 (operator):** #99 first, then #98, then #97. **Why:** #99 and #97 are separate pieces of work. #99 puts a sign on a row in the main window, and #97 is a new window; they share only the sound decisions that they listen to. #98 comes before #97, because the Activity window reads the session's name from the column that #98 adds.
+**Order, set 2026-10-04 (operator):** #99 first, then #98, then #97. **Why:** #99 and #97 are separate pieces of work. #99 puts a sign on a row in the main window, and #97 is a new window; they share only the sound decisions that they listen to. #98 comes before #97, because the Activity window reads the session's name from the column that #98 adds. #102 goes after T1.67, at the operator's word: the order is #99, #102, #98, #97.
 
 **Rulings, operator, 2026-10-04:**
 - #99: the sign goes on the row of the session that set off the sound, also in a group, and never on the group heading.
@@ -997,6 +997,43 @@ The work in GitHub milestone 3, "Observability 1": issues #3, #14, #67, #71, #72
   - Plants: (a) the sign also set on `SoundSuppressed`, and the muted test fails; (b) a group's sign put on no member, and the group test fails; (c) the minute not enforced, and the 60 s test fails.
   - Both suite counts; build clean, 0 warnings.
 - **Guardrails:** no change to which sounds play or when. No new timer, no new thread, and no lock that the consumer can wait on. The Registry is not written. Nothing new in the database. The motion rule holds: red blinks, working breathes, nothing else moves.
+- **Done 2026-10-04:** PR #101, merged as `ad65ce7`, `2006ab9`, `70818ca`, `9b7175b` (one fix cycle). The review found that a roster formed from sessions that had already finished played the group's sound and marked no row: the engine kept its own copy of each session's group, and a roster edit did not change it. **Fix (director's ruling):** the consumer names the member when the group settles, from the groups as they stand then (`RosterSettle.SettledBy`), and the engine keeps it with the group. **Ruling:** a member that ended last gets the sign; where its row is folded away (the flat view's Ended line, or a group's quiet line), no sign shows. **Accepted, and carried to T1.68 for the documents:** if the member that settled a group leaves the roster while the group stays settled, the group's reminder still marks that member. The sign shows for at least 60 s and less than 75 s. Not verified: a real sound device, Narrator, a real display at a fractional scale.
+
+**T1.68 — The history follows Claude Code's `cleanupPeriodDays`**
+- **Goal:** the dashboard deletes its history older than Claude Code's `cleanupPeriodDays`, so that text Claude Code has deleted does not stay in `dashboard.db`. `history.retentionDays` is no longer used. For issue #102.
+- **Depends:** T1.64 (the prune, its schedule, its one transaction and its lines; settings keep keys that they do not know), T1.62 (times in one UTC form)
+- **Realizes:** #102 as written, the operator's ruling of 2026-10-04. Its rule:
+  - The file is read, and `cleanupPeriodDays` is a whole number of 1 or more: keep that many days.
+  - The file is read, and the key is not there: 30 days, Claude Code's default.
+  - The file cannot be read or parsed, or the value is not valid (`0`, a negative number, a fraction, text): delete nothing.
+  - A value too large to count back from now: delete nothing.
+  - The number is read again at each prune (at start and every 24 hours), so a change takes effect at the next prune, with no restart.
+  - `history.retentionDays` is ignored and stays in the file, and one log line says so. Log only: nothing on screen.
+- **Director's rulings:**
+  - **Which file:** the `~/.claude/settings.json` that the dashboard already reads (Impl §9.3), found the same way. No other Claude Code settings file (project, local or managed): #102 names this one.
+  - **Valid means a JSON number that is a whole number of 1 or more.** A string (`"30"`), a fraction, `true` or `null` is not valid, so nothing is deleted.
+  - **A read that fails is not a history failure.** It shows no notice and does not start the store's retry minute (T1.54). The prune deletes nothing and says why in the log.
+  - **The lines:** at start, one line with the rule in use, written before any prune: "History follows Claude Code's cleanupPeriodDays: keeps 30 days.", with "(Claude Code's default)" when the key is absent; or "Claude Code's settings could not be read: history is kept in full."; or "Claude Code's cleanupPeriodDays is not valid: history is kept in full." Never the raw value of a key that is not valid. A daily prune writes the rule line again only when the rule differs from the last one written, so a quiet day writes no line.
+  - **The operator's own value is `99999`** (about 274 years). It counts back to 1752, so it is valid and keeps everything in practice. Test it, and test `99999999`, which cannot be counted back.
+- **Deliverables:**
+  - **The rule in Core:** from what was read (no file, not parsed, the key absent, the value) and the instant, give the limit or "delete nothing", with the cause. It is pure and tested alone.
+  - **The read in App**, on the archive writer's thread at each prune, through a seam that tests can fake. A file read and a JSON parse only, never a write.
+  - **The prune** of T1.64 takes its limit from the rule. Its schedule, its transaction and its counts line do not change.
+  - **The setting goes.** `DashboardSettings` loses `history.retentionDays` and its repair. The key, if present, is kept by the unknown-keys rule of T1.64 and written back unchanged. One Information line at start when it is present: it is no longer used, and history follows Claude Code's `cleanupPeriodDays`.
+  - **Carried from T1.67's review:** one sentence in Impl §5.6.3, "Which row": if the member that settled a group leaves the roster while the group stays settled, the group's reminder still marks that member.
+  - **Documents, in the same change:** Impl §8.2 (the key goes; it is ignored and kept), §8.3 (the prune's rule and its lines; the first-start warning rewritten), §9.3 (a second key read from Claude Code's settings, still never written), Appendix B where it names retention; TS §IV.6 and wherever retention is described; the README (the history paragraph and the first-start warning). One row each in TS Appendix D and Impl Appendix C. The release that carries this task needs notes that say: a dashboard set to keep everything (`history.retentionDays: 0`) no longer is; to keep a long history, set `cleanupPeriodDays` high in Claude Code's settings. The director writes the release notes.
+- **Acceptance:**
+  - Rows in `events`, `decisions` and `runs` at 31 and at 29 days of age, as in T1.64. With no key in a readable file, the 31-day rows go and the 29-day rows stay.
+  - With `cleanupPeriodDays: 10`, rows at 11 days go and rows at 9 days stay.
+  - No file, a locked file, a file that is not JSON, and the values `0`, `-1`, `1.5`, `"30"`, `true` and `99999999`: nothing is deleted, and the start line says why. No notice shows.
+  - With `99999`, nothing in the test data is deleted, and the line says "keeps 99999 days".
+  - Under a fake clock, the value changes from 30 to 10 between two prunes: the second prune uses 10, with no restart.
+  - `history.retentionDays: 0` in the dashboard's settings: it is ignored (the 31-day rows go, with no key in Claude Code's file), one line says so, and the key is still in the file after a save.
+  - Claude Code's settings file is never written: its bytes and its last-write time are unchanged after the prunes.
+  - No payload, no row time and no raw value that is not valid in a line.
+  - Plants: (a) a read that fails treated as 30 days, and the unreadable test fails; (b) the value read once at start and kept, and the change test fails; (c) `history.retentionDays` still obeyed, and the ignored test fails.
+  - Both suite counts; build clean, 0 warnings.
+- **Guardrails:** never write Claude Code's settings. No `VACUUM`. No change to the prune's schedule, its transaction or its thread. Tests use scratch folders and a fake path for Claude Code's settings, never the operator's `~/.claude` or data folder.
 
 ---
 
