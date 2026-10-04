@@ -48,7 +48,10 @@ public sealed class QueueThroughputTests(ITestOutputHelper output)
         var pipeline = new EventPipeline(Logger.None, clock: clock);
         var archive = new EventArchive(Logger.None, capacity: 4 * EventPipeline.DefaultCapacity);
         var rosters = new RosterStore(new RecordingEventSink());
-        var recorder = new DecisionRecorder(registry, rosters, archive, Logger.None);
+        // With the Activity window's log, as the product wires it (T1.70): the consumer picks the shown decisions
+        // and posts them; the posts wait in the queue, so this measures the consumer's side of it.
+        var activity = new ClaudeDashboard.App.Ui.ActivityLog(new QueueingDispatcher(), clock);
+        var recorder = new DecisionRecorder(registry, rosters, archive, Logger.None) { Decided = activity.Decided };
         var engine = new SoundPolicyEngine(new RecordingSoundPlayer(), clock, guard, new SoundPolicyOptions(), recorder);
         var dispatcher = new QueueingDispatcher();
         using var projection = new SessionProjection(registry, dispatcher);

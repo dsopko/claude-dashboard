@@ -156,6 +156,13 @@ public sealed record DashboardSettings
     public WindowSettings Window { get; init; } = new();
 
     /// <summary>
+    /// Where the Activity window was left (T1.70, issue #97): its place and size, kept as the main
+    /// window's are. <c>alwaysOnTop</c> is not used for it.
+    /// </summary>
+    [JsonPropertyName("activityWindow")]
+    public WindowSettings ActivityWindow { get; init; } = new();
+
+    /// <summary>
     /// Every key in the file that this version does not know, kept so that a save writes it back
     /// unchanged (T1.64).
     /// </summary>
@@ -214,6 +221,7 @@ public sealed record DashboardSettings
         Logging == other.Logging &&
         Sound == other.Sound &&
         Window == other.Window &&
+        ActivityWindow == other.ActivityWindow &&
         SameRosters(Rosters, other.Rosters);
 
     /// <inheritdoc/>
@@ -226,6 +234,7 @@ public sealed record DashboardSettings
         hash.Add(Logging);
         hash.Add(Sound);
         hash.Add(Window);
+        hash.Add(ActivityWindow);
 
         // Count only: two books with the same rosters in a different dictionary order must hash
         // alike, and hashing the contents in enumeration order would not guarantee that.

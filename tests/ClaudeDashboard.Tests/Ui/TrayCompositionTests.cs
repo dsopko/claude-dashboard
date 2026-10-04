@@ -184,7 +184,7 @@ public sealed class TrayCompositionTests : IDisposable
         });
 
         Assert.Equal(
-            ["Open", "Mute all", "Mute all for 30 min", "Pause monitoring", "Settings…", "Quit"],
+            ["Open", "Activity…", "Mute all", "Mute all for 30 min", "Pause monitoring", "Settings…", "Quit"],
             labels);
 
         var command = Assert.IsType<SoundCommand>(Assert.Single(queued));

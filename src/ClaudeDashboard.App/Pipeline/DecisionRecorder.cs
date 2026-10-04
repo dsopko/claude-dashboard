@@ -83,6 +83,13 @@ public sealed class DecisionRecorder : IDecisionSink, IDecisionLog
         _logger = logger;
     }
 
+    /// <summary>
+    /// Told with each record's decisions, the same ones handed to the archive, on the consumer thread (T1.70,
+    /// issue #97): the Activity window's log. Before the archive, and whatever the store then does: the
+    /// window shows what the dashboard did. Must post and return; a throw is swallowed.
+    /// </summary>
+    public Action<IReadOnlyList<Decision>>? Decided { get; set; }
+
     /// <summary>How many decisions have been recorded. Diagnostic only.</summary>
     public long RecordedCount { get; private set; }
 
@@ -143,7 +150,9 @@ public sealed class DecisionRecorder : IDecisionSink, IDecisionLog
         // the truth: nothing in the events table caused them.
         if (_externalBuffer.Count > 0)
         {
-            _archive.TryArchive(new ArchiveRecord(null, [.. _externalBuffer.Select(decision => Stamped(decision, null))]));
+            var external = new ArchiveRecord(null, [.. _externalBuffer.Select(decision => Stamped(decision, null))]);
+            Tell(external.Decisions);
+            _archive.TryArchive(external);
             _externalBuffer.Clear();
         }
 
@@ -165,6 +174,7 @@ public sealed class DecisionRecorder : IDecisionSink, IDecisionLog
             return;
         }
 
+        Tell(record.Decisions);
         _archive.TryArchive(record);
     }
 
@@ -446,6 +456,24 @@ public sealed class DecisionRecorder : IDecisionSink, IDecisionLog
             decision.ToState ?? "-",
             decision.Reason ?? "-",
             decision.Detail ?? "-");
+    }
+
+    /// <summary>Hands a record's decisions to the Activity window's log. A failure there never stops the consumer.</summary>
+    private void Tell(IReadOnlyList<Decision> decisions)
+    {
+        if (Decided is not { } decided || decisions.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            decided(decisions);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            _logger.Warning("Could not hand decisions to the Activity window: {ErrorType}.", ex.GetType().Name);
+        }
     }
 
     /// <summary>

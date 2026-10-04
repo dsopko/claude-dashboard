@@ -2459,6 +2459,7 @@ public sealed class MainWindowTests(StaHarness harness, Xunit.Abstractions.ITest
     /// </remarks>
     [Theory]
     [InlineData("MainWindow.xaml")]
+    [InlineData("ActivityWindow.xaml")]
     [InlineData("../App.xaml")]
     public void No_other_markup_in_the_application_animates(string file)
     {
@@ -3038,8 +3039,9 @@ public sealed class MainWindowTests(StaHarness harness, Xunit.Abstractions.ITest
                 Assert.Same(window.FindResource("RaisedBrush"), chip.Background);
                 Assert.Same(window.FindResource("InkBrush"), button.Foreground);
 
-                Assert.Equal(4, Grid.GetColumn(button));
-                Assert.Equal(4, ((Grid)button.Parent).ColumnDefinitions.Count - 1);
+                // Rightmost: column 5 since the Activity button joined the toolbar (T1.70).
+                Assert.Equal(5, Grid.GetColumn(button));
+                Assert.Equal(5, ((Grid)button.Parent).ColumnDefinitions.Count - 1);
                 Assert.Equal("Acknowledge every session that is waiting on you.", button.ToolTip);
 
                 // Selection mode must not hide the one action that clears the board.

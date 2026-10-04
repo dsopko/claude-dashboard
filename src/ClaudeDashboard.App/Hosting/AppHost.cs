@@ -263,6 +263,21 @@ public static class AppHost
         // The speaker sign's wire (T1.67, issue #99): from the engine's SoundMarked on the consumer
         // thread to the window, one post for each sound that played. Attached in Program, like UiTick.
         builder.Services.AddSingleton<SoundSigns>();
+
+        // The Activity window (T1.70, issue #97): its one list in memory, fed from the consumer's decisions
+        // (joined to the recorder after the build, below), its view model, and its host, which saves its place
+        // in the settings. By factory: the host takes the settings store, and the log its clock.
+        builder.Services.AddSingleton(sp => new ActivityLog(
+            sp.GetRequiredService<IUiDispatcher>(),
+            sp.GetRequiredService<Core.Ports.IClock>()));
+        builder.Services.AddSingleton(sp => new ActivityViewModel(
+            sp.GetRequiredService<ActivityLog>(),
+            sp.GetRequiredService<Core.Ports.IClock>(),
+            sp.GetRequiredService<HookHealth>()));
+        builder.Services.AddSingleton(sp => new ActivityWindowHost(
+            sp.GetRequiredService<ActivityViewModel>(),
+            sp.GetRequiredService<SettingsStore>(),
+            sp.GetRequiredService<ILogger>()));
         builder.Services.AddSingleton<IRosterPersistence, SettingsRosterPersistence>();
         builder.Services.AddSingleton<MainViewModel>();
         builder.Services.AddSingleton<MainWindow>();
@@ -440,6 +455,10 @@ public static class AppHost
         // — ingress for the pipeline, the consumer for the archive, Kestrel for /show — and ride
         // the recorder's cross-thread queue.
         var decisions = app.Services.GetRequiredService<DecisionRecorder>();
+
+        // The Activity window's log (T1.70): the recorder tells it with each record's decisions, the ones it
+        // hands to the archive, on the consumer thread, from the first event. Nothing is read from the file.
+        decisions.Decided = app.Services.GetRequiredService<ActivityLog>().Decided;
         var wallClock = app.Services.GetRequiredService<Core.Ports.IClock>();
 
         // A shed event is noise refused at the door (reason "noise", its kind in the detail); a lost
@@ -561,7 +580,8 @@ public static class AppHost
 
     /// <summary>
     /// Attaches the window's view model to the two wires from the consumer thread: the tick, which
-    /// ages the rows (T1.11), and the speaker sign, which shows the row that made a sound (T1.67).
+    /// ages the rows (T1.11), and the speaker sign, which shows the row that made a sound (T1.67). The
+    /// Activity window's view model joins the tick too (T1.70).
     /// <c>Program</c> calls it on the UI thread, once the window is built.
     /// </summary>
     /// <remarks>
@@ -577,6 +597,9 @@ public static class AppHost
 
         services.GetRequiredService<UiTick>().Attach(window);
         services.GetRequiredService<SoundSigns>().Attach(window);
+
+        // The Activity window's "last heard" moves with the clock too (T1.70).
+        services.GetRequiredService<UiTick>().Attach(services.GetRequiredService<ActivityViewModel>());
     }
 
     /// <summary>
