@@ -568,8 +568,8 @@ public sealed class SqliteEventStore : IEventStore, IDisposable
     }
 
     /// <summary>
-    /// Every run's <c>started_at</c>, as text, in id order — where replay forgets its sessions
-    /// (T1.60). Never modifies anything.
+    /// Every run's <c>started_at</c> and <c>stopped_at</c> (null after a kill), as text, in id
+    /// order: where replay forgets its sessions (T1.60). Never modifies anything.
     /// </summary>
     /// <remarks>
     /// Text, not parsed here: the caller compares instants, and a row that does not parse is the
@@ -577,7 +577,7 @@ public sealed class SqliteEventStore : IEventStore, IDisposable
     /// empty table and reads none, which replays as one run, as before.
     /// </remarks>
     /// <exception cref="ObjectDisposedException">The store is closed.</exception>
-    public IReadOnlyList<string> ReadRunStarts()
+    public IReadOnlyList<(string StartedAt, string? StoppedAt)> ReadRuns()
     {
         lock (_gate)
         {
@@ -586,18 +586,18 @@ public sealed class SqliteEventStore : IEventStore, IDisposable
             var connection = Connect();
 
             using var command = connection.CreateCommand();
-            command.CommandText = "SELECT started_at FROM runs ORDER BY id;";
+            command.CommandText = "SELECT started_at, stopped_at FROM runs ORDER BY id;";
 
-            var starts = new List<string>();
+            var runs = new List<(string StartedAt, string? StoppedAt)>();
 
             using var reader = command.ExecuteReader();
 
             while (reader.Read())
             {
-                starts.Add(reader.GetString(0));
+                runs.Add((reader.GetString(0), reader.IsDBNull(1) ? null : reader.GetString(1)));
             }
 
-            return starts;
+            return runs;
         }
     }
 
