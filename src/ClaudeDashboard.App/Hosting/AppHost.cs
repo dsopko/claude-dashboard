@@ -284,7 +284,16 @@ public static class AppHost
             sp.GetRequiredService<ILogger>(),
             sp.GetRequiredService<Core.Ports.IClock>()));
         builder.Services.AddSingleton<IEventStore>(sp => sp.GetRequiredService<SqliteEventStore>());
-        builder.Services.AddSingleton<EventArchiveWriter>();
+        // By factory (T1.60, issue #78): the writer also records this run in the runs table, with the
+        // version, the port ingress bound (none for a start that could not bind) and the data folder,
+        // stamped when the host has started.
+        builder.Services.AddSingleton(sp => new EventArchiveWriter(
+            sp.GetRequiredService<EventArchive>(),
+            sp.GetRequiredService<IEventStore>(),
+            sp.GetRequiredService<ILogger>(),
+            new RunStart(StartupVersion.Value, ingress.CanReceiveHooks ? ingress.Port : null, resolved.Root),
+            sp.GetRequiredService<Core.Ports.IClock>(),
+            sp.GetRequiredService<IHostApplicationLifetime>().ApplicationStarted));
         builder.Services.AddHostedService(sp => sp.GetRequiredService<EventArchiveWriter>());
 
         builder.Services.AddHostedService(sp => sp.GetRequiredService<EventConsumer>());

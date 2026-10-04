@@ -185,7 +185,21 @@ public sealed class GrowthMeasurement(Xunit.Abstractions.ITestOutputHelper outpu
             }
         }
 
-        return new FileInfo(path).Length;
+        // GROWTH, not the file: less the pages an empty database already holds. Each table costs a
+        // page before it has a row, so a new table (runs, T1.60) moved the whole-file figure by pages
+        // that a day does not add. The constant says how much the file grows in a day.
+        var empty = Path.Combine(_folder, "empty-" + name);
+
+        using (var store = new SqliteEventStore(empty, Serilog.Core.Logger.None))
+        {
+            // Opens the file and runs the schema step, and writes no row.
+            store.CountDecisions();
+        }
+
+        var bytes = new FileInfo(path).Length - new FileInfo(empty).Length;
+        _output.WriteLine($"{name}: {bytes:N0} bytes of growth ({new FileInfo(empty).Length:N0} bytes empty).");
+
+        return bytes;
     }
 
     private static int Sample(Random rng, (int Length, int Weight)[] distribution)

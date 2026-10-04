@@ -328,6 +328,9 @@ public sealed class UnprotectedTextInventory
         // T1.57: the port notice's window text and its tray copy: fixed text, port numbers and the
         // path of settings.json.
         "IngressStatus.Fault", "IngressStatus.Text", "IngressStatus.TrayText",
+        // T1.60: a runs row beside its times. The informational version, and the data folder, which is
+        // the one path the runs table holds.
+        "RunStart.DataRoot", "RunStart.Version",
         "SettingsLoadResult.Problem",
         "ShowSignalResult.Problem", "SingleInstanceGate.Name", "SqliteEventStore.Path",
     };
