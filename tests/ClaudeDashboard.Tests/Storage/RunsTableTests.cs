@@ -127,12 +127,14 @@ public sealed class RunsTableTests : IDisposable
 
     /// <summary>
     /// The writer writes the start row only once the host has started, first, before the records
-    /// queued while it waited, and not on the thread that started the host.
+    /// queued while it waited.
     /// </summary>
     /// <remarks>
     /// The time is the clock's at the moment the host started, taken on the starting thread. The
-    /// write is on the writer's loop. The consumer never holds the writer or the store, so the row
-    /// cannot be written on the consumer's thread; this shows it is not written on the starting one.
+    /// write is on the writer's loop: the code path shows it, because only that loop and the stop call
+    /// WriteRunStart, and the consumer never holds the writer or the store. A thread id does not show
+    /// it: a pool thread can run this test's continuation and later the writer's loop (T1.64 found
+    /// the same check failing that way in a full run).
     /// </remarks>
     [Fact]
     public async Task The_start_row_waits_for_the_host_and_comes_first()
@@ -151,7 +153,6 @@ public sealed class RunsTableTests : IDisposable
         Assert.Empty(store.Calls);
 
         clock.Now = TestEvents.At + TimeSpan.FromMinutes(1);
-        var startingThread = Environment.CurrentManagedThreadId;
         started.Cancel();
         clock.Now = TestEvents.At + TimeSpan.FromMinutes(2);
 
@@ -162,7 +163,6 @@ public sealed class RunsTableTests : IDisposable
         Assert.Equal("StartRun", store.Calls[0]);
         Assert.Equal("Append", store.Calls[1]);
         Assert.Equal(TestEvents.At + TimeSpan.FromMinutes(1), store.StartedAt);
-        Assert.NotEqual(startingThread, store.StartThread);
     }
 
     /// <summary>
@@ -239,8 +239,6 @@ public sealed class RunsTableTests : IDisposable
 
         public DateTimeOffset? StartedAt { get; private set; }
 
-        public int StartThread { get; private set; }
-
         public long? StoppedRun { get; private set; }
 
         public List<string> Calls
@@ -267,7 +265,6 @@ public sealed class RunsTableTests : IDisposable
         {
             Add("StartRun");
             StartedAt = startedAt;
-            StartThread = Environment.CurrentManagedThreadId;
             Started.TrySetResult();
 
             if (HoldStart)
@@ -284,6 +281,13 @@ public sealed class RunsTableTests : IDisposable
             StoppedRun = runId;
 
             return true;
+        }
+
+        public PruneCounts? Prune(int retentionDays, DateTimeOffset now, long? keepRunId)
+        {
+            Add("Prune");
+
+            return PruneCounts.None;
         }
 
         private void Add(string call)

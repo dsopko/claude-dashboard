@@ -40,22 +40,25 @@ namespace ClaudeDashboard.App.Storage;
 /// principal it would exclude is Administrators, who can read the file regardless.
 /// </para>
 /// <para>
-/// <strong>It grows without limit until Phase 5, and here is what that costs.</strong> There is no
-/// pruning here on purpose — retention is Phase 5's, and building half of it now would mean
-/// deleting the operator's history by a policy nobody has agreed. Measured at T1.17 through this
-/// store, at payload sizes taken from 4,439 real prompts and 11,757 real assistant messages across
-/// 95 active days:
+/// <strong>It keeps the retention window, and here is what that costs</strong> (T1.64, issue #81).
+/// <see cref="Prune"/> deletes what is older than <c>history.retentionDays</c>, 30 days by default,
+/// at each start and once a day; 0 keeps everything. The file stops growing and does not shrink:
+/// no <c>VACUUM</c>, by the operator's ruling. Two figures, and they differ by a factor of nine:
 /// </para>
 /// <list type="bullet">
-///   <item><description><strong>a typical day: about 292 KiB</strong> — see <see cref="TypicalBytesPerDay"/>.</description></item>
-///   <item><description><strong>the busiest day in 95: about 2.6 MiB</strong>, roughly nine times a typical one.</description></item>
-///   <item><description><strong>a year of typical days: about 104 MiB</strong>, unpruned.</description></item>
+///   <item><description><strong>The synthetic day: about 300 KiB</strong> (307,200 bytes) —
+///   see <see cref="TypicalBytesPerDay"/>. Written through this store at payload sizes taken from
+///   4,439 real prompts and 11,757 real assistant messages, with decisions at the real ratio. The
+///   busiest synthetic day is about 2.7 MiB.</description></item>
+///   <item><description><strong>The operator's real file: about 2.7 MB a day</strong> (2,709,104
+///   bytes over the 37.67 days its events spanned, measured on a copy on 2026-10-04). It carries
+///   what the synthetic day does not: tool batches, every kind of notification, larger answers.
+///   <strong>So the file holds at most the retention window: about 81 MB for 30 days.</strong></description></item>
 /// </list>
 /// <para>
-/// Those are upper bounds by construction — the per-day counts come from transcript entries, which
-/// over-count the hooks that actually arrive. <c>GrowthMeasurement</c> re-measures all of it on
-/// every build, and states what the figures do and do not cover. Anyone changing what is stored
-/// should read the new number off a test run rather than reasoning about it.
+/// <c>GrowthMeasurement</c> re-measures the synthetic day on every build, and states what it does
+/// and does not cover. Anyone changing what is stored should read the new number off a test run
+/// rather than reasoning about it.
 /// </para>
 /// <para>
 /// <strong>A dead disk is not a dead dashboard (TS §IV.7).</strong> If the file cannot be opened,
@@ -87,7 +90,7 @@ namespace ClaudeDashboard.App.Storage;
 public sealed class SqliteEventStore : IEventStore, IDisposable
 {
     /// <summary>
-    /// About how much this table grows on a typical active day — 300 KB, measured, not estimated.
+    /// The bound on the synthetic typical day — 340,000 bytes, measured, not estimated, with a margin.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -95,9 +98,12 @@ public sealed class SqliteEventStore : IEventStore, IDisposable
     /// wrote 294,912 bytes; this is that, rounded up. Since T1.60 the figure is the growth, less the
     /// pages an empty file already holds: 286,720 bytes, because a new table costs a page that a day
     /// does not add. Since T1.63 it includes the six indexes: 299,008 bytes, under the constant by
-    /// less than 1 %, so the next change that adds to each row may need the constant raised. It exists because the file is unpruned until
-    /// Phase 5 and holds the operator's prompts and Claude's answers: "retention is Phase 5" is
-    /// only reassuring if somebody has said what Phase 5 will be cleaning up.
+    /// less than 1 %. Since T1.64 the day writes decisions too, at 0.284 for each event, the ratio of
+    /// the operator's real file: 307,200 bytes. The constant is that with a margin of more than 10 %,
+    /// so a small change to a row does not fail the build and a large one does. The operator's real
+    /// file grows about nine times faster (see the class remarks); the documents state that rate.
+    /// It exists because the file holds the operator's prompts and Claude's answers: a retention
+    /// window is only reassuring if somebody has said what it holds.
     /// </para>
     /// <para>
     /// <strong>It is asserted, not merely written down.</strong> <c>GrowthMeasurement</c> writes a
@@ -107,7 +113,7 @@ public sealed class SqliteEventStore : IEventStore, IDisposable
     /// clothes: change what is stored and the test says so.
     /// </para>
     /// </remarks>
-    public const long TypicalBytesPerDay = 300_000;
+    public const long TypicalBytesPerDay = 340_000;
 
     private const string Schema = """
         CREATE TABLE IF NOT EXISTS events (
@@ -286,6 +292,12 @@ public sealed class SqliteEventStore : IEventStore, IDisposable
     /// </summary>
     internal Action? InsideConversion { get; set; }
 
+    /// <summary>
+    /// A test seam: runs inside the prune's transaction, just before the commit (T1.64). A test
+    /// throws here to make the prune fail and roll back.
+    /// </summary>
+    internal Action? InsidePrune { get; set; }
+
     /// <inheritdoc/>
     public bool Append(InboundEvent inboundEvent)
     {
@@ -429,6 +441,101 @@ public sealed class SqliteEventStore : IEventStore, IDisposable
     }
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// <para>
+    /// <strong>One transaction</strong> (T1.64, issue #81): the decisions of the events older than
+    /// the limit, those events, the decisions with no event older than the limit, and the runs that
+    /// started before it, except <paramref name="keepRunId"/>. A failure rolls every row back and
+    /// follows T1.54's rule, so an event never loses part of its record.
+    /// </para>
+    /// <para>
+    /// The limit is written in the one UTC form of T1.62 and compared as text, which T1.62 made
+    /// correct, and the index on <c>ts</c> of T1.63 makes cheap. No <c>VACUUM</c> (the operator's
+    /// ruling): the space of the deleted rows is used again for new rows, so the file stops growing
+    /// and does not shrink.
+    /// </para>
+    /// </remarks>
+    public PruneCounts? Prune(int retentionDays, DateTimeOffset now, long? keepRunId)
+    {
+        if (retentionDays <= 0)
+        {
+            return PruneCounts.None;
+        }
+
+        lock (_gate)
+        {
+            // Inside the minute after a failure: not now, and not counted as a lost record.
+            if (_disposed || _failedAt is { } failedAt && _clock.Now - failedAt < RetryAfter)
+            {
+                return null;
+            }
+
+            // A window older than the calendar keeps everything; this also keeps FromDays in range.
+            if (retentionDays >= (now - DateTimeOffset.MinValue).TotalDays)
+            {
+                return PruneCounts.None;
+            }
+
+            var limit = Utc(now - TimeSpan.FromDays(retentionDays));
+
+            try
+            {
+                var connection = Connect();
+                var watch = System.Diagnostics.Stopwatch.StartNew();
+
+                using var transaction = connection.BeginTransaction();
+
+                long Delete(string sql)
+                {
+                    using var command = connection.CreateCommand();
+                    command.Transaction = transaction;
+                    command.CommandText = sql;
+                    command.Parameters.AddWithValue("$limit", limit);
+                    command.Parameters.AddWithValue("$keep", (object?)keepRunId ?? DBNull.Value);
+                    return command.ExecuteNonQuery();
+                }
+
+                var decisions = Delete("DELETE FROM decisions WHERE event_id IN (SELECT id FROM events WHERE ts < $limit);");
+                var events = Delete("DELETE FROM events WHERE ts < $limit;");
+                decisions += Delete("DELETE FROM decisions WHERE event_id IS NULL AND ts < $limit;");
+                var runs = Delete("DELETE FROM runs WHERE started_at < $limit AND id IS NOT $keep;");
+
+                InsidePrune?.Invoke();
+                transaction.Commit();
+
+                Recorded();
+
+                var counts = new PruneCounts(events, decisions, runs);
+
+                if (counts.Total > 0)
+                {
+                    // Counts, the limit and the time it took: never a payload and never a row's time.
+                    _logger.Information(
+                        "Pruned {DatabaseFile} to the last {RetentionDays} days: deleted {Events} events, " +
+                        "{Decisions} decisions and {Runs} runs from before {Limit}, in {ElapsedMs} ms.",
+                        _path,
+                        retentionDays,
+                        events,
+                        decisions,
+                        runs,
+                        limit,
+                        watch.ElapsedMilliseconds);
+                }
+
+                return counts;
+            }
+            catch (Exception ex) when (ex is SqliteException or IOException or UnauthorizedAccessException or InvalidOperationException)
+            {
+                FailedCount++;
+
+                Unavailable(ex);
+
+                return null;
+            }
+        }
+    }
+
+    /// <inheritdoc/>
     public long? StartRun(RunStart run, DateTimeOffset startedAt)
     {
         ArgumentNullException.ThrowIfNull(run);
@@ -564,7 +671,8 @@ public sealed class SqliteEventStore : IEventStore, IDisposable
     /// Into memory rather than streamed, deliberately: the replay writes <c>decisions</c> rows on
     /// this same connection while it walks, and holding a reader open across those writes is the
     /// kind of same-connection interleaving that works until it does not. A month of history is
-    /// ~10 MB (the store's own measured 300 KB/day); the simplicity is worth the allocation.
+    /// about 80 MB at the operator's real rate (T1.64); the simplicity is worth the allocation, and
+    /// replay is run by hand on a copy.
     /// </remarks>
     /// <exception cref="ObjectDisposedException">The store is closed.</exception>
     public IReadOnlyList<ArchivedEvent> ReadEvents()
@@ -747,8 +855,8 @@ public sealed class SqliteEventStore : IEventStore, IDisposable
         if (first && _failedAt is null)
         {
             _logger.Information(
-                "Recording events to {DatabaseFile}. It is not pruned before Phase 5 and holds hook " +
-                "payloads, so it grows by roughly {BytesPerDay} bytes a day on typical traffic.",
+                "Recording events to {DatabaseFile}. It holds hook payloads and keeps the retention window " +
+                "in history.retentionDays; a synthetic typical day adds up to {BytesPerDay} bytes.",
                 _path,
                 TypicalBytesPerDay);
         }

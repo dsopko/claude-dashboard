@@ -11,9 +11,9 @@ namespace ClaudeDashboard.Tests.Storage;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <strong>Why this is a test rather than a note.</strong> The file is unpruned until Phase 5 and
-/// it holds the operator's prompts and Claude's answers. "Retention is Phase 5" is only reassuring
-/// if somebody has said what Phase 5 will be cleaning up, and a number nobody re-measures becomes
+/// <strong>Why this is a test rather than a note.</strong> The file keeps the retention window
+/// (T1.64) and holds the operator's prompts and Claude's answers. A window is only reassuring if
+/// somebody has said what it holds, and a number nobody re-measures becomes
 /// a guess wearing a measurement's clothes the first time the stored shape changes. Running here
 /// means it is re-measured on every build.
 /// </para>
@@ -75,6 +75,13 @@ public sealed class GrowthMeasurement(Xunit.Abstractions.ITestOutputHelper outpu
     /// Notifications a real logged day carried (Impl §9.1's correction). They hold no text.
     /// </summary>
     private const int NotificationsPerDay = 207;
+
+    /// <summary>
+    /// Decision rows written for each event: 0.284, the ratio in a copy of the operator's database
+    /// on 2026-10-04 (7,219 decisions to 25,412 events). Until T1.64 the day wrote no decisions, so
+    /// the figure left out the decision record and its three indexes (T1.63's report).
+    /// </summary>
+    private const double DecisionsPerEvent = 0.284;
 
     private readonly string _folder =
         Path.Combine(Path.GetTempPath(), "claude-dashboard-tests", Guid.NewGuid().ToString("N"));
@@ -154,7 +161,7 @@ public sealed class GrowthMeasurement(Xunit.Abstractions.ITestOutputHelper outpu
 
         Assert.True(
             perYear < 2L * 1024 * 1024 * 1024,
-            $"a year of typical days extrapolates to {perYear:N0} bytes, which is past what Phase 5 can treat as tidy-up");
+            $"a year of typical days extrapolates to {perYear:N0} bytes, which is too much for history.retentionDays 0, which keeps everything");
     }
 
     /// <summary>Writes one day of events at real sizes and returns the file's size on disk.</summary>
@@ -169,19 +176,43 @@ public sealed class GrowthMeasurement(Xunit.Abstractions.ITestOutputHelper outpu
 
         using (var store = new SqliteEventStore(path, Serilog.Core.Logger.None))
         {
+            // The day's decisions ride on its events at the measured ratio, as the live record writes
+            // an event and its decisions in one transaction.
+            var owed = 0.0;
+
+            void Append(UserPromptSubmit inboundEvent, int index)
+            {
+                owed += DecisionsPerEvent;
+                var decisions = new List<Decision>();
+
+                for (; owed >= 1; owed--)
+                {
+                    decisions.Add(new Decision(
+                        inboundEvent.Timestamp,
+                        $"s{index % 15}",
+                        DecisionKind.StateMoved,
+                        FromState: "Working",
+                        ToState: "Unread",
+                        Reason: "Applied",
+                        Detail: "silentMinutes=11"));
+                }
+
+                store.Append(new ArchiveRecord(inboundEvent, decisions));
+            }
+
             for (var i = 0; i < prompts; i++)
             {
-                store.Append(Event("UserPromptSubmit", "prompt", Sample(rng, PromptSizes), i));
+                Append(Event("UserPromptSubmit", "prompt", Sample(rng, PromptSizes), i), i);
             }
 
             for (var i = 0; i < answers; i++)
             {
-                store.Append(Event("Stop", "last_assistant_message", Sample(rng, AnswerSizes), i));
+                Append(Event("Stop", "last_assistant_message", Sample(rng, AnswerSizes), i), i);
             }
 
             for (var i = 0; i < NotificationsPerDay; i++)
             {
-                store.Append(Event("Notification", "notification_type", "idle_prompt".Length, i));
+                Append(Event("Notification", "notification_type", "idle_prompt".Length, i), i);
             }
         }
 

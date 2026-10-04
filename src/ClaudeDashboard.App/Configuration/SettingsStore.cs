@@ -142,6 +142,70 @@ public sealed class SettingsStore(DashboardPaths paths, Serilog.ILogger? logger 
         return null;
     }
 
+    /// <summary>
+    /// The values the load repaired, as one sentence each, or null: a port that is not a port, and
+    /// a negative <c>history.retentionDays</c> (T1.64). AppHost logs them as one Warning.
+    /// </summary>
+    private static string? Repaired(string json, DashboardSettings settings)
+    {
+        var problems = new[] { PortProblem(json, settings), HistoryProblem(json) }
+            .Where(problem => problem is not null)
+            .ToList();
+
+        return problems.Count == 0 ? null : string.Join(" ", problems);
+    }
+
+    /// <summary>
+    /// The sentence for a negative <c>history.retentionDays</c>, or null. The value is not repeated:
+    /// the sentence says what the dashboard does instead.
+    /// </summary>
+    private static string? HistoryProblem(string json)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(json, new JsonDocumentOptions
+            {
+                CommentHandling = JsonCommentHandling.Skip,
+                AllowTrailingCommas = true,
+            });
+
+            if (document.RootElement.ValueKind == JsonValueKind.Object &&
+                TryGetPropertyIgnoringCase(document.RootElement, "history", out var history) &&
+                history.ValueKind == JsonValueKind.Object &&
+                TryGetPropertyIgnoringCase(history, "retentionDays", out var days) &&
+                days.ValueKind == JsonValueKind.Number &&
+                days.TryGetInt64(out var value) &&
+                value < 0)
+            {
+                return
+                    "The \"history.retentionDays\" setting is negative, so the history keeps the default of " +
+                    $"{HistorySettings.DefaultRetentionDays} days. Set it to 0 to keep everything, or to the days to keep.";
+            }
+        }
+        catch (JsonException)
+        {
+            // Unreachable in practice: this runs only after a successful deserialize.
+        }
+
+        return null;
+    }
+
+    /// <summary>A property by name, ignoring case, as the deserializer reads it.</summary>
+    private static bool TryGetPropertyIgnoringCase(JsonElement element, string name, out JsonElement value)
+    {
+        foreach (var property in element.EnumerateObject())
+        {
+            if (string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase))
+            {
+                value = property.Value;
+                return true;
+            }
+        }
+
+        value = default;
+        return false;
+    }
+
     public SettingsLoadResult Load()
     {
         if (!File.Exists(_paths.SettingsFile))
@@ -161,7 +225,7 @@ public sealed class SettingsStore(DashboardPaths paths, Serilog.ILogger? logger 
                     new DashboardSettings(),
                     SettingsLoadOutcome.Unreadable,
                     "The settings file contained no object.")
-                : new SettingsLoadResult(settings, SettingsLoadOutcome.Loaded, PortProblem(json, settings));
+                : new SettingsLoadResult(settings, SettingsLoadOutcome.Loaded, Repaired(json, settings));
         }
         catch (JsonException ex)
         {

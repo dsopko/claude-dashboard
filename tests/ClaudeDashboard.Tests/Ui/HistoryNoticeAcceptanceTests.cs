@@ -104,7 +104,16 @@ public sealed class HistoryNoticeAcceptanceTests(StaHarness harness) : IDisposab
 
             var seen = _harness.Invoke(() =>
             {
-                _harness.Pump(DispatcherPriority.Background);
+                // Until the session reaches the window (issue #93): the consumer posts it to this thread,
+                // and one pump can run before that post is queued. Run alone, it always was.
+                var projection = built.Host.Services.GetRequiredService<SessionProjection>();
+                var waited = System.Diagnostics.Stopwatch.StartNew();
+
+                do
+                {
+                    _harness.Pump(DispatcherPriority.Background);
+                }
+                while (projection.Sessions.Count < 1 && waited.Elapsed < TimeSpan.FromSeconds(30));
 
                 // The 15-second tick that refreshes the tray, as the consumer would echo it.
                 var tray = built.Window.Tray;

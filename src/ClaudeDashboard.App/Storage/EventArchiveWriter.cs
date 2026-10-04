@@ -42,12 +42,26 @@ public sealed class EventArchiveWriter
     private readonly RunStart? _run;
     private readonly IClock? _clock;
     private readonly CancellationToken _hostStarted;
+    private readonly int _retentionDays;
     private readonly TaskCompletionSource<DateTimeOffset> _startedAt =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     private CancellationTokenRegistration _startedRegistration;
     private int _startTried;
     private long _runId;
+    private DateTimeOffset? _nextPruneAt;
+
+    /// <summary>
+    /// How often the history is pruned while the dashboard runs: once a day, after the prune at
+    /// start (the operator's ruling of 2026-10-04 on #81: it often runs for weeks).
+    /// </summary>
+    public static readonly TimeSpan PruneEvery = TimeSpan.FromHours(24);
+
+    /// <summary>
+    /// How often the loop wakes when no record arrives, to see whether a prune is due. A check of the
+    /// clock, not a timer: nothing is written unless the day is up.
+    /// </summary>
+    private static readonly TimeSpan Wake = TimeSpan.FromMinutes(1);
 
     /// <summary>Creates the writer, with no row in <c>runs</c>: for tests of the archive alone.</summary>
     /// <exception cref="ArgumentNullException">Any argument is null.</exception>
@@ -87,6 +101,28 @@ public sealed class EventArchiveWriter
         _hostStarted = hostStarted;
     }
 
+    /// <summary>Creates the writer that records this run and prunes the history (T1.60, T1.64).</summary>
+    /// <param name="archive">The channel it drains.</param>
+    /// <param name="store">The file.</param>
+    /// <param name="logger">Where the start, the retention and the stop are logged.</param>
+    /// <param name="run">What the run row holds beside its times.</param>
+    /// <param name="clock">The clock that stamps the start and the stop, and counts the days.</param>
+    /// <param name="retentionDays">The days of history to keep; 0 keeps everything (<c>history.retentionDays</c>).</param>
+    /// <param name="hostStarted">Cancelled when the host has started: ingress has bound or failed.</param>
+    /// <exception cref="ArgumentNullException">Any reference argument is null.</exception>
+    public EventArchiveWriter(
+        EventArchive archive,
+        IEventStore store,
+        ILogger logger,
+        RunStart run,
+        IClock clock,
+        int retentionDays,
+        CancellationToken hostStarted)
+        : this(archive, store, logger, run, clock, hostStarted)
+    {
+        _retentionDays = retentionDays;
+    }
+
     /// <summary>How many events this writer handed to the store. Diagnostic only.</summary>
     public long WrittenCount { get; private set; }
 
@@ -106,6 +142,18 @@ public sealed class EventArchiveWriter
     {
         if (_run is not null)
         {
+            // The retention in effect, BEFORE the loop starts, so before any prune line (T1.64).
+            if (_retentionDays > 0)
+            {
+                _logger.Information(
+                    "The history keeps {RetentionDays} days: older records are deleted at each start and once a day.",
+                    _retentionDays);
+            }
+            else
+            {
+                _logger.Information("The history keeps everything: history.retentionDays is 0.");
+            }
+
             // Synchronous, on the thread that starts the host: the time is taken before Start returns,
             // so before the announcement, and no hook this run accepts can be older than it.
             _startedRegistration = _hostStarted.Register(() => _startedAt.TrySetResult(_clock!.Now));
@@ -129,9 +177,35 @@ public sealed class EventArchiveWriter
                 WriteRunStart();
             }
 
-            await foreach (var record in _archive.Reader.ReadAllAsync(stoppingToken).ConfigureAwait(false))
+            // On this loop only, so the prune is on the writer's thread: never the consumer, the UI or
+            // a request thread, and the start never waits for it (T1.64).
+            Task<bool>? waiting = null;
+
+            while (true)
             {
-                Write(record);
+                PruneIfDue();
+
+                while (_archive.Reader.TryRead(out var record))
+                {
+                    // Before each record too: a day can end inside a batch of records.
+                    PruneIfDue();
+                    Write(record);
+                }
+
+                waiting ??= _archive.Reader.WaitToReadAsync(stoppingToken).AsTask();
+
+                if (await Task.WhenAny(waiting, Task.Delay(Wake, stoppingToken)).ConfigureAwait(false) == waiting)
+                {
+                    var more = await waiting.ConfigureAwait(false);
+                    waiting = null;
+
+                    if (!more)
+                    {
+                        break;
+                    }
+                }
+
+                stoppingToken.ThrowIfCancellationRequested();
             }
         }
         catch (OperationCanceledException)
@@ -210,6 +284,31 @@ public sealed class EventArchiveWriter
     /// Writes the run row once, if the host has started. Lost like any other record when the disk
     /// refuses, and counted by the store; never retried, because a late row would say the wrong time.
     /// </summary>
+    /// <summary>
+    /// Prunes when a prune is due: at the loop's first pass, then once each <see cref="PruneEvery"/>.
+    /// A prune the store could not do now (closed, or failing) is tried again a minute later, with
+    /// T1.54's retry. This process's run is kept, however long ago it started.
+    /// </summary>
+    private void PruneIfDue()
+    {
+        if (_run is null || _retentionDays <= 0)
+        {
+            return;
+        }
+
+        var now = _clock!.Now;
+
+        if (_nextPruneAt is { } next && now < next)
+        {
+            return;
+        }
+
+        var runId = Volatile.Read(ref _runId);
+        var result = _store.Prune(_retentionDays, now, runId > 0 ? runId : null);
+
+        _nextPruneAt = now + (result is null ? SqliteEventStore.RetryAfter : PruneEvery);
+    }
+
     private void WriteRunStart()
     {
         if (_run is null || !_startedAt.Task.IsCompletedSuccessfully || Interlocked.Exchange(ref _startTried, 1) == 1)

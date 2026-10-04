@@ -302,6 +302,8 @@ public static class AppHost
             sp.GetRequiredService<ILogger>(),
             new RunStart(StartupVersion.Value, ingress.CanReceiveHooks ? ingress.Port : null, resolved.Root),
             sp.GetRequiredService<Core.Ports.IClock>(),
+            // How long the history is kept (T1.64, issue #81): this start's first load, like every setting.
+            loaded.Settings.History.RetentionDays,
             sp.GetRequiredService<IHostApplicationLifetime>().ApplicationStarted));
         builder.Services.AddHostedService(sp => sp.GetRequiredService<EventArchiveWriter>());
 
@@ -639,6 +641,15 @@ public static class AppHost
 
         switch (loaded.Outcome)
         {
+            // A value the load repaired is one Warning (T1.64): a port that is not a port, a negative
+            // history.retentionDays. Until T1.64 the port's sentence was made and never logged.
+            case SettingsLoadOutcome.Loaded when loaded.Problem is { } repaired:
+                logger.Warning(
+                    "Settings loaded from {File}, with a value repaired: {Repaired}",
+                    paths.SettingsFile,
+                    repaired);
+                break;
+
             case SettingsLoadOutcome.Loaded:
                 logger.Information("Settings loaded from {File}.", paths.SettingsFile);
                 break;
