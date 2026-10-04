@@ -421,6 +421,7 @@ The engine keeps a due time for each session and plays what is due when it is as
 - **On disk:** the operator's settings; the rosters that the operator asked to remember; the place of the window; and an **event log**.
 - **The event log** is append-only. It holds each event with its full payload, and a **decision record**: each judgement that the dashboard made (a state change, a refusal, a sound played, a sound not played and the cause), next to the event that caused it. It answers "why did that sound play?".
 - The decision record holds identifiers and names only. It never holds a title, a prompt or an answer.
+- **The dashboard reports on itself while it runs:** what it counted (events applied and declined, events and records dropped, posts refused, records not written, what the loop did) can be read at any moment, and once an hour a summary goes into the event log. A gap between summaries shows when the dashboard was not running.
 - **The event log records each run of the dashboard:** when it started and stopped, its version and its port. A crash or a kill shows as a start with no stop. A replay of the log forgets every session at each start and at each clean stop, as the live dashboard does.
 - **A restart from the log** is the intent. *Not built.* So is search of the history (Phase 5).
 - **The log keeps 30 days by default**, a setting the operator owns; `0` keeps everything. It is pruned at each start and once a day. The space of the deleted rows is used again, so the file stops growing and does not shrink. A key in the settings file that a version does not know is kept when that version saves.
@@ -563,3 +564,4 @@ The text above says what is true now. This list says when each rule changed, for
 | 2026-10-03 | The event log records each start and stop of the dashboard, and a replay forgets every session at each start and each clean stop (§IV.6). Before, a replay ran the whole history as one run | T1.60; issue #78 |
 | 2026-10-03 | The dashboard tests the path from Claude Code at each start and on request, and says when messages cannot arrive or are refused; the tooltip says when it last heard from Claude Code (§IV.7) | T1.61; issue #74 |
 | 2026-10-04 | The event log keeps 30 days by default, a setting; it is pruned at each start and once a day, and does not shrink (§IV.6). Before, it was never pruned; the "retention not built" row of Appendix C goes | T1.64; issue #81 |
+| 2026-10-04 | The dashboard reports its counts at any moment and writes a summary into the event log each hour (§IV.6) | T1.65; issue #76 |

@@ -278,7 +278,7 @@ Each hook that the dashboard registers only observes. `/hook` answers `200` with
 | `bands` | object | The count for each band. All five keys are present, also at zero: `needsYou`, `unread`, `working`, `quiet`, `ended` |
 | `tray` | object | `worst`: the state that sets the tray light. `light`: `Red`, `Amber`, `Green`, `Blue` or `Grey` |
 | `sessions` | array | One entry for each session, in the order of the flat view |
-| `health` | object | The path from Claude Code (T1.61, issue #74). `lastHeardAt`: when the last real message was accepted, in UTC ending in `Z`, or null since start. `selfTest`: the last self-test, `passed`, `roundTripMs` (or null) and `at` (UTC), or null before the first has finished. Read when the request is served, not when the report is built. #76 adds to this object |
+| `health` | object | The path from Claude Code (T1.61, issue #74). `lastHeardAt`: when the last real message was accepted, in UTC ending in `Z`, or null since start. `selfTest`: the last self-test, `passed`, `roundTripMs` (or null) and `at` (UTC), or null before the first has finished. Read when the request is served, not when the report is built. **Since T1.65 (issue #76), also the consumer's last health snapshot,** up to one tick old and absent before the first tick: `version`; `startedAt` and `countedAt` (UTC); `ingress` (`port` or null, `receiving`); `database` (`Writing`, `NotWriting` or `NotYetKnown`); `soundOutput`; `modes` (`paused`, `mutedUntil` or null); `counts`, with `sinceStart`, `thisHour` (since the last hourly summary) and `lastHour` (`from`, `to`, `partial`, `counts`, or null before the first summary). Each set of counts has `applied`, `declined`, `uncorrelated`, `shed`, `lost` (the event channel's hard limit), `archiveDropped`, `refused`, `notWritten`, `ticks`, `sweeps` and `settles`. T1.66 adds its timings as one more member; no member moves |
 
 **One session**
 
@@ -316,6 +316,8 @@ Each hook that the dashboard registers only observes. `/hook` answers `200` with
 - **Before the first event,** the report has `sessionCount` 0, all bands 0, `tray.worst` `Ended`, `tray.light` `Grey` and no sessions.
 - **The report does not change with time alone.** It is built when a session changes and when a nudge fires. It holds instants, not ages. `health` is the exception: it is read at each request, because it is written on request threads.
 - **Not in the report:** the mute and pause modes, the rosters, the settle window's state of a group, the notice, and the row's clock anchor.
+
+The health snapshot crosses the same way (T1.65): `HealthBoard` builds one immutable `HealthSnapshot` on the consumer thread at each tick and stores it with one `Volatile.Write`; the request reads that one reference and never a live counter, the Registry or the sound engine. `HealthStateHostTests` holds it.
 
 How it crosses threads: `StateBoard` listens to `SessionChanged` and `NudgeScheduleAdvanced` on the consumer thread, builds a new immutable `StateReport`, and stores it with one `Volatile.Write`. A request does one `Volatile.Read`. `StateBoard` must subscribe **after** the sound engine, because it reads the nudge time that the engine has just set; `AppHost` resolves it in that sequence and `Hosting/StateHostTests.cs` holds it.
 
@@ -725,7 +727,7 @@ The dashboard's own settings. A person can edit it: comments and a comma at the 
 
 - A `sound` value that is absent or out of range takes Core's default. The file never holds a second copy of a default.
 - The `rosters` section is made valid when it is read (§2.5). Each correction is logged with the roster's name and never a member.
-- **A repaired value is one Warning at load** (T1.64): a `port` that is not a port, and a negative `history.retentionDays`. The line says what the dashboard does instead and does not repeat a negative value. Until T1.64 the port's sentence was made and never logged.
+- **A repaired value is one Warning at load** (T1.64): a `port` that is not a port, and a negative `history.retentionDays`. The line names the setting and what the dashboard does instead, and never the value (T1.65: the port's sentence named it until then). Until T1.64 the port's sentence was made and never logged.
 - **A key this version does not know is kept** (T1.64): `DashboardSettings.UnknownKeys` holds every top-level key it does not know, and a save writes it back unchanged. A save happens at every quit, so without this a key added for a newer version vanished at the first quit of an older one. A key it does not know inside a section it knows (`sound`, `window`, …) is still not kept.
 - **Not built:** keys for the nudge intervals, the Unread nudge, the stale time, the choice of sounds, mutes and the default view. Those values are fixed in the code.
 - **Known defects:** a save truncates the file before it writes (issue #7). A save after a failed read no longer replaces a malformed file with the defaults: the file is kept aside first (T1.56; issue #26 described the loss).
@@ -814,6 +816,7 @@ An event that the Registry declined is in the table too. A `SoundCommand` and a 
 | `EventDropped` | The event channel shed noise at its capacity, or a full channel dropped its oldest (Part 4) | `noise` · `kind=… type=…` (the shed event's kind), or `pipeline` (the event channel's hard limit) or `archive` |
 | `ApplyFailed` | `Apply` threw | The **type** of the exception |
 | `HookRefused` | A `/hook` post was refused: its token did not match (T1.61). At most one row a second, with the count | — · `refused=…` (the refusals since the last row). No event, no session: nothing from the post |
+| `HourlySummary` | At the first tick after each full UTC clock hour: the counts since the previous summary (T1.65) | `partial` for the first one after a start · `applied=… declined=… uncorrelated=… shed=… lost=… archiveDropped=… refused=… notWritten=… ticks=… sweeps=… settles=…`. No event, no session |
 | `TrayLightChanged` | The tray colour changed | The worst state; the colours are in `from_state` and `to_state` |
 | `WindowSurfaced` | A `/show` | — |
 | `RosterEdited` | The operator edited a roster | — |
@@ -863,6 +866,9 @@ Serilog, to `logs\dashboard-<date>.log`. One file for each day, 14 files kept, 1
 
 - The first line of a start is the version.
 - The log never holds a title, a prompt, an answer, a payload or a task description (§3.4).
+- **One Information line each hour** (T1.65, issue #76), at the first tick after each full UTC clock hour, with the counts since the previous summary in the form of the `HourlySummary` row's detail: `Hourly summary, from <from> to <to>: applied=212 declined=1840 …`. The first one after a start says `partial since the start`. The dashboard almost never quits cleanly, so the counts are written while it runs, and a gap between lines shows when it was not running. No new timer: the 15-second tick writes it. `--replay` writes none.
+- **The stop line** gives the same counts in the same form, since the start: `Event consumer stopped. Since the start: applied=… …`. No `HourlySummary` row at a stop: the consumer has drained, so a decision written then has no scope to leave in.
+- **Counts that must stay at zero** already have their line or their notice, and T1.65 adds none: a shed or lost event warns once per episode (Part 4), an uncorrelated `Stop` warns each time, a refused post warns each time and shows its notice (§9.4), and a store failure shows its notice and writes its recovery line (§8.3). A record the archive channel drops is a `Debug` line, and its count is written at the stop and now in each hourly line.
 - **The file keeps the level that `logging.minimumLevel` sets**, Information by default. At `Debug` the file also keeps the decision record, one line for each decision, and one line for each event the Registry declined. Every `Debug` line holds identifiers only. The file sink had a fixed Information floor of its own until T1.52 (issue #68), so `Debug` did not reach the file. The `decisions` table is still the record to query.
 
 ### 8.5 Environment variables
@@ -1123,3 +1129,4 @@ The text above says what is true now. This list says when each part changed.
 | 2026-10-04 | Every time in `dashboard.db` is UTC text in one form; existing rows are converted once, and the file has `user_version` 1. The documented query takes UTC. "No refusal goes unrecorded" holds while the dashboard runs (Part 4, §3.2, §8.3) | T1.62; issue #80 |
 | 2026-10-04 | Six indexes on `events` and `decisions`, created after the T1.62 conversion; a typical day is 299,008 bytes with them, about 110 MB a year (§8.3) | T1.63; issue #79 |
 | 2026-10-04 | The history keeps 30 days by default (`history.retentionDays`; 0 keeps everything), pruned at each start and once a day; settings keep top-level keys they do not know; a repaired value is logged; the growth is at most the window, about 81 MB for 30 days (§8.2, §8.3, Appendix B) | T1.64; issues #81, #93 |
+| 2026-10-04 | `/state`'s `health` has the counts since the start, for the present hour and for the last hour, with the version, the start, the ingress, the database, the sound output and the modes; an hourly summary line and `HourlySummary` row; the stop line gives the same counts. The repaired-port sentence no longer names the value (§3.5, §8.2, §8.3, §8.4) | T1.65; issue #76 |
