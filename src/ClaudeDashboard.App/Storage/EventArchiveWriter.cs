@@ -49,6 +49,7 @@ public sealed class EventArchiveWriter
     private CancellationTokenRegistration _startedRegistration;
     private int _startTried;
     private long _runId;
+    private long _refusedCount;
     private DateTimeOffset? _nextPruneAt;
 
     /// <summary>
@@ -126,8 +127,11 @@ public sealed class EventArchiveWriter
     /// <summary>How many events this writer handed to the store. Diagnostic only.</summary>
     public long WrittenCount { get; private set; }
 
-    /// <summary>How many the store refused. Diagnostic only.</summary>
-    public long RefusedCount { get; private set; }
+    /// <summary>
+    /// How many records the store refused: its failed writes and the records it lost inside the
+    /// retry minute, since the start. Read from any thread (T1.65: the health counts read it).
+    /// </summary>
+    public long RefusedCount => Interlocked.Read(ref _refusedCount);
 
     /// <summary>Starts the writer, and says so before returning.</summary>
     /// <remarks>
@@ -277,7 +281,7 @@ public sealed class EventArchiveWriter
 
         // Counted, not logged. The store has already said once why it cannot write, and a line
         // per lost row would bury that one line under thousands.
-        RefusedCount++;
+        Interlocked.Increment(ref _refusedCount);
     }
 
     /// <summary>

@@ -17,8 +17,10 @@ namespace ClaudeDashboard.Tests.Pipeline;
 /// <remarks>
 /// The composed host, against a scratch data folder. The consumer ticks every 15 seconds, so for
 /// the first seconds after the start no snapshot exists while the consumer has already applied an
-/// event: a request that read a live count would show it, and the snapshot shows nothing. If a tick
-/// falls between the two reads below, the check is taken again.
+/// event: a request that read a live count would show a count there, and the snapshot gives null.
+/// After the first tick the snapshot and the live count agree, so the test then holds that
+/// <c>/state</c> equals the snapshot. If a tick falls between the two reads below, the check is taken
+/// again.
 /// </remarks>
 public sealed class HealthStateHostTests : IAsyncLifetime, IDisposable
 {
@@ -64,7 +66,11 @@ public sealed class HealthStateHostTests : IAsyncLifetime, IDisposable
 
     private string Token => _app.Services.GetRequiredService<IngressToken>().Reveal();
 
-    /// <summary>The counts in <c>/state</c> are the published snapshot's, even while the live count is ahead.</summary>
+    /// <summary>
+    /// The counts in <c>/state</c> are the published snapshot's: every snapshot field is null before
+    /// the first tick, although the consumer has already applied an event, and equals the snapshot
+    /// after it.
+    /// </summary>
     [Fact]
     public async Task State_shows_the_snapshot_and_not_the_live_count()
     {
@@ -99,9 +105,13 @@ public sealed class HealthStateHostTests : IAsyncLifetime, IDisposable
 
             if (before is null)
             {
-                Assert.False(
-                    health.TryGetProperty("counts", out var counts) && counts.ValueKind != JsonValueKind.Null,
-                    "/state showed counts before the consumer published any.");
+                // Null, not absent, before the first tick: one rule for every health field (T1.65 review).
+                foreach (var field in new[] { "version", "startedAt", "countedAt", "ingress", "database", "soundOutput", "modes", "counts" })
+                {
+                    Assert.True(
+                        health.TryGetProperty(field, out var value) && value.ValueKind == JsonValueKind.Null,
+                        $"/state's health.{field} was not null before the consumer published any counts.");
+                }
             }
             else
             {
