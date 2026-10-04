@@ -27,8 +27,9 @@ public interface ICleanupPeriodSource
 /// </para>
 /// <para>
 /// What it finds, and nothing more: <see cref="HistoryRetention"/> judges it. No file, a file that cannot
-/// be read, one that does not parse, an empty one and one whose root is not an object are all "not
-/// read", and delete nothing. The key is matched as Claude Code writes it, <c>cleanupPeriodDays</c>.
+/// be read, one that is not strict JSON (a comment or a trailing comma included), an empty one and one
+/// whose root is not an object are all "not read", and delete nothing. The key is matched as Claude
+/// Code writes it, <c>cleanupPeriodDays</c>.
 /// </para>
 /// </remarks>
 public sealed class ClaudeCleanupPeriod(ClaudeCodePaths claude) : ICleanupPeriodSource
@@ -36,10 +37,16 @@ public sealed class ClaudeCleanupPeriod(ClaudeCodePaths claude) : ICleanupPeriod
     /// <summary>The key, as Claude Code's settings spell it.</summary>
     public const string Key = "cleanupPeriodDays";
 
+    /// <summary>
+    /// Strict JSON: no comments and no comma at the end of a list (the T1.68 review). Unlike the hook
+    /// check (Impl §9.3), which accepts both. If Claude Code refuses such a file, it pauses its own
+    /// cleanup; a lenient read here would then delete what Claude Code keeps, which is the wrong side
+    /// for #102. So a file with either one is "not read", and nothing is deleted.
+    /// </summary>
     private static readonly JsonDocumentOptions ReadOptions = new()
     {
-        CommentHandling = JsonCommentHandling.Skip,
-        AllowTrailingCommas = true,
+        CommentHandling = JsonCommentHandling.Disallow,
+        AllowTrailingCommas = false,
     };
 
     private readonly ClaudeCodePaths _claude = claude ?? throw new ArgumentNullException(nameof(claude));

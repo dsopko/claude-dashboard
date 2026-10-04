@@ -111,7 +111,7 @@ public sealed class PhaseOneAcceptanceTests(StaHarness harness) : IDisposable
         // two-minute hang, on the first version of this test.
         var built = _harness.Invoke(() =>
         {
-            var host = AppHost.Build(paths);
+            var host = AppHost.Build(paths, claude: new ClaudeCodePaths(Path.Combine(paths.Root, "claude-config")));
             host.Start();
 
             _ = host.Services.GetRequiredService<SessionProjection>();
@@ -267,7 +267,7 @@ public sealed class PhaseOneAcceptanceTests(StaHarness harness) : IDisposable
 
         var built = _harness.Invoke(() =>
         {
-            var host = AppHost.Build(paths);
+            var host = AppHost.Build(paths, claude: new ClaudeCodePaths(Path.Combine(paths.Root, "claude-config")));
             host.Start();
             _ = host.Services.GetRequiredService<SessionProjection>();
             var window = host.Services.GetRequiredService<MainWindow>();
