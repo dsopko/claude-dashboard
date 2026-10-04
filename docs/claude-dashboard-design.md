@@ -142,7 +142,7 @@ A **notice** is the first sound for an event. A **nudge** is the reminder.
 This section is the authority for the anatomy of a row and for the motion rule. Impl §5.6 gives each rule with its exact value.
 
 - **Caption:** the application name and the **counts strip** ("11 sessions · 3 need you · 2 unread · 1 working"). When the window is narrow, the strip drops words before numbers.
-- **Toolbar:** the Grouped/Flat toggle · Select · Mute all · Ack all.
+- **Toolbar:** the Grouped/Flat toggle · Select · Activity · Mute all · Ack all.
 - **Notice:** amber lines under the toolbar, one for each thing the operator must see and would not otherwise: the dashboard cannot get a port, it is not connected to Claude Code, messages from Claude Code cannot arrive or are being refused, history is not being recorded, there is no sound device, the settings file could not be read, or the dashboard fell behind and skipped or lost events. Each says what is wrong and what to do, and each clears by its own rule. Two can be true at one time, so the row is a list in a fixed order, the port first. A dashboard that receives nothing, records nothing, plays nothing or runs on its defaults must not look like a quiet day.
 - **Body:** groups (or bands) of session rows.
 - **Session row:** status light · the session's title where it has one, then the start of the prompt (monospace: it *is* terminal text) · a badge with the state · a speaker sign for a minute after a sound · the age · an Ack on a row that waits. The title is what Claude Code calls the session: a name that the operator set with `--name` or `/rename`, or one that Claude Code made. It is cut to a fixed length and does not take space from the prompt. A session with no title shows the prompt only.
@@ -158,6 +158,24 @@ This section is the authority for the anatomy of a row and for the motion rule. 
 **Motion: red blinks; working breathes; nothing else moves.** With animations off in Windows, nothing moves at all. The speaker sign does not move either: it is on, and after a minute it is off.
 
 **The tray palette and the row palette differ on purpose.** A lone question is amber in the tray and red on its row. The tray triages (*how urgently must I look?*). The row diagnoses (*what does it do?*).
+
+### 9.1 The Activity window
+
+A window named **Activity** lists what the dashboard did since it started, newest first, in plain words. It answers "what made that sound?": the top line with `♪` is a sound that played. A "no sound" line says why: muted, paused, the group owns the sound, announced before, or no sound device. It opens from the tray menu and from the toolbar, and it remembers where it was.
+
+```
+14:32  ♪ finished          Director    claude-dashboard
+14:31    no sound          Coder       claude-dashboard    finished, its group owns the sound
+14:30  ♪ permission        Reviewer    penn-quote          reminder, waiting 7 min
+```
+
+- **Each line:** the time, `♪` for a sound that played, what occurred, the session's name, the project and the detail. Plain words, never code names: "working again", "went quiet: no event for 10 minutes". A session with no name shows its short id. A group's sound shows the group's name.
+- **The project** is the last folder of the session's path, by the main window's rule, so one project has one name in both windows. The hover gives the full path.
+- **Wide, one line in columns. Narrow, two lines** like a row in the main window, the second small and grey. Narrower still, the detail goes first, then the project. The time, the `♪`, what occurred and the name never go, and the hover on a line holds everything.
+- **At the top:** when the dashboard last heard from Claude Code, in the tray tooltip's words.
+- **This start only, in memory:** the window is a log of what the dashboard did since it started, kept from the start whether the window is open or not. It never reads the database. The newest 20,000 lines are kept, and the bottom says so when older ones have gone.
+- It moves nothing. A click on a line and "Show activity" on a row come next (#97).
+
 
 ## 10. Phase plan
 
@@ -213,3 +231,4 @@ Each phase can ship alone. Phase 7 is the reason that the domain model stays apa
 | 2026-10-04 | The event log keeps 30 days by default, as a setting | Issue #81 |
 | 2026-10-04 | A speaker sign on the row that made a sound, for one minute: only a sound that played, on the member whose finish settled a group and never on the heading, still, and the first thing to go in a narrow row (§9) | T1.67; issue #99 |
 | 2026-10-04 | The event log follows Claude Code's `cleanupPeriodDays` and has no retention setting of its own (§12) | Issue #102 |
+| 2026-10-04 | The Activity window: what the dashboard did since it started, newest first, in plain words, with each line's session and project (§9.1) | Issue #97 |
