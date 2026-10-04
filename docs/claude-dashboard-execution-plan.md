@@ -837,6 +837,32 @@ The work in GitHub milestone 3, "Observability 1": issues #3, #14, #67, #71, #72
   - Plants: (a) the conversion skips `decisions`, and the both-tables test fails; (b) the new-row writer uses `ToUniversalTime().ToString("o")`, and the one-form test fails.
   - Both suite counts; build clean, 0 warnings.
 - **Guardrails:** tests use scratch folders, and only a copy of the operator's database. The conversion never changes a payload, a row id or a row count. No `VACUUM` (the operator's #81 ruling). No `ts` value or payload in a log line. Replay opens its file through the store, so replay over a file that was never converted converts it first: the instants and the rows are unchanged, and only the form of the time changes. Say so where the documents state that replay never modifies `events` (T1.37).
+- **Done 2026-10-04:** PR #91, merged as `0f93e45`, `0b16666` (no fix cycle). On a copy of the operator's database, the conversion took under a second for about 32,000 rows, and the file grew by 3.5 MB (no `VACUUM`). Carried item (a) was reworded ("while the dashboard runs"), not flushed: at a stop the consumer has already drained, so a decision written then has no scope to leave in. T1.60's offset test can no longer tell a text comparison from an instant comparison, because every time is in one UTC form; the parse is held by the conversion tests. Note: Windows' own `winsqlite3.dll` (3.51.1) answers NULL to `datetime(…, 'localtime')`; the SQLite that ships with the dashboard (3.53.3) does not. Carried to T1.63: `ReplaySwitch.cs:140` says "Nothing was written." after it converted an old file; "No decisions were written." is exact.
+
+**T1.63 — The history database has indexes**
+- **Goal:** a query by session, by time or by kind reads only the rows it needs, so the documented queries, and the readers to come (the health block, a later Activity window), stay fast as the file grows. For issue #79.
+- **Depends:** T1.62 (the times are in one UTC form, so an index on `ts` orders them correctly; the conversion runs before the indexes exist on an old file)
+- **Realizes:** #79 as written. The indexes go in the same schema step that creates the tables, so an existing file gains them at its next start.
+- **Deliverables:**
+  - **The six indexes**, each `CREATE INDEX IF NOT EXISTS`, in the store's schema step, on the archive writer's thread:
+    - `ix_events_session_id ON events (session_id, id)`
+    - `ix_events_ts ON events (ts)`
+    - `ix_decisions_session_id ON decisions (session_id, id)`
+    - `ix_decisions_event_id ON decisions (event_id)`
+    - `ix_decisions_ts ON decisions (ts)`
+    - `ix_decisions_kind_ts ON decisions (kind, ts)`, which serves "every sound played between 14:00 and 14:10".
+  - **Order on an old file:** the T1.62 conversion first, then the indexes, so the conversion does not also update six indexes. Say how the code makes that order certain.
+  - **The growth figure.** An index adds bytes to every insert. `GrowthMeasurement` re-measures a typical day; read its new figure. If it is over `TypicalBytesPerDay` (300,000), raise the constant to the measured figure with a margin, give the reason beside it, and change the "300 KB a day" and "100 MB a year" figures in the store's remarks and in the documents. #81 later replaces "a year" with "at most the retention window"; this task only makes the figures true.
+  - **Documents, in the same change:** Impl §8.3 (the indexes, and the growth figure wherever it appears); the growth figure in TS §IV.6 and elsewhere if it is given (find each). One row in Impl Appendix C, and in TS Appendix D if TS changes.
+  - **Carried from T1.62:** `ReplaySwitch.cs:140` says "No decisions were written." in place of "Nothing was written.", because replay converts an old file before it refuses it.
+- **Acceptance:**
+  - A new file has the six indexes (`sqlite_master`). A file made before this change gains them at the next open, with its rows unchanged.
+  - `EXPLAIN QUERY PLAN` for the query in Impl Part 4 and the query in event flow §12, on a test file with enough rows to matter, uses the indexes and shows no `SCAN` of `events` or `decisions`. A test holds this, so that a later change to a query or an index that brings back a scan fails.
+  - **On a copy of the operator's database** (copy `dashboard.db` and any `-wal` to a scratch folder; never open the original): the time of each of the two queries before and after, the time it took to create the indexes, and the size before and after. Counts and times only.
+  - The new growth figure, and the constant if it changed.
+  - Plant: remove `ix_decisions_kind_ts`, and the query-plan test fails.
+  - Both suite counts; build clean, 0 warnings.
+- **Guardrails:** no change to the columns of any table, to the T1.62 conversion or to `user_version`. No `VACUUM` (the operator's #81 ruling). Tests use scratch folders, and only a copy of the operator's database.
 
 ---
 
