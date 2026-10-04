@@ -228,6 +228,8 @@ public sealed class UnprotectedTextInventory
         "SessionViewModel.BadgeText",
         "SessionViewModel.Cwd", "SessionViewModel.Detail", "SessionViewModel.ErrorKind",
         "SessionViewModel.GroupTag",
+        // T1.67: the speaker sign's hover, "played: finished, 20s ago": a sound id and a duration.
+        "SessionViewModel.SoundSignText",
 
         // The session id on the expanded row (T1.23, issue #15). An IDENTIFIER, not operator or
         // Claude text — Claude Code mints it and nothing the operator typed reaches it — so issue

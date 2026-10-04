@@ -259,6 +259,10 @@ public static class AppHost
         builder.Services.AddSingleton<MotionPolicy>();
         builder.Services.AddSingleton<UiTick>();
         builder.Services.AddSingleton<IUiTick>(sp => sp.GetRequiredService<UiTick>());
+
+        // The speaker sign's wire (T1.67, issue #99): from the engine's SoundMarked on the consumer
+        // thread to the window, one post for each sound that played. Attached in Program, like UiTick.
+        builder.Services.AddSingleton<SoundSigns>();
         builder.Services.AddSingleton<IRosterPersistence, SettingsRosterPersistence>();
         builder.Services.AddSingleton<MainViewModel>();
         builder.Services.AddSingleton<MainWindow>();
@@ -404,6 +408,10 @@ public static class AppHost
         registry.SessionChanged += (_, e) =>
             sound.OnSessionChanged(e.Session, GroupKeys.Effective(e.Session, rosters.Book));
         var projection = app.Services.GetRequiredService<SessionProjection>();
+
+        // Resolved here so it listens to the engine from the first event (T1.67). Order does not
+        // matter: it only posts, and a sound before the window is attached reaches no row.
+        _ = app.Services.GetRequiredService<SoundSigns>();
 
         // A session that changes is a hook event that arrived, and an arriving event is proof
         // that Claude Code reaches this dashboard. So it clears a notice that said nothing was

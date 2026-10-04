@@ -4,6 +4,7 @@ using System.ComponentModel;
 using System.Globalization;
 using ClaudeDashboard.App.Configuration;
 using ClaudeDashboard.Core;
+using ClaudeDashboard.Core.Ports;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 
@@ -41,7 +42,7 @@ namespace ClaudeDashboard.App.Ui;
 /// touches only what actually moved.
 /// </para>
 /// </remarks>
-public sealed partial class MainViewModel : ObservableObject, IUiTickTarget, IDisposable
+public sealed partial class MainViewModel : ObservableObject, IUiTickTarget, ISoundSignTarget, IDisposable
 {
     /// <summary>
     /// How long a group must be entirely quiet before it collapses to one line
@@ -62,6 +63,13 @@ public sealed partial class MainViewModel : ObservableObject, IUiTickTarget, IDi
     private readonly Dictionary<GroupKey, GroupViewModel> _groupHeaders = [];
     private readonly Dictionary<AttentionBand, BandHeaderViewModel> _bandHeaders = [];
     private readonly Dictionary<string, QuietFooterViewModel> _footers = [];
+
+    /// <summary>
+    /// The last sound that played for each session, kept here as well as on its row (T1.67): the
+    /// sound can reach this thread before the session's first row exists, and a row built later
+    /// takes it. Forgotten on the first refresh after its minute.
+    /// </summary>
+    private readonly Dictionary<SessionId, (SoundId Sound, DateTimeOffset At)> _sounds = [];
 
     private DateTimeOffset _now = DateTimeOffset.MinValue;
     private TimeSpan _staleAfter = DefaultStaleAfter;
@@ -332,9 +340,38 @@ public sealed partial class MainViewModel : ObservableObject, IUiTickTarget, IDi
             row.RefreshAge(now);
         }
 
+        foreach (var gone in _sounds.Where(pair => now - pair.Value.At >= SessionViewModel.SoundSignFor).Select(pair => pair.Key).ToList())
+        {
+            _sounds.Remove(gone);
+        }
+
         Refresh();
     }
 
+    /// <summary>
+    /// A sound played for <paramref name="session"/>: its row shows the speaker sign for a minute
+    /// (T1.67, issue #99). Called on the UI thread, by <see cref="SoundSigns"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>The session is the engine's answer, already decided.</strong> For a group's sound it is
+    /// the member whose finish settled the group, so the sign is on that member's row and never on
+    /// the group heading: a heading is not a session and is never marked here.
+    /// </para>
+    /// <para>
+    /// A sound that plays again replaces the last one, so a reminder starts the minute again. The row
+    /// order does not change, and nothing is written anywhere.
+    /// </para>
+    /// </remarks>
+    public void SoundPlayed(SessionId session, SoundId sound, DateTimeOffset at)
+    {
+        _sounds[session] = (sound, at);
+
+        if (_sessionRows.TryGetValue(session, out var row))
+        {
+            row.ShowSound(sound, at);
+        }
+    }
 
     // ---- Forming and editing a roster (T1.26, issue #16) --------------------------------------
 
@@ -823,6 +860,12 @@ public sealed partial class MainViewModel : ObservableObject, IUiTickTarget, IDi
 
         var created = new SessionViewModel(session, _motion, _ack, _clipboard) { IsSelecting = _isSelecting };
         created.RefreshAge(_now > session.LastActivity ? _now : session.LastActivity);
+
+        if (_sounds.TryGetValue(session.Id, out var played))
+        {
+            created.ShowSound(played.Sound, played.At);
+        }
+
         created.PropertyChanged += OnRowChanged;
         _sessionRows[session.Id] = created;
         return created;
