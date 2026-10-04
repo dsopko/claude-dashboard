@@ -420,7 +420,7 @@ The engine keeps a due time for each session and plays what is due when it is as
 - **In memory only:** the Registry, the bands, the nudge schedule, the mute and pause modes, a roster that the operator did not ask to remember.
 - **On disk:** the operator's settings; the rosters that the operator asked to remember; the place of the window; and an **event log**.
 - **The event log** is append-only. It holds each event with its full payload, and a **decision record**: each judgement that the dashboard made (a state change, a refusal, a sound played, a sound not played and the cause), next to the event that caused it. It answers "why did that sound play?".
-- The decision record holds identifiers and names only. It never holds a title, a prompt or an answer.
+- The decision record holds identifiers and names, and the session's name and full path in columns of their own (T1.69, issue #98): a row says which session it is about without a search for the session's history. It never holds a prompt or an answer, and the session's name is in no other column. The event log holds the session's name beside each event too.
 - **The dashboard reports on itself while it runs:** what it counted (events applied and declined, events and records dropped, posts refused, records not written, what the loop did) can be read at any moment, and once an hour a summary goes into the event log. A gap between summaries shows when the dashboard was not running.
 - **The event log records each run of the dashboard:** when it started and stopped, its version and its port. A crash or a kill shows as a start with no stop. A replay of the log forgets every session at each start and at each clean stop, as the live dashboard does.
 - **A restart from the log** is the intent. *Not built.* So is search of the history (Phase 5).
@@ -566,3 +566,4 @@ The text above says what is true now. This list says when each rule changed, for
 | 2026-10-04 | The event log keeps 30 days by default, a setting; it is pruned at each start and once a day, and does not shrink (§IV.6). Before, it was never pruned; the "retention not built" row of Appendix C goes | T1.64; issue #81 |
 | 2026-10-04 | The dashboard reports its counts at any moment and writes a summary into the event log each hour (§IV.6) | T1.65; issue #76 |
 | 2026-10-04 | The event log keeps as many days as Claude Code's `cleanupPeriodDays` (30 when the key is absent), read at each prune; a file that cannot be read, or a value Claude Code would not use, deletes nothing. The log's own setting is no longer used (§IV.6) | T1.68; issue #102 |
+| 2026-10-04 | The event log and the decision record store the session's name, and decisions its full path, as they were when the row was written (§IV.6) | T1.69; issue #98 |

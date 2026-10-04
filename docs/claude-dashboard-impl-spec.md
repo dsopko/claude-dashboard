@@ -264,7 +264,7 @@ Each hook that the dashboard registers only observes. `/hook` answers `200` with
 - **Loopback only.**
 - **A token, always** (T1.48). At each start the dashboard makes 32 random bytes and writes them as 43 characters of base64url. It holds the token in memory and writes it as line 2 of `listening.txt`, below the port, in one write-then-rename step. `post-status.cmd` reads it at each event and sends it as the header `X-Dashboard-Token`. Thus no Claude Code session holds a copy, and a restart of the dashboard cuts no session off. The token is never in the environment, in a committed file or in a log. The variable `CLAUDE_DASHBOARD_TOKEN`, which held it before, is ignored; the dashboard says so one time in its log.
 - **All event text is data.** WPF shows a string as text. No path evaluates it.
-- **Text that the operator wrote, or that a model wrote for the operator, is never logged:** a title, a prompt, an answer, a payload, a task description, a task command. `PayloadJson` and `OperatorText` make this hold by construction for the body and for `/state`. `tests/.../Domain/UnprotectedTextInventory.cs` lists each property where the same words are still a plain string.
+- **Text that the operator wrote, or that a model wrote for the operator, is never logged:** a title, a prompt, an answer, a payload, a task description, a task command. Since T1.69 (issue #98) the session's name is stored in `dashboard.db`, in a column of its own (§8.3); it is still never in a log line. `PayloadJson` and `OperatorText` make this hold by construction for the body and for `/state`. `tests/.../Domain/UnprotectedTextInventory.cs` lists each property where the same words are still a plain string.
 
 ### 3.5 The `/state` contract
 
@@ -763,7 +763,7 @@ The dashboard's own settings. A person can edit it: comments and a comma at the 
 
 ### 8.3 `dashboard.db`
 
-SQLite, through `Microsoft.Data.Sqlite`. One writer thread. Append-only, but for one update: a clean stop sets `stopped_at` on its own `runs` row. **Pruned to the retention window**: as many days as Claude Code's `cleanupPeriodDays`, 30 days by default (T1.68, issue #102; until then `history.retentionDays`, T1.64, issue #81). **It holds at most the window: about 81 MB for 30 days** at the operator's real rate, 2,709,104 bytes a day (a copy measured on 2026-10-04: 102,060,032 bytes over the 37.67 days its events spanned). `GrowthMeasurement`'s synthetic typical day is far smaller, 307,200 bytes with its decisions, because it writes only prompts, answers and idle notifications; `TypicalBytesPerDay` (340,000) bounds that synthetic day with a margin of more than 10 %.
+SQLite, through `Microsoft.Data.Sqlite`. One writer thread. Append-only, but for one update: a clean stop sets `stopped_at` on its own `runs` row. **Pruned to the retention window**: as many days as Claude Code's `cleanupPeriodDays`, 30 days by default (T1.68, issue #102; until then `history.retentionDays`, T1.64, issue #81). **It holds at most the window: about 81 MB for 30 days** at the operator's real rate, 2,709,104 bytes a day (a copy measured on 2026-10-04: 102,060,032 bytes over the 37.67 days its events spanned). `GrowthMeasurement`'s synthetic typical day is far smaller, 315,392 bytes with its decisions and, since T1.69, a name and a path on each row, because it writes only prompts, answers and idle notifications; `TypicalBytesPerDay` (350,000; 340,000 until T1.69) bounds that synthetic day with a margin of more than 10 %. The name and the path are at the sizes of a copy of the operator's database: names average 17 characters (56 distinct, the longest 38), paths 36 (the longest 137), written on every row as an upper bound.
 
 If the file cannot be opened or written, the store writes one Warning when it fails (not for a failed retry), and the window and the tray say `history not recorded` (§5.6.1). **It tries again each minute** (the operator's ruling in issue #71; before T1.54 it stopped until the next start):
 
@@ -782,6 +782,13 @@ If the file cannot be opened or written, the store writes one Warning when it fa
 - **One Information line** says how many rows were converted, how many were already in UTC, how many were left, and the time it took. No time from a row, and no payload. A new file has no rows and writes no line.
 - Rows, ids and payloads never change: only the text of the time. No `VACUUM` (the operator's ruling on #81).
 - Measured on a copy of the operator's database (2026-10-04): 32,169 rows converted, 0 left as they were, in 865 ms; the file went from 97,669,120 to 101,163,008 bytes.
+
+**The session's name and path** (T1.69, issue #98; the operator's ruling of 2026-10-04): `events` gains `session_title`, and `decisions` gains `session_title` and `cwd`, the full path. A reader of the file sees which session a row is about without looking for its history.
+
+- **The upgrade** is the second step, after the conversion and before the indexes, on the same connection and thread (`SqliteEventStore.AddNameColumns`). It adds each column with `ALTER TABLE … ADD COLUMN` only if `pragma_table_info` does not list it, so it is safe on every open, and a file whose version says 2 but lacks a column still gains it. Then `user_version` becomes 2 (`NameColumnsVersion`), raised and never lowered. A new file gains the columns the same way, so there is one path. One transaction: a failure adds no column, and T1.54's rule applies.
+- **Old rows keep NULL** and are not filled in afterwards. `ADD COLUMN` writes no row, so the step is quick on a large file. One Information line, for a file that had rows: the count of columns added and the time.
+- **What is written:** the name is `Session.Title`, verbatim, not folded or cut, and the path is `Session.Cwd`, as the Registry holds them after the event is applied. The recorder stamps them on the consumer thread, where the event and its decisions go to the archive together (`DecisionRecorder.Stamped`). So a rename's own row holds the new name, rows before it hold the old one, and a decision made by the clock (a reminder, "went quiet") holds the name the session has then. A decision about a session the Registry does not hold (an event it declined, a session not yet seen) takes the name and the path from its own event, or else NULL. A decision with no session (a group's sound, an hourly summary) stores NULL in both. An empty name or path stores NULL. `events.cwd` does not change.
+- Measured on a copy of the operator's database (2026-10-04, at version 1): the three columns were added in 7 ms (the open, the upgrade and the close took 124 ms); 26,401 events, 8,340 decisions and 1 run before and after; every old row NULL in the new columns; the file stayed at 106,409,984 bytes.
 
 **The prune** (T1.64, issue #81; the operator's rulings of 2026-10-04)
 
@@ -811,6 +818,7 @@ If the file cannot be opened or written, the store writes one Warning when it fa
 | `event_type` | TEXT | The hook name, or `Ack` |
 | `payload_json` | TEXT | **The hook body exactly as it arrived.** Empty for an `Ack` |
 | `cwd` | TEXT | The directory |
+| `session_title` | TEXT or NULL | The session's name when the row was written (T1.69). NULL when it had none, and for rows written before T1.69 |
 
 An event that the Registry declined is in the table too. A `SoundCommand` and a `RostersChanged` have no row here.
 
@@ -826,8 +834,10 @@ An event that the Registry declined is in the table too. A `SoundCommand` and a 
 | `from_state`, `to_state` | TEXT or NULL | For a kind that moves something |
 | `reason` | TEXT or NULL | The name of an enum value, or an identifier |
 | `detail` | TEXT or NULL | Pairs of `key=value` identifiers |
+| `session_title` | TEXT or NULL | The session's name when the row was written (T1.69). NULL for a decision about no session, and for rows written before T1.69 |
+| `cwd` | TEXT or NULL | The session's full path when the row was written (T1.69). NULL as `session_title` is |
 
-**`reason` and `detail` hold identifiers only.** Never a title, a prompt, an answer or the text of an exception.
+**`reason` and `detail` hold identifiers only.** Never a title, a prompt, an answer or the text of an exception. **The session's name is in `session_title` and in no other column** (T1.24, as T1.69 changed it: a decision row holds ids, fixed words, and the name in its own column). `DecisionRecordTests` holds both halves, and `UnprotectedTextInventory` lists the field.
 
 **The kinds:**
 
@@ -1172,3 +1182,4 @@ The text above says what is true now. This list says when each part changed.
 | 2026-10-04 | Seven timings that would show a stall, kept in memory: in `/state`'s `health.timings`, an hourly line, the stop line's worst cases, a start-up line, and one warning when a limit is crossed and one a minute after it clears; a roster edit is stamped where it is published (§3.5, Part 4, §8.4) | T1.66; issue #86 |
 | 2026-10-04 | A speaker sign on the row that made a sound, for one minute: only a queued sound, with the row that Core decides (`SoundMarked`; for a group, the member that the settle pass names from the groups as they stand, an ended member included), ended by the tick, still, and the first thing to go in a narrow row (`MetaLine`) (§2.4, §2.5, §5.6.3, §5.6.5, §5.6.6, §5.6.9) | T1.67; issue #99 |
 | 2026-10-04 | The history follows Claude Code's `cleanupPeriodDays`, read at each prune from `~/.claude/settings.json` and judged in Core (`HistoryRetention`), strict JSON: 30 days when the key is absent; nothing deleted for a file that cannot be read or a value Claude Code would not use; the rule line, again only when it changes. `history.retentionDays` is no longer used, kept in the file and logged once. A settling member that leaves its roster keeps the reminder's sign (§5.6.3, §8.2, §8.3, §9.3, Appendix B) | T1.68; issue #102 |
+| 2026-10-04 | `events` gains `session_title`, and `decisions` gains `session_title` and `cwd`: the Registry's name and full path after the event is applied, NULL for a decision with no session. The upgrade checks the columns and is safe on every open; `user_version` is 2. The name is in no other column and in no log line. The growth constant is 350,000 (§3.4, §8.3) | T1.69; issue #98 |
