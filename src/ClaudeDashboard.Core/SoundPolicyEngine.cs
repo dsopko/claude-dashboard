@@ -567,6 +567,29 @@ public sealed class SoundPolicyEngine : ISoundModeReader
     public event EventHandler? NudgeScheduleAdvanced;
 
     /// <summary>
+    /// Raised when the player queued a sound, with the session whose row shows the speaker sign
+    /// (T1.67, issue #99).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>Only a queued sound.</strong> A suppressed sound (paused, muted, already announced)
+    /// and a dropped one (no output, failed) raise nothing: the operator heard nothing, so no row
+    /// says that it made a noise.
+    /// </para>
+    /// <para>
+    /// <strong>The engine decides the row</strong>, so a second interface gets the same answer. A
+    /// session's own sound marks that session. A group's own sound marks the member whose state
+    /// entry instant is the group's quiet instant: the member whose finish settled the group. See
+    /// <see cref="MarkOf"/>.
+    /// </para>
+    /// <para>
+    /// Raised on the thread that played the sound, inside the single-writer region. A handler
+    /// must post and return, like a handler of <see cref="NudgeScheduleAdvanced"/>.
+    /// </para>
+    /// </remarks>
+    public event EventHandler<SoundMarkedEventArgs>? SoundMarked;
+
+    /// <summary>
     /// Emits an intent unless the session is muted.
     /// </summary>
     /// <remarks>
@@ -616,6 +639,13 @@ public sealed class SoundPolicyEngine : ISoundModeReader
         if (outcome == SoundOutcome.Queued)
         {
             _sink.SoundPlayed(kind, session, group, sound, rung, waited);
+
+            // T1.67 (issue #99): the speaker sign, for a sound that was queued and for nothing else. A
+            // suppressed or a dropped sound made no noise, so it marks no row.
+            if (MarkOf(session, group) is { } marked)
+            {
+                SoundMarked?.Invoke(this, new SoundMarkedEventArgs(marked, sound, _clock.Now));
+            }
         }
         else
         {
@@ -653,6 +683,51 @@ public sealed class SoundPolicyEngine : ISoundModeReader
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// The session whose row a played sound marks (T1.67, issue #99), or null when no row gets the
+    /// sign.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>A session's own sound</strong> (a notice or a nudge) marks that session.
+    /// </para>
+    /// <para>
+    /// <strong>A group's own sound</strong> (its finished notice, or its one reminder) arrives with
+    /// no session, because it belongs to the group. It marks the member whose state entry instant is
+    /// the group's quiet instant (T1.44): the member whose finish settled the group. The reminder
+    /// reads the same settle, so it marks the same member. If no member matches (it left the
+    /// group, or it changed state since), or the settle has no quiet instant, no row gets the sign.
+    /// Two members that entered at the same instant are settled by the lower id, ordinal, so the
+    /// answer does not depend on the order of a dictionary.
+    /// </para>
+    /// </remarks>
+    private SessionId? MarkOf(SessionId session, GroupKey group)
+    {
+        if (!session.IsEmpty)
+        {
+            return session;
+        }
+
+        if (!_groups.TryGetValue(group, out var settled) || settled.QuietSince is not { } since)
+        {
+            return null;
+        }
+
+        SessionId? found = null;
+
+        foreach (var (id, tracked) in _tracked)
+        {
+            if (tracked.Group == group
+                && tracked.EnteredAt == since
+                && (found is not { } other || string.CompareOrdinal(id.Value, other.Value) < 0))
+            {
+                found = id;
+            }
+        }
+
+        return found;
     }
 
     /// <summary>The sound a state announces itself with, or null if it announces nothing.</summary>

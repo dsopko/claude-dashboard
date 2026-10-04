@@ -2468,6 +2468,136 @@ public sealed class MainWindowTests(StaHarness harness, Xunit.Abstractions.ITest
         Assert.Equal(0, Occurrences(markup, "Animation"));
     }
 
+    // ---- The speaker sign (T1.67, issue #99) ----------------------------------------------------
+
+    /// <summary>
+    /// <strong>The sign is in the row, between the badge and the age, and it does not move</strong>,
+    /// with animations on or off (T1.67, issue #99). The row without a sound has none. The hover and
+    /// the screen-reader name are as the block says, and <c>BindingErrorWatch</c> is clean.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void The_sound_sign_sits_between_the_badge_and_the_age_and_never_moves(bool motionAllowed)
+    {
+        var seen = WithWindow(
+            registry =>
+            {
+                registry.Working("blocked", At);
+                registry.Blocked("blocked", At.AddMinutes(1));
+                registry.Working("busy", At);
+            },
+            (window, _) =>
+            {
+                var row = RowFor(window, "blocked");
+                var line = StaHarness.FindAll<MetaLine>(row).Single();
+                var children = line.Children.Cast<FrameworkElement>().ToList();
+                var sign = (Image)children.Single(child => child.Name == "SoundSign");
+                var badge = children.FindIndex(child => child is Border border && StaHarness.FindAll<TextBlock>(border).Any(block => TextOf(block) == "PERMISSION"));
+                var age = children.FindIndex(child => child is TextBlock block && TextOf(block) == ((SessionViewModel)row.DataContext).AgeText);
+                var peer = UIElementAutomationPeer.CreatePeerForElement(sign);
+                var quietSign = StaHarness.FindAll<Image>(RowFor(window, "busy")).Single(image => image.Name == "SoundSign");
+
+                return (
+                    Badge: badge,
+                    Sign: children.IndexOf(sign),
+                    Age: age,
+                    sign.IsVisible,
+                    sign.ActualWidth,
+                    Name: peer.GetName(),
+                    Tip: sign.ToolTip as string,
+                    Moving: sign.HasAnimatedProperties,
+                    QuietVisible: quietSign.IsVisible);
+            },
+            motionAllowed: motionAllowed,
+            prepare: viewModel => viewModel.SoundPlayed(new SessionId("blocked"), ClaudeDashboard.Core.Ports.SoundId.Permission, At.AddMinutes(1)));
+
+        Assert.True(seen.Badge >= 0 && seen.Age >= 0, $"Badge at {seen.Badge}, age at {seen.Age}.");
+        Assert.True(seen.Badge < seen.Sign && seen.Sign < seen.Age, $"Badge {seen.Badge}, sign {seen.Sign}, age {seen.Age}.");
+        Assert.True(seen.IsVisible);
+        Assert.True(seen.ActualWidth > 0);
+        Assert.Equal("sound played", seen.Name);
+        Assert.Equal("played: permission, 0s ago", seen.Tip);
+        Assert.False(seen.Moving);
+        Assert.False(seen.QuietVisible);
+    }
+
+    /// <summary>
+    /// No storyboard, trigger or setter targets the sign by name, and the template still has only
+    /// the two motion storyboards (<see cref="The_only_animations_in_the_templates_are_the_two_motion_ones"/>).
+    /// </summary>
+    [Fact]
+    public void Nothing_in_the_templates_targets_the_sound_sign()
+    {
+        var markup = File.ReadAllText(TemplatesFile);
+
+        Assert.Equal(1, Occurrences(markup, "x:Name=\"SoundSign\""));
+        Assert.Equal(0, Occurrences(markup, "TargetName=\"SoundSign\""));
+    }
+
+    /// <summary>
+    /// <strong>A narrow row: the sign is the first thing to go, and the age still shows.</strong> The
+    /// window is swept from its minimum width up. Wherever the whole meta line fits, the sign shows.
+    /// Wherever it does not, the sign takes no room, and the age keeps its place, whole, inside the row.
+    /// </summary>
+    [Fact]
+    public void A_narrow_row_loses_the_sign_before_the_age()
+    {
+        const string LongWorkspace = @"C:\dev\a-workspace-folder-with-a-rather-long-name-for-the-narrow-row-test";
+
+        var seen = WithWindow(
+            registry =>
+            {
+                registry.Working("blocked", At, cwd: LongWorkspace);
+                registry.Blocked("blocked", At.AddMinutes(1), cwd: LongWorkspace);
+            },
+            (window, _) =>
+            {
+                // The sign's layout slot, not its RenderSize: a child arranged in an empty slot keeps the size
+                // it wants and is clipped to nothing, as FittingStrip's dropped counts are.
+                var results = new List<(double Width, bool GaveWay, double SignWidth, bool AgeWhole, bool LineFits)>();
+
+                foreach (var width in Enumerable.Range(0, 81).Select(step => window.MinWidth + (step * 10)))
+                {
+                    window.Width = width;
+                    window.UpdateLayout();
+                    _harness.Pump(DispatcherPriority.Background);
+                    window.UpdateLayout();
+
+                    var row = RowFor(window, "blocked");
+                    var line = StaHarness.FindAll<MetaLine>(row).Single();
+                    var room = ((FrameworkElement)VisualTreeHelper.GetParent(line)).ActualWidth;
+                    var sign = (Image)line.Children.Cast<FrameworkElement>().Single(child => child.Name == "SoundSign");
+                    var age = line.Children.OfType<TextBlock>().Single(block => TextOf(block) == ((SessionViewModel)row.DataContext).AgeText);
+                    var ageRight = age.TranslatePoint(new Point(age.ActualWidth, 0), line).X;
+                    var wanted = line.Children.Cast<UIElement>().Sum(child => child.DesiredSize.Width);
+
+                    results.Add((width, line.GaveWay, LayoutInformation.GetLayoutSlot(sign).Width, ageRight <= room + 0.01, wanted <= room + 0.01));
+                }
+
+                return results;
+            },
+            grouped: false,
+            prepare: viewModel => viewModel.SoundPlayed(new SessionId("blocked"), ClaudeDashboard.Core.Ports.SoundId.Permission, At.AddMinutes(1)));
+
+        Assert.Contains(seen, at => at.GaveWay);
+        Assert.Contains(seen, at => !at.GaveWay);
+
+        foreach (var at in seen)
+        {
+            if (at.GaveWay)
+            {
+                Assert.True(at.SignWidth == 0, $"At {at.Width} the line gave way and the sign was still {at.SignWidth} wide.");
+                Assert.True(at.AgeWhole, $"At {at.Width} the sign gave way and the age was still cut.");
+            }
+            else
+            {
+                Assert.True(at.SignWidth > 0, $"At {at.Width} the line fit and the sign was not drawn.");
+                Assert.True(at.LineFits, $"At {at.Width} the sign was drawn on a line that did not fit.");
+            }
+        }
+    }
+
     private static string UiFolder =>
         Path.Combine(RepoLayout.Project(RepoLayout.App).Directory!.FullName, "Ui");
 

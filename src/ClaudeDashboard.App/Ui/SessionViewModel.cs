@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using ClaudeDashboard.Core;
+using ClaudeDashboard.Core.Ports;
 using CommunityToolkit.Mvvm.Input;
 
 namespace ClaudeDashboard.App.Ui;
@@ -93,6 +94,10 @@ public sealed partial class SessionViewModel : DashboardRow
     private bool _isSelecting;
     private bool _isSelected;
     private bool _copyFailed;
+
+    // The speaker sign (T1.67, issue #99): the last sound that played for this row, and when.
+    private SoundId _sound;
+    private DateTimeOffset? _soundAt;
 
     /// <summary>Wraps <paramref name="session"/>.</summary>
     /// <param name="session">The session this row shows.</param>
@@ -831,6 +836,57 @@ public sealed partial class SessionViewModel : DashboardRow
     public string AskedAgoText =>
         string.Create(CultureInfo.CurrentCulture, $"{RowVisuals.Duration(_now - _session.Latest.StartedAt)} ago");
 
+    /// <summary>How long the speaker sign stays on a row after its sound (T1.67, issue #99).</summary>
+    public static readonly TimeSpan SoundSignFor = TimeSpan.FromMinutes(1);
+
+    /// <summary>
+    /// Whether the row shows the speaker sign: a sound that played for this session less than
+    /// <see cref="SoundSignFor"/> ago, as of the last <see cref="RefreshAge"/> (T1.67, issue #99).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>The minute counts from the sound and ends on a refresh.</strong> No timer: the sign
+    /// goes at the first refresh at or after the minute, which is the consumer's tick echoed here,
+    /// so it can stay up to one tick interval longer (Impl §5.6.3). A sound that arrives between two
+    /// refreshes shows at once, because this compares the sound's instant with the row's clock and a
+    /// row clock behind the sound reads as inside the minute.
+    /// </para>
+    /// <para>
+    /// <strong>It does not move.</strong> On, then off: no animation, no fade. The motion rule stays
+    /// true (Design Document §9).
+    /// </para>
+    /// </remarks>
+    public bool HasSoundSign => _soundAt is { } at && _now - at < SoundSignFor;
+
+    /// <summary>
+    /// The sign's hover text, "played: finished, 20s ago", or empty when there is no sign (T1.67).
+    /// </summary>
+    /// <remarks>
+    /// The sound's name is the word the sound files and the documents use (Impl Part 7:
+    /// <c>finished</c>, <c>permission</c>, <c>question</c>, <c>error</c>). The age is in the row's own
+    /// words, <see cref="RowVisuals.Duration"/>. No title, prompt or path.
+    /// </remarks>
+    public string SoundSignText => _soundAt is { } at && HasSoundSign
+        ? string.Create(CultureInfo.CurrentCulture, $"played: {_sound.Name}, {RowVisuals.Duration(_now - at)} ago")
+        : string.Empty;
+
+    /// <summary>
+    /// A sound played for this session at <paramref name="at"/>: the sign shows, and its minute
+    /// starts again (T1.67). Call on the UI thread.
+    /// </summary>
+    internal void ShowSound(SoundId sound, DateTimeOffset at)
+    {
+        _sound = sound;
+        _soundAt = at;
+        RaiseSoundSign();
+    }
+
+    private void RaiseSoundSign()
+    {
+        OnPropertyChanged(nameof(HasSoundSign));
+        OnPropertyChanged(nameof(SoundSignText));
+    }
+
     /// <summary>The instant the collapsed row's clock counts from. See <see cref="Age"/> for the table.</summary>
     private static DateTimeOffset AnchorOf(Session session) => session.State switch
     {
@@ -852,6 +908,14 @@ public sealed partial class SessionViewModel : DashboardRow
         OnPropertyChanged(nameof(AgeText));
         OnPropertyChanged(nameof(AskedAgoText));
         OnPropertyChanged(nameof(WaitingOnLines));
+
+        // The sign's minute ends on a refresh (T1.67): forgotten once it is past.
+        if (_soundAt is { } at && now - at >= SoundSignFor)
+        {
+            _soundAt = null;
+        }
+
+        RaiseSoundSign();
     }
 
     /// <summary>

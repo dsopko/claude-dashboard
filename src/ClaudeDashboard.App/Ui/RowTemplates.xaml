@@ -216,6 +216,25 @@
     <BooleanToVisibilityConverter x:Key="BoolToVisible" />
     <ui:InverseBooleanToVisibilityConverter x:Key="BoolToCollapsed" />
 
+    <!--
+        The speaker sign (T1.67, issue #99): a speaker and one sound wave, drawn, so it does not
+        depend on a font having the glyph. Ink3, the colour of the age beside it: it is a note on
+        the row, not a state, and must not borrow a state colour. Still: nothing animates it.
+    -->
+    <DrawingImage x:Key="SpeakerSign">
+        <DrawingImage.Drawing>
+            <DrawingGroup>
+                <GeometryDrawing Brush="{StaticResource Ink3Brush}"
+                                 Geometry="M0,3.5 L2.5,3.5 L5.5,1 L5.5,9 L2.5,6.5 L0,6.5 Z" />
+                <GeometryDrawing Geometry="M7.5,3 A2.5,2.5 0 0 1 7.5,7">
+                    <GeometryDrawing.Pen>
+                        <Pen Brush="{StaticResource Ink3Brush}" Thickness="1.2" />
+                    </GeometryDrawing.Pen>
+                </GeometryDrawing>
+            </DrawingGroup>
+        </DrawingImage.Drawing>
+    </DrawingImage>
+
     <!-- ==== The only two animations in the application ========================================= -->
     <Storyboard x:Key="BlinkStoryboard" RepeatBehavior="Forever" AutoReverse="True">
         <DoubleAnimation Storyboard.TargetProperty="Opacity"
@@ -708,7 +727,12 @@
                                     Foreground="{StaticResource Ink2Brush}"
                                     ToolTip="{Binding TitleTooltip}" /><Run Text="{Binding PromptSnippet, Mode=OneWay}" /></TextBlock>
 
-                    <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                    <!--
+                        The meta line. A MetaLine lays out as the horizontal StackPanel it was, and
+                        the row still clips it at the right edge; the one rule more is that the
+                        speaker sign is the first thing to go when the line is too wide (T1.67).
+                    -->
+                    <ui:MetaLine Margin="0,4,0,0">
                         <Border Style="{StaticResource BadgeStyle}" VerticalAlignment="Center">
                             <TextBlock Text="{Binding BadgeText}" Style="{StaticResource BadgeTextStyle}" />
                         </Border>
@@ -728,6 +752,24 @@
                                    FontSize="11"
                                    VerticalAlignment="Center"
                                    Foreground="{StaticResource Ink3Brush}" />
+
+                        <!--
+                            The speaker sign (T1.67, issue #99): on for a minute after a sound that
+                            played for this session, then off. After the badge and its detail, before
+                            the age. It does not move: no storyboard, no fade, and no trigger targets
+                            it. The hover says what played and when; a screen reader reads
+                            "sound played". An Image, so it has an automation peer to carry the name.
+                        -->
+                        <Image x:Name="SoundSign"
+                               ui:MetaLine.GivesWayFirst="True"
+                               Source="{StaticResource SpeakerSign}"
+                               Width="12"
+                               Height="10"
+                               Margin="7,0,0,0"
+                               VerticalAlignment="Center"
+                               Visibility="{Binding HasSoundSign, Converter={StaticResource BoolToVisible}}"
+                               ToolTip="{Binding SoundSignText}"
+                               AutomationProperties.Name="sound played" />
 
                         <TextBlock Text="{Binding AgeText}"
                                    Margin="7,0,0,0"
@@ -756,7 +798,7 @@
                             <TextBlock Text="{Binding GroupTag}" FontSize="10"
                                        Foreground="{StaticResource Ink3Brush}" />
                         </Border>
-                    </StackPanel>
+                    </ui:MetaLine>
 
                     <!-- The expanded exchange (Design Document §9). -->
                     <StackPanel Margin="0,10,0,2"
