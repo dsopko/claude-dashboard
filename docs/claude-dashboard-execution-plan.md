@@ -925,6 +925,39 @@ The work in GitHub milestone 3, "Observability 1": issues #3, #14, #67, #71, #72
   - Plants: (a) the hour's counts are not reset, and the reset test fails; (b) the summary written at every tick, and the two-hours test fails; (c) `/state` reads a live consumer field, and the snapshot test fails (or explain why that plant cannot be observed and choose another).
   - Both suite counts; build clean, 0 warnings.
 - **Guardrails:** one writer to the Registry; the request thread never waits on the consumer. Identifiers and numbers only. No change to the notices, the event channel or the store's retry. Tests use scratch folders.
+- **Done 2026-10-04:** PR #95, merged as `d0c4f6c`, `2e8919a`, `ee3e214`, `b739716` (one fix cycle). The review found that before the first tick the new `health` fields were written as null while Impl §3.5 said "absent". Director's ruling: keep null and say so, because `lastHeardAt` and `selfTest` are null until known, so one rule holds for every `health` field. The fix cycle also closed three test gaps: the source of "not written", a half-hour time zone, and an honest comment. The review's probes: a tick three hours late writes one partial summary, not three, and a clock set back an hour merges into the next summary instead of doubling it.
+
+**T1.66 — The dashboard measures the waits that would show a stall**
+- **Goal:** when the one thread that applies events is stuck or late, the dashboard knows and says so, once, instead of looking like a quiet day. Seven timings are kept in memory and shown in `/state` and the hourly line. For issue #86.
+- **Depends:** T1.65 (the health snapshot and the hourly line), T1.61 (the self-test's round trip)
+- **Realizes:** #86's ruling: measure the seven timings, **keep them in memory and not in the database**, show them in the health block, log one summary line an hour and one at the stop, and warn once when a limit is crossed and once when the figure is back under it. Director's rulings of 2026-10-04, with the operator away:
+  - **The `runs` row does not get a worst case.** #86 allows it ("at most"), but it needs a new column and an upgrade step for one number. The stop line in the log carries the worst cases of the run.
+  - **The hourly line gives the figures for the hour, and `/state` gives them since the start.** This is the same split as T1.65's counts. A worst case since the start goes stale after a week, and the last hour stays readable.
+  - **`System.Diagnostics.Metrics`:** use it only if it costs nothing; a hand-written type is acceptable (#86).
+- **Deliverables:**
+  - **The seven timings**, as #86's table gives them, with its limits:
+    - queue wait: arrival to apply; warn above 1 s;
+    - tick lateness: due to run; warn above 5 s;
+    - apply time: one `SessionRegistry.Apply`; warn above 50 ms;
+    - archive backlog: the archive channel's count at each hand-off; warn above 512;
+    - UI hop: post to the dispatcher until the posted work runs; warn above 500 ms;
+    - hook round trip: the self-test's round trip of T1.61; warn above 1 s;
+    - start-up phases: a stopwatch around each phase of `Program.Main`, logged once at the end of the start, with no limit.
+  - **One small type holds a figure:** count, total, worst and the limit. It is written on the thread that measures, and published in T1.65's snapshot, so a request reads a copy and never a live field. A figure measured on the request thread or the UI thread is handed over safely (for example `Interlocked`), never under a lock that the consumer waits on.
+  - **Warnings:** one Warning when a figure crosses its limit, and one Information line when it is back under it. Never a line for each event. These two, the hourly line and the start-up line are the only lines that the measurement writes.
+  - **Show them:** a `timings` object in `/state`'s `health`, with each figure since the start (count, average, worst, limit), null before the first tick like every other `health` field (T1.65). The hourly line, or a second line beside it, has the hour's figures. The stop line has the run's worst cases.
+  - **Arrival time:** the event carries its arrival instant. If `InboundEvent` already has one that means arrival, use it; if not, add one that the request thread stamps, and say which.
+  - **Documents, in the same change:** Impl §3.5 (`health.timings`), Part 4 (the tick and the hand-offs, the limits), §8.4 (the lines); event flow §7. One row in Impl Appendix C.
+- **Acceptance:**
+  - With the consumer held under a fake clock, an event waits past 1 s: the queue wait is in the snapshot, one Warning is logged, and then one all-clear when the waits are short again.
+  - A late tick is measured as lateness, and warns once.
+  - A thousand ordinary events write no timing line.
+  - `/state` answers `health.timings` with the seven figures, and the hourly line has the hour's figures.
+  - The start-up line lists the phases with their times, once.
+  - The cost: T1.58's throughput test still passes within its limit, and report its time before and after.
+  - Plants: (a) the warning written at every crossing event (no "once" state), and the one-warning test fails; (b) the queue wait measured from the apply instead of the arrival, and the wait test fails.
+  - Both suite counts; build clean, 0 warnings.
+- **Guardrails:** nothing new in the database. No line for each event. No new lock that the consumer can wait on. No payload in a line. The figures exist to catch a stall, not to measure speed (#86): no tuning of anything because of them in this task.
 
 ---
 
