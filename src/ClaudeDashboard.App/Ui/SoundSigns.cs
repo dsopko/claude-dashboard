@@ -59,6 +59,9 @@ public sealed class SoundSigns : IDisposable
         _engine.SoundMarked += OnSoundMarked;
     }
 
+    /// <summary>What is attached. For the test that holds the window's attach.</summary>
+    internal IReadOnlyList<ISoundSignTarget> Targets => Volatile.Read(ref _targets);
+
     /// <summary>How many sounds have been posted to the UI thread. Diagnostic only.</summary>
     public long PostedCount { get; private set; }
 

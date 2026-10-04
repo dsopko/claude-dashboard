@@ -48,6 +48,9 @@ public sealed class UiTick(IUiDispatcher dispatcher) : IUiTick
     /// </summary>
     private IUiTickTarget[] _targets = [];
 
+    /// <summary>What is attached. For the test that holds the window's attach (T1.67).</summary>
+    internal IReadOnlyList<IUiTickTarget> Targets => Volatile.Read(ref _targets);
+
     /// <summary>How many ticks have been posted. Diagnostic only.</summary>
     public long DeliveredCount { get; private set; }
 

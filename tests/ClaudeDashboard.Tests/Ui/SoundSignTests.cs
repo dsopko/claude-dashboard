@@ -341,6 +341,41 @@ public sealed class SoundSignTests : IDisposable
         }
     }
 
+    /// <summary>
+    /// <strong>The window's attach</strong> (the T1.67 review, nit 1): <c>Program</c> hands the window's
+    /// view model to <see cref="AppHost.AttachWindow"/>, which attaches it to the tick and to the sign.
+    /// Without it no age moves and no sign shows, and nothing else would fail.
+    /// </summary>
+    [Fact]
+    public void AppHost_attaches_the_window_to_the_tick_and_the_sign()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "claude-dashboard-tests", Guid.NewGuid().ToString("N"));
+
+        try
+        {
+            using var host = AppHost.Build(new DashboardPaths(root));
+            var window = host.Services.GetRequiredService<MainViewModel>();
+
+            AppHost.AttachWindow(host.Services, window);
+
+            Assert.Contains(window, host.Services.GetRequiredService<UiTick>().Targets);
+            Assert.Contains(window, host.Services.GetRequiredService<SoundSigns>().Targets);
+
+            (host.Services.GetService(typeof(Serilog.ILogger)) as IDisposable)?.Dispose();
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(root, recursive: true);
+            }
+            catch (IOException)
+            {
+                // Disposable temp folder.
+            }
+        }
+    }
+
     private void Apply(InboundEvent inboundEvent)
     {
         _clock.Now = inboundEvent.Timestamp;
@@ -382,7 +417,10 @@ public sealed class SoundSignTests : IDisposable
         LastAssistantMessage = "29 passed",
     });
 
-    /// <summary>The settle, as the consumer's roster pass reports it: with the group's quiet instant.</summary>
+    /// <summary>
+    /// The settle, as the consumer's roster pass reports it: the quiet instant and the member. The pass
+    /// itself, with a roster edit, is in <c>SoundSignPipelineTests</c>.
+    /// </summary>
     private void Settle(DateTimeOffset now)
     {
         _clock.Now = now;
@@ -390,7 +428,7 @@ public sealed class SoundSignTests : IDisposable
         var group = GroupResolver.Resolve(_registry.Sessions.Values, _rosters.Book)
             .Single(candidate => candidate.Key == GroupKeys.ForRoster("orchestration"));
 
-        _engine.OnRosterGroupSettled(group.Key, now, RosterSettle.QuietSince(group));
+        _engine.OnRosterGroupSettled(group.Key, now, RosterSettle.QuietSince(group), RosterSettle.SettledBy(group));
         _dispatcher.Pump();
     }
 

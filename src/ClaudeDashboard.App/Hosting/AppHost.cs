@@ -559,6 +559,26 @@ public static class AppHost
         };
 
     /// <summary>
+    /// Attaches the window's view model to the two wires from the consumer thread: the tick, which
+    /// ages the rows (T1.11), and the speaker sign, which shows the row that made a sound (T1.67).
+    /// <c>Program</c> calls it on the UI thread, once the window is built.
+    /// </summary>
+    /// <remarks>
+    /// A method rather than two lines in <c>Main</c>, so a test can hold it (the T1.67 review, nit 1):
+    /// without the attach, no age moves and no sign ever shows, and every other test stays green.
+    /// The call in <c>Main</c> itself is still not run by a test, because <c>Main</c> starts WPF.
+    /// </remarks>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    public static void AttachWindow(IServiceProvider services, MainViewModel window)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(window);
+
+        services.GetRequiredService<UiTick>().Attach(window);
+        services.GetRequiredService<SoundSigns>().Attach(window);
+    }
+
+    /// <summary>
     /// Subscribes the two process-wide exception handlers (Impl §10.1). The dispatcher handler
     /// is wired by <see cref="App"/>, which owns the <c>Application</c> that raises it.
     /// </summary>

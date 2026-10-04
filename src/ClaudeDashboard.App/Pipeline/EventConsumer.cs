@@ -651,14 +651,22 @@ public sealed class EventConsumer : BackgroundService
             switch (change.Event)
             {
                 case RosterGroupEvent.Settled:
+                {
                     // With the instant the group went quiet, so a settle already announced and
                     // brought back by a quiet tick is recognised and not announced again (T1.44).
+                    // And with the member whose change settled it, read here from the groups as they
+                    // stand, so a roster just formed marks the right row (T1.67 review): the engine's
+                    // own copy of a session's group changes only when the session does.
+                    var settled = groups.First(group => group.Key == change.Group);
+
                     _sound.OnRosterGroupSettled(
                         change.Group,
                         now,
-                        RosterSettle.QuietSince(groups.First(group => group.Key == change.Group)));
+                        RosterSettle.QuietSince(settled),
+                        RosterSettle.SettledBy(settled));
                     SettledCount++;
                     break;
+                }
 
                 case RosterGroupEvent.Unsettled:
                     _sound.OnRosterGroupUnsettled(change.Group);

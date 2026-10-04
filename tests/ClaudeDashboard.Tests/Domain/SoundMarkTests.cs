@@ -111,22 +111,21 @@ public sealed class SoundMarkTests
     }
 
     /// <summary>
-    /// <strong>A group's notice marks the member whose finish settled the group</strong>: the one whose
-    /// entry instant is the group's quiet instant. Its reminder marks the same member.
+    /// <strong>A group's notice marks the member that the settle named</strong>, and its reminder
+    /// marks the same member. The engine does not look for the member itself (the T1.67 review).
     /// </summary>
     [Fact]
-    public void A_group_sound_marks_the_member_whose_finish_settled_it()
+    public void A_group_sound_marks_the_member_the_settle_named()
     {
         var engine = Engine(new SoundPolicyOptions { UnreadNudgeAfter = TimeSpan.FromMinutes(2) });
 
         engine.OnSessionChanged(In(SessionState.Unread, "s-1", At), RosterKey);
         engine.OnSessionChanged(In(SessionState.Unread, "s-3", At.AddSeconds(9)), RosterKey);
-        engine.OnSessionChanged(In(SessionState.Unread, "s-2", At.AddSeconds(4)), RosterKey);
 
         Assert.Empty(_marks);
 
         _clock.Now = At.AddSeconds(11);
-        engine.OnRosterGroupSettled(RosterKey, _clock.Now, quietSince: At.AddSeconds(9));
+        engine.OnRosterGroupSettled(RosterKey, _clock.Now, quietSince: At.AddSeconds(9), settledBy: new SessionId("s-3"));
 
         var notice = Assert.Single(_marks);
         Assert.Equal(new SessionId("s-3"), notice.Session);
@@ -140,41 +139,82 @@ public sealed class SoundMarkTests
         Assert.Equal(At.AddMinutes(3), _marks[1].At);
     }
 
-    /// <summary>
-    /// A group whose settling member is no longer in it, or a settle with no quiet instant, plays its
-    /// sound and marks no row.
-    /// </summary>
+    /// <summary>A settle that names no member plays the group's sound and marks no row.</summary>
     [Fact]
-    public void A_group_sound_with_no_matching_member_marks_no_row()
+    public void A_settle_that_names_no_member_marks_no_row()
     {
         var engine = Engine();
 
         engine.OnSessionChanged(In(SessionState.Unread, "s-1", At), RosterKey);
+        engine.OnRosterGroupSettled(RosterKey, At.AddSeconds(2), quietSince: At);
 
-        // Nobody entered at this instant.
-        engine.OnRosterGroupSettled(RosterKey, At.AddSeconds(2), quietSince: At.AddSeconds(1));
-
-        // And a settle that says nothing about when the group went quiet.
-        var other = GroupKeys.ForRoster("other");
-        engine.OnSessionChanged(In(SessionState.Unread, "s-9", At), other);
-        engine.OnRosterGroupSettled(other, At.AddSeconds(2));
-
-        Assert.Equal(2, _player.PlayedOf(SoundId.Finished).Count);
+        Assert.Single(_player.PlayedOf(SoundId.Finished));
         Assert.Empty(_marks);
+    }
+
+    /// <summary>
+    /// A quiet tick unsettles the group and settles it again at the same quiet instant (T1.44): no
+    /// new sound, no new mark, and the reminder still marks the member the first settle named.
+    /// </summary>
+    [Fact]
+    public void A_quiet_tick_keeps_the_member_the_first_settle_named()
+    {
+        var engine = Engine(new SoundPolicyOptions { UnreadNudgeAfter = TimeSpan.FromMinutes(2) });
+
+        engine.OnSessionChanged(In(SessionState.Unread, "s-2", At), RosterKey);
+        engine.OnRosterGroupSettled(RosterKey, At.AddSeconds(2), quietSince: At, settledBy: new SessionId("s-2"));
+        engine.OnRosterGroupUnsettled(RosterKey);
+
+        // The settle comes back with no member named: the restored settle keeps its own.
+        engine.OnRosterGroupSettled(RosterKey, At.AddSeconds(30), quietSince: At);
+
+        Assert.Single(_marks);
+
+        _clock.Now = At.AddMinutes(3);
+        engine.Evaluate(_clock.Now);
+
+        Assert.Equal(2, _marks.Count);
+        Assert.Equal(new SessionId("s-2"), _marks[1].Session);
+    }
+
+    /// <summary>
+    /// <see cref="RosterSettle.SettledBy"/> names the member whose entry instant is the group's quiet
+    /// instant, read from the group as it stands.
+    /// </summary>
+    [Fact]
+    public void SettledBy_names_the_member_that_entered_last()
+    {
+        var group = Roster(
+            In(SessionState.Unread, "s-1", At),
+            In(SessionState.Unread, "s-3", At.AddSeconds(9)),
+            In(SessionState.Acked, "s-2", At.AddSeconds(4)));
+
+        Assert.Equal(new SessionId("s-3"), RosterSettle.SettledBy(group));
+    }
+
+    /// <summary>A member that ended last is the one that set off the sound, so it is named (the ruling on #99).</summary>
+    [Fact]
+    public void SettledBy_names_a_member_that_ended_last()
+    {
+        var group = Roster(
+            In(SessionState.Unread, "s-1", At.AddSeconds(60)),
+            In(SessionState.Ended, "s-2", At.AddSeconds(120)));
+
+        Assert.Equal(new SessionId("s-2"), RosterSettle.SettledBy(group));
     }
 
     /// <summary>Two members that entered at the same instant: the lower id, ordinal, so the answer is stable.</summary>
     [Fact]
     public void A_tie_goes_to_the_lower_id()
     {
-        var engine = Engine();
+        var group = Roster(In(SessionState.Unread, "s-b", At), In(SessionState.Unread, "s-a", At));
 
-        engine.OnSessionChanged(In(SessionState.Unread, "s-b", At), RosterKey);
-        engine.OnSessionChanged(In(SessionState.Unread, "s-a", At), RosterKey);
-        engine.OnRosterGroupSettled(RosterKey, At.AddSeconds(2), quietSince: At);
-
-        Assert.Equal(new SessionId("s-a"), Assert.Single(_marks).Session);
+        Assert.Equal(new SessionId("s-a"), RosterSettle.SettledBy(group));
     }
+
+    private static Group Roster(params Session[] members) =>
+        GroupResolver.Resolve(members, RosterBook.From([("orchestration", members.Select(member => member.Title!))]))
+            .Single(group => group.Key == RosterKey);
 
     /// <summary>A nudge marks its session again, at the nudge's instant.</summary>
     [Fact]

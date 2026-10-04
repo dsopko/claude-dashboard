@@ -285,13 +285,10 @@ public static class Program
 
                 // This is the UI thread, and the only place the window and its view model may be
                 // built. Attaching the tick here rather than inside the container is what keeps the
-                // consumer thread from ever constructing UI-thread state (see UiTick).
+                // consumer thread from ever constructing UI-thread state (see UiTick). The speaker
+                // sign (T1.67) attaches the same view model, in the same call.
                 var window = host.Services.GetRequiredService<MainWindow>();
-                var tick = host.Services.GetRequiredService<UiTick>();
-                tick.Attach(window.ViewModel);
-
-                // The speaker sign (T1.67): the same view model shows which row made a sound.
-                host.Services.GetRequiredService<SoundSigns>().Attach(window.ViewModel);
+                AppHost.AttachWindow(host.Services, window.ViewModel);
 
                 // Where it opens, whether it floats, and the pin to every virtual desktop
                 // (Impl §5.4). Before the surfacer because placement should be in force the first

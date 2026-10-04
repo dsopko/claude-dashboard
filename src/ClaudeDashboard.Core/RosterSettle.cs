@@ -180,4 +180,42 @@ public static class RosterSettle
 
         return latest;
     }
+
+    /// <summary>
+    /// The member whose state entry instant is the group's <see cref="QuietSince"/>: the member whose
+    /// change settled the group (T1.67, issue #99). Its row shows the speaker sign for the group's
+    /// sound.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>Read from the group as it stands, the same group <see cref="QuietSince"/> reads.</strong>
+    /// The first version matched the quiet instant against the sound engine's own copy of each
+    /// session's group. That copy changes only on a session change, so after a roster edit it still
+    /// held the old group, and a roster formed over finished sessions marked no row (the T1.67 review).
+    /// The caller that resolves the groups asks this, and hands the answer to the engine.
+    /// </para>
+    /// <para>
+    /// <strong>Every member counts, an ended one too</strong> (the operator's ruling on #99): if the
+    /// last change in the group was a member's end, that member set off the sound, so it gets the
+    /// sign. Two members that entered at the same instant: the lower id, ordinal, so the answer does
+    /// not depend on the order of the members.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="ArgumentNullException"><paramref name="group"/> is null.</exception>
+    public static SessionId SettledBy(Group group)
+    {
+        var since = QuietSince(group);
+        SessionId? found = null;
+
+        foreach (var member in group.Members)
+        {
+            if (member.EnteredAt == since
+                && (found is not { } other || string.CompareOrdinal(member.Id.Value, other.Value) < 0))
+            {
+                found = member.Id;
+            }
+        }
+
+        return found ?? default;
+    }
 }
