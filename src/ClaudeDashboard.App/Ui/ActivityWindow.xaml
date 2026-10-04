@@ -21,6 +21,10 @@
         The layout follows the width (ActivityViewModel.LayoutFor): one line in columns when wide; two lines
         when narrow, the second small and grey; narrower still, the detail goes first, then the project. The
         time, the sound sign, what occurred and the name never go, and the hover on a line holds everything.
+
+        A click on a line, and Enter on a selected line, show its row in the main window (T1.71): through the
+        line's ShowCommand, never a handler here. "Show activity" on a row filters the list to that session: the
+        list shows ActivityViewModel.Shown, a view over the one list, and the bar at the top says so.
     -->
 
     <Window.Resources>
@@ -47,6 +51,7 @@
     <Grid Background="{StaticResource SurfaceBrush}">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
@@ -58,9 +63,26 @@
                    Style="{StaticResource ActivitySmall}"
                    Text="{Binding LastHeardText}" />
 
+        <!-- "Only Director" with Show all, while the list shows one session's lines (T1.71). -->
+        <DockPanel x:Name="FilterBar"
+                   Grid.Row="1"
+                   Margin="12,0,12,6"
+                   Visibility="{Binding IsFiltered, Converter={StaticResource BoolToVisible}}">
+            <Button x:Name="ShowAllButton"
+                    DockPanel.Dock="Right"
+                    Content="Show all"
+                    Style="{StaticResource HeaderButtonStyle}"
+                    Command="{Binding ShowAllCommand}"
+                    ToolTip="List every line again." />
+            <TextBlock x:Name="FilterText"
+                       Text="{Binding OnlyText}"
+                       Style="{StaticResource ActivityText}"
+                       FontWeight="SemiBold" />
+        </DockPanel>
+
         <ListBox x:Name="ActivityList"
-                 Grid.Row="1"
-                 ItemsSource="{Binding Log.Lines}"
+                 Grid.Row="2"
+                 ItemsSource="{Binding Shown}"
                  Background="Transparent"
                  BorderThickness="0"
                  HorizontalContentAlignment="Stretch"
@@ -69,20 +91,34 @@
                  VirtualizingPanel.VirtualizationMode="Recycling"
                  VirtualizingPanel.ScrollUnit="Pixel"
                  Grid.IsSharedSizeScope="True">
+            <!-- Enter on a selected line does what a click does: the line's own command. -->
+            <ListBox.InputBindings>
+                <KeyBinding Key="Enter" Command="{Binding SelectedItem.ShowCommand, ElementName=ActivityList}" />
+            </ListBox.InputBindings>
             <ListBox.ItemContainerStyle>
                 <Style TargetType="ListBoxItem">
                     <Setter Property="Padding" Value="12,3" />
                     <Setter Property="AutomationProperties.Name" Value="{Binding Sentence}" />
-                    <Setter Property="ToolTip" Value="{Binding Sentence}" />
+                    <Setter Property="AutomationProperties.HelpText" Value="{Binding GoneText}" />
+                    <Setter Property="ToolTip" Value="{Binding Hover}" />
+                    <Setter Property="Cursor" Value="Hand" />
                     <Setter Property="Template">
                         <Setter.Value>
                             <ControlTemplate TargetType="ListBoxItem">
                                 <Border x:Name="LineSurface" Background="Transparent" Padding="{TemplateBinding Padding}">
+                                    <!-- A click on the line shows its row in the main window (T1.71). -->
+                                    <Border.InputBindings>
+                                        <MouseBinding MouseAction="LeftClick" Command="{Binding ShowCommand}" />
+                                    </Border.InputBindings>
                                     <ContentPresenter />
                                 </Border>
                                 <ControlTemplate.Triggers>
                                     <Trigger Property="IsMouseOver" Value="True">
                                         <Setter TargetName="LineSurface" Property="Background" Value="{StaticResource RaisedBrush}" />
+                                    </Trigger>
+                                    <!-- The selected line, for Enter: the main window's selected-row colour. -->
+                                    <Trigger Property="IsSelected" Value="True">
+                                        <Setter TargetName="LineSurface" Property="Background" Value="{StaticResource SelectedRowBrush}" />
                                     </Trigger>
                                 </ControlTemplate.Triggers>
                             </ControlTemplate>
@@ -167,7 +203,7 @@
 
         <!-- The bottom of the list, once the oldest lines have gone: 19,000 to 20,000 of the newest are kept. -->
         <TextBlock x:Name="DroppedLine"
-                   Grid.Row="2"
+                   Grid.Row="3"
                    Margin="12,6,12,10"
                    Style="{StaticResource ActivitySmall}"
                    Text="{Binding Log.DroppedLine}"

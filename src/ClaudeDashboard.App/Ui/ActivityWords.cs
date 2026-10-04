@@ -26,6 +26,18 @@ public sealed record ActivityLine(
     string Detail)
 {
     /// <summary>
+    /// The session the line is about, its full id; null for a line about no session (T1.71). What a click on the
+    /// line shows in the main window, and what "Show activity" on a row filters by. An identifier, never shown.
+    /// </summary>
+    public string? SessionId { get; init; }
+
+    /// <summary>
+    /// The group a line about no session is about, from a group sound's detail; or null (T1.71). A click on the
+    /// line scrolls to the group's heading when the group is there.
+    /// </summary>
+    public GroupKey? Group { get; init; }
+
+    /// <summary>
     /// The time, <c>14:32</c>, with a day name before it when the line is not from today:
     /// <c>Mon 23:58</c>. Local time.
     /// </summary>
@@ -163,7 +175,11 @@ public static class ActivityWords
             name,
             path is null ? string.Empty : RowVisuals.WorkspaceLabel(path),
             path,
-            detail);
+            detail)
+        {
+            SessionId = string.IsNullOrEmpty(row.SessionId) ? null : row.SessionId,
+            Group = string.IsNullOrEmpty(row.SessionId) ? GroupOf(row.Detail) : null,
+        };
     }
 
     /// <summary>The words for a state the session entered.</summary>

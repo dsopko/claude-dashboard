@@ -65,6 +65,13 @@ public sealed partial class MainViewModel : ObservableObject, IUiTickTarget, ISo
     private readonly Dictionary<string, QuietFooterViewModel> _footers = [];
 
     /// <summary>
+    /// The sessions in the window, and in Grouped view the group that holds each (T1.71): what a line in the
+    /// Activity window asks about. Kept by <see cref="Refresh"/>.
+    /// </summary>
+    private readonly HashSet<SessionId> _present = [];
+    private readonly Dictionary<SessionId, GroupKey> _groupOf = [];
+
+    /// <summary>
     /// The last sound that played for each session, kept here as well as on its row (T1.67): the
     /// sound can reach this thread before the session's first row exists, and a row built later
     /// takes it. Forgotten on the first refresh after its minute.
@@ -622,6 +629,149 @@ public sealed partial class MainViewModel : ObservableObject, IUiTickTarget, ISo
         Reconcile(rows);
         Forget(sessions, groups?.Select(group => group.Key).ToHashSet());
         RecountBands(sessions);
+        Remember(sessions, groups);
+    }
+
+    /// <summary>
+    /// The window's sessions, or its groups, changed (T1.71): the Activity window's lines ask again whether
+    /// their rows are here. Raised by a refresh that changed them, never by one that did not.
+    /// </summary>
+    public event EventHandler? PresenceChanged;
+
+    /// <summary>"Show activity" on a row (T1.71): the Activity window lists only that session's lines.</summary>
+    public event EventHandler<ActivityRequest>? ActivityRequested;
+
+    /// <summary>Whether a line's session, or for a group's line its group, is in the window (T1.71).</summary>
+    /// <remarks>
+    /// A group is in the window only in Grouped view, where it has a heading. A session is in the window whether
+    /// or not its row is folded away, because a click unfolds it.
+    /// </remarks>
+    /// <exception cref="ArgumentNullException"><paramref name="line"/> is null.</exception>
+    public bool Has(ActivityLine line)
+    {
+        ArgumentNullException.ThrowIfNull(line);
+
+        if (line.SessionId is { } id)
+        {
+            return _present.Contains(new SessionId(id));
+        }
+
+        return line.Group is { } group && IsGrouped && _groupHeaders.ContainsKey(group);
+    }
+
+    /// <summary>
+    /// Makes a line's row a row on screen, and opens it (T1.71): what a click on an Activity line asks of the
+    /// window. Returns the row to scroll to, or null when the line's session or group is not here.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>A folded row is unfolded the way a click unfolds it today:</strong> its group's heading, or in
+    /// Flat view its band's (the Ended line, the Quiet line), is set expanded, which is what a click on the stale
+    /// line, on "+ 3 quiet" or on the band's summary does. The refresh that follows puts the row in place.
+    /// </para>
+    /// <para>
+    /// <strong>Opened as a click on the row opens it, and nothing more:</strong> no Ack, no mute, no event.
+    /// <strong>Not in selection mode:</strong> there a click on a row selects it, and setting
+    /// <see cref="SessionViewModel.IsExpanded"/> would toggle the selection, so the row is only brought into view.
+    /// </para>
+    /// <para>
+    /// A group's line returns its heading, in Grouped view, unopened: a heading has nothing to open.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="ArgumentNullException"><paramref name="line"/> is null.</exception>
+    public DashboardRow? Reveal(ActivityLine line)
+    {
+        ArgumentNullException.ThrowIfNull(line);
+
+        if (line.SessionId is null)
+        {
+            return line.Group is { } group && IsGrouped && _groupHeaders.TryGetValue(group, out var heading)
+                ? heading
+                : null;
+        }
+
+        var id = new SessionId(line.SessionId);
+
+        if (!_present.Contains(id))
+        {
+            return null;
+        }
+
+        if (!_sessionRows.TryGetValue(id, out var row) || !Rows.Contains(row))
+        {
+            Unfold(id);
+        }
+
+        if (!_sessionRows.TryGetValue(id, out row) || !Rows.Contains(row))
+        {
+            return null;
+        }
+
+        if (!IsSelecting)
+        {
+            row.IsExpanded = true;
+        }
+
+        return row;
+    }
+
+    /// <summary>Opens what holds a session's row: its group's heading, or in Flat view its band's.</summary>
+    private void Unfold(SessionId id)
+    {
+        if (IsGrouped)
+        {
+            if (_groupOf.TryGetValue(id, out var key) && _groupHeaders.TryGetValue(key, out var heading))
+            {
+                heading.IsExpanded = true;
+            }
+
+            return;
+        }
+
+        var session = _projection.Sessions.FirstOrDefault(candidate => candidate.Id == id);
+
+        if (session is not null
+            && _bandHeaders.TryGetValue(AttentionOrder.BandOf(session.State), out var band)
+            && band.IsCollapsible)
+        {
+            band.IsExpanded = true;
+        }
+    }
+
+    /// <summary>Keeps the sessions in the window and their groups, and says when they changed.</summary>
+    private void Remember(List<Session> sessions, IReadOnlyList<Group>? groups)
+    {
+        var present = sessions.Select(session => session.Id).ToHashSet();
+        var groupOf = groups?
+            .SelectMany(group => group.Members.Select(member => (member.Id, group.Key)))
+            .ToDictionary(pair => pair.Id, pair => pair.Key)
+            ?? [];
+
+        if (present.SetEquals(_present)
+            && groupOf.Count == _groupOf.Count
+            && groupOf.All(pair => _groupOf.TryGetValue(pair.Key, out var key) && key == pair.Value))
+        {
+            return;
+        }
+
+        _present.Clear();
+        _present.UnionWith(present);
+        _groupOf.Clear();
+
+        foreach (var (id, key) in groupOf)
+        {
+            _groupOf[id] = key;
+        }
+
+        PresenceChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void OnActivityRequested(object? sender, EventArgs e)
+    {
+        if (sender is SessionViewModel row && !row.Id.IsEmpty)
+        {
+            ActivityRequested?.Invoke(this, new ActivityRequest(row.Id, row.ActivityName));
+        }
     }
 
     /// <summary>
@@ -783,7 +933,20 @@ public sealed partial class MainViewModel : ObservableObject, IUiTickTarget, ISo
             }
             else if (!ReferenceEquals(Rows[i], desired[i]))
             {
-                Rows[i] = desired[i];
+                if (Rows[i].GetType() == desired[i].GetType())
+                {
+                    Rows[i] = desired[i];
+                }
+                else
+                {
+                    // A row of another kind takes the place out and in again, not by a replace (T1.71): a
+                    // replace reuses the container, and the old kind's template is bound once to the new row
+                    // before WPF changes the template, which writes a binding error for each binding (issue #23
+                    // names the mechanism). Unfolding a group from the Activity window puts a session row where
+                    // its "+ 1 quiet" line was.
+                    Rows.RemoveAt(i);
+                    Rows.Insert(i, desired[i]);
+                }
             }
         }
 
@@ -807,6 +970,7 @@ public sealed partial class MainViewModel : ObservableObject, IUiTickTarget, ISo
         foreach (var gone in _sessionRows.Keys.Where(id => !liveSessions.Contains(id)).ToList())
         {
             _sessionRows[gone].PropertyChanged -= OnRowChanged;
+            _sessionRows[gone].ActivityRequested -= OnActivityRequested;
             _sessionRows.Remove(gone);
         }
 
@@ -867,6 +1031,7 @@ public sealed partial class MainViewModel : ObservableObject, IUiTickTarget, ISo
         }
 
         created.PropertyChanged += OnRowChanged;
+        created.ActivityRequested += OnActivityRequested;
         _sessionRows[session.Id] = created;
         return created;
     }

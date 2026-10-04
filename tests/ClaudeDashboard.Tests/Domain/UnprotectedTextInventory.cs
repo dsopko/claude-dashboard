@@ -119,6 +119,13 @@ public sealed class UnprotectedTextInventory
         "ActivityLineViewModel.Name",
         "ActivityLineViewModel.Sentence",
 
+        // T1.71: the hover, which holds the sentence; and the name that "Show activity" carries to the Activity
+        // window's bar ("Only Director"). On screen only; nothing logs them.
+        "ActivityLineViewModel.Hover",
+        "ActivityRequest.Name",
+        "ActivityViewModel.OnlyText",
+        "SessionViewModel.ActivityName",
+
         // What the screen binds to — and the type most likely to be logged.
         "SessionViewModel.Prompt",
         "SessionViewModel.PromptSnippet",
@@ -215,6 +222,8 @@ public sealed class UnprotectedTextInventory
         "ActivityLineViewModel.Detail", "ActivityLineViewModel.Project", "ActivityLineViewModel.ProjectPath",
         "ActivityLineViewModel.Sign", "ActivityLineViewModel.Time", "ActivityLineViewModel.What",
         "ActivityViewModel.LastHeardText", "ActivityLog.DroppedLine",
+        // T1.71: the session id a line and the filter compare, and the hover's reason, the window's own words.
+        "ActivityLine.SessionId", "ActivityViewModel.OnlySession", "ActivityLineViewModel.GoneText",
         "SessionId.Value", "GroupKey.Value", "SoundId.Name", "StateTransition.Cause",
 
         // T1.44: the error matcher a quiet tick puts back — Session.ErrorKind, copied. The cron

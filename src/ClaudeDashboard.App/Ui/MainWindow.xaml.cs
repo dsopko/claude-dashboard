@@ -22,7 +22,7 @@ namespace ClaudeDashboard.App.Ui;
 /// (T1.15) or by restarting — which is the documented arrangement, not an oversight.
 /// </para>
 /// </remarks>
-public partial class MainWindow : Window
+public partial class MainWindow : Window, IActivityRows
 {
     /// <summary>Creates the window over <paramref name="viewModel"/>.</summary>
     /// <param name="viewModel">What the window shows.</param>
@@ -94,6 +94,37 @@ public partial class MainWindow : Window
         }
 
         Activate();
+    }
+
+    /// <inheritdoc/>
+    public bool Has(ActivityLine line) => ViewModel.Has(line);
+
+    /// <summary>
+    /// A click on an Activity line (T1.71, issue #97): the window comes to the front, then the line's row is
+    /// unfolded, opened and scrolled into view. A session or a group that is not here: the front, nothing more.
+    /// </summary>
+    /// <remarks>
+    /// The row is opened before it is scrolled to, and the layout brought up to date between the two, so what is
+    /// brought into view is the open row, as much of it as fits. <c>RowsHost</c> is not virtualized, so the row's
+    /// container exists as soon as the layout has run.
+    /// </remarks>
+    public void Show(ActivityLine line)
+    {
+        ArgumentNullException.ThrowIfNull(line);
+
+        ShowDashboard();
+
+        if (ViewModel.Reveal(line) is not { } row)
+        {
+            return;
+        }
+
+        RowsHost.UpdateLayout();
+
+        if (RowsHost.ItemContainerGenerator.ContainerFromItem(row) is FrameworkElement container)
+        {
+            container.BringIntoView();
+        }
     }
 
     /// <inheritdoc/>

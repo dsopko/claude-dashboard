@@ -126,7 +126,8 @@ public sealed class ActivityWindowTests(StaHarness harness)
             Assert.Equal(Visibility.Visible, list.Visibility);
             Assert.Same(window, host.Show());
             Assert.Equal(1, made);
-            Assert.Same(log.Lines, StaHarness.Find<ListBox>(window, list => list.Name == "ActivityList")!.ItemsSource);
+            // The one list, through the filter's view: not a copy (T1.71).
+            Assert.Same(log.Lines, ((System.ComponentModel.ICollectionView)StaHarness.Find<ListBox>(window, list => list.Name == "ActivityList")!.ItemsSource).SourceCollection);
             Assert.Single(StaHarness.FindAll<ListBoxItem>(window));
 
             window.Close();
@@ -245,46 +246,5 @@ public sealed class ActivityWindowTests(StaHarness harness)
         window.WindowStartupLocation = WindowStartupLocation.Manual;
         window.Left = -32000;
         window.Top = -32000;
-    }
-
-    /// <summary>Collects WPF's binding diagnostics while a window is realized, as <c>MainWindowTests</c> does.</summary>
-    private sealed class BindingErrorWatch : IDisposable
-    {
-        private readonly Listener _listener = new();
-        private readonly SourceLevels _previous;
-
-        public BindingErrorWatch()
-        {
-            PresentationTraceSources.Refresh();
-            _previous = PresentationTraceSources.DataBindingSource.Switch.Level;
-            PresentationTraceSources.DataBindingSource.Switch.Level = SourceLevels.Warning;
-            PresentationTraceSources.DataBindingSource.Listeners.Add(_listener);
-        }
-
-        public IReadOnlyList<string> Problems => _listener.Problems;
-
-        public void Dispose()
-        {
-            PresentationTraceSources.DataBindingSource.Listeners.Remove(_listener);
-            PresentationTraceSources.DataBindingSource.Switch.Level = _previous;
-            _listener.Dispose();
-        }
-
-        private sealed class Listener : TraceListener
-        {
-            public List<string> Problems { get; } = [];
-
-            public override void Write(string? message) => Record(message);
-
-            public override void WriteLine(string? message) => Record(message);
-
-            private void Record(string? message)
-            {
-                if (!string.IsNullOrWhiteSpace(message))
-                {
-                    Problems.Add(message);
-                }
-            }
-        }
     }
 }
