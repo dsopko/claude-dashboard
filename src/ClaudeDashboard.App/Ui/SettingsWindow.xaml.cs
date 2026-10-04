@@ -14,6 +14,7 @@ public partial class SettingsWindow : Window
         ViewModel = viewModel;
         InitializeComponent();
         StartWithWindowsLabel.Text = SettingsViewModel.StartWithWindowsLabel;
+        TestConnectionButton.Content = SettingsViewModel.TestConnectionLabel;
         DataContext = viewModel;
     }
 

@@ -278,6 +278,10 @@ public sealed class UnprotectedTextInventory
 
         // The queue notices (T1.58, issue #3): fixed texts.
         "FellBehindNotice.Text", "FellBehindNotice.TrayText", "EventsLostNotice.Text", "EventsLostNotice.TrayText",
+        // T1.61: the self-test and refused notices, and the Settings button's result: fixed text, a cause
+        // sentence and a round-trip number. A refused post is not trusted, and nothing from any post is shown.
+        "SelfTestNotice.Text", "SelfTestNotice.TrayText", "RefusedNotice.Text", "RefusedNotice.TrayText",
+        "SettingsViewModel.TestResult",
 
         // The settings keep-aside (T1.56, issue #73): the backup's full path; why a keep-aside
         // failed, which is Windows' own I/O message and names a file; and the notice, built from fixed

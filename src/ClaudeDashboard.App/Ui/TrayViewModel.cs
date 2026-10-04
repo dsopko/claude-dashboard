@@ -48,6 +48,7 @@ public sealed partial class TrayViewModel : ObservableObject, IUiTickTarget, IDi
     private readonly ILogger _logger;
     private readonly Pipeline.IDecisionLog? _decisions;
     private readonly NoticeBoard _notices;
+    private readonly Ingress.HookHealth? _health;
     private readonly bool _ownsNotices;
 
     private DateTimeOffset _now;
@@ -90,6 +91,11 @@ public sealed partial class TrayViewModel : ObservableObject, IUiTickTarget, IDi
     /// ingress fault, and the window shows their texts through <see cref="NoticeTexts"/>. The host
     /// passes it; a test that is not about it may omit it.
     /// </param>
+    /// <param name="health">
+    /// When the dashboard last heard from Claude Code (T1.61, issue #74): the tooltip's last item,
+    /// always, in the product. The host passes it; a test that is not about it may omit it, and its
+    /// tooltip then has no such item.
+    /// </param>
     /// <exception cref="ArgumentNullException">Any argument is null.</exception>
     public TrayViewModel(
         SessionProjection projection,
@@ -99,7 +105,8 @@ public sealed partial class TrayViewModel : ObservableObject, IUiTickTarget, IDi
         IngressStatus ingress,
         ILogger logger,
         Pipeline.IDecisionLog? decisions = null,
-        NoticeBoard? notices = null)
+        NoticeBoard? notices = null,
+        Ingress.HookHealth? health = null)
     {
         ArgumentNullException.ThrowIfNull(projection);
         ArgumentNullException.ThrowIfNull(modes);
@@ -114,6 +121,7 @@ public sealed partial class TrayViewModel : ObservableObject, IUiTickTarget, IDi
         _clock = clock;
         _logger = logger;
         _decisions = decisions;
+        _health = health;
         // The ingress fault reaches the tooltip through the board and nowhere else (T1.57): the host's
         // board has it as its first source. A tray given no board makes one that holds it, so a fault
         // cannot go missing for want of a board.
@@ -283,7 +291,15 @@ public sealed partial class TrayViewModel : ObservableObject, IUiTickTarget, IDi
         Icon = TrayIcons.For(Colour, paused);
         // Every fault leads the tooltip through the board, in its order: the port first (T1.57), then
         // each notice (T1.54). One path, so the port fault shows once.
-        Tooltip = TrayTooltip.For(summary, paused, muted ? mutedUntil : null, _now, _notices.TrayText);
+        // "Last heard" is the last item, always (the operator's ruling of 2026-10-03), and the first
+        // to go whole when Windows' length limit is reached. Read on this tick: no poller.
+        Tooltip = TrayTooltip.For(
+            summary,
+            paused,
+            muted ? mutedUntil : null,
+            _now,
+            _notices.TrayText,
+            _health is null ? null : TrayTooltip.LastHeard(_health.LastHeardAt, _now));
 
         OnPropertyChanged(nameof(MuteAllLabel));
         OnPropertyChanged(nameof(PauseLabel));

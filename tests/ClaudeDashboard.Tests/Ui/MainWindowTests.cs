@@ -2004,6 +2004,150 @@ public sealed class MainWindowTests(StaHarness harness, Xunit.Abstractions.ITest
             StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// <strong>The self-test and refused notices come directly after the plugin notice</strong>
+    /// (T1.61, issue #74), before the later sources, and lead the tooltip in that order. "Last heard"
+    /// is left out whole when the four would pass Windows' limit. <c>BindingErrorWatch</c> is clean.
+    /// </summary>
+    [Fact]
+    public void The_path_notices_come_right_after_the_plugin_notice()
+    {
+        var clock = new FakeClock();
+        var hook = new ClaudeDashboard.App.Setup.HookNotice();
+        hook.ShowPluginDisabled();
+
+        var health = new ClaudeDashboard.App.Ingress.HookHealth();
+        var failed = new ClaudeDashboard.App.Ingress.SelfTestResult(
+            false, null, clock.Now, ClaudeDashboard.App.Ingress.SelfTestCause.NothingArrived);
+        health.Finished(failed);
+
+        for (var i = 0; i < ClaudeDashboard.App.Ingress.HookHealth.RefusalsToShow; i++)
+        {
+            health.Refused(clock.Now);
+        }
+
+        var selfTest = new ClaudeDashboard.App.Ingress.SelfTestNotice(health);
+        var refused = new ClaudeDashboard.App.Ingress.RefusedNotice(health);
+        var behind = new ClaudeDashboard.App.Pipeline.FellBehindNotice(() => clock.Now);
+
+        var seen = _harness.Invoke(() =>
+        {
+            using var registry = new RegistryHarness();
+            using var policy = new MotionPolicy(() => false, observeChanges: false);
+            using var viewModel = new MainViewModel(
+                registry.Projection, policy, new StubAckPublisher(),
+                new FakeClipboard(), new RosterStore(new RecordingEventSink()), new RecordingRosterPersistence());
+            using var board = new NoticeBoard(hook, selfTest, refused, behind);
+            using var tray = new TrayViewModel(
+                registry.Projection,
+                new SettableSoundModes(),
+                new RecordingEventSink(),
+                clock,
+                ClaudeDashboard.App.Hosting.IngressStatus.Healthy(DashboardSettings.IngressPortBase),
+                Serilog.Core.Logger.None,
+                notices: board,
+                health: health);
+
+            var window = new MainWindow(viewModel, tray);
+            using var bindings = new BindingErrorWatch();
+
+            try
+            {
+                Realize(window);
+                tray.Tick(clock.Now);
+                _harness.Pump(DispatcherPriority.Background);
+                window.UpdateLayout();
+
+                Assert.Empty(bindings.Problems);
+
+                return (Lines: NoticeLines(window), tray.Tooltip);
+            }
+            finally
+            {
+                window.Hide();
+            }
+        });
+
+        Assert.Equal(
+            [
+                ClaudeDashboard.App.Setup.HookNotice.PluginDisabledText,
+                ClaudeDashboard.App.Ingress.SelfTestNotice.Describe(failed),
+                ClaudeDashboard.App.Ingress.RefusedNotice.WindowText,
+                ClaudeDashboard.App.Pipeline.FellBehindNotice.WindowText,
+            ],
+            seen.Lines);
+        // With four notices, "last heard" would take the text past Windows' 127 characters, so it is
+        // left out whole, and nothing else is cut.
+        Assert.Equal(
+            $"{ClaudeDashboard.App.Setup.HookNotice.PluginDisabledShort} · {ClaudeDashboard.App.Ingress.SelfTestNotice.TrayShort} · " +
+            $"{ClaudeDashboard.App.Ingress.RefusedNotice.TrayShort} · {ClaudeDashboard.App.Pipeline.FellBehindNotice.TrayShort} · " +
+            "all quiet",
+            seen.Tooltip);
+        Assert.True(
+            seen.Tooltip.Length + " · not heard from Claude Code since start".Length > TrayTooltip.MaxLength,
+            "The case is meant to have no room for last heard.");
+    }
+
+    /// <summary>
+    /// <strong>Test connection</strong> (T1.61) runs the self-test and shows the result beside the
+    /// button, in the notice's words. Here the scratch folder has no script, so the cause is that one.
+    /// <c>BindingErrorWatch</c> is clean.
+    /// </summary>
+    [Fact]
+    public void The_test_connection_button_shows_the_result_beside_it()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "claude-dashboard-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var paths = new DashboardPaths(root);
+
+        var selfTest = new ClaudeDashboard.App.Setup.HookSelfTest(
+            paths, new ClaudeDashboard.App.Ingress.HookHealth(), new FakeClock(), Serilog.Core.Logger.None);
+        var startup = new ClaudeDashboard.App.Setup.StartWithWindows(new FakeStartupRegistry(), null, Serilog.Core.Logger.None);
+        var viewModel = new SettingsViewModel(startup, new SettingsStore(paths), Serilog.Core.Logger.None, selfTest);
+
+        var seen = _harness.Invoke(() =>
+        {
+            var window = new SettingsWindow(viewModel);
+            using var bindings = new BindingErrorWatch();
+
+            try
+            {
+                Realize(window);
+
+                var label = window.TestConnectionButton.Content;
+                var shownBefore = window.TestResultText.IsVisible;
+                var invoke = (IInvokeProvider)new ButtonAutomationPeer(window.TestConnectionButton).GetPattern(PatternInterface.Invoke);
+
+                invoke.Invoke();
+
+                // The test runs on a pool thread and the result comes back to this one.
+                var waited = Stopwatch.StartNew();
+
+                while (!window.TestConnectionButton.IsEnabled || viewModel.TestResult is null or "Testing…")
+                {
+                    Assert.True(waited.Elapsed < TimeSpan.FromSeconds(30), "The test connection result never came back.");
+                    _harness.Pump(DispatcherPriority.Background);
+                }
+
+                window.UpdateLayout();
+                Assert.Empty(bindings.Problems);
+
+                return (label, shownBefore, Result: window.TestResultText.Text, ShownAfter: window.TestResultText.IsVisible);
+            }
+            finally
+            {
+                window.Close();
+            }
+        });
+
+        Assert.Equal(SettingsViewModel.TestConnectionLabel, seen.label);
+        Assert.False(seen.shownBefore);
+        Assert.True(seen.ShownAfter);
+        Assert.Equal(
+            $"{ClaudeDashboard.App.Ingress.SelfTestNotice.WindowLead} The script that forwards them is missing.",
+            seen.Result);
+    }
+
     /// <summary>An output state the test sets, in place of a player.</summary>
     private sealed class SettableOutput : ClaudeDashboard.App.Adapters.ISoundOutput
     {

@@ -147,7 +147,10 @@ public static class IngressEndpoints
             return Results.NotFound();
         }
 
-        var report = board.Current;
+        // The health object, read now: it is written on request threads, not by the consumer (T1.61).
+        var report = services.GetService(typeof(HookHealth)) is HookHealth health
+            ? board.Current with { Health = health.Report() }
+            : board.Current;
 
         logger.Debug("Served /state with {SessionCount} sessions.", report.SessionCount);
 
@@ -173,6 +176,10 @@ public static class IngressEndpoints
         if (!Authorized(context, services))
         {
             logger.Warning("Rejected a /hook post with a missing or incorrect token.");
+
+            // Counted for the refused notice, and one HookRefused row (T1.61, issue #74). Nothing from
+            // the post goes anywhere: it is not trusted, so no body, no session id and no token.
+            Health(services)?.Refused(Now(services));
             return Results.Unauthorized();
         }
 
@@ -212,6 +219,9 @@ public static class IngressEndpoints
         }
         catch (JsonException ex)
         {
+            // A post with the right token came through the script: a real message, even a broken one.
+            Health(services)?.Heard(Now(services));
+
             // Distinguishable in the log from a well-formed unknown event, on purpose — at 2am
             // "Claude Code changed its payload shape" and "Claude Code sent an event we do not
             // consume" are different diagnoses with different fixes.
@@ -226,9 +236,22 @@ public static class IngressEndpoints
 
         if (payload is null)
         {
+            Health(services)?.Heard(Now(services));
             logger.Warning("Discarded a /hook post with an empty body.");
             return Empty200();
         }
+
+        // THE SELF-TEST, BEFORE THE MAPPER (T1.61). The dashboard's own test message: noted as
+        // arrived and answered 200 empty. It never reaches the mapper or the sink, so it makes no
+        // session, no row, no sound and no decision, and it does not move "last heard".
+        if (string.Equals(payload.HookEventName, HookHealth.SelfTestEventName, StringComparison.Ordinal))
+        {
+            Health(services)?.TestArrived(SelfTestValue(body), Now(services));
+            return Empty200();
+        }
+
+        // A real message from Claude Code, accepted: the one instant the tooltip reads.
+        Health(services)?.Heard(Now(services));
 
         var mapping = mapper.Map(payload, new PayloadJson(body));
 
@@ -299,6 +322,30 @@ public static class IngressEndpoints
         var presented = context.Request.Headers[IngressToken.HeaderName].ToString();
 
         return token.Accepts(string.IsNullOrEmpty(presented) ? null : presented);
+    }
+
+    private static HookHealth? Health(IServiceProvider services) =>
+        services.GetService(typeof(HookHealth)) as HookHealth;
+
+    private static DateTimeOffset Now(IServiceProvider services) =>
+        (services.GetService(typeof(IClock)) as IClock)?.Now ?? DateTimeOffset.Now;
+
+    /// <summary>The self-test's one-time value, or null. Read only from a self-test body.</summary>
+    private static string? SelfTestValue(string body)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+
+            return document.RootElement.TryGetProperty(HookHealth.SelfTestValueField, out var value)
+                && value.ValueKind == JsonValueKind.String
+                    ? value.GetString()
+                    : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 
     /// <summary><c>200</c> with an empty body and no decision field — see the remarks on this type.</summary>

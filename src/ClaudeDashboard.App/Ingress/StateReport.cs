@@ -24,12 +24,18 @@ namespace ClaudeDashboard.App.Ingress;
 /// <param name="Bands">Sessions per attention band, every band present, zeros included.</param>
 /// <param name="Tray">The tray light's roll-up.</param>
 /// <param name="Sessions">One entry per session, most urgent first.</param>
+/// <param name="Health">
+/// The path from Claude Code (T1.61, issue #74): when a message last arrived, and the last
+/// self-test. Added when a request is served, not when the consumer publishes, because it is
+/// written on request threads. #76 adds to it.
+/// </param>
 public sealed record StateReport(
     DateTimeOffset PublishedAt,
     int SessionCount,
     IReadOnlyDictionary<AttentionBand, int> Bands,
     TrayRollUp Tray,
-    IReadOnlyList<SessionStateEntry> Sessions)
+    IReadOnlyList<SessionStateEntry> Sessions,
+    HealthEntry? Health = null)
 {
     /// <summary>What <c>/state</c> answers before the consumer has published anything.</summary>
     public static StateReport Empty(DateTimeOffset at) => Of([], _ => null, at);

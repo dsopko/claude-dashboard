@@ -98,7 +98,9 @@ public sealed class TrayCompositionTests : IDisposable
         });
 
         Assert.Equal(TrayColour.Blue, colour);
-        Assert.Equal("1 working", tooltip);
+
+        // The composed tray ends with "last heard", always (T1.61); no message has arrived here.
+        Assert.Equal("1 working · not heard from Claude Code since start", tooltip);
     }
 
     /// <summary>
@@ -236,7 +238,7 @@ public sealed class TrayCompositionTests : IDisposable
         });
 
         // The counts changed, so a binding that never updated would still hold the startup text.
-        Assert.Equal("1 working", expected);
+        Assert.Equal("1 working · not heard from Claude Code since start", expected);
         Assert.Equal(expected, bound);
     }
 

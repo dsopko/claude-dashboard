@@ -20,6 +20,18 @@ namespace ClaudeDashboard.App.Ui;
 /// muted — the first words say why, because the operator's question at that moment is not "what
 /// is happening" but "why is it grey" or "why is it silent".
 /// </para>
+/// <para>
+/// <strong>"Last heard" is the last item, always</strong> (T1.61, issue #74; the operator's ruling of
+/// 2026-10-03): when the dashboard last heard from Claude Code. It is information, never an alarm
+/// (Design §3), so it never leads and never changes the glyph.
+/// </para>
+/// <para>
+/// <strong>Windows cuts a tray tooltip at 127 characters</strong> (the notification area's tip holds
+/// 128 characters with the terminator). Until T1.61 nothing here measured the text: it went whole to
+/// the tray icon, and Windows cut whatever passed the limit, in the middle of a word if it fell
+/// there. Now <see cref="MaxLength"/> is kept here: "last heard" goes first, whole, and then whole
+/// items from the end, so no word is cut.
+/// </para>
 /// </remarks>
 public static class TrayTooltip
 {
@@ -28,6 +40,9 @@ public static class TrayTooltip
 
     /// <summary>What is shown while monitoring is off duty.</summary>
     public const string Paused = "paused · click to resume";
+
+    /// <summary>The most characters Windows shows in a tray tooltip.</summary>
+    public const int MaxLength = 127;
 
     /// <summary>Builds the tooltip.</summary>
     /// <param name="summary">The counts and the roll-up.</param>
@@ -45,19 +60,73 @@ public static class TrayTooltip
     /// <param name="fault">
     /// Why the dashboard cannot hear anything, or null when it can (T1.15).
     /// </param>
+    /// <param name="lastHeard">
+    /// When the dashboard last heard from Claude Code, already phrased (<see cref="LastHeard"/>), or
+    /// null for none. The last item, and the first left out when the text is too long.
+    /// </param>
     public static string For(
         StatusSummary summary,
         bool paused = false,
         DateTimeOffset? mutedUntil = null,
         DateTimeOffset now = default,
-        string? fault = null)
+        string? fault = null,
+        string? lastHeard = null)
     {
         var rest = WithoutFault(summary, paused, mutedUntil, now);
 
         // The fault leads everything, including pause. Pause and mute are states the operator
         // chose seconds ago and already knows about; a dead ingress is one they cannot know
         // about, and every count behind it is a count of nothing rather than a count of zero.
-        return string.IsNullOrEmpty(fault) ? rest : $"{fault} · {rest}";
+        var text = string.IsNullOrEmpty(fault) ? rest : $"{fault} · {rest}";
+
+        if (!string.IsNullOrEmpty(lastHeard) && text.Length + 3 + lastHeard.Length <= MaxLength)
+        {
+            return $"{text} · {lastHeard}";
+        }
+
+        return Fit(text);
+    }
+
+    /// <summary>
+    /// "last heard from Claude Code 2 min ago", or "not heard from Claude Code since start" (T1.61).
+    /// </summary>
+    /// <param name="lastHeardAt">When the last real message was accepted, or null since start.</param>
+    /// <param name="now">The tick's instant.</param>
+    public static string LastHeard(DateTimeOffset? lastHeardAt, DateTimeOffset now)
+    {
+        if (lastHeardAt is not { } heard)
+        {
+            return "not heard from Claude Code since start";
+        }
+
+        var gone = now - heard;
+
+        var ago = gone < TimeSpan.FromMinutes(1) ? "just now"
+            : gone < TimeSpan.FromHours(1) ? string.Create(CultureInfo.CurrentCulture, $"{(int)gone.TotalMinutes} min ago")
+            : gone < TimeSpan.FromDays(1) ? string.Create(CultureInfo.CurrentCulture, $"{(int)gone.TotalHours} h ago")
+            : string.Create(CultureInfo.CurrentCulture, $"{(int)gone.TotalDays} d ago");
+
+        return $"last heard from Claude Code {ago}";
+    }
+
+    /// <summary>Within <see cref="MaxLength"/>, by leaving out whole items from the end.</summary>
+    private static string Fit(string text)
+    {
+        while (text.Length > MaxLength)
+        {
+            var cut = text.LastIndexOf(" · ", StringComparison.Ordinal);
+
+            if (cut <= 0)
+            {
+                // One item longer than the limit: at the last space before it, never in a word.
+                var space = text.LastIndexOf(' ', MaxLength);
+                return space > 0 ? text[..space] : text[..MaxLength];
+            }
+
+            text = text[..cut];
+        }
+
+        return text;
     }
 
     /// <summary>The ordinary tooltip, before any fault is put in front of it.</summary>

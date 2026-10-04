@@ -87,6 +87,13 @@ public enum DecisionKind
     /// <summary>Applying an event threw; <c>reason</c> is the exception TYPE, never its message.</summary>
     ApplyFailed = 41,
 
+    /// <summary>
+    /// A <c>/hook</c> post was refused: its token did not match (T1.61, issue #74). <c>event_id</c>
+    /// and <c>session_id</c> are NULL, and <c>reason</c> and <c>detail</c> are empty: a refused post is
+    /// not trusted, so nothing from its body or headers is recorded.
+    /// </summary>
+    HookRefused = 42,
+
     // ---- UI -----------------------------------------------------------------------------------
 
     /// <summary>The tray light changed; <c>from_state</c>/<c>to_state</c> carry the colours.</summary>
