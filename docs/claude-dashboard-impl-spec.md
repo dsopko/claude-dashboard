@@ -729,7 +729,7 @@ The dashboard's own settings. A person can edit it: comments and a comma at the 
 
 ### 8.3 `dashboard.db`
 
-SQLite, through `Microsoft.Data.Sqlite`. One writer thread. Append-only, but for one update: a clean stop sets `stopped_at` on its own `runs` row. **Never pruned** (retention is *not built*). A typical day adds about 300 KB.
+SQLite, through `Microsoft.Data.Sqlite`. One writer thread. Append-only, but for one update: a clean stop sets `stopped_at` on its own `runs` row. **Never pruned** (retention is *not built*). A typical day adds about 300 KB with the indexes (299,008 bytes measured at T1.63), about 110 MB a year unpruned.
 
 If the file cannot be opened or written, the store writes one Warning when it fails (not for a failed retry), and the window and the tray say `history not recorded` (§5.6.1). **It tries again each minute** (the operator's ruling in issue #71; before T1.54 it stopped until the next start):
 
@@ -821,6 +821,22 @@ An event that the Registry declined is in the table too. A `SoundCommand` and a 
 - A row that the disk refuses is lost and counted like any record (`LostCount`), and not retried: a late row would say the wrong time.
 - **Times are UTC from the first row,** in the one form above. `events` and `decisions` have the same form since T1.62.
 - **No operator text.** The data folder is the one path.
+
+**The indexes** (T1.63, issue #79), so that a query by session, by time or by kind reads only the rows it needs:
+
+| Index | Serves |
+|---|---|
+| `ix_events_session_id ON events (session_id, id)` | One session's events in order (event flow §12) |
+| `ix_events_ts ON events (ts)` | A time range of events |
+| `ix_decisions_session_id ON decisions (session_id, id)` | One session's decisions in order (Part 4) |
+| `ix_decisions_event_id ON decisions (event_id)` | The decisions of an event |
+| `ix_decisions_ts ON decisions (ts)` | A time range of decisions |
+| `ix_decisions_kind_ts ON decisions (kind, ts)` | "Every sound played between 14:00 and 14:10", the inner query of Part 4 |
+
+- Each is `CREATE INDEX IF NOT EXISTS`, in the schema step, so an existing file gains them at its next start.
+- **After the T1.62 conversion, by sequence:** one connection, one thread, under the store's lock; the conversion's transaction commits before the indexes are created. On an old file the conversion thus updates no index, and the indexes are built once from the converted times.
+- The queries in Part 4 and event flow §12 use them and scan neither table; `IndexTests` holds their plans.
+- Measured on a copy of the operator's database (2026-10-04; 25,272 events and 7,060 decisions, times not yet converted): the Part 4 query from 1.55 ms to 0.37 ms, the event flow §12 query from 12.83 ms to 0.07 ms; creating the six indexes took 121 ms; the file went from 98,025,472 to 101,384,192 bytes.
 
 **`--replay <path>`** builds the `decisions` table for a database that has events and no decisions. It runs the stored events through the real Registry and sound engine. It writes only `decisions` rows, and refuses a database whose `decisions` table is not empty. Run it on a copy. **It opens the file through the store,** so a file that was never converted has its times converted to UTC first (T1.62): the instants, the rows and the payloads are unchanged, and only the form of `ts` changes. Apart from that, replay never modifies `events`.
 
@@ -1092,3 +1108,4 @@ The text above says what is true now. This list says when each part changed.
 | 2026-10-03 | The history database records each start and stop in a table of its own, `runs`, in UTC; `--replay` forgets every session at each start and each clean stop (§8.1, §8.3) | T1.60; issue #78 |
 | 2026-10-03 | The dashboard tests the path from Claude Code at each start and from a Settings button; notices for messages that cannot arrive or are refused; `HookRefused` rows, at most one a second; "last heard" is the tooltip's last item; the tooltip keeps to 127 characters; `/state` has `health` (§3.2, §3.5, §5.2, §5.6.1, §8.3, §9.4) | T1.61; issue #74 |
 | 2026-10-04 | Every time in `dashboard.db` is UTC text in one form; existing rows are converted once, and the file has `user_version` 1. The documented query takes UTC. "No refusal goes unrecorded" holds while the dashboard runs (Part 4, §3.2, §8.3) | T1.62; issue #80 |
+| 2026-10-04 | Six indexes on `events` and `decisions`, created after the T1.62 conversion; a typical day is 299,008 bytes with them, about 110 MB a year (§8.3) | T1.63; issue #79 |
