@@ -533,7 +533,7 @@ A click opens the row. In selection mode a click selects it.
 **The speaker sign** (T1.67, issue #99) says which row made the sound that the operator just heard.
 
 - **Source.** `SoundPolicyEngine.SoundMarked`, raised on the consumer thread only when the player queued the sound (`SoundPlayed`). A suppressed sound (muted, paused, already announced) and a dropped sound (`NoOutput`, `Failed`) raise nothing. `SoundSigns` posts the session, the sound and the instant to the UI thread through the dispatcher: one post for each sound that played, never one for each event. `MainViewModel.SoundPlayed` gives them to the row, and keeps them for a row that is built later. The Registry is not written, and no lock is added.
-- **Which row.** Core decides (§2.4, §2.5). A session's own sound marks that session. A group's own sound (`GroupNotice`, `GroupNudge`) marks the member whose state entry instant is the group's `QuietSince`: the member whose change settled the group (`RosterSettle.SettledBy`). The consumer's settle pass reads it from the groups as they stand, the same groups that give `QuietSince`, and hands it to `OnRosterGroupSettled`. So a roster just formed over finished sessions marks the member that finished last. (The first version let the engine look in its own copy of each session's group, which a roster edit does not change, and such a roster marked no row: the T1.67 review.) The group's reminder marks the same member, and a quiet tick that restores the settle keeps it. Two members with the same instant: the lower id, ordinal. Never the heading.
+- **Which row.** Core decides (§2.4, §2.5). A session's own sound marks that session. A group's own sound (`GroupNotice`, `GroupNudge`) marks the member whose state entry instant is the group's `QuietSince`: the member whose change settled the group (`RosterSettle.SettledBy`). The consumer's settle pass reads it from the groups as they stand, the same groups that give `QuietSince`, and hands it to `OnRosterGroupSettled`. So a roster just formed over finished sessions marks the member that finished last. (The first version let the engine look in its own copy of each session's group, which a roster edit does not change, and such a roster marked no row: the T1.67 review.) The group's reminder marks the same member, and a quiet tick that restores the settle keeps it. If the member that settled a group leaves the roster while the group stays settled, the group's reminder still marks that member (accepted at the T1.67 review). Two members with the same instant: the lower id, ordinal. Never the heading.
 - **A member that ended last** still gets the sign: its end settled the group, so it set off the sound (the operator's ruling on #99). Where its row is folded away, in the flat view's Ended line or behind a group's quiet line, no sign shows, and that is accepted.
 - **The minute** counts from the sound, and the sign goes at the first refresh at or after 60 s. There is no timer: the refresh is the consumer's tick (§5.6.5), so the sign can stay up to one tick interval (15 s) longer, plus any lateness of the tick (Part 4, `tickLateness`). A sound that plays again, such as a reminder, starts the minute again.
 - **On the row:** after the badge and its detail, before the age. Still: no animation, no fade, and no trigger targets it. Hover: `played: finished, 20s ago`, with the sound's name (`finished`, `permission`, `question` or `error`, the names of the sound files in Part 7) and the age in the row's own words (§5.6.5). Screen reader: `sound played`. No title, prompt or path, and no log line.
@@ -751,19 +751,19 @@ The dashboard's own settings. A person can edit it: comments and a comma at the 
 | `sound.nudgeOnError` | boolean | `true` | If a session in Error is nudged |
 | `window.left`, `window.top`, `window.width`, `window.height` | number | None | Where the window was |
 | `window.alwaysOnTop` | boolean | `false` | If the window stays above other windows |
-| `history.retentionDays` | number | `30` | The days the history database keeps (§8.3). `0` keeps everything; a plain integer with no small ceiling, so 36,525 days (a hundred years) fits. A negative value is the default, and the log says so (T1.64) |
+| `history.retentionDays` | — | — | **No longer used** (T1.68, issue #102): the history follows Claude Code's `cleanupPeriodDays` (§8.3). A file that has the key keeps it, unchanged, by the rule for keys a version does not know, and each start logs one Information line that it is no longer used, never its value. Until T1.68 it was the days the history kept, 30 by default |
 | `rosters` | object | `{}` | Each key is a roster's name. Each value is the list of session names in it |
 
 - A `sound` value that is absent or out of range takes Core's default. The file never holds a second copy of a default.
 - The `rosters` section is made valid when it is read (§2.5). Each correction is logged with the roster's name and never a member.
-- **A repaired value is one Warning at load** (T1.64): a `port` that is not a port, and a negative `history.retentionDays`. The line names the setting and what the dashboard does instead, and never the value (T1.65: the port's sentence named it until then). Until T1.64 the port's sentence was made and never logged.
+- **A repaired value is one Warning at load** (T1.64): a `port` that is not a port. (A negative `history.retentionDays` was the second, until T1.68 retired the key.) The line names the setting and what the dashboard does instead, and never the value (T1.65: the port's sentence named it until then). Until T1.64 the port's sentence was made and never logged.
 - **A key this version does not know is kept** (T1.64): `DashboardSettings.UnknownKeys` holds every top-level key it does not know, and a save writes it back unchanged. A save happens at every quit, so without this a key added for a newer version vanished at the first quit of an older one. A key it does not know inside a section it knows (`sound`, `window`, …) is still not kept.
 - **Not built:** keys for the nudge intervals, the Unread nudge, the stale time, the choice of sounds, mutes and the default view. Those values are fixed in the code.
 - **Known defects:** a save truncates the file before it writes (issue #7). A save after a failed read no longer replaces a malformed file with the defaults: the file is kept aside first (T1.56; issue #26 described the loss).
 
 ### 8.3 `dashboard.db`
 
-SQLite, through `Microsoft.Data.Sqlite`. One writer thread. Append-only, but for one update: a clean stop sets `stopped_at` on its own `runs` row. **Pruned to the retention window**, `history.retentionDays`, 30 days by default (T1.64, issue #81). **It holds at most the window: about 81 MB for 30 days** at the operator's real rate, 2,709,104 bytes a day (a copy measured on 2026-10-04: 102,060,032 bytes over the 37.67 days its events spanned). `GrowthMeasurement`'s synthetic typical day is far smaller, 307,200 bytes with its decisions, because it writes only prompts, answers and idle notifications; `TypicalBytesPerDay` (340,000) bounds that synthetic day with a margin of more than 10 %.
+SQLite, through `Microsoft.Data.Sqlite`. One writer thread. Append-only, but for one update: a clean stop sets `stopped_at` on its own `runs` row. **Pruned to the retention window**: as many days as Claude Code's `cleanupPeriodDays`, 30 days by default (T1.68, issue #102; until then `history.retentionDays`, T1.64, issue #81). **It holds at most the window: about 81 MB for 30 days** at the operator's real rate, 2,709,104 bytes a day (a copy measured on 2026-10-04: 102,060,032 bytes over the 37.67 days its events spanned). `GrowthMeasurement`'s synthetic typical day is far smaller, 307,200 bytes with its decisions, because it writes only prompts, answers and idle notifications; `TypicalBytesPerDay` (340,000) bounds that synthetic day with a margin of more than 10 %.
 
 If the file cannot be opened or written, the store writes one Warning when it fails (not for a failed retry), and the window and the tray say `history not recorded` (§5.6.1). **It tries again each minute** (the operator's ruling in issue #71; before T1.54 it stopped until the next start):
 
@@ -786,11 +786,19 @@ If the file cannot be opened or written, the store writes one Warning when it fa
 **The prune** (T1.64, issue #81; the operator's rulings of 2026-10-04)
 
 - **When:** once at each start, after the run row, and then once every 24 hours while the dashboard runs (`EventArchiveWriter.PruneEvery`), because it often runs for weeks. Always on the archive writer's loop: never on the consumer, the UI or a request thread, and the start never waits for it. The loop wakes each minute to look at the clock; a prune is due only when the day is up.
-- **What, in one transaction:** the `decisions` rows of the `events` rows older than the limit, those events, the `decisions` rows with no event older than the limit, and the `runs` rows that started before it, except this process's run. The limit is now − `retentionDays`, in the one UTC form of T1.62, compared as text; the index on `ts` (T1.63) makes it cheap. `0` deletes nothing.
+- **How long** (T1.68, issue #102; the operator's ruling of 2026-10-04): as long as Claude Code keeps its own sessions. At each prune, on the writer's thread, the dashboard reads `cleanupPeriodDays` from `~/.claude/settings.json` (§9.3; `ClaudeCleanupPeriod`), and `HistoryRetention` (Core) judges what it found:
+  - a JSON number that is a whole number of 1 or more keeps that many days;
+  - no key keeps 30 days, Claude Code's default;
+  - a file that cannot be read or parsed (none, locked, empty, not JSON, not an object) deletes nothing;
+  - a value that is not valid (`0`, a negative number, a fraction, text such as `"30"`, `true`, `null`) deletes nothing, as Claude Code pauses its own cleanup in these cases;
+  - a value too large to count back from now (`99999999`) deletes nothing. `99999` counts back to 1752, so it is kept as given, and keeps everything in practice.
+
+  The number is read again at each prune, so a change takes effect at the next one, with no restart. **A read that fails is not a history failure:** it shows no notice and does not start the store's retry minute (T1.54); the store is not asked, and the next prune is a day later. Why the history follows Claude Code: it holds a copy of what Claude Code sent, and must not keep text that Claude Code has deleted.
+- **What, in one transaction:** the `decisions` rows of the `events` rows older than the limit, those events, the `decisions` rows with no event older than the limit, and the `runs` rows that started before it, except this process's run. The limit is now less the days, in the one UTC form of T1.62, compared as text; the index on `ts` (T1.63) makes it cheap. A rule that deletes nothing does not ask the store at all.
 - **A failure** (a full disk, a locked file) rolls the transaction back, so an event never loses part of its record, and follows T1.54's rule: the history notice, and another attempt a minute later.
-- **Two log lines.** At each start, before any prune: `The history keeps 30 days: older records are deleted at each start and once a day.`, or `The history keeps everything: history.retentionDays is 0.` After a prune that deleted anything: the counts for each table, the limit and the time it took. No payload and no row's time.
+- **The log lines.** The rule in use, before the first prune of the run: `History follows Claude Code's cleanupPeriodDays: keeps 30 days.`, with ` (Claude Code's default)` before the full stop when the key is absent; or `Claude Code's settings could not be read: history is kept in full.`; or `Claude Code's cleanupPeriodDays is not valid: history is kept in full.`; or `Claude Code's cleanupPeriodDays is too large to count back from today: history is kept in full.` A daily prune writes the rule again only when it differs from the last one written, so a quiet day writes no line. Never a value that is not valid. After a prune that deleted anything: the counts for each table, the limit and the time it took. No payload and no row's time.
 - **No `VACUUM` and no `auto_vacuum`** (the operator's ruling): SQLite uses the space of the deleted rows again for new rows, so the file stops growing and does not shrink.
-- **The first start after the update deletes history older than the window.** To keep it, quit the dashboard and set `history.retentionDays` to `0` first (README, Install).
+- **The first start after the update deletes history older than Claude Code's `cleanupPeriodDays`**, 30 days if Claude Code has no such key (T1.68). A dashboard set to keep everything (`history.retentionDays: 0`) no longer does. To keep a long history, set `cleanupPeriodDays` high in Claude Code's settings first, for example `3650`, as Claude Code's documentation advises (README, Install).
 - Measured on a copy of the operator's database (2026-10-04): a 30-day prune deleted 5,376 events, 0 decisions of those events, 2 decisions with no event and 0 runs, in 39 ms; the file stayed at 102,060,032 bytes.
 
 **The table `events`:** one row for each event that reached the consumer.
@@ -990,13 +998,14 @@ What the dashboard reads there, at each start:
 
 - **`enabledPlugins` and `extraKnownMarketplaces`**, to learn if its plugin is enabled, turned off, or held by a different data folder. "Ours" is decided by the folder that the settings give, never by the name alone.
 - **`hooks`**, for a handler that a build before the plugin left there. It is recognised by the script path in `args`, and by nothing else. *Accepted limit: an 8.3 short path does not match.*
+- **`cleanupPeriodDays`**, at each start and again at each daily prune of the history, on the archive writer's thread: how long the history keeps its rows (§8.3; T1.68, issue #102). A read and a JSON parse, never a write. A file that cannot be read or parsed deletes nothing, with one log line and no notice.
 
 The read is defensive:
 
 - Comments and a comma at the end of a list are accepted.
 - A file that will not parse is "cannot be read". Nothing is then claimed about it, nothing is asked of Claude Code, and the operator sees a notice.
 - A value of the wrong type is "not ours", never an exception.
-- **Nothing from the file is logged or shown.**
+- **Nothing from the file is logged or shown**, but for the days of a valid `cleanupPeriodDays`, in the history's rule line (§8.3).
 
 `Architecture/ClaudeSettingsReadOnlyGuardTests.cs` holds the ruling: only the type that reads the file may name it, and that type has no call that writes, moves, copies, creates or deletes. A rule about names can be walked round, so the guard also pins the writers: it lists the exact set of product files that hold any call that writes, and a new file that writes fails it until a person checks what it writes and where. `ClaudeCodePaths.cs`, which holds the file's path, holds no call that writes.
 
@@ -1086,7 +1095,7 @@ Measured on Claude Code 2.1.286 (2026-09-30 and 2026-10-01): both install comman
 | **2** | Go there | `ITerminalLocator` (FlaUI) and `ITerminalNavigator` (`wt.exe`, UIA). *Not built* |
 | **3** | It notices | `IFocusSource`; an Ack from focus; no notice for a session on screen. *Not built* |
 | **4** | Task lens | Grouping by desktop; desktop names. *Not built* |
-| **5** | Memory | Search of the history; statistics; a restart from the log. *Not built*. Retention is built (T1.64, §8.3) |
+| **5** | Memory | Search of the history; statistics; a restart from the log. *Not built*. Retention is built (T1.64, T1.68; §8.3) |
 | **6** | Polish | The full settings interface; a sound editor; themes. *Not built* |
 | **7** | Anywhere | `ClaudeDashboard.Remote`; an authenticated remote read and Ack. *Not built* |
 
@@ -1114,7 +1123,7 @@ Core references no package.
 - **The relation to ClaudeSessions.** Absorb it, or keep it apart?
 - **Subagents.** Show a background agent as its own row, or not? Today its events arrive under the parent's id.
 - **Queued prompts.** A "queued" hint on a Working row, and from which signal?
-- **Retention.** Settled at T1.64: the history keeps 30 days by default, as `history.retentionDays` (§8.2, §8.3). Unread still never fades.
+- **Retention.** Settled at T1.68: the history keeps as many days as Claude Code's `cleanupPeriodDays`, 30 when the key is absent (§8.3, §9.3). It replaced T1.64's `history.retentionDays` (§8.2). Unread still never fades.
 - **Content-match disambiguation** (Phase 2).
 - **The silence threshold.** Ten minutes is a guess (issue #49).
 
@@ -1162,3 +1171,4 @@ The text above says what is true now. This list says when each part changed.
 | 2026-10-04 | `/state`'s `health` has the counts since the start, for the present hour and for the last hour, with the version, the start, the ingress, the database, the sound output and the modes; an hourly summary line and `HourlySummary` row; the stop line gives the same counts. The repaired-port sentence no longer names the value (§3.5, §8.2, §8.3, §8.4) | T1.65; issue #76 |
 | 2026-10-04 | Seven timings that would show a stall, kept in memory: in `/state`'s `health.timings`, an hourly line, the stop line's worst cases, a start-up line, and one warning when a limit is crossed and one a minute after it clears; a roster edit is stamped where it is published (§3.5, Part 4, §8.4) | T1.66; issue #86 |
 | 2026-10-04 | A speaker sign on the row that made a sound, for one minute: only a queued sound, with the row that Core decides (`SoundMarked`; for a group, the member that the settle pass names from the groups as they stand, an ended member included), ended by the tick, still, and the first thing to go in a narrow row (`MetaLine`) (§2.4, §2.5, §5.6.3, §5.6.5, §5.6.6, §5.6.9) | T1.67; issue #99 |
+| 2026-10-04 | The history follows Claude Code's `cleanupPeriodDays`, read at each prune from `~/.claude/settings.json` and judged in Core (`HistoryRetention`): 30 days when the key is absent; nothing deleted for a file that cannot be read or a value Claude Code would not use; the rule line, again only when it changes. `history.retentionDays` is no longer used, kept in the file and logged once. A settling member that leaves its roster keeps the reminder's sign (§5.6.3, §8.2, §8.3, §9.3, Appendix B) | T1.68; issue #102 |
