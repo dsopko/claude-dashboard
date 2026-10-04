@@ -10,10 +10,18 @@ namespace ClaudeDashboard.Tests.Storage;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <strong>The plans are read by a SQLite the product does not use</strong>
-/// (<see cref="ForeignSqliteReader"/>). With no <c>ANALYZE</c> statistics, SQLite plans from the
-/// indexes, not from the row counts, so the plan here is the plan a large file gets. The file still
-/// holds a few thousand rows.
+/// <strong>The plans are read through the product's own SQLite</strong> (Microsoft.Data.Sqlite's
+/// <c>e_sqlite3</c>), because the readers they protect run in the product, and Windows' own SQLite
+/// is updated separately (T1.63 review). The foreign reader is kept for "another SQLite reads the
+/// file": the index names in <c>sqlite_master</c>. With no <c>ANALYZE</c> statistics, SQLite plans
+/// from the indexes, not from the row counts, so the plan here is the plan a large file gets. The
+/// file still holds a few thousand rows.
+/// </para>
+/// <para>
+/// <strong>The queries are read out of the documents</strong>, not copied into this file: the first
+/// <c>sql</c> block after "To answer "why did that sound play?"" in Impl Part 4, and the one in event
+/// flow §12. A change to either query in the documents is planned here, so a query that brings back
+/// a scan fails (T1.63 review: a copy here drifted unseen).
 /// </para>
 /// <para>
 /// <strong>"No SCAN" alone does not hold <c>ix_decisions_kind_ts</c>.</strong> Without it, the
@@ -33,25 +41,6 @@ public sealed class IndexTests : IDisposable
         "ix_events_session_id",
         "ix_events_ts",
     ];
-
-    /// <summary>The query in Impl Part 4, word for word: "why did that sound play?".</summary>
-    private const string WhyDidThatSoundPlay = """
-        SELECT d.ts, d.session_id, d.kind, d.from_state, d.to_state, d.reason, d.detail, e.event_type
-        FROM decisions d LEFT JOIN events e ON e.id = d.event_id
-        WHERE d.session_id IN (SELECT session_id FROM decisions
-                               WHERE kind IN ('NoticePlayed', 'NudgePlayed') AND ts BETWEEN $from AND $to)
-          AND d.kind IN ('NoticePlayed', 'NudgePlayed', 'StateMoved', 'SilenceSwept')
-          AND d.ts BETWEEN $since AND $to
-        ORDER BY d.session_id, d.id;
-        """;
-
-    /// <summary>The query in event flow §12, word for word: one session's last events.</summary>
-    private const string OneSessionsEvents = """
-        SELECT e.id, datetime(e.ts, 'localtime') AS local_time, e.event_type, d.kind, d.from_state, d.to_state, d.reason
-        FROM events e LEFT JOIN decisions d ON d.event_id = e.id
-        WHERE e.session_id = $session
-        ORDER BY e.id DESC LIMIT 40;
-        """;
 
     private readonly string _folder =
         Path.Combine(Path.GetTempPath(), "claude-dashboard-tests", Guid.NewGuid().ToString("N"));
@@ -75,8 +64,65 @@ public sealed class IndexTests : IDisposable
     private static List<string> IndexesOf(string path) =>
         ForeignSqliteReader.Column(path, "SELECT name FROM sqlite_master WHERE type = 'index' AND name LIKE 'ix_%' ORDER BY name");
 
-    private static List<string> Plan(string path, string query) =>
-        [.. ForeignSqliteReader.Query(path, "EXPLAIN QUERY PLAN " + query).Select(row => row[3])];
+    /// <summary>
+    /// The plan of <paramref name="query"/>, through the product's SQLite. Its parameters are bound,
+    /// because Microsoft.Data.Sqlite refuses an unbound one; their values do not change the plan.
+    /// </summary>
+    private static List<string> Plan(string path, string query)
+    {
+        using var connection = new Microsoft.Data.Sqlite.SqliteConnection(
+            $"Data Source={path};Mode=ReadOnly;Pooling=False");
+        connection.Open();
+
+        using var command = connection.CreateCommand();
+        command.CommandText = "EXPLAIN QUERY PLAN " + query;
+
+        foreach (var (name, value) in new (string, object)[]
+        {
+            ("$from", "2026-08-26T14:30:00.0000000Z"),
+            ("$to", "2026-08-26T15:30:00.0000000Z"),
+            ("$since", "2026-08-25T15:30:00.0000000Z"),
+            ("$session", "s-1"),
+        })
+        {
+            if (query.Contains(name, StringComparison.Ordinal))
+            {
+                command.Parameters.AddWithValue(name, value);
+            }
+        }
+
+        var plan = new List<string>();
+
+        using var reader = command.ExecuteReader();
+
+        while (reader.Read())
+        {
+            plan.Add(reader.GetString(3));
+        }
+
+        return plan;
+    }
+
+    /// <summary>
+    /// The first <c>sql</c> block after <paramref name="anchor"/> in <paramref name="document"/>,
+    /// line endings normalised.
+    /// </summary>
+    private static string QueryIn(string document, string anchor)
+    {
+        var text = File.ReadAllText(Path.Combine(ClaudeDashboard.Tests.Architecture.RepoLayout.Root.FullName, "docs", document))
+            .ReplaceLineEndings("\n");
+
+        var at = text.IndexOf(anchor, StringComparison.Ordinal);
+        Assert.True(at >= 0, $"{document} no longer has \"{anchor}\".");
+
+        var start = text.IndexOf("```sql\n", at, StringComparison.Ordinal);
+        Assert.True(start >= 0, $"{document} has no sql block after \"{anchor}\".");
+        start += "```sql\n".Length;
+
+        var end = text.IndexOf("\n```", start, StringComparison.Ordinal);
+
+        return text[start..end];
+    }
 
     /// <summary>A new file has the six indexes.</summary>
     [Fact]
@@ -118,8 +164,8 @@ public sealed class IndexTests : IDisposable
     }
 
     /// <summary>
-    /// The two documented queries use the indexes and scan neither table. The inner query of Impl
-    /// Part 4 uses <c>ix_decisions_kind_ts</c>.
+    /// The two documented queries, as the documents give them today, use the indexes and scan neither
+    /// table, in the product's SQLite. The inner query of Impl Part 4 uses <c>ix_decisions_kind_ts</c>.
     /// </summary>
     [Fact]
     public void The_documented_queries_use_the_indexes_and_scan_no_table()
@@ -142,8 +188,8 @@ public sealed class IndexTests : IDisposable
             }
         }
 
-        var why = Plan(path, WhyDidThatSoundPlay);
-        var session12 = Plan(path, OneSessionsEvents);
+        var why = Plan(path, QueryIn("claude-dashboard-impl-spec.md", "To answer \"why did that sound play?\":"));
+        var session12 = Plan(path, QueryIn("claude-dashboard-event-flow.md", "## 12. How to see the path work"));
 
         foreach (var line in why.Concat(session12))
         {
