@@ -1097,6 +1097,35 @@ The work in GitHub milestone 3, "Observability 1": issues #3, #14, #67, #71, #72
   - Plants: (a) the limit not enforced, and the 20,001st-line test fails; (b) a hidden kind let through, and the shown-kinds test fails; (c) the project dropped before the detail, and the narrow test fails.
   - Both suite counts; build clean, 0 warnings.
 - **Guardrails:** nothing read from the database, no new table and no change to what is written. No change to the hook script or the plugin. No change to any rule about states, order or sound. No prompt or answer in the window. The consumer never waits on the UI thread. Tests use scratch folders, never the operator's data folder.
+- **Done 2026-10-04:** PR #105, merged as `bed9872`, `27844ca`, `3795a46`, `f57d315` (one fix cycle). The review found that a line's time was fixed when it arrived, so a line from before midnight never showed its day name. **Fix:** the lines read their time again when the local date changes, on the 15 s tick (31 to 44 ms once a day for 20,000 lines). **Director's ruling:** within one record, a sound line (or a "no sound" line) goes above its cause, so that the line under a `♪` says what made the sound. **The cost, ruled in from the review:** at the limit, each new line cost 4 to 10 ms on the UI thread, hidden or shown, because removing the oldest line from a laid-out list costs a layout. The list now trims to 19,000 in one step when it passes 20,000, and it is collapsed while the window is hidden: about 1.15 ms a line at the limit. A trim keeps the reader's place and selection. The T1.58 throughput test takes about 4 ms more per 1,024 events. Not verified: a real start and quit with the place saved, Narrator, a real fractional scale. **For the operator, not built:** a suppressed group sound's line has no name and no project, because its decision carries no group key.
+
+**T1.71 — From an Activity line to its row, and from a row to its lines**
+- **Goal:** a click on a line in the Activity window shows that session's row in the main window. "Show activity" on a row lists only that session's lines in the Activity window. For issue #97, its last two items.
+- **Depends:** T1.70 (the Activity window and its one list), T1.23 or wherever the main window's open row and its scroll are built, `WindowSurfacer` (bringing the main window to the front)
+- **Realizes:** #97: "A click on a line shows that session in the main window" and "A choice on a row ('Show activity') lists only that session's lines. That is the story of the row." Director's rulings:
+  - **A click on a line** brings the main window to the front, scrolls the session's row into view, and opens it. Opening it does what a click on the row does today and nothing more: no Ack, no mute, no event.
+  - **In selection mode,** the click scrolls to the row and brings it into view, but does not open it and does not change the selection. Why: in that mode, a click on a row selects it (Design §9), and setting `IsExpanded` there toggles the selection.
+  - **A row that is folded** (inside a collapsed group, the flat view's Ended line, or a group's quiet line): unfold what holds it, then scroll and open. Find how each fold opens today, and use that.
+  - **A session that is no longer in the main window,** and a line with no session (a group's sound): the click brings the main window to the front and does nothing more. The line's hover says why: "This session is no longer in the window." For a group's sound, the click scrolls to the group's heading if the group is still there.
+  - **"Show activity" is an action in the open row,** beside the session id. Why: the open row holds the row's actions (the Ack, the session id, and later "Open terminal"); no row has a right-click menu today; and an action in the open row works on a phone later, where a right click does not.
+  - **The filtered Activity window** shows only that session's lines, from the same one list (a filter, not a copy). A bar at its top says "Only <name>" (the short id when it has no name) with **Show all**, which clears the filter. New lines for that session keep arriving. Lines with no session (a group's sound) are not shown in a session's filter. "Show activity" on another row changes the filter to that row.
+  - **A keyboard works too:** Enter on a selected Activity line does what a click does.
+- **Deliverables:**
+  - The click, through a command on the line, never through a code-behind handler that a test cannot reach.
+  - The main window's "show this session" path: unfold, scroll, open, with the selection-mode rule.
+  - "Show activity" in the open row, the filter and its bar, and **Show all**.
+  - **Documents, in the same change:** Design §9 (the open row's new action) and §9.1 (the click and the filter), one row in §13; Impl §5.6.4 (the open row), §5.7 (the click, the filter and its bar); Core and App (what a second interface needs). One row in Impl Appendix C.
+- **Acceptance:**
+  - A click on a line of a session whose row is in the main window: the main window comes to the front, the row is in view and open, and no Ack, mute or event follows (the Registry and the event channel see nothing).
+  - The same click in selection mode: the row is in view, not open, and the selection is unchanged.
+  - A row inside a collapsed group, and one in the flat view's Ended line: the click unfolds, scrolls and opens.
+  - A line of a session that is gone, and a group's sound: the main window comes to the front and nothing else changes; the hover says why. A group's sound scrolls to the group heading when the group is there.
+  - "Show activity" on an open row: the window shows only that session's lines, with the bar; a new line for that session arrives in the filtered list; a line for another session does not show; **Show all** brings every line back; "Show activity" on another row changes the filter.
+  - Enter on a selected line does what a click does.
+  - Realized-window tests, with `BindingErrorWatch` clean in both windows.
+  - Plants: (a) the click sets `IsExpanded` in selection mode, and the selection test fails; (b) the filter made as a copy that does not take new lines, and the live-filter test fails; (c) the fold not opened, and the collapsed-group test fails.
+  - Both suite counts; build clean, 0 warnings.
+- **Guardrails:** a click in the Activity window never changes the Registry, the sound or the database. No right-click menu. No change to the main window's rules on order, motion or selection. No new timer. Tests use scratch folders.
 
 ---
 
