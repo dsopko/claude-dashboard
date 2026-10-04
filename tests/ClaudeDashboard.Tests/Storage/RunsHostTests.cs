@@ -42,12 +42,14 @@ public sealed class RunsHostTests : IDisposable
         }
     }
 
-    private WebApplication Host(out int port, bool ingressAvailable = true, int retentionDays = HistorySettings.DefaultRetentionDays)
+    private WebApplication Host(out int port, bool ingressAvailable = true)
     {
         port = ClaudeDashboard.Tests.Hosting.AppHostTests.FreePort();
-        new SettingsStore(_paths).Save(new DashboardSettings { Port = port, History = new HistorySettings { RetentionDays = retentionDays } });
+        new SettingsStore(_paths).Save(new DashboardSettings { Port = port });
 
-        return AppHost.Build(_paths, ingressAvailable: ingressAvailable);
+        // A scratch folder for Claude Code's settings, never the operator's ~/.claude (T1.68). It has no
+        // settings file, so the history keeps everything: these tests are about runs, not the prune.
+        return AppHost.Build(_paths, ingressAvailable: ingressAvailable, claude: new ClaudeCodePaths(Path.Combine(_root, "claude-config")));
     }
 
     /// <summary>
@@ -134,8 +136,9 @@ public sealed class RunsHostTests : IDisposable
         var events = ForeignSqliteReader.Query(_paths.DatabaseFile, OldDatabase.EventRows);
         var decisions = ForeignSqliteReader.Query(_paths.DatabaseFile, OldDatabase.DecisionRows);
 
-        // Keeps everything: the old rows are from 2026-09-01, older than the default 30 days (T1.64).
-        await using (var app = Host(out _, retentionDays: 0))
+        // Keeps everything: the old rows are from 2026-09-01, older than 30 days, and the scratch Claude
+        // Code folder has no settings file, so nothing is deleted (T1.68).
+        await using (var app = Host(out _))
         {
             await app.StartAsync();
             await app.StopAsync();

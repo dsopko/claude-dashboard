@@ -1,3 +1,5 @@
+using ClaudeDashboard.App.Configuration;
+using ClaudeDashboard.Core;
 using ClaudeDashboard.Core.Events;
 using ClaudeDashboard.Core.Ports;
 using Microsoft.Extensions.Hosting;
@@ -42,7 +44,7 @@ public sealed class EventArchiveWriter
     private readonly RunStart? _run;
     private readonly IClock? _clock;
     private readonly CancellationToken _hostStarted;
-    private readonly int _retentionDays;
+    private readonly ICleanupPeriodSource? _cleanup;
     private readonly TaskCompletionSource<DateTimeOffset> _startedAt =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -51,6 +53,9 @@ public sealed class EventArchiveWriter
     private long _runId;
     private long _refusedCount;
     private DateTimeOffset? _nextPruneAt;
+
+    /// <summary>The rule the last line said, so a daily prune writes it again only when it changed (T1.68).</summary>
+    private RetentionRule? _lastRule;
 
     /// <summary>
     /// How often the history is pruned while the dashboard runs: once a day, after the prune at
@@ -102,13 +107,16 @@ public sealed class EventArchiveWriter
         _hostStarted = hostStarted;
     }
 
-    /// <summary>Creates the writer that records this run and prunes the history (T1.60, T1.64).</summary>
+    /// <summary>Creates the writer that records this run and prunes the history (T1.60, T1.64, T1.68).</summary>
     /// <param name="archive">The channel it drains.</param>
     /// <param name="store">The file.</param>
-    /// <param name="logger">Where the start, the retention and the stop are logged.</param>
+    /// <param name="logger">Where the start, the rule in use, the prune and the stop are logged.</param>
     /// <param name="run">What the run row holds beside its times.</param>
     /// <param name="clock">The clock that stamps the start and the stop, and counts the days.</param>
-    /// <param name="retentionDays">The days of history to keep; 0 keeps everything (<c>history.retentionDays</c>).</param>
+    /// <param name="cleanup">
+    /// Where Claude Code's <c>cleanupPeriodDays</c> is read, at each prune (T1.68, issue #102): the
+    /// history keeps as many days as Claude Code keeps its sessions.
+    /// </param>
     /// <param name="hostStarted">Cancelled when the host has started: ingress has bound or failed.</param>
     /// <exception cref="ArgumentNullException">Any reference argument is null.</exception>
     public EventArchiveWriter(
@@ -117,11 +125,13 @@ public sealed class EventArchiveWriter
         ILogger logger,
         RunStart run,
         IClock clock,
-        int retentionDays,
+        ICleanupPeriodSource cleanup,
         CancellationToken hostStarted)
         : this(archive, store, logger, run, clock, hostStarted)
     {
-        _retentionDays = retentionDays;
+        ArgumentNullException.ThrowIfNull(cleanup);
+
+        _cleanup = cleanup;
     }
 
     /// <summary>How many events this writer handed to the store. Diagnostic only.</summary>
@@ -146,18 +156,6 @@ public sealed class EventArchiveWriter
     {
         if (_run is not null)
         {
-            // The retention in effect, BEFORE the loop starts, so before any prune line (T1.64).
-            if (_retentionDays > 0)
-            {
-                _logger.Information(
-                    "The history keeps {RetentionDays} days: older records are deleted at each start and once a day.",
-                    _retentionDays);
-            }
-            else
-            {
-                _logger.Information("The history keeps everything: history.retentionDays is 0.");
-            }
-
             // Synchronous, on the thread that starts the host: the time is taken before Start returns,
             // so before the announcement, and no hook this run accepts can be older than it.
             _startedRegistration = _hostStarted.Register(() => _startedAt.TrySetResult(_clock!.Now));
@@ -285,17 +283,30 @@ public sealed class EventArchiveWriter
     }
 
     /// <summary>
-    /// Writes the run row once, if the host has started. Lost like any other record when the disk
-    /// refuses, and counted by the store; never retried, because a late row would say the wrong time.
-    /// </summary>
-    /// <summary>
     /// Prunes when a prune is due: at the loop's first pass, then once each <see cref="PruneEvery"/>.
     /// A prune the store could not do now (closed, or failing) is tried again a minute later, with
     /// T1.54's retry. This process's run is kept, however long ago it started.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>The rule is read at each prune (T1.68, issue #102)</strong>: Claude Code's
+    /// <c>cleanupPeriodDays</c>, judged by <see cref="HistoryRetention"/>, so a change in Claude Code's
+    /// settings takes effect at the next prune, with no restart.
+    /// </para>
+    /// <para>
+    /// <strong>The rule line</strong> comes before the first prune of the run, and again only when the
+    /// rule differs from the last one written, so a quiet day writes no line. It never holds a value
+    /// that is not valid.
+    /// </para>
+    /// <para>
+    /// <strong>A read that fails is not a history failure.</strong> It deletes nothing, shows no notice,
+    /// and does not start the store's retry minute: the store is not asked, and the next prune is the
+    /// ordinary one, a day later.
+    /// </para>
+    /// </remarks>
     private void PruneIfDue()
     {
-        if (_run is null || _retentionDays <= 0)
+        if (_run is null || _cleanup is null)
         {
             return;
         }
@@ -307,12 +318,73 @@ public sealed class EventArchiveWriter
             return;
         }
 
+        var rule = HistoryRetention.Decide(ReadCleanupPeriod(), now);
+
+        if (rule != _lastRule)
+        {
+            LogRule(rule);
+            _lastRule = rule;
+        }
+
+        if (rule.Days is not { } days)
+        {
+            _nextPruneAt = now + PruneEvery;
+            return;
+        }
+
         var runId = Volatile.Read(ref _runId);
-        var result = _store.Prune(_retentionDays, now, runId > 0 ? runId : null);
+        var result = _store.Prune(days, now, runId > 0 ? runId : null);
 
         _nextPruneAt = now + (result is null ? SqliteEventStore.RetryAfter : PruneEvery);
     }
 
+    /// <summary>The source's answer; one that throws reads as "not read", so it deletes nothing.</summary>
+    private CleanupPeriodRead ReadCleanupPeriod()
+    {
+        try
+        {
+            return _cleanup!.Read();
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            return CleanupPeriodRead.NotRead;
+        }
+    }
+
+    /// <summary>The rule in use, in one line. The days only for a valid value; never a raw value.</summary>
+    private void LogRule(RetentionRule rule)
+    {
+        switch (rule.Cause)
+        {
+            case RetentionCause.Setting:
+                _logger.Information("History follows Claude Code's cleanupPeriodDays: keeps {Days} days.", rule.Days);
+                break;
+
+            case RetentionCause.Default:
+                _logger.Information(
+                    "History follows Claude Code's cleanupPeriodDays: keeps {Days} days (Claude Code's default).",
+                    rule.Days);
+                break;
+
+            case RetentionCause.NotRead:
+                _logger.Information("Claude Code's settings could not be read: history is kept in full.");
+                break;
+
+            case RetentionCause.TooLarge:
+                _logger.Information(
+                    "Claude Code's cleanupPeriodDays is too large to count back from today: history is kept in full.");
+                break;
+
+            default:
+                _logger.Information("Claude Code's cleanupPeriodDays is not valid: history is kept in full.");
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Writes the run row once, if the host has started. Lost like any other record when the disk
+    /// refuses, and counted by the store; never retried, because a late row would say the wrong time.
+    /// </summary>
     private void WriteRunStart()
     {
         if (_run is null || !_startedAt.Task.IsCompletedSuccessfully || Interlocked.Exchange(ref _startTried, 1) == 1)

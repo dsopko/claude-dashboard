@@ -41,8 +41,9 @@ namespace ClaudeDashboard.App.Storage;
 /// </para>
 /// <para>
 /// <strong>It keeps the retention window, and here is what that costs</strong> (T1.64, issue #81).
-/// <see cref="Prune"/> deletes what is older than <c>history.retentionDays</c>, 30 days by default,
-/// at each start and once a day; 0 keeps everything. The file stops growing and does not shrink:
+/// <see cref="Prune"/> deletes what is older than the days it is given, at each start and once a day.
+/// Since T1.68 (issue #102) those are Claude Code's <c>cleanupPeriodDays</c>, 30 days by default, and
+/// a value Claude Code would not use deletes nothing (<c>HistoryRetention</c>). The file stops growing and does not shrink:
 /// no <c>VACUUM</c>, by the operator's ruling. Two figures, and they differ by a factor of nine:
 /// </para>
 /// <list type="bullet">
@@ -855,8 +856,8 @@ public sealed class SqliteEventStore : IEventStore, IDisposable
         if (first && _failedAt is null)
         {
             _logger.Information(
-                "Recording events to {DatabaseFile}. It holds hook payloads and keeps the retention window " +
-                "in history.retentionDays; a synthetic typical day adds up to {BytesPerDay} bytes.",
+                "Recording events to {DatabaseFile}. It holds hook payloads and keeps as many days as Claude Code's " +
+                "cleanupPeriodDays; a synthetic typical day adds up to {BytesPerDay} bytes.",
                 _path,
                 TypicalBytesPerDay);
         }

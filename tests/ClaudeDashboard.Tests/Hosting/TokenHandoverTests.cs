@@ -174,7 +174,7 @@ public sealed class TokenHandoverTests : IDisposable
 
     private async Task<WebApplication> Start()
     {
-        var host = AppHost.Build(_paths);
+        var host = AppHost.Build(_paths, claude: new ClaudeCodePaths(Path.Combine(_paths.Root, "claude-config")));
 
         if (host.Services.GetService<Serilog.ILogger>() is IDisposable logger)
         {

@@ -40,7 +40,7 @@ public sealed class StateHostTests : IAsyncLifetime
         var paths = new DashboardPaths(_root);
         new SettingsStore(paths).Save(new DashboardSettings { Port = port });
 
-        _app = AppHost.Build(paths);
+        _app = AppHost.Build(paths, claude: new ClaudeCodePaths(Path.Combine(paths.Root, "claude-config")));
         await _app.StartAsync();
 
         _client = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}") };

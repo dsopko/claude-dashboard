@@ -155,10 +155,6 @@ public sealed record DashboardSettings
     [JsonPropertyName("window")]
     public WindowSettings Window { get; init; } = new();
 
-    /// <summary>How long the history database keeps its rows (T1.64, issue #81).</summary>
-    [JsonPropertyName("history")]
-    public HistorySettings History { get; init; } = new();
-
     /// <summary>
     /// Every key in the file that this version does not know, kept so that a save writes it back
     /// unchanged (T1.64).
@@ -169,6 +165,11 @@ public sealed record DashboardSettings
     /// vanish at the first quit of an older one. Top-level keys only: a key this version does not know
     /// inside a section it does know (<c>sound</c>, <c>window</c>, …) is still not kept. Not part of
     /// equality: it is carried, not compared.
+    /// <para>
+    /// Since T1.68 (issue #102) this also keeps <c>history</c>, which T1.64 read and no version reads
+    /// now: the history follows Claude Code's <c>cleanupPeriodDays</c>. An operator's
+    /// <c>history.retentionDays</c> stays in the file, unchanged, and is ignored.
+    /// </para>
     /// </remarks>
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? UnknownKeys { get; init; }
@@ -213,7 +214,6 @@ public sealed record DashboardSettings
         Logging == other.Logging &&
         Sound == other.Sound &&
         Window == other.Window &&
-        History == other.History &&
         SameRosters(Rosters, other.Rosters);
 
     /// <inheritdoc/>
@@ -226,7 +226,6 @@ public sealed record DashboardSettings
         hash.Add(Logging);
         hash.Add(Sound);
         hash.Add(Window);
-        hash.Add(History);
 
         // Count only: two books with the same rosters in a different dictionary order must hash
         // alike, and hashing the contents in enumeration order would not guarantee that.
@@ -320,34 +319,5 @@ public sealed record LoggingSettings
     {
         get => _fileSizeLimitBytes;
         init => _fileSizeLimitBytes = value > 0 ? value : DefaultFileSizeLimitBytes;
-    }
-}
-
-/// <summary>
-/// The <c>history</c> section of <c>settings.json</c> (T1.64, issue #81).
-/// </summary>
-/// <remarks>
-/// <para>
-/// <strong>30 days by default, and 0 keeps everything</strong> (the ruling in #81). A plain
-/// integer with no small ceiling: a hundred years, 36,525 days, fits.
-/// </para>
-/// <para>
-/// A negative value means the default; the load says so once, as it does for a port that is not a
-/// port (Impl §8.2). The value itself is not logged.
-/// </para>
-/// </remarks>
-public sealed record HistorySettings
-{
-    /// <summary>The days kept when the file says nothing, or says something negative.</summary>
-    public const int DefaultRetentionDays = 30;
-
-    private readonly int _retentionDays = DefaultRetentionDays;
-
-    /// <summary>How many days of history to keep; 0 keeps everything.</summary>
-    [JsonPropertyName("retentionDays")]
-    public int RetentionDays
-    {
-        get => _retentionDays;
-        init => _retentionDays = value >= 0 ? value : DefaultRetentionDays;
     }
 }

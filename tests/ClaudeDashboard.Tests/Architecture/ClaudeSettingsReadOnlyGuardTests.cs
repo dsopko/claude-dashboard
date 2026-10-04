@@ -57,18 +57,33 @@ public sealed class ClaudeSettingsReadOnlyGuardTests
         [.. ProductSources().Where(source => source.Code.Contains(identifier, StringComparison.Ordinal)).Select(source => source.Name)];
 
     /// <summary>
-    /// <strong>Two files name Claude Code's settings file: the one that says where it is, and the
-    /// one that reads it.</strong> A third is a new reader or a new writer, and either needs to be
-    /// looked at by a person who knows the ruling.
+    /// <strong>Three files name Claude Code's settings file: the one that says where it is, and the
+    /// two that read it</strong> (the hook check, and since T1.68 the history's <c>cleanupPeriodDays</c>).
+    /// A fourth is a new reader or a new writer, and either needs to be looked at by a person who knows
+    /// the ruling.
     /// </summary>
     [Fact]
     public void Only_the_path_and_the_check_name_Claude_Codes_settings_file() =>
-        Assert.Equal(["ClaudeCodePaths.cs", "HookCheck.cs"], FilesNaming("UserSettingsFile"));
+        Assert.Equal(["ClaudeCleanupPeriod.cs", "ClaudeCodePaths.cs", "HookCheck.cs"], FilesNaming("UserSettingsFile"));
 
     /// <summary>
     /// <strong>The file that reads it writes nothing at all.</strong> Not "does not write that
     /// file": it holds no writing call of any kind, so there is nothing to point at the wrong path.
     /// </summary>
+    /// <summary>
+    /// The history's reader of <c>cleanupPeriodDays</c> (T1.68, issue #102) reads the file once and
+    /// holds no call that writes, as the check does.
+    /// </summary>
+    [Fact]
+    public void The_cleanup_reader_reads_and_holds_no_call_that_writes()
+    {
+        var reader = Assert.Single(ProductSources(), source => source.Name == "ClaudeCleanupPeriod.cs").Code;
+
+        Assert.Equal(1, GuardScan.Occurrences(reader, "File.ReadAllText(_claude.UserSettingsFile)"));
+
+        Assert.Empty(WritesIn(reader));
+    }
+
     [Fact]
     public void The_check_reads_and_holds_no_call_that_writes()
     {
