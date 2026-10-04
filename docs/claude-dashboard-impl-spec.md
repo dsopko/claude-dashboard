@@ -141,7 +141,7 @@ Rules of the type:
 | Member | Behaviour |
 |---|---|
 | `OnSessionChanged(session, effectiveGroup)` | Plays a notice if the session entered a state that has one. Starts, continues or clears the nudge schedule. The group must be the *effective* group (§2.5) |
-| `OnRosterGroupSettled(group, settledAt, quietSince)` | Plays the group's one finished notice |
+| `OnRosterGroupSettled(group, settledAt, quietSince, settledBy)` | Plays the group's one finished notice. `settledBy` is the member whose row the group's sounds mark (§5.6.3) |
 | `OnRosterGroupUnsettled(group)` | Stops the group's nudge. Silent |
 | `Evaluate(now)` | Plays each nudge that is due. One nudge for each session in one call. The next one is scheduled from `now` |
 | `SetAllMuted(muted, until)` | Mute all. `until` null means no end |
@@ -149,7 +149,7 @@ Rules of the type:
 | `SetSessionMuted`, `SetGroupMuted` | Mute for one session or one group. *No caller: not built in the host* |
 | `NextNudgeAt(session)` | The due time of the next nudge, or null |
 | `NudgeScheduleAdvanced` | An event, raised when `Evaluate` moved a due time |
-| `SoundMarked` | An event, raised when the player queued a sound, with the session whose row shows the speaker sign: the sound's own session, or, for a group's sound, the member whose `EnteredAt` is the group's `QuietSince`. Nothing for a suppressed or a dropped sound (T1.67, §5.6.3) |
+| `SoundMarked` | An event, raised when the player queued a sound, with the session whose row shows the speaker sign: the sound's own session, or, for a group's sound, the member that the settle named (`settledBy`). Nothing for a suppressed or a dropped sound (T1.67, §5.6.3) |
 
 Values, all in `SoundPolicyOptions`:
 
@@ -177,7 +177,7 @@ Values, all in `SoundPolicyOptions`:
 | `GroupKeys.KindOf(key)` | `Workspace`, `Session`, `Roster` or `Unknown` |
 | `GroupResolver.Resolve(sessions, rosters)` | Makes the groups again from the sessions at each call. No cache |
 | `RosterBook` | All rosters. Immutable. `From`, `With`, `Without` and `RosterFor(title)` |
-| `RosterSettle` | `DefaultWindow` = 1.5 s. `DefaultMisMarkWindow` = 5 s. `StateOf(group, now)` gives `Working` while a roster group whose raw state is `Unread` is inside the window. `QuietSince(group)` is the latest `EnteredAt` of its members |
+| `RosterSettle` | `DefaultWindow` = 1.5 s. `DefaultMisMarkWindow` = 5 s. `StateOf(group, now)` gives `Working` while a roster group whose raw state is `Unread` is inside the window. `QuietSince(group)` is the latest `EnteredAt` of its members. `SettledBy(group)` is the member whose `EnteredAt` is `QuietSince`, the lower id on a tie, an ended member included (T1.67) |
 | `RosterGroupWatch` | The only history in the feature. `Observe(groups, now)` reports `Settled`, `Unsettled` and `MisMarked`. `NextDeadline` gives the instant that the host must wake |
 
 Rules of `RosterBook`, held by each operation:
@@ -533,7 +533,8 @@ A click opens the row. In selection mode a click selects it.
 **The speaker sign** (T1.67, issue #99) says which row made the sound that the operator just heard.
 
 - **Source.** `SoundPolicyEngine.SoundMarked`, raised on the consumer thread only when the player queued the sound (`SoundPlayed`). A suppressed sound (muted, paused, already announced) and a dropped sound (`NoOutput`, `Failed`) raise nothing. `SoundSigns` posts the session, the sound and the instant to the UI thread through the dispatcher: one post for each sound that played, never one for each event. `MainViewModel.SoundPlayed` gives them to the row, and keeps them for a row that is built later. The Registry is not written, and no lock is added.
-- **Which row.** Core decides (§2.4). A session's own sound marks that session. A group's own sound (`GroupNotice`, `GroupNudge`) marks the member whose state entry instant is the group's `QuietSince`: the member whose finish settled the group. The group's reminder marks the same member. If no member matches (it left the group, or it changed state), no row gets the sign. Two members with the same instant: the lower id, ordinal. Never the heading.
+- **Which row.** Core decides (§2.4, §2.5). A session's own sound marks that session. A group's own sound (`GroupNotice`, `GroupNudge`) marks the member whose state entry instant is the group's `QuietSince`: the member whose change settled the group (`RosterSettle.SettledBy`). The consumer's settle pass reads it from the groups as they stand, the same groups that give `QuietSince`, and hands it to `OnRosterGroupSettled`. So a roster just formed over finished sessions marks the member that finished last. (The first version let the engine look in its own copy of each session's group, which a roster edit does not change, and such a roster marked no row: the T1.67 review.) The group's reminder marks the same member, and a quiet tick that restores the settle keeps it. Two members with the same instant: the lower id, ordinal. Never the heading.
+- **A member that ended last** still gets the sign: its end settled the group, so it set off the sound (the operator's ruling on #99). Where its row is folded away, in the flat view's Ended line or behind a group's quiet line, no sign shows, and that is accepted.
 - **The minute** counts from the sound, and the sign goes at the first refresh at or after 60 s. There is no timer: the refresh is the consumer's tick (§5.6.5), so the sign can stay up to one tick interval (15 s) longer, plus any lateness of the tick (Part 4, `tickLateness`). A sound that plays again, such as a reminder, starts the minute again.
 - **On the row:** after the badge and its detail, before the age. Still: no animation, no fade, and no trigger targets it. Hover: `played: finished, 20s ago`, with the sound's name (`finished`, `permission`, `question` or `error`, the names of the sound files in Part 7) and the age in the row's own words (§5.6.5). Screen reader: `sound played`. No title, prompt or path, and no log line.
 - **A narrow row.** The meta line is a `MetaLine`. It lays out as the horizontal stack it was, and the row still clips it at the right edge, so the group tag goes first, then the age. The sign is laid out only when the whole line fits; when it does not, the sign takes no room and the age keeps its place.
@@ -1160,4 +1161,4 @@ The text above says what is true now. This list says when each part changed.
 | 2026-10-04 | The history keeps 30 days by default (`history.retentionDays`; 0 keeps everything), pruned at each start and once a day; settings keep top-level keys they do not know; a repaired value is logged; the growth is at most the window, about 81 MB for 30 days (§8.2, §8.3, Appendix B) | T1.64; issues #81, #93 |
 | 2026-10-04 | `/state`'s `health` has the counts since the start, for the present hour and for the last hour, with the version, the start, the ingress, the database, the sound output and the modes; an hourly summary line and `HourlySummary` row; the stop line gives the same counts. The repaired-port sentence no longer names the value (§3.5, §8.2, §8.3, §8.4) | T1.65; issue #76 |
 | 2026-10-04 | Seven timings that would show a stall, kept in memory: in `/state`'s `health.timings`, an hourly line, the stop line's worst cases, a start-up line, and one warning when a limit is crossed and one a minute after it clears; a roster edit is stamped where it is published (§3.5, Part 4, §8.4) | T1.66; issue #86 |
-| 2026-10-04 | A speaker sign on the row that made a sound, for one minute: only a queued sound, with the row that Core decides (`SoundMarked`), ended by the tick, still, and the first thing to go in a narrow row (`MetaLine`) (§2.4, §5.6.3, §5.6.5, §5.6.6, §5.6.9) | T1.67; issue #99 |
+| 2026-10-04 | A speaker sign on the row that made a sound, for one minute: only a queued sound, with the row that Core decides (`SoundMarked`; for a group, the member that the settle pass names from the groups as they stand, an ended member included), ended by the tick, still, and the first thing to go in a narrow row (`MetaLine`) (§2.4, §2.5, §5.6.3, §5.6.5, §5.6.6, §5.6.9) | T1.67; issue #99 |
