@@ -186,7 +186,7 @@ Each phase can ship alone. Phase 7 is the reason that the domain model stays apa
 - An Unread row that is never acknowledged: fade it after some hours, or leave it? Today it stays.
 - Subagents: show each as a row, or keep them under the parent? Today a background agent's events arrive under the parent session, and a parent that waits on one is Waiting.
 - Queued prompts: show a "1 queued" hint on a working row?
-- Retention: how long must the event log be kept?
+- Retention: settled. The event log keeps 30 days by default, as a setting, and `0` keeps everything (issue #81).
 - More than one observer: two people, or two devices with separate acknowledgments. Today "seen" is a state of the session, so there is one observer.
 
 ## 13. Change history
@@ -209,3 +209,4 @@ Each phase can ship alone. Phase 7 is the reason that the domain model stays apa
 | 2026-10-03 | A port that is taken is a notice, first in the list, and says what to do | Issue #14 |
 | 2026-10-03 | A dashboard that fell behind says so: it skips only repeated events, and a lost event is a notice until the next start | Issue #3 |
 | 2026-10-03 | The dashboard tests the path from Claude Code, and says when messages cannot arrive or are refused. The tooltip's last item says when it last heard from Claude Code | Issue #74 |
+| 2026-10-04 | The event log keeps 30 days by default, as a setting | Issue #81 |

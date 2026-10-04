@@ -720,16 +720,19 @@ The dashboard's own settings. A person can edit it: comments and a comma at the 
 | `sound.nudgeOnError` | boolean | `true` | If a session in Error is nudged |
 | `window.left`, `window.top`, `window.width`, `window.height` | number | None | Where the window was |
 | `window.alwaysOnTop` | boolean | `false` | If the window stays above other windows |
+| `history.retentionDays` | number | `30` | The days the history database keeps (§8.3). `0` keeps everything; a plain integer with no small ceiling, so 36,525 days (a hundred years) fits. A negative value is the default, and the log says so (T1.64) |
 | `rosters` | object | `{}` | Each key is a roster's name. Each value is the list of session names in it |
 
 - A `sound` value that is absent or out of range takes Core's default. The file never holds a second copy of a default.
 - The `rosters` section is made valid when it is read (§2.5). Each correction is logged with the roster's name and never a member.
+- **A repaired value is one Warning at load** (T1.64): a `port` that is not a port, and a negative `history.retentionDays`. The line says what the dashboard does instead and does not repeat a negative value. Until T1.64 the port's sentence was made and never logged.
+- **A key this version does not know is kept** (T1.64): `DashboardSettings.UnknownKeys` holds every top-level key it does not know, and a save writes it back unchanged. A save happens at every quit, so without this a key added for a newer version vanished at the first quit of an older one. A key it does not know inside a section it knows (`sound`, `window`, …) is still not kept.
 - **Not built:** keys for the nudge intervals, the Unread nudge, the stale time, the choice of sounds, mutes and the default view. Those values are fixed in the code.
 - **Known defects:** a save truncates the file before it writes (issue #7). A save after a failed read no longer replaces a malformed file with the defaults: the file is kept aside first (T1.56; issue #26 described the loss).
 
 ### 8.3 `dashboard.db`
 
-SQLite, through `Microsoft.Data.Sqlite`. One writer thread. Append-only, but for one update: a clean stop sets `stopped_at` on its own `runs` row. **Never pruned** (retention is *not built*). A typical day adds about 300 KB with the indexes (299,008 bytes measured at T1.63), about 110 MB a year unpruned.
+SQLite, through `Microsoft.Data.Sqlite`. One writer thread. Append-only, but for one update: a clean stop sets `stopped_at` on its own `runs` row. **Pruned to the retention window**, `history.retentionDays`, 30 days by default (T1.64, issue #81). **It holds at most the window: about 81 MB for 30 days** at the operator's real rate, 2,709,104 bytes a day (a copy measured on 2026-10-04: 102,060,032 bytes over the 37.67 days its events spanned). `GrowthMeasurement`'s synthetic typical day is far smaller, 307,200 bytes with its decisions, because it writes only prompts, answers and idle notifications; `TypicalBytesPerDay` (340,000) bounds that synthetic day with a margin of more than 10 %.
 
 If the file cannot be opened or written, the store writes one Warning when it fails (not for a failed retry), and the window and the tray say `history not recorded` (§5.6.1). **It tries again each minute** (the operator's ruling in issue #71; before T1.54 it stopped until the next start):
 
@@ -748,6 +751,16 @@ If the file cannot be opened or written, the store writes one Warning when it fa
 - **One Information line** says how many rows were converted, how many were already in UTC, how many were left, and the time it took. No time from a row, and no payload. A new file has no rows and writes no line.
 - Rows, ids and payloads never change: only the text of the time. No `VACUUM` (the operator's ruling on #81).
 - Measured on a copy of the operator's database (2026-10-04): 32,169 rows converted, 0 left as they were, in 865 ms; the file went from 97,669,120 to 101,163,008 bytes.
+
+**The prune** (T1.64, issue #81; the operator's rulings of 2026-10-04)
+
+- **When:** once at each start, after the run row, and then once every 24 hours while the dashboard runs (`EventArchiveWriter.PruneEvery`), because it often runs for weeks. Always on the archive writer's loop: never on the consumer, the UI or a request thread, and the start never waits for it. The loop wakes each minute to look at the clock; a prune is due only when the day is up.
+- **What, in one transaction:** the `decisions` rows of the `events` rows older than the limit, those events, the `decisions` rows with no event older than the limit, and the `runs` rows that started before it, except this process's run. The limit is now − `retentionDays`, in the one UTC form of T1.62, compared as text; the index on `ts` (T1.63) makes it cheap. `0` deletes nothing.
+- **A failure** (a full disk, a locked file) rolls the transaction back, so an event never loses part of its record, and follows T1.54's rule: the history notice, and another attempt a minute later.
+- **Two log lines.** At each start, before any prune: `The history keeps 30 days: older records are deleted at each start and once a day.`, or `The history keeps everything: history.retentionDays is 0.` After a prune that deleted anything: the counts for each table, the limit and the time it took. No payload and no row's time.
+- **No `VACUUM` and no `auto_vacuum`** (the operator's ruling): SQLite uses the space of the deleted rows again for new rows, so the file stops growing and does not shrink.
+- **The first start after the update deletes history older than the window.** To keep it, quit the dashboard and set `history.retentionDays` to `0` first (README, Install).
+- Measured on a copy of the operator's database (2026-10-04): a 30-day prune deleted 5,376 events, 0 decisions of those events, 2 decisions with no event and 0 runs, in 39 ms; the file stayed at 102,060,032 bytes.
 
 **The table `events`:** one row for each event that reached the consumer.
 
@@ -1037,7 +1050,7 @@ Measured on Claude Code 2.1.286 (2026-09-30 and 2026-10-01): both install comman
 | **2** | Go there | `ITerminalLocator` (FlaUI) and `ITerminalNavigator` (`wt.exe`, UIA). *Not built* |
 | **3** | It notices | `IFocusSource`; an Ack from focus; no notice for a session on screen. *Not built* |
 | **4** | Task lens | Grouping by desktop; desktop names. *Not built* |
-| **5** | Memory | Search of the history; statistics; a restart from the log; retention. *Not built* |
+| **5** | Memory | Search of the history; statistics; a restart from the log. *Not built*. Retention is built (T1.64, §8.3) |
 | **6** | Polish | The full settings interface; a sound editor; themes. *Not built* |
 | **7** | Anywhere | `ClaudeDashboard.Remote`; an authenticated remote read and Ack. *Not built* |
 
@@ -1065,7 +1078,7 @@ Core references no package.
 - **The relation to ClaudeSessions.** Absorb it, or keep it apart?
 - **Subagents.** Show a background agent as its own row, or not? Today its events arrive under the parent's id.
 - **Queued prompts.** A "queued" hint on a Working row, and from which signal?
-- **Retention.** Proposed: keep 30 days of events. Unread never fades. *Not built.*
+- **Retention.** Settled at T1.64: the history keeps 30 days by default, as `history.retentionDays` (§8.2, §8.3). Unread still never fades.
 - **Content-match disambiguation** (Phase 2).
 - **The silence threshold.** Ten minutes is a guess (issue #49).
 
@@ -1109,3 +1122,4 @@ The text above says what is true now. This list says when each part changed.
 | 2026-10-03 | The dashboard tests the path from Claude Code at each start and from a Settings button; notices for messages that cannot arrive or are refused; `HookRefused` rows, at most one a second; "last heard" is the tooltip's last item; the tooltip keeps to 127 characters; `/state` has `health` (§3.2, §3.5, §5.2, §5.6.1, §8.3, §9.4) | T1.61; issue #74 |
 | 2026-10-04 | Every time in `dashboard.db` is UTC text in one form; existing rows are converted once, and the file has `user_version` 1. The documented query takes UTC. "No refusal goes unrecorded" holds while the dashboard runs (Part 4, §3.2, §8.3) | T1.62; issue #80 |
 | 2026-10-04 | Six indexes on `events` and `decisions`, created after the T1.62 conversion; a typical day is 299,008 bytes with them, about 110 MB a year (§8.3) | T1.63; issue #79 |
+| 2026-10-04 | The history keeps 30 days by default (`history.retentionDays`; 0 keeps everything), pruned at each start and once a day; settings keep top-level keys they do not know; a repaired value is logged; the growth is at most the window, about 81 MB for 30 days (§8.2, §8.3, Appendix B) | T1.64; issues #81, #93 |

@@ -423,7 +423,7 @@ The engine keeps a due time for each session and plays what is due when it is as
 - The decision record holds identifiers and names only. It never holds a title, a prompt or an answer.
 - **The event log records each run of the dashboard:** when it started and stopped, its version and its port. A crash or a kill shows as a start with no stop. A replay of the log forgets every session at each start and at each clean stop, as the live dashboard does.
 - **A restart from the log** is the intent. *Not built.* So is search of the history (Phase 5).
-- The log is not pruned. *Retention is not built.*
+- **The log keeps 30 days by default**, a setting the operator owns; `0` keeps everything. It is pruned at each start and once a day. The space of the deleted rows is used again, so the file stops growing and does not shrink. A key in the settings file that a version does not know is kept when that version saves.
 
 ### IV.7 Degradation ladder
 
@@ -481,7 +481,7 @@ A local caller can ask what the Registry believes now. The answer is one entry f
 | **2** | Go there | — | UIA tab enumeration and content-matching; the terminal's focus command; direct activation | Navigator; locate strategy for each terminal |
 | **3** | It notices | Acknowledgment events from focus | Foreground hook; UIA selection events; the dwell time | One path for all acknowledgments; no notice for a session on screen |
 | **4** | Task lens | — | Grouping by virtual desktop; desktop names | The group key becomes the desktop |
-| **5** | Memory | — | — | Search of the history; statistics; a restart from the log; retention |
+| **5** | Memory | — | — | Search of the history; statistics; a restart from the log |
 | **6** | Polish | — | — | Settings interface; sound editor; themes |
 | **7** | Anywhere | — | — | An authenticated remote surface as a second consumer of the Registry |
 
@@ -521,7 +521,6 @@ One list for all the documents. Each item is marked *not built* where it appears
 |---|---|---|
 | Removal of an Ended session after a short time | §IV.2; Design §4, §5 | Nothing removes a session. It stays until the dashboard restarts |
 | A restart that restores the world from disk | §I.2, §IV.6; Impl Part 8 | The Registry starts empty. The event log exists and nothing reads it at start |
-| Retention of the event log | §IV.6; Impl Appendix B | The log is never pruned |
 | Mute for one session or one group | §IV.5; Design §8; Impl Part 7 | The sound engine has both. No event and no control reaches them |
 | Settings for the nudge intervals, the Unread nudge, the stale time, the sound choice, the default view | Design §8; Impl Part 8 | Fixed values. The settings file has four sound values only (Impl §8.2) |
 | A control for always-on-top | Impl §5.4 | A key in the settings file only |
@@ -563,3 +562,4 @@ The text above says what is true now. This list says when each rule changed, for
 | 2026-10-03 | Intake sheds only events that repeat information when it falls behind, and says so (§I.3, §IV.7). Before, it dropped its oldest event, which could be a permission prompt | T1.58; issue #3 |
 | 2026-10-03 | The event log records each start and stop of the dashboard, and a replay forgets every session at each start and each clean stop (§IV.6). Before, a replay ran the whole history as one run | T1.60; issue #78 |
 | 2026-10-03 | The dashboard tests the path from Claude Code at each start and on request, and says when messages cannot arrive or are refused; the tooltip says when it last heard from Claude Code (§IV.7) | T1.61; issue #74 |
+| 2026-10-04 | The event log keeps 30 days by default, a setting; it is pruned at each start and once a day, and does not shrink (§IV.6). Before, it was never pruned; the "retention not built" row of Appendix C goes | T1.64; issue #81 |
