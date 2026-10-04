@@ -390,14 +390,15 @@ public sealed record TimingsEntry(
 /// <param name="Worst">The largest.</param>
 /// <param name="Limit">The value above which it warns.</param>
 /// <param name="Unit"><c>Milliseconds</c> or <c>Records</c>.</param>
-public sealed record TimingEntry(long Count, double Average, double Worst, double Limit, Pipeline.TimingUnit Unit)
+/// <param name="Skipped">Values that could not be measured, such as an event with no arrival instant.</param>
+public sealed record TimingEntry(long Count, double Average, double Worst, double Limit, Pipeline.TimingUnit Unit, long Skipped)
 {
     /// <summary>The entry for one figure.</summary>
     public static TimingEntry From(Pipeline.TimingFigure figure)
     {
         ArgumentNullException.ThrowIfNull(figure);
 
-        return new TimingEntry(figure.Count, figure.Average, figure.WorstShown, figure.LimitShown, figure.Unit);
+        return new TimingEntry(figure.Count, figure.Average, figure.WorstShown, figure.LimitShown, figure.Unit, figure.Skipped);
     }
 }
 

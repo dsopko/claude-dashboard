@@ -348,7 +348,21 @@ public sealed class EventConsumer : BackgroundService
                 // Queue wait (T1.66): the event's Timestamp is its arrival, stamped by the clock on the
                 // request thread (HookEventMapper) or by the window that published it; this clock now
                 // is the apply. A wait over a second is a stall, said once.
-                _health?.Timings?.QueueWait.Record(_clock.Now - inboundEvent.Timestamp);
+                // An event with no arrival instant, or one later than now, is not a wait: skipped, so a
+                // source that forgets to stamp cannot ruin the figure (T1.66 review).
+                if (_health?.Timings?.QueueWait is { } queueWait)
+                {
+                    var now = _clock.Now;
+
+                    if (inboundEvent.Timestamp == default || inboundEvent.Timestamp > now)
+                    {
+                        queueWait.Skip();
+                    }
+                    else
+                    {
+                        queueWait.Record(now - inboundEvent.Timestamp);
+                    }
+                }
 
                 _recorder.BeginEvent(inboundEvent);
 

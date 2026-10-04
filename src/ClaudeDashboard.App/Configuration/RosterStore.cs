@@ -125,9 +125,14 @@ public sealed record RosterSettings
 /// pipeline before the consumer has started, which is a thing other tests reason about.
 /// </para>
 /// </param>
-public sealed class RosterStore(IEventSink sink, RosterBook? initial = null)
+/// <param name="clock">Stamps each announcement with the instant it is published (T1.66); the system clock if null.</param>
+public sealed class RosterStore(IEventSink sink, RosterBook? initial = null, IClock? clock = null)
 {
     private readonly IEventSink _sink = sink ?? throw new ArgumentNullException(nameof(sink));
+
+    // Stamps the announcement with the instant it is published, as every other event is stamped
+    // (T1.66 review): the queue wait reads it as the arrival.
+    private readonly IClock _clock = clock ?? new Adapters.SystemClock();
 
     private volatile RosterBook _book = initial ?? RosterBook.Empty;
 
@@ -148,6 +153,6 @@ public sealed class RosterStore(IEventSink sink, RosterBook? initial = null)
         ArgumentNullException.ThrowIfNull(book);
 
         _book = book;
-        _sink.TryPublish(new RostersChanged { SessionId = default, Timestamp = default, Cwd = string.Empty });
+        _sink.TryPublish(new RostersChanged { SessionId = default, Timestamp = _clock.Now, Cwd = string.Empty });
     }
 }

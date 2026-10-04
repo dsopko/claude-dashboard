@@ -1,19 +1,23 @@
 using System.Globalization;
+using System.IO;
 using System.Text.Json;
 using ClaudeDashboard.App.Configuration;
 using ClaudeDashboard.App.Hosting;
 using ClaudeDashboard.App.Ingress;
 using ClaudeDashboard.App.Pipeline;
+using ClaudeDashboard.App.Setup;
 using ClaudeDashboard.App.Storage;
+using ClaudeDashboard.App.Ui;
 using ClaudeDashboard.Core;
 using ClaudeDashboard.Core.Events;
 using ClaudeDashboard.Tests.Fakes;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace ClaudeDashboard.Tests.Pipeline;
 
 /// <summary>
-/// The timings that would show a stall (T1.66, issue #86): kept in memory, warned once, shown in
-/// <c>/state</c> and the hourly line.
+/// The timings that would show a stall (T1.66, issue #86): kept in memory, warned once and cleared
+/// after a quiet minute, shown in <c>/state</c> and the hourly line.
 /// </summary>
 public sealed class TimingsTests
 {
@@ -36,29 +40,77 @@ public sealed class TimingsTests
     // ---- One timing ---------------------------------------------------------------------------
 
     /// <summary>
-    /// One Warning when a value crosses the limit, one Information line when a value is back under,
-    /// and nothing for the values in between.
+    /// One Warning at the first crossing, nothing for the values after it, and one all-clear only
+    /// when a full minute has passed with no value over the limit.
     /// </summary>
     [Fact]
-    public void A_timing_warns_once_and_clears_once()
+    public void A_timing_warns_once_and_clears_after_a_quiet_minute()
     {
         var log = new RecordingLogSink();
-        var timings = new Timings(Logger(log));
-        var wait = timings.QueueWait;
+        var clock = new FakeClock(Start);
+        var wait = new Timings(Logger(log), clock).QueueWait;
 
-        foreach (var seconds in new[] { 0.01, 2, 3, 1.5, 0.1, 0.2, 0.05, 2.5 })
+        foreach (var seconds in new[] { 0.01, 2, 3, 1.5, 0.1 })
         {
             wait.Record(TimeSpan.FromSeconds(seconds));
         }
 
-        Assert.Equal(2, Over(log, "queueWait").Count);
+        Assert.Single(Over(log, "queueWait"));
+        Assert.Empty(BackUnder(log, "queueWait"));
+
+        clock.Now += TimeSpan.FromSeconds(59);
+        wait.CheckClear(clock.Now);
+        Assert.Empty(BackUnder(log, "queueWait"));
+
+        clock.Now += TimeSpan.FromSeconds(1);
+        wait.CheckClear(clock.Now);
+        wait.CheckClear(clock.Now + TimeSpan.FromSeconds(15));
         Assert.Single(BackUnder(log, "queueWait"));
+
+        wait.Record(TimeSpan.FromSeconds(2.5));
+        Assert.Equal(2, Over(log, "queueWait").Count);
         Assert.Equal(3, Lines(log).Count);
 
         var figure = wait.SinceStart;
-        Assert.Equal(8, figure.Count);
+        Assert.Equal(6, figure.Count);
         Assert.Equal(3000, figure.WorstShown);
         Assert.Equal(1000, figure.LimitShown);
+    }
+
+    /// <summary>
+    /// Values that flap around the limit for five minutes give exactly one Warning, and one all-clear
+    /// a minute after the last value over it: never a pair a value (the reviewer's probe gave 500).
+    /// </summary>
+    [Fact]
+    public void A_figure_flapping_around_its_limit_warns_once_and_clears_once()
+    {
+        var log = new RecordingLogSink();
+        var clock = new FakeClock(Start);
+        var backlog = new Timings(Logger(log), clock).ArchiveBacklog;
+
+        for (var second = 0; second < 300; second++)
+        {
+            clock.Now = Start + TimeSpan.FromSeconds(second);
+            backlog.Record(second % 2 == 0 ? 513 : 511);
+
+            if (second % 15 == 0)
+            {
+                backlog.CheckClear(clock.Now);
+            }
+        }
+
+        var lastOver = Start + TimeSpan.FromSeconds(298);
+
+        Assert.Single(Over(log, "archiveBacklog"));
+        Assert.Empty(BackUnder(log, "archiveBacklog"));
+
+        backlog.CheckClear(lastOver + TimeSpan.FromSeconds(59));
+        Assert.Empty(BackUnder(log, "archiveBacklog"));
+
+        backlog.CheckClear(lastOver + Timing.ClearAfter);
+        backlog.CheckClear(lastOver + Timing.ClearAfter + TimeSpan.FromSeconds(15));
+        Assert.Single(BackUnder(log, "archiveBacklog"));
+        Assert.Single(Over(log, "archiveBacklog"));
     }
 
     // ---- The consumer -------------------------------------------------------------------------
@@ -75,8 +127,9 @@ public sealed class TimingsTests
             _logger = Logger(Log);
             Pipeline = new EventPipeline(Serilog.Core.Logger.None);
             Archive = new EventArchive(Serilog.Core.Logger.None);
-            Timings = new Timings(_logger);
+            Timings = new Timings(_logger, Clock);
             Archive.Backlog = Timings.ArchiveBacklog;
+            Rosters = new RosterStore(Pipeline.Sink, clock: Clock);
 
             var guard = new SingleWriterGuard();
             var registry = new SessionRegistry(new SingleWriterGuard());
@@ -91,7 +144,7 @@ public sealed class TimingsTests
                 _logger,
                 new RecordingUiTick(),
                 Archive,
-                new RosterStore(new RecordingEventSink()),
+                Rosters,
                 recorder: TestDecisions.For(registry, Archive),
                 tickInterval: TimeSpan.FromMilliseconds(20),
                 health: Board);
@@ -106,6 +159,8 @@ public sealed class TimingsTests
         public EventArchive Archive { get; }
 
         public Timings Timings { get; }
+
+        public RosterStore Rosters { get; }
 
         public HealthBoard Board { get; }
 
@@ -141,7 +196,7 @@ public sealed class TimingsTests
 
     /// <summary>
     /// An event that waited two seconds between its arrival and its apply: the queue wait is in the
-    /// snapshot, one Warning is logged, and one all-clear when the next event does not wait.
+    /// snapshot, one Warning is logged, and one all-clear a minute after, on the tick.
     /// </summary>
     [Fact]
     public async Task An_event_that_waits_past_a_second_warns_once_and_clears()
@@ -158,13 +213,15 @@ public sealed class TimingsTests
         Assert.Equal("queueWait", wait.Name);
         Assert.True(wait.WorstShown >= 2000, $"queue wait {wait.WorstShown} ms");
         Assert.Single(Over(rig.Log, "queueWait"));
-        Assert.Empty(BackUnder(rig.Log, "queueWait"));
 
         Assert.True(rig.Pipeline.Sink.TryPublish(Prompt("s-2", rig.Clock.Now)));
         Assert.True(SpinWait.SpinUntil(() => rig.Consumer.AppliedCount == 2, Generous));
+        Assert.Empty(BackUnder(rig.Log, "queueWait"));
 
+        rig.Clock.Now += Timing.ClearAfter;
+
+        Assert.True(SpinWait.SpinUntil(() => BackUnder(rig.Log, "queueWait").Count == 1, Generous));
         Assert.Single(Over(rig.Log, "queueWait"));
-        Assert.Single(BackUnder(rig.Log, "queueWait"));
     }
 
     /// <summary>A tick that runs ten seconds after it was due is measured as lateness, and warns once.</summary>
@@ -178,9 +235,44 @@ public sealed class TimingsTests
 
         rig.Clock.Now += TimeSpan.FromSeconds(10);
 
-        Assert.True(SpinWait.SpinUntil(() => BackUnder(rig.Log, "tickLateness").Count == 1, Generous));
-        Assert.Single(Over(rig.Log, "tickLateness"));
         Assert.True(SpinWait.SpinUntil(() => rig.Board.Current!.Timings!.Figures[1].WorstShown >= 9_000, Generous));
+        var ticks = rig.Consumer.TickCount;
+        Assert.True(SpinWait.SpinUntil(() => rig.Consumer.TickCount >= ticks + 5, Generous));
+
+        Assert.Single(Over(rig.Log, "tickLateness"));
+    }
+
+    /// <summary>
+    /// A roster edit through the real <c>RosterStore.Replace</c> is stamped where it is published: a
+    /// small queue wait and no Warning (the reviewer's probe: a default stamp gave 63.9 trillion ms).
+    /// </summary>
+    [Fact]
+    public async Task A_roster_edit_has_a_small_queue_wait_and_no_warning()
+    {
+        await using var rig = new Rig();
+        await rig.StartAsync();
+
+        rig.Rosters.Replace(RosterBook.Empty);
+
+        Assert.True(SpinWait.SpinUntil(() => rig.Timings.QueueWait.SinceStart.Count == 1, Generous));
+
+        Assert.True(rig.Timings.QueueWait.SinceStart.WorstShown < 1000);
+        Assert.Equal(0, rig.Timings.QueueWait.Skipped);
+        Assert.Empty(Over(rig.Log, "queueWait"));
+    }
+
+    /// <summary>An event with no arrival instant is skipped, counted, and not recorded.</summary>
+    [Fact]
+    public async Task An_event_with_no_arrival_instant_is_skipped()
+    {
+        await using var rig = new Rig();
+        await rig.StartAsync();
+
+        Assert.True(rig.Pipeline.Sink.TryPublish(Prompt("s-1", default)));
+        Assert.True(SpinWait.SpinUntil(() => rig.Timings.QueueWait.Skipped == 1, Generous));
+
+        Assert.Equal(0, rig.Timings.QueueWait.SinceStart.Count);
+        Assert.Empty(Over(rig.Log, "queueWait"));
     }
 
     /// <summary>A thousand ordinary events write no timing line.</summary>
@@ -213,6 +305,43 @@ public sealed class TimingsTests
         Assert.Equal(1000, rig.Timings.ApplyTime.SinceStart.Count);
     }
 
+    // ---- The wiring ---------------------------------------------------------------------------
+
+    /// <summary>
+    /// AppHost hands the three timings measured off the consumer to their owners: the archive, the
+    /// window's dispatcher (the reviewer's plant d left it unwired) and the self-test.
+    /// </summary>
+    [Fact]
+    public void AppHost_wires_the_three_hand_offs()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "claude-dashboard-tests", Guid.NewGuid().ToString("N"));
+
+        try
+        {
+            using var host = AppHost.Build(new DashboardPaths(root));
+            var timings = host.Services.GetRequiredService<Timings>();
+
+            var dispatcher = Assert.IsType<WpfDispatcher>(host.Services.GetRequiredService<IUiDispatcher>());
+            Assert.Same(timings.UiHop, dispatcher.Hop);
+            Assert.Same(timings.ArchiveBacklog, host.Services.GetRequiredService<EventArchive>().Backlog);
+            Assert.Same(timings.HookRoundTrip, host.Services.GetRequiredService<HookSelfTest>().RoundTrip);
+            Assert.Same(timings, host.Services.GetRequiredService<HealthBoard>().Timings);
+
+            (host.Services.GetService(typeof(Serilog.ILogger)) as IDisposable)?.Dispose();
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(root, recursive: true);
+            }
+            catch (IOException)
+            {
+                // Disposable temp folder.
+            }
+        }
+    }
+
     // ---- /state and the lines -----------------------------------------------------------------
 
     /// <summary>
@@ -225,7 +354,7 @@ public sealed class TimingsTests
         var log = new RecordingLogSink();
         using var logger = Logger(log);
         var clock = new FakeClock(Start);
-        var timings = new Timings(logger);
+        var timings = new Timings(logger, clock);
         var phases = new StartupPhases();
         phases.Mark("settings");
         phases.Mark("build");
@@ -260,6 +389,7 @@ public sealed class TimingsTests
             Assert.Equal(JsonValueKind.Number, figure.GetProperty("average").ValueKind);
             Assert.Equal(JsonValueKind.Number, figure.GetProperty("worst").ValueKind);
             Assert.Equal(JsonValueKind.Number, figure.GetProperty("limit").ValueKind);
+            Assert.Equal(JsonValueKind.Number, figure.GetProperty("skipped").ValueKind);
         }
 
         Assert.Equal(1, t.GetProperty("queueWait").GetProperty("count").GetInt64());
