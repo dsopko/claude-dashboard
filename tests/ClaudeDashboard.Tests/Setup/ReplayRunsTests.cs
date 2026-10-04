@@ -46,8 +46,18 @@ public sealed class ReplayRunsTests : IDisposable
     private static string Permission(string session) =>
         $$"""{"hook_event_name":"Notification","session_id":"{{session}}","cwd":"{{Cwd}}","notification_type":"permission_prompt"}""";
 
-    /// <summary>Writes the events at their times, and a runs row at each start, into a new file.</summary>
-    private string Database(string name, (DateTimeOffset At, string Body)[] events, DateTimeOffset[] runStarts)
+    private static string Question(string session) =>
+        $$"""{"hook_event_name":"Notification","session_id":"{{session}}","cwd":"{{Cwd}}","notification_type":"agent_needs_input"}""";
+
+    /// <summary>
+    /// Writes the events at their times, and a runs row at each start, into a new file. A run whose
+    /// entry in <paramref name="runStops"/> is set also gets that clean stop.
+    /// </summary>
+    private string Database(
+        string name,
+        (DateTimeOffset At, string Body)[] events,
+        DateTimeOffset[] runStarts,
+        DateTimeOffset?[]? runStops = null)
     {
         var path = Path.Combine(_folder, name);
         var clock = new FakeClock();
@@ -55,9 +65,15 @@ public sealed class ReplayRunsTests : IDisposable
 
         using var store = new SqliteEventStore(path, Logger.None);
 
-        foreach (var start in runStarts)
+        for (var i = 0; i < runStarts.Length; i++)
         {
-            Assert.NotNull(store.StartRun(new RunStart("test", 5000, _folder), start));
+            var id = store.StartRun(new RunStart("test", 5000, _folder), runStarts[i]);
+            Assert.NotNull(id);
+
+            if (runStops?[i] is { } stop)
+            {
+                Assert.True(store.StopRun(id.Value, stop));
+            }
         }
 
         foreach (var (at, body) in events)
@@ -122,6 +138,44 @@ public sealed class ReplayRunsTests : IDisposable
 
         Assert.Contains(reported, line => line.Contains("Replay saw 2 runs", StringComparison.Ordinal));
         Assert.Contains(reported, line => line.Contains("No history came before the first run.", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// A session waiting on a question at a clean stop has no nudge while the dashboard is off:
+    /// replay forgets it at the stop. A run that ended in a crash keeps it until the next start.
+    /// </summary>
+    /// <remarks>
+    /// The gap is a night, from 09:30 to 17:00 UTC. Without the stop, the question would nudge
+    /// through it, as the crash control shows.
+    /// </remarks>
+    [Fact]
+    public void A_clean_stop_forgets_a_waiting_session_until_the_next_start()
+    {
+        var first = new DateTimeOffset(2026, 10, 1, 9, 0, 0, TimeSpan.Zero);
+        var stop = first + TimeSpan.FromMinutes(30);
+        var second = new DateTimeOffset(2026, 10, 1, 17, 0, 0, TimeSpan.Zero);
+
+        (DateTimeOffset, string)[] events =
+        [
+            (first + TimeSpan.FromMinutes(1), Prompt("s-asks")),
+            (first + TimeSpan.FromMinutes(2), Question("s-asks")),
+            (second + TimeSpan.FromHours(1), Prompt("s-next")),
+        ];
+
+        var stopped = Database("clean-stop.db", events, [first, second], [stop, null]);
+        var crashed = Database("crash.db", events, [first, second], [null, null]);
+
+        var reported = Replay(stopped);
+        Replay(crashed);
+
+        var afterStop = Nudges(stopped, "s-asks");
+        var afterCrash = Nudges(crashed, "s-asks");
+
+        Assert.NotEmpty(afterStop);
+        Assert.All(afterStop, at => Assert.True(at < stop, $"A nudge at {at:o} came while the dashboard was off."));
+        Assert.Contains(afterCrash, at => at >= stop && at < second);
+
+        Assert.Contains(reported, line => line.Contains("each clean stop", StringComparison.Ordinal));
     }
 
     /// <summary>

@@ -36,10 +36,13 @@ namespace ClaudeDashboard.App.Setup;
 /// <strong>Replay forgets every session at each start, as the live dashboard does (T1.60, issue
 /// #78).</strong> The live Registry starts empty at every process start, and since T1.60 each start
 /// is a row in <c>runs</c>. When the next tick or event is at or after a run's <c>started_at</c>,
-/// replay first starts a new Registry and sound engine state, empty, and then goes on. The times
+/// replay first starts a new Registry and sound engine state, empty, and then goes on. It does
+/// the same at a run's <c>stopped_at</c> when the run stopped cleanly: a dashboard that is off sends
+/// no nudges, and an overnight gap would otherwise make dozens of question nudges for each waiting
+/// session. A run with no stop (a crash or a kill) is forgotten at the next start. The times
 /// are compared as parsed instants, never as text: <c>events</c> holds local times with their
 /// offsets until #80, and <c>runs</c> holds UTC, so text would order an event in <c>+02:00</c>
-/// against a start in <c>Z</c> wrongly.
+/// against a start or a stop in <c>Z</c> wrongly.
 /// </para>
 /// <para>
 /// <strong>History older than the first run row replays as one uninterrupted run, as it did before
@@ -120,7 +123,7 @@ public static class ReplaySwitch
         using var store = new SqliteEventStore(databasePath, logger);
 
         IReadOnlyList<SqliteEventStore.ArchivedEvent> history;
-        IReadOnlyList<string> runStarts;
+        IReadOnlyList<(string StartedAt, string? StoppedAt)> runs;
 
         try
         {
@@ -136,7 +139,7 @@ public static class ReplaySwitch
             }
 
             history = store.ReadEvents();
-            runStarts = store.ReadRunStarts();
+            runs = store.ReadRuns();
         }
         catch (Exception ex) when (ex is Microsoft.Data.Sqlite.SqliteException or IOException or InvalidOperationException)
         {
@@ -144,15 +147,33 @@ public static class ReplaySwitch
             return 1;
         }
 
-        // Each start, as an instant. Parsed, never compared as text (see the remarks).
+        // Each start, and each clean stop, as an instant. Parsed, never compared as text (see the
+        // remarks). A start begins a run; both forget every session.
         var starts = new List<DateTimeOffset>();
+        var forgets = new List<DateTimeOffset>();
         var unparsedRuns = 0L;
 
-        foreach (var text in runStarts)
+        foreach (var (startedAt, stoppedAt) in runs)
         {
-            if (DateTimeOffset.TryParse(text, null, System.Globalization.DateTimeStyles.RoundtripKind, out var start))
+            if (DateTimeOffset.TryParse(startedAt, null, System.Globalization.DateTimeStyles.RoundtripKind, out var start))
             {
                 starts.Add(start);
+                forgets.Add(start);
+            }
+            else
+            {
+                unparsedRuns++;
+            }
+
+            if (stoppedAt is null)
+            {
+                // A crash or a kill: the sessions stay until the next start.
+                continue;
+            }
+
+            if (DateTimeOffset.TryParse(stoppedAt, null, System.Globalization.DateTimeStyles.RoundtripKind, out var stop))
+            {
+                forgets.Add(stop);
             }
             else
             {
@@ -161,23 +182,31 @@ public static class ReplaySwitch
         }
 
         starts.Sort();
+        forgets.Sort();
 
         var clock = new ReplayClock();
         var archive = new EventArchive(logger);
         var mapper = new HookEventMapper(clock);
         var run = new ReplayRun(archive, clock, logger);
         var nextStart = 0;
+        var nextForget = 0;
         var beforeFirstRun = 0L;
 
-        // A start at or before this instant begins a new run: the Registry and the sound engine
-        // start again, empty, as a live start does. Called before each tick and each event.
+        // A start or a clean stop at or before this instant: the Registry and the sound engine start
+        // again, empty, as a live start does, and as a dashboard that is off holds nothing. Called
+        // before each tick and each event.
         void EnterRunsUpTo(DateTimeOffset at)
         {
-            var crossed = false;
-
             while (nextStart < starts.Count && starts[nextStart] <= at)
             {
                 nextStart++;
+            }
+
+            var crossed = false;
+
+            while (nextForget < forgets.Count && forgets[nextForget] <= at)
+            {
+                nextForget++;
                 crossed = true;
             }
 
@@ -322,7 +351,7 @@ public static class ReplaySwitch
         }
         else
         {
-            report($"Replay saw {starts.Count} runs and forgot every session at each start, as the live dashboard does. " +
+            report($"Replay saw {starts.Count} runs and forgot every session at each start and each clean stop, as the live dashboard does. " +
                 (beforeFirstRun > 0
                     ? $"{beforeFirstRun} events came before the first run and replayed as one uninterrupted run, as before " +
                         "T1.60: their nudge and sweep rows are what a dashboard that never restarted would have done."
@@ -331,7 +360,7 @@ public static class ReplaySwitch
 
         if (unparsedRuns > 0)
         {
-            report($"Ignored {unparsedRuns} runs rows whose start time would not parse.");
+            report($"Ignored {unparsedRuns} runs times that would not parse.");
         }
 
         return 0;
