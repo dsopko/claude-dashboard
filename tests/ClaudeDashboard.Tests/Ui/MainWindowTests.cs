@@ -108,47 +108,6 @@ public sealed class MainWindowTests(StaHarness harness, Xunit.Abstractions.ITest
         });
     }
 
-    /// <summary>Collects WPF's binding diagnostics while a window is being realized.</summary>
-    private sealed class BindingErrorWatch : IDisposable
-    {
-        private readonly Listener _listener = new();
-        private readonly SourceLevels _previous;
-
-        public BindingErrorWatch()
-        {
-            PresentationTraceSources.Refresh();
-            _previous = PresentationTraceSources.DataBindingSource.Switch.Level;
-            PresentationTraceSources.DataBindingSource.Switch.Level = SourceLevels.Warning;
-            PresentationTraceSources.DataBindingSource.Listeners.Add(_listener);
-        }
-
-        public IReadOnlyList<string> Problems => _listener.Problems;
-
-        public void Dispose()
-        {
-            PresentationTraceSources.DataBindingSource.Listeners.Remove(_listener);
-            PresentationTraceSources.DataBindingSource.Switch.Level = _previous;
-            _listener.Dispose();
-        }
-
-        private sealed class Listener : TraceListener
-        {
-            public List<string> Problems { get; } = [];
-
-            public override void Write(string? message) => Record(message);
-
-            public override void WriteLine(string? message) => Record(message);
-
-            private void Record(string? message)
-            {
-                if (!string.IsNullOrWhiteSpace(message))
-                {
-                    Problems.Add(message);
-                }
-            }
-        }
-    }
-
     /// <summary>
     /// Shows <paramref name="window"/> off the side of every monitor and lets its layout settle.
     /// </summary>
@@ -189,6 +148,54 @@ public sealed class MainWindowTests(StaHarness harness, Xunit.Abstractions.ITest
     private static ContentPresenter RowFor(MainWindow window, string sessionId) =>
         RowsOf(window).Single(row =>
             row.DataContext is SessionViewModel session && session.Id.Value == sessionId);
+
+    /// <summary>
+    /// <strong>The Grouped/Flat toggle on a live window raises no binding error</strong> (for issue #23). A row of
+    /// another kind now takes its place by a remove and an insert, so no container is bound once to a row of the
+    /// wrong kind; before, the same toggle wrote 212 binding errors in the T1.71 measurement.
+    /// </summary>
+    [Fact]
+    public void Toggling_grouped_and_flat_on_a_live_window_raises_no_binding_error()
+    {
+        var problems = _harness.Invoke(() =>
+        {
+            using var registry = new RegistryHarness();
+            using var policy = new MotionPolicy(() => true, observeChanges: false);
+            using var viewModel = new MainViewModel(registry.Projection, policy, new StubAckPublisher(), new FakeClipboard(), new RosterStore(new RecordingEventSink()), new RecordingRosterPersistence());
+
+            for (var i = 0; i < 5; i++)
+            {
+                registry.Working($"s-{i}", At.AddSeconds(i), $@"C:\dev\p{i}", title: $"Task {i}");
+            }
+
+            var window = new MainWindow(viewModel, TestTrays.For(registry.Projection));
+
+            try
+            {
+                Realize(window);
+
+                using var bindings = new BindingErrorWatch();
+
+                viewModel.IsGrouped = false;
+                window.UpdateLayout();
+                _harness.Pump(DispatcherPriority.Background);
+                Assert.Contains(viewModel.Rows, row => row is BandHeaderViewModel);
+
+                viewModel.IsGrouped = true;
+                window.UpdateLayout();
+                _harness.Pump(DispatcherPriority.Background);
+                Assert.Contains(viewModel.Rows, row => row is GroupViewModel);
+
+                return bindings.Problems.ToList();
+            }
+            finally
+            {
+                window.Hide();
+            }
+        });
+
+        Assert.Empty(problems);
+    }
 
     // ---- The caption's own icon (T1.38) --------------------------------------------------------
 

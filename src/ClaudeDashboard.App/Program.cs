@@ -323,6 +323,13 @@ public static class Program
                 activityWindows.Create();
                 tray.ViewModel.ActivityRequested += (_, _) => activityWindows.Show();
 
+                // A click on a line shows its row here, and "Show activity" on a row lists its lines there (T1.71).
+                ActivityLinks.Connect(
+                    window,
+                    window.ViewModel,
+                    host.Services.GetRequiredService<ActivityViewModel>(),
+                    () => activityWindows.Show());
+
                 phases.Mark("window");
                 phases.Log(host.Services.GetRequiredService<Serilog.ILogger>());
 

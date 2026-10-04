@@ -681,6 +681,22 @@ public sealed partial class SessionViewModel : DashboardRow
     /// </remarks>
     public bool ShowsOwnAck => CanAcknowledge && !IsRosterMember;
 
+    /// <summary>
+    /// "Show activity" in the open row was chosen (T1.71, issue #97). The main view model listens, and the
+    /// Activity window lists only this session's lines.
+    /// </summary>
+    public event EventHandler? ActivityRequested;
+
+    /// <summary>The name the Activity window's bar shows: the row's title, or the short id when it has none.</summary>
+    public string ActivityName => HasTitle ? TitleDisplay : ShortId;
+
+    /// <summary>
+    /// "Show activity", an action in the open row beside the session id (T1.71). Only asks: it changes nothing
+    /// on the row and sends no event.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanCopyId))]
+    private void ShowActivity() => ActivityRequested?.Invoke(this, EventArgs.Empty);
+
     /// <summary>Puts the <em>whole</em> session id on the clipboard (issue #15).</summary>
     /// <remarks>
     /// <para>

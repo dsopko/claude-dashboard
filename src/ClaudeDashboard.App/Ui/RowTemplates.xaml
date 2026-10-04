@@ -919,6 +919,20 @@
                             </Button>
 
                             <!--
+                                "Show activity" (T1.71, issue #97): the Activity window lists only this
+                                session's lines. In the open row, beside the session id, because the open
+                                row holds the row's actions, no row has a right-click menu, and an action
+                                here works on a phone later, where a right click does not. The same quiet
+                                chip as the id, with no animation.
+                            -->
+                            <Button x:Name="ShowActivityButton"
+                                    Style="{StaticResource SessionIdButtonStyle}"
+                                    Content="Show activity"
+                                    Command="{Binding ShowActivityCommand}"
+                                    ToolTip="List only this session's lines in the Activity window."
+                                    Visibility="{Binding ShortId, Converter={StaticResource EmptyToCollapsed}}" />
+
+                            <!--
                                 Failure gets a surface; success gets none. A WPF tooltip closes on
                                 the click that would trigger it and will not reopen while the
                                 pointer stays put, so "Copied." could never be read at the moment

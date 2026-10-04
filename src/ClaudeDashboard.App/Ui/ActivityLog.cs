@@ -100,6 +100,31 @@ public sealed partial class ActivityLog : ObservableObject
     /// <summary>The text at the bottom of the list, or empty while every line is kept.</summary>
     public string DroppedLine => HasDropped ? DroppedText : string.Empty;
 
+    /// <summary>
+    /// The main window, as a click on a line reaches it (T1.71): whether a line's row is there, and showing it.
+    /// Null until the main window exists, and in a test that is not about it: a click then does nothing. UI thread.
+    /// </summary>
+    public IActivityRows? Rows { get; set; }
+
+    /// <summary>
+    /// The main window's sessions or groups changed: every line asks again whether its row is there, so the
+    /// hover says why a click would do no more. UI thread only.
+    /// </summary>
+    public void Recheck()
+    {
+        foreach (var line in Lines)
+        {
+            line.IsGone = IsGone(line.Line);
+        }
+    }
+
+    /// <summary>A click on a line: the main window shows its row, through <see cref="Rows"/>.</summary>
+    private void Show(ActivityLine line) => Rows?.Show(line);
+
+    /// <summary>Whether a line's row is not in the main window. A line about no session and no group never is.</summary>
+    private bool IsGone(ActivityLine line) =>
+        Rows is { } rows && (line.SessionId is not null || line.Group is not null) && !rows.Has(line);
+
     /// <summary>How many times the oldest lines were trimmed. Diagnostic only.</summary>
     public int TrimCount { get; private set; }
 
@@ -154,7 +179,7 @@ public sealed partial class ActivityLog : ObservableObject
                 continue;
             }
 
-            Lines.Insert(0, new ActivityLineViewModel(line, now));
+            Lines.Insert(0, new ActivityLineViewModel(line, now, Show) { IsGone = IsGone(line) });
         }
 
         if (Lines.Count <= _limit)
