@@ -54,7 +54,10 @@ public sealed class HookHealth
     /// A flood of refused posts wrote a row for each one, about 100 MB a minute in the review's
     /// probe. Now the refusals in between are counted, and the next row carries the count
     /// (<c>refused=37</c>). A lone refusal still writes its row at once, and the tick writes what a
-    /// flood that stopped left over, so no refusal goes unrecorded.
+    /// flood that stopped left over, so no refusal goes unrecorded while the dashboard runs. At a stop,
+    /// the refusals counted since the last row are not written: at most one tick's worth, 15 seconds
+    /// (T1.62, from the T1.61 review; a flush at the stop was not chosen, because the decisions of a
+    /// stop would have to pass the consumer after it has drained).
     /// </remarks>
     public static readonly TimeSpan RefusedRowEvery = TimeSpan.FromSeconds(1);
 

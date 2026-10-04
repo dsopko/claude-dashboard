@@ -40,9 +40,9 @@ namespace ClaudeDashboard.App.Setup;
 /// the same at a run's <c>stopped_at</c> when the run stopped cleanly: a dashboard that is off sends
 /// no nudges, and an overnight gap would otherwise make dozens of question nudges for each waiting
 /// session. A run with no stop (a crash or a kill) is forgotten at the next start. The times
-/// are compared as parsed instants, never as text: <c>events</c> holds local times with their
-/// offsets until #80, and <c>runs</c> holds UTC, so text would order an event in <c>+02:00</c>
-/// against a start or a stop in <c>Z</c> wrongly.
+/// are compared as parsed instants, never as text. Since T1.62 every time in the file is UTC in one
+/// form, so text would agree, but a time that would not parse is left in its old form, and an
+/// instant is the comparison that cannot be wrong.
 /// </para>
 /// <para>
 /// <strong>History older than the first run row replays as one uninterrupted run, as it did before
@@ -62,8 +62,11 @@ namespace ClaudeDashboard.App.Setup;
 /// history it produced no sweep the live log did not also carry.
 /// </para>
 /// <para>
-/// It never modifies <c>events</c> or <c>runs</c>. It writes only <c>decisions</c> rows, and refuses a database
-/// whose <c>decisions</c> table is not empty: it appends, so a second run would double every row.
+/// It never modifies a row of <c>events</c> or <c>runs</c>. It writes only <c>decisions</c> rows, and refuses a
+/// database whose <c>decisions</c> table is not empty: it appends, so a second run would double every
+/// row. <strong>One exception, by the store and not by replay (T1.62):</strong> replay opens its file
+/// through the store, so a file that was never converted has its times converted to UTC first. The
+/// instants, the rows, the ids and the payloads are unchanged; only the form of <c>ts</c> changes.
 /// </para>
 /// </remarks>
 public static class ReplaySwitch

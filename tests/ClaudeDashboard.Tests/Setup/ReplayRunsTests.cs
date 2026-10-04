@@ -188,7 +188,8 @@ public sealed class ReplayRunsTests : IDisposable
     /// <c>02:40+01:00</c> (01:40 UTC), after it. As text, both sort after <c>01:30Z</c>, so a text
     /// comparison puts the start before the first event, and the second event finds the session it
     /// should have forgotten. Compared as instants, the second event meets an empty Registry and
-    /// adds the session again.
+    /// adds the session again. Since T1.62 the store keeps both times in UTC, so text and instant
+    /// agree; the test holds the split.
     /// </remarks>
     [Fact]
     public void A_start_splits_at_the_right_event_across_an_offset_change()
@@ -199,8 +200,11 @@ public sealed class ReplayRunsTests : IDisposable
 
         var path = Database("offsets.db", [(before, Prompt("s-1")), (after, Prompt("s-1"))], [start]);
 
-        Assert.EndsWith("+02:00", ForeignSqliteReader.Column(path, "SELECT ts FROM events WHERE id = 1")[0], StringComparison.Ordinal);
-        Assert.EndsWith("+01:00", ForeignSqliteReader.Column(path, "SELECT ts FROM events WHERE id = 2")[0], StringComparison.Ordinal);
+        // Since T1.62 the store writes the events in UTC as well, so the file holds 01:20Z and 01:40Z. Replay
+        // still parses both as instants; the split is the same.
+        Assert.Equal(
+            ["2026-10-25T01:20:00.0000000Z", "2026-10-25T01:40:00.0000000Z"],
+            ForeignSqliteReader.Column(path, "SELECT ts FROM events ORDER BY id"));
 
         var reported = Replay(path);
 

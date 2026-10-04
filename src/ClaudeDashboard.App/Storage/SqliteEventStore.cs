@@ -173,6 +173,12 @@ public sealed class SqliteEventStore : IEventStore, IDisposable
     /// </summary>
     public static readonly TimeSpan RetryAfter = TimeSpan.FromSeconds(60);
 
+    /// <summary>
+    /// <c>PRAGMA user_version</c> once every time in the file is UTC (T1.62). 0, the default, is a
+    /// file from before: its times are converted at its next connection.
+    /// </summary>
+    public const long UtcTimesVersion = 1;
+
     // Available, as an int, so that it can be published with Volatile: the writer's thread sets
     // it, and the UI thread's tick reads it for the history notice.
     private const int Unknown = 0;
@@ -254,6 +260,12 @@ public sealed class SqliteEventStore : IEventStore, IDisposable
     /// </summary>
     internal Action? InsideTransaction { get; set; }
 
+    /// <summary>
+    /// A test seam: runs inside the conversion's transaction, just before the commit (T1.62). A test
+    /// throws here to make the conversion fail and roll back.
+    /// </summary>
+    internal Action? InsideConversion { get; set; }
+
     /// <inheritdoc/>
     public bool Append(InboundEvent inboundEvent)
     {
@@ -306,9 +318,7 @@ public sealed class SqliteEventStore : IEventStore, IDisposable
                 command.Transaction = transaction;
                 command.CommandText = Insert;
                 command.Parameters.AddWithValue("$session_id", inboundEvent.SessionId.Value);
-                command.Parameters.AddWithValue(
-                    "$ts",
-                    inboundEvent.Timestamp.ToString("o", CultureInfo.InvariantCulture));
+                command.Parameters.AddWithValue("$ts", Utc(inboundEvent.Timestamp));
                 command.Parameters.AddWithValue("$event_type", inboundEvent.HookEventName);
 
                 // THE ONE PLACE THE OPERATOR'S WORDS ARE READ. A bound parameter, never string
@@ -476,9 +486,16 @@ public sealed class SqliteEventStore : IEventStore, IDisposable
     }
 
     /// <summary>
-    /// A time as the runs table holds it: UTC, round-trip format, ending in <c>Z</c> (T1.60). The
-    /// other two tables keep local text until #80; this one never held that form.
+    /// A time as <c>dashboard.db</c> holds it, in every table: UTC, round-trip format, seven
+    /// fractional digits and <c>Z</c>, for example <c>2026-10-02T12:03:11.1230000Z</c> (T1.60 for
+    /// <c>runs</c>, T1.62 for <c>events</c> and <c>decisions</c>).
     /// </summary>
+    /// <remarks>
+    /// Text order is time order only when every row has the same form, so every writer of
+    /// <c>ts</c>, <c>started_at</c> and <c>stopped_at</c> uses this, and the conversion writes it
+    /// too. Not <c>ToUniversalTime().ToString("o")</c> on a <see cref="DateTimeOffset"/>, which
+    /// ends in <c>+00:00</c>.
+    /// </remarks>
     internal static string Utc(DateTimeOffset at) =>
         at.UtcDateTime.ToString("o", CultureInfo.InvariantCulture);
 
@@ -494,7 +511,7 @@ public sealed class SqliteEventStore : IEventStore, IDisposable
             command.Transaction = transaction;
             command.CommandText = InsertDecision;
             command.Parameters.AddWithValue("$event_id", (object?)eventId ?? DBNull.Value);
-            command.Parameters.AddWithValue("$ts", decision.Ts.ToString("o", CultureInfo.InvariantCulture));
+            command.Parameters.AddWithValue("$ts", Utc(decision.Ts));
             command.Parameters.AddWithValue("$session_id", (object?)decision.SessionId ?? DBNull.Value);
             command.Parameters.AddWithValue("$kind", decision.Kind.ToString());
             command.Parameters.AddWithValue("$from_state", (object?)decision.FromState ?? DBNull.Value);
@@ -668,12 +685,25 @@ public sealed class SqliteEventStore : IEventStore, IDisposable
             Mode = SqliteOpenMode.ReadWriteCreate,
         }.ToString());
 
-        connection.Open();
-
-        using (var schema = connection.CreateCommand())
+        try
         {
-            schema.CommandText = Schema;
-            schema.ExecuteNonQuery();
+            connection.Open();
+
+            using (var schema = connection.CreateCommand())
+            {
+                schema.CommandText = Schema;
+                schema.ExecuteNonQuery();
+            }
+
+            // The first upgrade step this file has had (T1.62). On the writer's thread, like every
+            // connection, so the start never waits; records that arrive meanwhile wait in the channel.
+            ConvertTimesOnce(connection);
+        }
+        catch
+        {
+            // Not kept: the next attempt opens afresh, after T1.54's minute.
+            connection.Dispose();
+            throw;
         }
 
         _connection = connection;
@@ -693,6 +723,134 @@ public sealed class SqliteEventStore : IEventStore, IDisposable
         }
 
         return connection;
+    }
+
+    /// <summary>
+    /// Rewrites every <c>ts</c> in <c>events</c> and <c>decisions</c> in the one UTC form, once, and
+    /// sets <c>PRAGMA user_version</c> to 1 (T1.62, issue #80).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>One transaction.</strong> A failure (a full disk, a locked file) rolls back every row
+    /// and leaves <c>user_version</c> at 0. The exception goes to the caller's catch, which is T1.54's:
+    /// the history notice, and another attempt a minute later.
+    /// </para>
+    /// <para>
+    /// <strong>A time that will not parse is left as it is and counted.</strong> One bad row does not
+    /// stop the rest. The parse is replay's: an ISO 8601 time with its offset or <c>Z</c>.
+    /// </para>
+    /// <para>
+    /// Rows, ids and payloads are never changed: only the text of the time. No <c>VACUUM</c> (the
+    /// operator's ruling on #81). The log line has counts and the time it took, never a time from a
+    /// row.
+    /// </para>
+    /// </remarks>
+    private void ConvertTimesOnce(SqliteConnection connection)
+    {
+        using (var version = connection.CreateCommand())
+        {
+            version.CommandText = "PRAGMA user_version;";
+
+            if (Convert.ToInt64(version.ExecuteScalar(), CultureInfo.InvariantCulture) >= UtcTimesVersion)
+            {
+                return;
+            }
+        }
+
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var counts = new ConversionCounts();
+
+        using (var transaction = connection.BeginTransaction())
+        {
+            ConvertTable(connection, transaction, "events", counts);
+            ConvertTable(connection, transaction, "decisions", counts);
+
+            using (var version = connection.CreateCommand())
+            {
+                version.Transaction = transaction;
+                version.CommandText = $"PRAGMA user_version = {UtcTimesVersion};";
+                version.ExecuteNonQuery();
+            }
+
+            InsideConversion?.Invoke();
+            transaction.Commit();
+        }
+
+        // A new file has no rows and nothing to say; it only gains its version.
+        if (counts.Rewritten + counts.AlreadyUtc + counts.Unparsed == 0)
+        {
+            return;
+        }
+
+        _logger.Information(
+            "Stored the times in {DatabaseFile} in UTC, once: {Rewritten} rows converted, {AlreadyUtc} " +
+            "already in UTC, {Unparsed} left as they were because their time would not parse. It took " +
+            "{ElapsedMs} ms.",
+            _path,
+            counts.Rewritten,
+            counts.AlreadyUtc,
+            counts.Unparsed,
+            watch.ElapsedMilliseconds);
+    }
+
+    private static void ConvertTable(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        string table,
+        ConversionCounts counts)
+    {
+        // Read first, then write: no reader is held open across the updates on this connection.
+        var rows = new List<(long Id, string Ts)>();
+
+        using (var select = connection.CreateCommand())
+        {
+            select.Transaction = transaction;
+            select.CommandText = $"SELECT id, ts FROM {table};";
+
+            using var reader = select.ExecuteReader();
+
+            while (reader.Read())
+            {
+                rows.Add((reader.GetInt64(0), reader.GetString(1)));
+            }
+        }
+
+        using var update = connection.CreateCommand();
+        update.Transaction = transaction;
+        update.CommandText = $"UPDATE {table} SET ts = $ts WHERE id = $id;";
+        var tsParameter = update.Parameters.Add("$ts", SqliteType.Text);
+        var idParameter = update.Parameters.Add("$id", SqliteType.Integer);
+
+        foreach (var (id, ts) in rows)
+        {
+            if (!DateTimeOffset.TryParse(ts, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var at))
+            {
+                counts.Unparsed++;
+                continue;
+            }
+
+            var utc = Utc(at);
+
+            if (string.Equals(utc, ts, StringComparison.Ordinal))
+            {
+                counts.AlreadyUtc++;
+                continue;
+            }
+
+            tsParameter.Value = utc;
+            idParameter.Value = id;
+            update.ExecuteNonQuery();
+            counts.Rewritten++;
+        }
+    }
+
+    private sealed class ConversionCounts
+    {
+        public long Rewritten { get; set; }
+
+        public long AlreadyUtc { get; set; }
+
+        public long Unparsed { get; set; }
     }
 
     /// <summary>

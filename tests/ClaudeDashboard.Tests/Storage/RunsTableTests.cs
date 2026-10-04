@@ -299,10 +299,12 @@ public sealed class RunsTableTests : IDisposable
 /// <summary>A database as a build before T1.60 left it: events and decisions, no runs.</summary>
 internal static class OldDatabase
 {
-    public const string EventRows = "SELECT id, session_id, ts, event_type, payload_json, cwd FROM events ORDER BY id";
+    // Without ts: since T1.62 the next connection converts the old local times to UTC (UtcTimesTests holds
+    // that). Everything else in a row is unchanged.
+    public const string EventRows = "SELECT id, session_id, event_type, payload_json, cwd FROM events ORDER BY id";
 
     public const string DecisionRows =
-        "SELECT id, IFNULL(event_id, 'NULL'), ts, kind, IFNULL(reason, 'NULL') FROM decisions ORDER BY id";
+        "SELECT id, IFNULL(event_id, 'NULL'), kind, IFNULL(reason, 'NULL') FROM decisions ORDER BY id";
 
     public static void Create(string path)
     {
