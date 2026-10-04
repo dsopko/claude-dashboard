@@ -69,7 +69,12 @@ public sealed class CleanupPeriodTests : IDisposable
     [InlineData("""{ "cleanupPeriodDays": null }""", CleanupPeriodKind.NotANumber)]
     [InlineData("""{ "cleanupPeriodDays": 1e400 }""", CleanupPeriodKind.HugeNumber)]
     [InlineData("""{ "cleanupPeriodDays": -1e400 }""", CleanupPeriodKind.HugeNegativeNumber)]
-    [InlineData("{ \"cleanupPeriodDays\": 10, // a comment and a trailing comma, as the hook check allows\n}", CleanupPeriodKind.Number)]
+    [InlineData("{ \"cleanupPeriodDays\": 10 }", CleanupPeriodKind.Number)]
+
+    // Strict JSON (the T1.68 review): the hook check accepts these, the cleanup read does not.
+    [InlineData("{ \"cleanupPeriodDays\": 10 // a comment\n}", CleanupPeriodKind.NotRead)]
+    [InlineData("{ /* a comment */ \"cleanupPeriodDays\": 10 }", CleanupPeriodKind.NotRead)]
+    [InlineData("{ \"cleanupPeriodDays\": 10, }", CleanupPeriodKind.NotRead)]
     public void The_reader_says_what_it_found(string? json, CleanupPeriodKind expected)
     {
         if (json is not null)
@@ -125,13 +130,16 @@ public sealed class CleanupPeriodTests : IDisposable
     }
 
     /// <summary>
-    /// <strong>No file, a file that is not JSON, and the values 0, -1, 1.5, "30", true and 99999999:</strong>
+    /// <strong>No file, a file that is not strict JSON (not JSON, a comment, a trailing comma), and the
+    /// values 0, -1, 1.5, "30", true and 99999999:</strong>
     /// nothing is deleted, the line says why without the value, and no notice shows: a read that fails
     /// is not a history failure.
     /// </summary>
     [Theory]
     [InlineData(null, NotReadLine, "")]
     [InlineData("{ this is not json", NotReadLine, "")]
+    [InlineData("{ \"cleanupPeriodDays\": 10 // a comment\n}", NotReadLine, "")]
+    [InlineData("{ \"cleanupPeriodDays\": 10, }", NotReadLine, "")]
     [InlineData("""{ "cleanupPeriodDays": 0 }""", NotValidLine, "")]
     [InlineData("""{ "cleanupPeriodDays": -1 }""", NotValidLine, "-1")]
     [InlineData("""{ "cleanupPeriodDays": 1.5 }""", NotValidLine, "1.5")]

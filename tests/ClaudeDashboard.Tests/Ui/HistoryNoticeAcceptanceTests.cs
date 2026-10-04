@@ -66,7 +66,7 @@ public sealed class HistoryNoticeAcceptanceTests(StaHarness harness) : IDisposab
 
         var built = _harness.Invoke(() =>
         {
-            var host = AppHost.Build(paths);
+            var host = AppHost.Build(paths, claude: new ClaudeCodePaths(Path.Combine(paths.Root, "claude-config")));
             host.Start();
 
             _ = host.Services.GetRequiredService<SessionProjection>();
