@@ -247,6 +247,9 @@ The port that is bound goes into `port.txt`, and into `listening.txt` for as lon
 | `GET /state` | What the Registry believes now (§3.5) | Necessary | `200` with JSON, or `401` |
 
 - **`/hook`** reads the body as text, parses it into `HookPayload` (all fields optional), maps it to an `InboundEvent` (§9.1), writes the event to the channel (Part 4), and answers. It does no Registry work.
+- **The self-test's message is taken out before the mapper** (T1.61, issue #74). A body whose `hook_event_name` is `ClaudeDashboardSelfTest` is noted as arrived, by its one-time value in `self_test`, and answered `200` empty. It reaches no mapper, no channel, no Registry and no archive, so it makes no session, no row, no sound and no decision. `HookEventNames.Accepted` does not have it (§9.4).
+- **Every other post with a good token moves "last heard"** (`HookHealth.Heard`, on the request thread), the tooltip's last item (§5.2). The self-test and a refused post do not.
+- **A refused post** (`401`) is counted (`HookHealth.RefusedCount`, which #76 reads) and writes one `HookRefused` decision row (§8.3) with no event and no session. It is not trusted, so nothing from its body or headers is kept. The Warning for each refused post stays.
 - **`/health` has no token, and single-instance detection depends on that.** A start asks this endpoint if the dashboard on a port is a copy of itself. The dashboard of a different user has a different token, which the caller cannot hold. The instance value is the name of the single-instance gate (§5.3): a hash of a local path, not a secret.
 
 ### 3.3 The pure-observer property
@@ -275,6 +278,7 @@ Each hook that the dashboard registers only observes. `/hook` answers `200` with
 | `bands` | object | The count for each band. All five keys are present, also at zero: `needsYou`, `unread`, `working`, `quiet`, `ended` |
 | `tray` | object | `worst`: the state that sets the tray light. `light`: `Red`, `Amber`, `Green`, `Blue` or `Grey` |
 | `sessions` | array | One entry for each session, in the order of the flat view |
+| `health` | object | The path from Claude Code (T1.61, issue #74). `lastHeardAt`: when the last real message was accepted, in UTC ending in `Z`, or null since start. `selfTest`: the last self-test, `passed`, `roundTripMs` (or null) and `at` (UTC), or null before the first has finished. Read when the request is served, not when the report is built. #76 adds to this object |
 
 **One session**
 
@@ -310,7 +314,7 @@ Each hook that the dashboard registers only observes. `/hook` answers `200` with
 - **The report never carries a prompt, an answer or a task's command.**
 - **`title` and `description` are operator text.** A caller must not log them.
 - **Before the first event,** the report has `sessionCount` 0, all bands 0, `tray.worst` `Ended`, `tray.light` `Grey` and no sessions.
-- **The report does not change with time alone.** It is built when a session changes and when a nudge fires. It holds instants, not ages.
+- **The report does not change with time alone.** It is built when a session changes and when a nudge fires. It holds instants, not ages. `health` is the exception: it is read at each request, because it is written on request threads.
 - **Not in the report:** the mute and pause modes, the rosters, the settle window's state of a group, the notice, and the row's clock anchor.
 
 How it crosses threads: `StateBoard` listens to `SessionChanged` and `NudgeScheduleAdvanced` on the consumer thread, builds a new immutable `StateReport`, and stores it with one `Volatile.Write`. A request does one `Volatile.Read`. `StateBoard` must subscribe **after** the sound engine, because it reads the nudge time that the engine has just set; `AppHost` resolves it in that sequence and `Hosting/StateHostTests.cs` holds it.
@@ -413,7 +417,9 @@ The colour is the worst state of all sessions (`StatusSummary.Of`, then `TrayVis
 
 - Mute all is the volume control. Pause is "off duty". Pause is the one deliberate exception to "the tray tells the truth".
 - The glyph for pause is different from the grey of "all quiet".
-- **The tooltip leads with what the operator cannot see.** First the faults, joined by ` · `: the tray text of each notice in the notice row's order (the port, not connected to Claude Code, then `history not recorded`, then `no sound device`, then `settings not read · using defaults`, then `fell behind`, then `events lost`; §5.6.1). The port fault is a notice on the board like the others, so it shows once, first (T1.57). Then `paused · click to resume`, then `muted 24 min`, then the counts. The minutes of a mute are rounded up.
+- **The tooltip leads with what the operator cannot see.** First the faults, joined by ` · `: the tray text of each notice in the notice row's order (the port, not connected to Claude Code, then `messages cannot arrive`, then `messages refused`, then `history not recorded`, then `no sound device`, then `settings not read · using defaults`, then `fell behind`, then `events lost`; §5.6.1). The port fault is a notice on the board like the others, so it shows once, first (T1.57). Then `paused · click to resume`, then `muted 24 min`, then the counts. The minutes of a mute are rounded up.
+- **The last item, always, says when the dashboard last heard from Claude Code** (T1.61, the operator's ruling of 2026-10-03): `last heard from Claude Code just now` under a minute, then `… 2 min ago`, `… 3 h ago` or `… 2 d ago`; before the first message, `not heard from Claude Code since start`. **It is information, never an alarm** (Design §3): no colour, no sound and no notice at any gap. It is read on the 15-second tick; nothing polls.
+- **Windows shows at most 127 characters** (`TrayTooltip.MaxLength`). A longer text leaves out "last heard" first, whole, then whole items from the end, so no word is cut. Until T1.61 nothing measured the text: it went whole to the icon, and Windows cut it wherever the limit fell.
 - A mute ends by a test of the time, not by a timer. Thus the tooltip is computed again on each tick.
 - **Pause does not survive a restart.**
 - Mute and pause do not stop the events. The Registry stays correct, and the window shows the truth.
@@ -447,7 +453,7 @@ Top to bottom:
 1. **The caption:** the icon, "Claude Dashboard", the **counts strip**, a help slot that does nothing yet, and the buttons Minimize, Maximize and "Close to the tray".
 2. **The counts row:** shown only when the caption is too narrow for the counts.
 3. **The toolbar:** `Grouped | Flat` · `Select` · `Mute all` · `Ack all`.
-4. **The notice row:** a short list, one line for each notice that is shown, in a fixed order: the port (§3.1), then the connection to Claude Code (§9.4), then `History is not being recorded: the database could not be written. The dashboard tries again each minute.` (§8.3), then `No sound device. Notices and nudges are silent until Windows has an output device.` (Part 7), then the settings notice (§8.2), then the two queue notices (Part 4): "The dashboard fell behind and skipped repeated tool events. Rows may lag until each session's next event." and "The dashboard fell far behind and lost events. A row may be wrong until its session's next event; restart the dashboard to be sure." Hidden when none is shown. Two can be true at one time, so it is a list (T1.54, issue #71). Each notice has its own window text, its own tray text and its own rule for when it clears. `NoticeBoard` orders them; a new notice is one more `INotice` source, and the board does not change. The tray colour does not change for a notice.
+4. **The notice row:** a short list, one line for each notice that is shown, in a fixed order: the port (§3.1), then the connection to Claude Code (§9.4), then the self-test notice, `Messages from Claude Code cannot reach the dashboard: a test message did not arrive.` with its cause (§9.4), then `Messages from Claude Code are being refused: their token does not match this dashboard's.` (§9.4), then `History is not being recorded: the database could not be written. The dashboard tries again each minute.` (§8.3), then `No sound device. Notices and nudges are silent until Windows has an output device.` (Part 7), then the settings notice (§8.2), then the two queue notices (Part 4): "The dashboard fell behind and skipped repeated tool events. Rows may lag until each session's next event." and "The dashboard fell far behind and lost events. A row may be wrong until its session's next event; restart the dashboard to be sure." Hidden when none is shown. Two can be true at one time, so it is a list (T1.54, issue #71). Each notice has its own window text, its own tray text and its own rule for when it clears. `NoticeBoard` orders them; a new notice is one more `INotice` source, and the board does not change. The tray colour does not change for a notice.
 5. **The body:** the rows.
 
 **The counts strip** reads `11 sessions · 3 need you · 5 unread · 8 working`. The total always shows. A band with zero is left out. Quiet and Ended have no count. The counts are of sessions, not of rows, so a collapsed group still counts. When the space is short, the strip drops words before numbers; its tooltip always has the full sentence.
@@ -783,6 +789,7 @@ An event that the Registry declined is in the table too. A `SoundCommand` and a 
 | `MuteExpired` | A timed mute ended, seen on the tick | `until=…` |
 | `EventDropped` | The event channel shed noise at its capacity, or a full channel dropped its oldest (Part 4) | `noise` · `kind=… type=…` (the shed event's kind), or `pipeline` (the event channel's hard limit) or `archive` |
 | `ApplyFailed` | `Apply` threw | The **type** of the exception |
+| `HookRefused` | A `/hook` post was refused: its token did not match (T1.61) | — (no event, no session: nothing from the post) |
 | `TrayLightChanged` | The tray colour changed | The worst state; the colours are in `from_state` and `to_state` |
 | `WindowSurfaced` | A `/show` | — |
 | `RosterEdited` | The operator edited a roster | — |
@@ -949,6 +956,14 @@ The read is defensive:
 
 Measured on Claude Code 2.1.286 (2026-09-30 and 2026-10-01): both install commands ran with no person and exited 0, also when repeated. The two removal commands exit 1 for a thing that is not there. `claude plugin install` turns a disabled plugin on. A hook whose folder was moved did not fire, with no error. A session that was open before an install never ran the hook; a new session did. Not measured: `claude plugin update`, and the reload command in an open session.
 
+**The self-test** (T1.61, issue #74)
+
+- **After `listening.txt` is written, the dashboard runs `post-status.cmd` as Claude Code does** (`cmd.exe /c`, the JSON on standard input), on a pool thread. The start never waits for it. The **Test connection** button in the Settings window runs the same test, and shows the result beside the button; while a test runs, a second request joins it. The script is not edited.
+- **It proves** that the script runs, `curl.exe` is there, the token is accepted and the port answers. **It does not prove** that Claude Code fires the hook: only a real message does, which is why the tooltip says when the last one arrived (§5.2).
+- **Arrived within 3 seconds:** one Information line with the round trip in milliseconds, the real cost of one message on this machine. **Not arrived:** the notice `Messages from Claude Code cannot reach the dashboard: a test message did not arrive.` followed by the cause where it can be known: the script is missing, `curl.exe` is not in `System32`, the script could not be started, or the script ran and nothing arrived. Tray: `messages cannot arrive`. It clears when a later test passes, or when a real message is accepted after the failed test. No colour and no sound.
+- **Refused messages:** while 3 or more posts got `401` on `/hook` within 10 minutes, the notice `Messages from Claude Code are being refused: their token does not match this dashboard's.` Tray: `messages refused`. A refusal while it shows keeps it, and it clears on the tick 10 minutes after the last refusal. **One refusal, as at a restart, never shows it** (`HookHealth.RefusalsToShow`, with the reason beside it).
+- **Plain words on screen** (the operator's ruling of 2026-10-03): "messages from Claude Code", never "hook". "Idle" is not used for this: Idle is a session's state.
+
 **The two port files, and the announcement**
 
 - `listening.txt` is written after a bind, **after** the script is written, and by write-then-rename. Thus the script cannot read half a file, and an old script never meets a dashboard that needs a token.
@@ -1064,3 +1079,4 @@ The text above says what is true now. This list says when each part changed.
 | 2026-10-03 | The event channel sheds only noise when full, and drops the oldest only at a hard limit of 16,384; the bound is asserted (Part 4, §8.3). Two queue notices (§5.2, §5.6.1) | T1.58; issue #3 |
 | 2026-10-03 | The history store may be closed while it writes: the close waits for the current write, and a write after it is dropped without a sound (Part 4) | T1.59; issue #84 |
 | 2026-10-03 | The history database records each start and stop in a table of its own, `runs`, in UTC; `--replay` forgets every session at each start and each clean stop (§8.1, §8.3) | T1.60; issue #78 |
+| 2026-10-03 | The dashboard tests the path from Claude Code at each start and from a Settings button; notices for messages that cannot arrive or are refused; `HookRefused` rows; "last heard" is the tooltip's last item; the tooltip keeps to 127 characters; `/state` has `health` (§3.2, §3.5, §5.2, §5.6.1, §8.3, §9.4) | T1.61; issue #74 |
