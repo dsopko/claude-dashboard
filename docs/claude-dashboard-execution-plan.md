@@ -1034,6 +1034,35 @@ The work in GitHub milestone 3, "Observability 1": issues #3, #14, #67, #71, #72
   - Plants: (a) a read that fails treated as 30 days, and the unreadable test fails; (b) the value read once at start and kept, and the change test fails; (c) `history.retentionDays` still obeyed, and the ignored test fails.
   - Both suite counts; build clean, 0 warnings.
 - **Guardrails:** never write Claude Code's settings. No `VACUUM`. No change to the prune's schedule, its transaction or its thread. Tests use scratch folders and a fake path for Claude Code's settings, never the operator's `~/.claude` or data folder.
+- **Done 2026-10-04:** PR #103, merged as `ddecc4d`, `61ca068`, `20bcc5b`, `d05775e` (one fix cycle). The coder found seven test classes that started real hosts with the default Claude Code path; with this change, each would have read the operator's real `~/.claude/settings.json` at its first prune. The review found three more. **Fix (director's ruling):** a scratch path for each, and a module initializer that points `CLAUDE_CONFIG_DIR` at a scratch folder for the whole test process, held by a test. A detector counted 3 reads of the real file in a full run before the fix and 0 after. The reads changed nothing: the file's hash and last-write time were the same. **Ruling:** the cleanup read is strict JSON. A comment or a trailing comma means "not read", so nothing is deleted, because Claude Code may pause its own cleanup on such a file. The hook check stays lenient. **The coder's rulings, accepted:** an empty file is "not read"; `30.0` is valid; the key is case-sensitive, so a key in another case counts as absent (30 days, as Claude Code itself does); a value too large has its own line. Not verified: Claude Code's own handling of comments, an empty file and a key in another case. **The operator's `cleanupPeriodDays` is `99999`**, so an installed copy keeps everything. Seen once and not reproduced: `SqliteEventStoreTests.A_second_failure_after_a_recovery_warns_again_without_the_stack` failed at its write after a folder delete, likely a handle from another process on a new `%TEMP%` folder.
+
+**T1.69 — The database stores the session's name, and the decisions store its path**
+- **Goal:** each row that has a session id also has the session's name, as it was when the row was written. Each decision row also has the session's full path. A reader of `dashboard.db` sees which session a row is about without looking for its history. For issue #98.
+- **Depends:** T1.62 (the schema version, `PRAGMA user_version`, and the upgrade at start), T1.63 (the indexes), T1.64 (the growth figure), T1.37 (the decisions record), T1.24 (no operator text in a decision row)
+- **Realizes:** #98 as written, and the operator's ruling of 2026-10-04: `events` gains `session_title`, beside its `cwd`; `decisions` gains `session_title` and `cwd`, the full path. Director's rulings:
+  - **The name is the Registry's**, as it is after the event is applied, on the consumer thread, where the event and its decisions are handed to the archive together. A rename event's own row holds the new name. An event with no title field holds the name the session already had. It is `Session.Title`, verbatim, not folded or cut. Null or empty stores NULL.
+  - **The path is the Registry's** `Session.Cwd` for a decision. The `events.cwd` column does not change.
+  - **A decision about a session that is not in the Registry** (an event that was declined, or a session not yet seen) takes the name and the path from its event, if it has one, or else NULL.
+  - **A decision with no session** (a group's sound, an hourly summary) stores NULL in both.
+  - **The upgrade** adds the columns with `ALTER TABLE … ADD COLUMN`, once, at start, and it is safe to run again: check the columns with `PRAGMA table_info`, and do not trust the version number alone. Raise `user_version` to 2. Old rows keep NULL and are not filled in afterwards.
+- **Deliverables:**
+  - **The schema:** the new columns, on a new database and on an existing one.
+  - **The write:** `Decision` (or what the consumer hands the archive) carries the name and the path. The store writes them. The event row carries the name.
+  - **The rule changes (T1.24):** a decision row holds ids and fixed words, and the session's name in `session_title` only. The guard test still holds `reason` and `detail` to ids and fixed words. Make it also hold that the name appears in no other column. The log rule does not change: no name in a log line.
+  - **The growth figure:** re-measure `GrowthMeasurement` with a name and a path on each row, at sizes from a copy of the operator's database. If the new figure is above `TypicalBytesPerDay` less a margin of 10 %, raise the constant with its reason, and change the figure in the documents.
+  - **On a copy of the operator's database** (copy `dashboard.db` and any `-wal` to a scratch folder; never open the original): run the upgrade. Report the time it takes, that the row counts are unchanged, and the file size before and after.
+  - **Documents, in the same change:** Impl §8.3 (the tables, the upgrade, and the version), Impl §3.4 and the other places that state the T1.24 rule; TS where the decisions record and its rule on operator text are described; the event flow, where the archive writes; Core and App, if a rule lands in Core. One row each in TS Appendix D and Impl Appendix C.
+- **Acceptance:**
+  - A new database has the three columns. An existing database at version 1, with rows, gains them at start, keeps every row with NULL in the new columns, and is at version 2. A second start changes nothing.
+  - Each new event row with a session holds that session's name, or NULL when it has none.
+  - Each new decision row with a session holds the name and the full path, including a decision made by the clock (a reminder, "went quiet").
+  - A renamed session: rows before the rename hold the old name, and rows from the rename on hold the new one.
+  - A decision for a session not in the Registry takes the name and path from its event. A group's sound and an hourly summary store NULL in both.
+  - The guard: no name, prompt or payload text in `reason` or `detail`, and the name in no column but `session_title`. No name in a log line.
+  - The upgrade on a copy of the operator's database, with its figures.
+  - Plants: (a) the name taken from the event and not from the Registry, and the clock-decision test fails; (b) the column check removed so that the upgrade runs twice, and the second-start test fails; (c) the name written into `detail`, and the guard test fails.
+  - Both suite counts; build clean, 0 warnings.
+- **Guardrails:** no new table. No change to the hook script or the plugin. No change to the indexes, the prune or its rule. No name in a log line. Tests use scratch folders and only a copy of the operator's database.
 
 ---
 
