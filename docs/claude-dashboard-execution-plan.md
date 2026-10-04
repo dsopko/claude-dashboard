@@ -962,6 +962,42 @@ The work in GitHub milestone 3, "Observability 1": issues #3, #14, #67, #71, #72
 
 **Milestone 1F, second pass, closed 2026-10-04:** every issue in GitHub milestone 4 has a merged change: T1.59 (#84), T1.60 (#78), T1.61 (#74), T1.62 (#80), T1.63 (#79), T1.64 (#81 and #93), T1.65 (#76) and T1.66 (#86). `main` builds with 0 warnings, and both suites pass, 2096 of 2096. From T1.64 on, the director ruled alone, with the operator's delegation of 2026-10-04 ("make the best decisions you can without me"); each ruling is in its block. **Not built, and left for a later milestone:** the Activity window (the operator's ruling of 2026-10-03). **Before an installed copy takes T1.64:** the first start deletes history older than `history.retentionDays` (default 30). An operator who wants to keep it quits the dashboard, sets the key to `0`, then installs (README, Install).
 
+**Milestone 1F, third pass: GitHub milestone 5, "Observability 3".** Issues #99, #98 and #97. Each task is written here before it is dispatched, as in the first two passes. The operator may add an issue during the milestone. It goes in after the task in progress, unless the operator says that it is urgent.
+
+**Order, set 2026-10-04 (operator):** #99 first, then #98, then #97. **Why:** #99 and #97 are separate pieces of work. #99 puts a sign on a row in the main window, and #97 is a new window; they share only the sound decisions that they listen to. #98 comes before #97, because the Activity window reads the session's name from the column that #98 adds.
+
+**Rulings, operator, 2026-10-04:**
+- #99: the sign goes on the row of the session that set off the sound, also in a group, and never on the group heading.
+- #98 stores the full path: `decisions` gains `session_title` and `cwd`, and `events` gains `session_title` beside its `cwd`.
+- #97 shows the decisions of this start only. Its three "small additions" were built in milestone 4 (T1.61, and T1.54 to T1.56). Only "last heard from Claude Code" at the top of the Activity window is new.
+- A session in a git worktree that shows the worktree's folder and not the project's is not in this milestone: issue #100, with no milestone.
+
+**T1.67 — A speaker sign on the row that made a sound**
+- **Goal:** for one minute after a sound plays, a small, still speaker sign shows on the row of the session that set it off. An operator who hears a sound can see which row made it. For issue #99.
+- **Depends:** T1.55 (the record says if a sound played: `SoundOutcome`), T1.37 (the sound decisions and `IDecisionSink`), T1.44 (a group's settle and its `QuietSince`)
+- **Realizes:** #99 as written, and the operator's ruling of 2026-10-04 above. Director's rulings:
+  - **A group's own sound** (`GroupNotice`, `GroupNudge`) reaches the sink with an empty session. Its sign goes on the member whose finish settled the group: the member whose state entry instant is the group's `QuietSince` (T1.44). The group's reminders mark the same member. If no member matches (for example, it left the group), no row gets the sign.
+  - **Only a sound that the player queued** sets the sign (`SoundPlayed`). A suppressed sound (muted, paused, already announced) and a dropped sound (no output, failed) set nothing.
+  - **The minute** counts from the sound. The sign goes at the first refresh of the window at or after the minute. No new timer: report how late that can be.
+  - **In memory only.** After a restart, no row has a sign until the next sound.
+- **Deliverables:**
+  - **The path from the sound to the row.** The sound engine runs on the consumer thread. Find the place that knows a sound was queued and for which session (the `IDecisionSink.SoundPlayed` call, or beside it). Hand the session, the sound and the instant to the UI thread through the existing dispatcher post: one post for each sound that played, never one for each event. **Core decides which session a sound marks**, with the group rule above, so a second interface gets the same answer (Core and App §4.3). The Registry is not written, and no lock is added.
+  - **The row.** `SessionViewModel` gains the sign's state (shown or not) and its hover text. The row template shows the sign after the badge and its detail, before the age. It does not move: no animation, no fade, no storyboard. Hover: `played: finished, 20 s ago`, with the sound's plain name and the age in the row's own words (find the names that the documents and the Settings window use; never an enum name that is not a word). The screen-reader name is `sound played`.
+  - **A narrow row.** When the row has too little width, the sign goes first, before the age. Find how the row gives up width today, and fit the sign into that rule.
+  - **A reminder that plays again** shows the sign again and starts its minute again.
+  - **Documents, in the same change:** Design §9 (the session row, and one sentence at the motion rule that the sign does not move); Impl §5.6.3 (a row in the table for the sign and its source), and where §5.6 describes the refresh; the event flow, where the sound plays; Core and App, for the rule that lands in Core. One row each in Design §13 and Impl Appendix C.
+- **Acceptance:**
+  - A notice that the player queued puts the sign on its session's row. Under a fake clock, the sign is there at 59 s and gone at the first refresh after 60 s.
+  - A muted, a paused, an already-announced and a dropped (`NoOutput`) sound put no sign on any row.
+  - A roster group settles: the sign is on the row of the member whose finish settled it, and the heading has none. A group reminder marks the same member.
+  - A reminder that plays again at 50 s keeps the sign, and its minute starts again.
+  - A realized-window test: the sign is in the row, between the badge and the age, and `BindingErrorWatch` is clean. No storyboard or animation targets the sign, with animations on or off.
+  - A narrow realized row: the sign is hidden while the age still shows.
+  - The hover text and the screen-reader name are as above. No title, prompt or path is in them, and a sign writes no log line.
+  - Plants: (a) the sign also set on `SoundSuppressed`, and the muted test fails; (b) a group's sign put on no member, and the group test fails; (c) the minute not enforced, and the 60 s test fails.
+  - Both suite counts; build clean, 0 warnings.
+- **Guardrails:** no change to which sounds play or when. No new timer, no new thread, and no lock that the consumer can wait on. The Registry is not written. Nothing new in the database. The motion rule holds: red blinks, working breathes, nothing else moves.
+
 ---
 
 ## Part 4 — Phases 2–7 task outlines
