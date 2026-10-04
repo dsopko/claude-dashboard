@@ -421,7 +421,7 @@ The engine keeps a due time for each session and plays what is due when it is as
 - **On disk:** the operator's settings; the rosters that the operator asked to remember; the place of the window; and an **event log**.
 - **The event log** is append-only. It holds each event with its full payload, and a **decision record**: each judgement that the dashboard made (a state change, a refusal, a sound played, a sound not played and the cause), next to the event that caused it. It answers "why did that sound play?".
 - The decision record holds identifiers and names only. It never holds a title, a prompt or an answer.
-- **The event log records each run of the dashboard:** when it started and stopped, its version and its port. A crash or a kill shows as a start with no stop. A replay of the log forgets every session at each start, as the live dashboard does.
+- **The event log records each run of the dashboard:** when it started and stopped, its version and its port. A crash or a kill shows as a start with no stop. A replay of the log forgets every session at each start and at each clean stop, as the live dashboard does.
 - **A restart from the log** is the intent. *Not built.* So is search of the history (Phase 5).
 - The log is not pruned. *Retention is not built.*
 
@@ -560,4 +560,4 @@ The text above says what is true now. This list says when each rule changed, for
 | 2026-10-03 | A settings file that does not parse is kept aside and a fresh one written, and the window and the tray say so (§IV.7). Before, it was "left as it is" until the next save wrote the defaults over it | T1.56; issue #73 |
 | 2026-10-03 | A port that is taken says what to do, in the tray and the window. A program on the port the dashboard last used no longer leaves it deaf: it tries the next port. A start whose settings were unreadable leaves start with Windows as it found it (§IV.7) | T1.57; issue #14 |
 | 2026-10-03 | Intake sheds only events that repeat information when it falls behind, and says so (§I.3, §IV.7). Before, it dropped its oldest event, which could be a permission prompt | T1.58; issue #3 |
-| 2026-10-03 | The event log records each start and stop of the dashboard, and a replay forgets every session at each start (§IV.6). Before, a replay ran the whole history as one run | T1.60; issue #78 |
+| 2026-10-03 | The event log records each start and stop of the dashboard, and a replay forgets every session at each start and each clean stop (§IV.6). Before, a replay ran the whole history as one run | T1.60; issue #78 |
