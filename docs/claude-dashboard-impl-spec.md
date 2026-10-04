@@ -789,7 +789,7 @@ If the file cannot be opened or written, the store writes one Warning when it fa
 - **How long** (T1.68, issue #102; the operator's ruling of 2026-10-04): as long as Claude Code keeps its own sessions. At each prune, on the writer's thread, the dashboard reads `cleanupPeriodDays` from `~/.claude/settings.json` (§9.3; `ClaudeCleanupPeriod`), and `HistoryRetention` (Core) judges what it found:
   - a JSON number that is a whole number of 1 or more keeps that many days;
   - no key keeps 30 days, Claude Code's default;
-  - a file that cannot be read or parsed (none, locked, empty, not JSON, not an object) deletes nothing;
+  - a file that cannot be read or parsed (none, locked, empty, not JSON, not an object) deletes nothing. The parse is **strict JSON**: a comment or a comma at the end of a list makes the file "cannot be parsed" (the T1.68 review). The hook check accepts both (§9.3), and the difference is deliberate: if Claude Code refuses such a file, it pauses its own cleanup, and a lenient read here would delete what Claude Code keeps, the wrong side for #102;
   - a value that is not valid (`0`, a negative number, a fraction, text such as `"30"`, `true`, `null`) deletes nothing, as Claude Code pauses its own cleanup in these cases;
   - a value too large to count back from now (`99999999`) deletes nothing. `99999` counts back to 1752, so it is kept as given, and keeps everything in practice.
 
@@ -998,11 +998,11 @@ What the dashboard reads there, at each start:
 
 - **`enabledPlugins` and `extraKnownMarketplaces`**, to learn if its plugin is enabled, turned off, or held by a different data folder. "Ours" is decided by the folder that the settings give, never by the name alone.
 - **`hooks`**, for a handler that a build before the plugin left there. It is recognised by the script path in `args`, and by nothing else. *Accepted limit: an 8.3 short path does not match.*
-- **`cleanupPeriodDays`**, at each start and again at each daily prune of the history, on the archive writer's thread: how long the history keeps its rows (§8.3; T1.68, issue #102). A read and a JSON parse, never a write. A file that cannot be read or parsed deletes nothing, with one log line and no notice.
+- **`cleanupPeriodDays`**, at each start and again at each daily prune of the history, on the archive writer's thread: how long the history keeps its rows (§8.3; T1.68, issue #102). A read and a strict JSON parse, never a write: unlike the reads above, a comment or a trailing comma is "cannot be parsed" (§8.3 gives the reason). A file that cannot be read or parsed deletes nothing, with one log line and no notice.
 
 The read is defensive:
 
-- Comments and a comma at the end of a list are accepted.
+- Comments and a comma at the end of a list are accepted, but for `cleanupPeriodDays`, which is read as strict JSON (§8.3).
 - A file that will not parse is "cannot be read". Nothing is then claimed about it, nothing is asked of Claude Code, and the operator sees a notice.
 - A value of the wrong type is "not ours", never an exception.
 - **Nothing from the file is logged or shown**, but for the days of a valid `cleanupPeriodDays`, in the history's rule line (§8.3).
@@ -1171,4 +1171,4 @@ The text above says what is true now. This list says when each part changed.
 | 2026-10-04 | `/state`'s `health` has the counts since the start, for the present hour and for the last hour, with the version, the start, the ingress, the database, the sound output and the modes; an hourly summary line and `HourlySummary` row; the stop line gives the same counts. The repaired-port sentence no longer names the value (§3.5, §8.2, §8.3, §8.4) | T1.65; issue #76 |
 | 2026-10-04 | Seven timings that would show a stall, kept in memory: in `/state`'s `health.timings`, an hourly line, the stop line's worst cases, a start-up line, and one warning when a limit is crossed and one a minute after it clears; a roster edit is stamped where it is published (§3.5, Part 4, §8.4) | T1.66; issue #86 |
 | 2026-10-04 | A speaker sign on the row that made a sound, for one minute: only a queued sound, with the row that Core decides (`SoundMarked`; for a group, the member that the settle pass names from the groups as they stand, an ended member included), ended by the tick, still, and the first thing to go in a narrow row (`MetaLine`) (§2.4, §2.5, §5.6.3, §5.6.5, §5.6.6, §5.6.9) | T1.67; issue #99 |
-| 2026-10-04 | The history follows Claude Code's `cleanupPeriodDays`, read at each prune from `~/.claude/settings.json` and judged in Core (`HistoryRetention`): 30 days when the key is absent; nothing deleted for a file that cannot be read or a value Claude Code would not use; the rule line, again only when it changes. `history.retentionDays` is no longer used, kept in the file and logged once. A settling member that leaves its roster keeps the reminder's sign (§5.6.3, §8.2, §8.3, §9.3, Appendix B) | T1.68; issue #102 |
+| 2026-10-04 | The history follows Claude Code's `cleanupPeriodDays`, read at each prune from `~/.claude/settings.json` and judged in Core (`HistoryRetention`), strict JSON: 30 days when the key is absent; nothing deleted for a file that cannot be read or a value Claude Code would not use; the rule line, again only when it changes. `history.retentionDays` is no longer used, kept in the file and logged once. A settling member that leaves its roster keeps the reminder's sign (§5.6.3, §8.2, §8.3, §9.3, Appendix B) | T1.68; issue #102 |
