@@ -317,8 +317,9 @@ public sealed class CleanupPeriodTests : IDisposable
         {
             return ForeignSqliteReader.Column(paths.DatabaseFile, "SELECT payload_json FROM events WHERE payload_json LIKE '{\"age\"%'").Count;
         }
-        catch (Microsoft.Data.Sqlite.SqliteException)
+        catch (Exception ex) when (ex is Microsoft.Data.Sqlite.SqliteException or ForeignReadFailed)
         {
+            // Busy for a moment while the host writes: ask again.
             return -1;
         }
     }

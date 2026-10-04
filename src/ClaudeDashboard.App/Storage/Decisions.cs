@@ -195,7 +195,23 @@ public sealed record Decision(
     string? FromState = null,
     string? ToState = null,
     string? Reason = null,
-    string? Detail = null);
+    string? Detail = null)
+{
+    /// <summary>
+    /// The session's name when the row was written, <c>Session.Title</c> verbatim, or null (T1.69,
+    /// issue #98). The one column of a decision row that may hold it: never <see cref="Reason"/> or
+    /// <see cref="Detail"/>.
+    /// </summary>
+    /// <remarks>
+    /// Stamped by the recorder on the consumer thread, after the event is applied: the Registry's
+    /// name, or the event's for a session the Registry does not hold. A title can be a model-written
+    /// summary of the operator's prompt, so it goes to its own column and never into a log line.
+    /// </remarks>
+    public string? SessionTitle { get; init; }
+
+    /// <summary>The session's full working directory when the row was written, or null (T1.69).</summary>
+    public string? Cwd { get; init; }
+}
 
 /// <summary>
 /// What the consumer hands the archive: one event — or none, for a tick — and every decision it
@@ -211,6 +227,12 @@ public sealed record Decision(
 /// <param name="Decisions">Every decision made while handling it, in order.</param>
 public sealed record ArchiveRecord(InboundEvent? Event, IReadOnlyList<Decision> Decisions)
 {
+    /// <summary>
+    /// The session's name for the event row, as the Registry holds it after the event is applied, or
+    /// the event's own for a session it does not hold; null when there is none (T1.69, issue #98).
+    /// </summary>
+    public string? EventSessionTitle { get; init; }
+
     /// <summary>Whether there is anything at all to write.</summary>
     public bool IsEmpty => Event is null && Decisions.Count == 0;
 }

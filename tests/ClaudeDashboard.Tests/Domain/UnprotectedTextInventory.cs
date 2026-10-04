@@ -106,6 +106,13 @@ public sealed class UnprotectedTextInventory
         "Exchange.Answer",
         "Session.Title",
 
+        // What the database row carries (T1.69, the operator's ruling on #98): the session's name in
+        // its own column, decisions.session_title and events.session_title. Never logged: the
+        // recorder's Debug line names a decision's fields one by one, and the name is not among them
+        // (DecisionRecordTests holds it).
+        "Decision.SessionTitle",
+        "ArchiveRecord.EventSessionTitle",
+
         // What the screen binds to — and the type most likely to be logged.
         "SessionViewModel.Prompt",
         "SessionViewModel.PromptSnippet",
@@ -195,6 +202,8 @@ public sealed class UnprotectedTextInventory
         // Identifiers and paths on the domain.
         "InboundEvent.Cwd", "InboundEvent.PromptId", "InboundEvent.TranscriptPath",
         "Exchange.PromptId", "Session.Cwd", "Session.ErrorKind",
+        // T1.69: the session's full path on a decision row, as Session.Cwd.
+        "Decision.Cwd",
         "SessionId.Value", "GroupKey.Value", "SoundId.Name", "StateTransition.Cause",
 
         // T1.44: the error matcher a quiet tick puts back — Session.ErrorKind, copied. The cron

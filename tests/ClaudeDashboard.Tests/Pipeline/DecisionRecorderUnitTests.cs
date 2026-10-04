@@ -164,6 +164,43 @@ public sealed class DecisionRecorderUnitTests
         Assert.Equal($"kind=GroupNotice sound=finished group={group.Value} members=s-a,s-b", dropped.Detail);
     }
 
+    /// <summary>
+    /// <strong>A decision with no session stores no name and no path</strong> (T1.69): a group's sound and
+    /// an hourly summary. A session's own sound in the same tick holds both, from the Registry.
+    /// </summary>
+    [Fact]
+    public void A_group_sound_and_an_hourly_summary_store_no_name_or_path()
+    {
+        _registry.Apply(new UserPromptSubmit
+        {
+            SessionId = new SessionId("s-1"),
+            Timestamp = FakeClock.DefaultStart,
+            Cwd = Cwd,
+            Prompt = "go",
+            SessionTitle = "Payments API",
+        });
+
+        var group = _registry.Sessions[new SessionId("s-1")].WorkspaceGroup;
+
+        _recorder.BeginTick(FakeClock.DefaultStart);
+        ((IDecisionSink)_recorder).SoundPlayed(
+            SoundDecisionKind.GroupNotice, default, group, SoundId.Finished, rung: 0, waited: TimeSpan.Zero);
+        _recorder.HourlySummary("applied=1", partial: false);
+        ((IDecisionSink)_recorder).SoundPlayed(
+            SoundDecisionKind.Nudge, new SessionId("s-1"), group, SoundId.Permission, rung: 0, waited: TimeSpan.FromMinutes(2));
+        _recorder.Complete();
+
+        Assert.True(_archive.Reader.TryRead(out var record));
+
+        var groupRow = Assert.Single(record.Decisions, decision => decision.Kind == DecisionKind.GroupNoticePlayed);
+        var summary = Assert.Single(record.Decisions, decision => decision.Kind == DecisionKind.HourlySummary);
+        var nudge = Assert.Single(record.Decisions, decision => decision.Kind == DecisionKind.NudgePlayed);
+
+        Assert.Equal<(string?, string?)>((null, null), (groupRow.SessionTitle, groupRow.Cwd));
+        Assert.Equal<(string?, string?)>((null, null), (summary.SessionTitle, summary.Cwd));
+        Assert.Equal<(string?, string?)>(("Payments API", Cwd), (nudge.SessionTitle, nudge.Cwd));
+    }
+
     private void Apply(string id) =>
         _registry.Apply(new UserPromptSubmit
         {
