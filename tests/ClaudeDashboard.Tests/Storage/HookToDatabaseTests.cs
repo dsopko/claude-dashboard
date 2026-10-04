@@ -46,7 +46,7 @@ public sealed class HookToDatabaseTests : IAsyncLifetime, IDisposable
         _paths = new DashboardPaths(_root);
         new SettingsStore(_paths).Save(new DashboardSettings { Port = _port });
 
-        _app = AppHost.Build(_paths);
+        _app = AppHost.Build(_paths, claude: new ClaudeCodePaths(Path.Combine(_paths.Root, "claude-config")));
 
         await _app.StartAsync();
         _client = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_port}") };

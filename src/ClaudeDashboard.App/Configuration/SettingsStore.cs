@@ -143,12 +143,13 @@ public sealed class SettingsStore(DashboardPaths paths, Serilog.ILogger? logger 
     }
 
     /// <summary>
-    /// The values the load repaired, as one sentence each, or null: a port that is not a port, and
-    /// a negative <c>history.retentionDays</c> (T1.64). AppHost logs them as one Warning.
+    /// The values the load repaired, as one sentence each, or null: a port that is not a port (T1.64).
+    /// AppHost logs them as one Warning. (A negative <c>history.retentionDays</c> was the second, until
+    /// T1.68 retired the key.)
     /// </summary>
     private static string? Repaired(string json, DashboardSettings settings)
     {
-        var problems = new[] { PortProblem(json, settings), HistoryProblem(json) }
+        var problems = new[] { PortProblem(json, settings) }
             .Where(problem => problem is not null)
             .ToList();
 
@@ -156,38 +157,31 @@ public sealed class SettingsStore(DashboardPaths paths, Serilog.ILogger? logger 
     }
 
     /// <summary>
-    /// The sentence for a negative <c>history.retentionDays</c>, or null. The value is not repeated:
-    /// the sentence says what the dashboard does instead.
+    /// Whether the settings carry <c>history.retentionDays</c>, which no version reads since T1.68
+    /// (issue #102): the history follows Claude Code's <c>cleanupPeriodDays</c>. The key is kept, by
+    /// the unknown-keys rule, and AppHost says once at start that it is no longer used.
     /// </summary>
-    private static string? HistoryProblem(string json)
+    /// <exception cref="ArgumentNullException"><paramref name="settings"/> is null.</exception>
+    public static bool CarriesRetentionDays(DashboardSettings settings)
     {
-        try
-        {
-            using var document = JsonDocument.Parse(json, new JsonDocumentOptions
-            {
-                CommentHandling = JsonCommentHandling.Skip,
-                AllowTrailingCommas = true,
-            });
+        ArgumentNullException.ThrowIfNull(settings);
 
-            if (document.RootElement.ValueKind == JsonValueKind.Object &&
-                TryGetPropertyIgnoringCase(document.RootElement, "history", out var history) &&
-                history.ValueKind == JsonValueKind.Object &&
-                TryGetPropertyIgnoringCase(history, "retentionDays", out var days) &&
-                days.ValueKind == JsonValueKind.Number &&
-                days.TryGetInt64(out var value) &&
-                value < 0)
+        if (settings.UnknownKeys is not { } unknown)
+        {
+            return false;
+        }
+
+        foreach (var (name, value) in unknown)
+        {
+            if (string.Equals(name, "history", StringComparison.OrdinalIgnoreCase)
+                && value.ValueKind == JsonValueKind.Object
+                && TryGetPropertyIgnoringCase(value, "retentionDays", out _))
             {
-                return
-                    "The \"history.retentionDays\" setting is negative, so the history keeps the default of " +
-                    $"{HistorySettings.DefaultRetentionDays} days. Set it to 0 to keep everything, or to the days to keep.";
+                return true;
             }
         }
-        catch (JsonException)
-        {
-            // Unreachable in practice: this runs only after a successful deserialize.
-        }
 
-        return null;
+        return false;
     }
 
     /// <summary>A property by name, ignoring case, as the deserializer reads it.</summary>

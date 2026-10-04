@@ -148,7 +148,7 @@ public sealed class TwoUsersBindTests : IDisposable
     {
         new SettingsStore(paths).Save(new DashboardSettings { Port = port });
 
-        var host = AppHost.Build(paths, ingress: IngressStatus.Healthy(port));
+        var host = AppHost.Build(paths, ingress: IngressStatus.Healthy(port), claude: new ClaudeCodePaths(Path.Combine(paths.Root, "claude-config")));
         _hosts.Add(host);
 
         host.StartAsync().GetAwaiter().GetResult();

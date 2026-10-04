@@ -312,8 +312,9 @@ public static class AppHost
             sp.GetRequiredService<ILogger>(),
             new RunStart(StartupVersion.Value, ingress.CanReceiveHooks ? ingress.Port : null, resolved.Root),
             sp.GetRequiredService<Core.Ports.IClock>(),
-            // How long the history is kept (T1.64, issue #81): this start's first load, like every setting.
-            loaded.Settings.History.RetentionDays,
+            // How long the history is kept (T1.68, issue #102): Claude Code's cleanupPeriodDays, read from the
+            // settings file the dashboard already reads, at each prune, on the writer's thread. Never written.
+            new ClaudeCleanupPeriod(sp.GetRequiredService<ClaudeCodePaths>()),
             sp.GetRequiredService<IHostApplicationLifetime>().ApplicationStarted));
         builder.Services.AddHostedService(sp => sp.GetRequiredService<EventArchiveWriter>());
 
@@ -747,8 +748,8 @@ public static class AppHost
 
         switch (loaded.Outcome)
         {
-            // A value the load repaired is one Warning (T1.64): a port that is not a port, a negative
-            // history.retentionDays. Until T1.64 the port's sentence was made and never logged.
+            // A value the load repaired is one Warning (T1.64): a port that is not a port. Until T1.64 the
+            // port's sentence was made and never logged.
             case SettingsLoadOutcome.Loaded when loaded.Problem is { } repaired:
                 logger.Warning(
                     "Settings loaded from {File}, with a value repaired: {Repaired}",
@@ -799,6 +800,15 @@ public static class AppHost
 
             default:
                 break;
+        }
+
+        // The key T1.68 retired (issue #102): kept in the file, ignored, and said once. Never its value.
+        if (SettingsStore.CarriesRetentionDays(loaded.Settings))
+        {
+            logger.Information(
+                "The history.retentionDays setting in {File} is no longer used: history follows Claude Code's " +
+                "cleanupPeriodDays. The key is left in the file.",
+                paths.SettingsFile);
         }
     }
 

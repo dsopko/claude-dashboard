@@ -79,7 +79,7 @@ public sealed class RetentionTests : IDisposable
         {
             Fill(store);
 
-            var counts = store.Prune(HistorySettings.DefaultRetentionDays, Now, keepRunId: null);
+            var counts = store.Prune(ClaudeDashboard.Core.HistoryRetention.DefaultDays, Now, keepRunId: null);
 
             Assert.Equal(new PruneCounts(1, 2, 0), counts);
         }
@@ -199,7 +199,7 @@ public sealed class RetentionTests : IDisposable
         using var started = new CancellationTokenSource();
 
         using var writer = new EventArchiveWriter(
-            archive, store, Serilog.Core.Logger.None, new RunStart("1.0.0", 5000, _folder), clock, 30, started.Token);
+            archive, store, Serilog.Core.Logger.None, new RunStart("1.0.0", 5000, _folder), clock, new FakeCleanupPeriod(), started.Token);
 
         await writer.StartAsync(CancellationToken.None);
 
@@ -244,7 +244,7 @@ public sealed class RetentionTests : IDisposable
         var archive = new EventArchive(logger);
         using var started = new CancellationTokenSource();
 
-        using (var writer = new EventArchiveWriter(archive, store, logger, new RunStart("1.0.0", 5000, _folder), clock, 30, started.Token))
+        using (var writer = new EventArchiveWriter(archive, store, logger, new RunStart("1.0.0", 5000, _folder), clock, new FakeCleanupPeriod(), started.Token))
         {
             await writer.StartAsync(CancellationToken.None);
             started.Cancel();
@@ -255,7 +255,7 @@ public sealed class RetentionTests : IDisposable
         }
 
         var lines = Lines(log);
-        var retention = lines.FindIndex(line => line.Contains("The history keeps 30 days", StringComparison.Ordinal));
+        var retention = lines.FindIndex(line => line.Contains("History follows Claude Code's cleanupPeriodDays: keeps 30 days", StringComparison.Ordinal));
         var pruned = lines.FindIndex(line => line.Contains("Pruned", StringComparison.Ordinal));
 
         Assert.True(retention >= 0 && retention < pruned, string.Join(Environment.NewLine, lines));
@@ -273,35 +273,47 @@ public sealed class RetentionTests : IDisposable
     private static List<string> Lines(RecordingLogSink log) =>
         [.. log.Events.Select(e => e.RenderMessage(CultureInfo.InvariantCulture))];
 
-    // ---- The setting --------------------------------------------------------------------------
+    // ---- The setting T1.68 retired --------------------------------------------------------------
 
     /// <summary>
-    /// A negative value is the default, and the start logs one repaired-value line that does not
-    /// repeat the value.
+    /// <c>history.retentionDays</c> is no longer read (T1.68, issue #102). A start that finds it logs
+    /// one Information line that never repeats the value, and no repaired-value line: even a negative
+    /// value is not repaired, because nothing reads it.
     /// </summary>
     [Fact]
-    public void A_negative_value_is_the_default_and_is_logged_once()
+    public void The_retired_key_is_said_once_and_never_repaired()
     {
         var paths = new DashboardPaths(_folder);
         File.WriteAllText(paths.SettingsFile, """{ "history": { "retentionDays": -7 } }""");
 
-        var loaded = new SettingsStore(paths).Load();
+        Assert.Null(new SettingsStore(paths).Load().Problem);
 
-        Assert.Equal(SettingsLoadOutcome.Loaded, loaded.Outcome);
-        Assert.Equal(HistorySettings.DefaultRetentionDays, loaded.Settings.History.RetentionDays);
-
-        using (var host = AppHost.Build(paths))
+        using (var host = AppHost.Build(paths, claude: new ClaudeCodePaths(Path.Combine(_folder, "claude-config"))))
         {
             (host.Services.GetService(typeof(Serilog.ILogger)) as IDisposable)?.Dispose();
         }
 
-        var lines = File.ReadAllLines(Directory.EnumerateFiles(paths.LogFolder, "*.log").Single())
-            .Where(line => line.Contains("with a value repaired", StringComparison.Ordinal))
-            .ToList();
+        var lines = File.ReadAllLines(Directory.EnumerateFiles(paths.LogFolder, "*.log").Single());
 
-        var line = Assert.Single(lines);
-        Assert.Contains("\"history.retentionDays\" setting is negative", line, StringComparison.Ordinal);
+        var line = Assert.Single(lines, line => line.Contains("history.retentionDays", StringComparison.Ordinal));
+        Assert.Contains("is no longer used: history follows Claude Code's cleanupPeriodDays", line, StringComparison.Ordinal);
         Assert.DoesNotContain("-7", line, StringComparison.Ordinal);
+        Assert.DoesNotContain(lines, line => line.Contains("with a value repaired", StringComparison.Ordinal));
+    }
+
+    /// <summary>Whether the settings carry the retired key: the section and the key, in any case.</summary>
+    [Theory]
+    [InlineData("{}", false)]
+    [InlineData("""{ "history": {} }""", false)]
+    [InlineData("""{ "history": 30 }""", false)]
+    [InlineData("""{ "history": { "retentionDays": 0 } }""", true)]
+    [InlineData("""{ "History": { "RetentionDays": 36525 } }""", true)]
+    public void The_retired_key_is_found_as_the_load_reads_it(string json, bool expected)
+    {
+        var paths = new DashboardPaths(_folder);
+        File.WriteAllText(paths.SettingsFile, json);
+
+        Assert.Equal(expected, SettingsStore.CarriesRetentionDays(new SettingsStore(paths).Load().Settings));
     }
 
     /// <summary>
@@ -320,20 +332,6 @@ public sealed class RetentionTests : IDisposable
         Assert.StartsWith("The \"port\" setting is not a usable port.", problem, StringComparison.Ordinal);
         Assert.DoesNotContain("99999", problem, StringComparison.Ordinal);
         Assert.DoesNotContain(" , ", problem, StringComparison.Ordinal);
-    }
-
-    /// <summary>An absent value, and an absent section, are the default; 36,525 days fits.</summary>
-    [Theory]
-    [InlineData("{}", 30)]
-    [InlineData("""{ "history": {} }""", 30)]
-    [InlineData("""{ "history": { "retentionDays": 0 } }""", 0)]
-    [InlineData("""{ "history": { "retentionDays": 36525 } }""", 36_525)]
-    public void The_setting_reads_as_the_ruling_says(string json, int expected)
-    {
-        var paths = new DashboardPaths(_folder);
-        File.WriteAllText(paths.SettingsFile, json);
-
-        Assert.Equal(expected, new SettingsStore(paths).Load().Settings.History.RetentionDays);
     }
 
     /// <summary>

@@ -45,7 +45,7 @@ public sealed class PathCheckHostTests : IAsyncLifetime, IDisposable
         _paths = new DashboardPaths(_root);
         new SettingsStore(_paths).Save(new DashboardSettings { Port = port });
 
-        _app = AppHost.Build(_paths);
+        _app = AppHost.Build(_paths, claude: new ClaudeCodePaths(Path.Combine(_paths.Root, "claude-config")));
         _logger = _app.Services.GetService<Serilog.ILogger>() as IDisposable;
 
         await _app.StartAsync();
@@ -323,7 +323,7 @@ public sealed class PathCheckHostTests : IAsyncLifetime, IDisposable
             var loaded = new SettingsStore(paths).Load();
             var start = new SettingsAtStart(loaded, BackupFile: Path.Combine(root, "settings.error-20261004-090000.json"));
 
-            using var host = AppHost.Build(paths, settingsAtStart: start);
+            using var host = AppHost.Build(paths, settingsAtStart: start, claude: new ClaudeCodePaths(Path.Combine(paths.Root, "claude-config")));
             var services = host.Services;
             var clock = services.GetRequiredService<IClock>();
 

@@ -186,7 +186,7 @@ public sealed class DashboardPaths
     /// <remarks>
     /// Under the same root as everything else, so <c>CLAUDE_DASHBOARD_HOME</c> moves it too. It is
     /// the one file here that contains the operator's prompts and Claude's answers, and it is
-    /// kept for <c>history.retentionDays</c>, 30 days by default (T1.64) — see <c>SqliteEventStore</c>
+    /// kept as long as Claude Code's <c>cleanupPeriodDays</c>, 30 days by default (T1.68) — see <c>SqliteEventStore</c>
     /// for what that costs per day and why no explicit ACL is set on it.
     /// </remarks>
     public string DatabaseFile => Path.Combine(Root, "dashboard.db");
