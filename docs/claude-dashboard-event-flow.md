@@ -292,7 +292,9 @@ When an event changes a session, the Registry raises `SessionChanged` on the con
 
 **The sound engine** runs on the consumer thread. When a session enters a state that has a notice, the engine plays the notice or records the cause of its silence. NeedsPermission, NeedsQuestion, Error and Unread each have a notice. Waiting and Interrupted have none. The engine also starts, continues or cancels the nudge schedule of the session.
 
-**The session projection** takes the session from the event arguments. The session is an immutable record, so it is safe to pass to a different thread. The projection posts it to the WPF dispatcher and returns. On the UI thread, the projection replaces that one session in its collection. The window and the tray read the collection. This is the only point where the background work touches the UI thread.
+**The speaker sign.** When the player queues a sound, the engine also raises `SoundMarked` with the session whose row shows the sign: the session itself, or, for a group's sound, the member whose finish settled the group. `SoundSigns` posts it to the UI thread, one post for each sound that played, and the row shows a still speaker for a minute (Impl §5.6.3). A suppressed or a dropped sound marks no row, and nothing is written.
+
+**The session projection** takes the session from the event arguments. The session is an immutable record, so it is safe to pass to a different thread. The projection posts it to the WPF dispatcher and returns. On the UI thread, the projection replaces that one session in its collection. The window and the tray read the collection. Apart from the tick and the speaker sign, this is the only point where the background work touches the UI thread.
 
 **The archive** gets one record for each event: the event and all its decisions. The archive channel holds 1,024 records and discards the oldest when it is full. One writer thread owns `dashboard.db`. For each record it writes, in one transaction:
 
@@ -435,7 +437,7 @@ Until 2026-10-02 this section listed the places where the other documents disagr
 | The events | `src/ClaudeDashboard.Core/Events/InboundEvent.cs`, `Variants.cs`, `Matchers.cs`, `PayloadJson.cs` |
 | The channel and the consumer | `src/ClaudeDashboard.App/Pipeline/EventPipeline.cs`, `EventConsumer.cs` |
 | The Registry | `src/ClaudeDashboard.Core/SessionRegistry.cs`, `SessionState.cs`, `ApplyOutcome.cs`, `Acknowledgment.cs`, `QuietTicks.cs` |
-| The sound | `src/ClaudeDashboard.Core/SoundPolicyEngine.cs`; `src/ClaudeDashboard.App/Adapters/NAudioSoundPlayer.cs`, `ISoundOutput.cs`, `SoundDeviceNotice.cs` |
+| The sound | `src/ClaudeDashboard.Core/SoundPolicyEngine.cs`; `src/ClaudeDashboard.App/Adapters/NAudioSoundPlayer.cs`, `ISoundOutput.cs`, `SoundDeviceNotice.cs`; the speaker sign: `src/ClaudeDashboard.App/Ui/SoundSigns.cs`, `MetaLine.cs` |
 | The screen | `src/ClaudeDashboard.App/Ui/SessionProjection.cs`, `AckPublisher.cs`, `TrayViewModel.cs`, `NoticeBoard.cs` |
 | The archive and the decisions | `src/ClaudeDashboard.App/Pipeline/DecisionRecorder.cs`; `src/ClaudeDashboard.App/Storage/EventArchive.cs`, `EventArchiveWriter.cs`, `SqliteEventStore.cs`, `Decisions.cs`, `HistoryNotice.cs` |
 | The tests of the path | `tests/ClaudeDashboard.Tests/Setup/HookScriptBehaviourTests.cs`, `tests/ClaudeDashboard.Tests/Ingress/`, `tests/ClaudeDashboard.Tests/Pipeline/` |

@@ -98,6 +98,7 @@ This is the full list. Core emits nothing else.
 |---|---|---|---|
 | A session changed | The event `SessionRegistry.SessionChanged` | `Added` or `Updated`, and the new immutable `Session` | Three, in App (section 5) |
 | A nudge moved the schedule | The event `SoundPolicyEngine.NudgeScheduleAdvanced` | Nothing | `StateBoard` |
+| A sound played, and the row it marks | The event `SoundPolicyEngine.SoundMarked` | The session (for a group's sound, the member whose finish settled it), the sound and the instant. Only a sound that the player queued (T1.67) | `SoundSigns` |
 | Play this sound | The port `ISoundPlayer.Play(sound, gain, fade)` | An intent. The player answers `Queued`, `NoOutput` or `Failed` (T1.55) | `NAudioSoundPlayer` |
 | A sound decision | The port `IDecisionSink` | Played, dropped and why, or suppressed and the cause | `DecisionRecorder` |
 | The result of an event | The return value `ApplyOutcome` | Applied, Ignored, Stale, Duplicate, Uncorrelated | `EventConsumer` |
@@ -184,6 +185,7 @@ A second interface needs none of these. The dashboard process keeps them.
 | Which row shows an Ack | `SessionViewModel.ShowsOwnAck` | `Acknowledgment.Applies`, and the row is not a member of a roster group |
 | The group's Ack | `GroupViewModel.CanAcknowledge`, `Acknowledge` | Roster groups only. It reads the members, not the settled state |
 | Ack all | `MainViewModel.AckAll`, `AnythingToAcknowledge` | One `Ack` for each session that `Acknowledgment.Applies` to |
+| The speaker sign | `SessionViewModel.HasSoundSign`, `SoundSignText`; `MetaLine` | On for one minute after the sound, ended by the tick. "played: finished, 20s ago". The first thing to go in a narrow row. Which row is Core's answer (`SoundPolicyEngine.SoundMarked`), so a second screen marks the same row |
 | The group heading | `GroupViewModel.Label`, `RowVisuals.WorkspaceLabel` | The roster's name, or the folder name, or the session id. Never the key |
 | The band heading | `BandHeaderViewModel` | NEEDS YOU, UNREAD, WORKING, QUIET, ENDED, and the colour of each |
 | The counts strip | `MainViewModel.RecountBands`, `CountsText` | "11 sessions · 3 need you · 5 unread · 8 working". A zero band is left out |
@@ -224,18 +226,19 @@ A web app writes this layer again in HTML and CSS. That is expected, and it is n
 - **The sequence of the listeners matters.** `StateBoard` reads the nudge time that the sound engine has just set. `AppHost` subscribes it after the sound engine, and `Hosting/StateHostTests.cs` holds that.
 - **The `Session` record is what crosses the thread.** It is immutable, so no copy is necessary.
 
-The screen changes for six causes. Only the first is a Core event.
+The screen changes for seven causes. Only the first two are Core events.
 
 | Cause | How the interface learns of it |
 |---|---|
 | A session changed | `SessionChanged` → `SessionProjection` → the UI thread |
+| A sound played (the speaker sign, T1.67) | `SoundMarked` → `SoundSigns` → the UI thread, one post for each sound |
 | Time passed (ages, stale groups, a lapsed mute) | The consumer's tick → `UiTick` → the UI thread, each 15 seconds |
 | A roster group settled | The consumer wakes on the deadline and echoes a tick |
 | Mute or pause changed | The consumer echoes a tick after the `SoundCommand` |
 | A roster changed | The view model changed it itself, on the UI thread, and refreshes |
 | The notice changed | `HookNotice` raises a property change |
 
-A second interface needs all six. Today each one arrives by a path that ends in WPF.
+A second interface needs all seven. Today each one arrives by a path that ends in WPF.
 
 ---
 
@@ -432,12 +435,12 @@ Code paths are under `src/ClaudeDashboard.`. Test paths are under `tests/ClaudeD
 | The states and what moves a session | TS §IV.1; Impl §2.2, §2.6; [event flow](claude-dashboard-event-flow.md) §8 | `Core/SessionRegistry.cs`, `SessionState.cs` | `Domain/SessionRegistryTests.cs`, `WaitingStateTests.cs`, `SilenceSweepTests.cs`, `QuietTickTests.cs`, `SessionTitleLatchTests.cs` |
 | The order on screen | TS §IV.2 | `Core/AttentionOrder.cs`, `AttentionEngine.cs` | `Domain/AttentionOrderTests.cs`, `AttentionEngineTests.cs` |
 | Groups and rosters | TS §IV.3; Impl §2.5; Design §9 | `Core/GroupKeys.cs`, `GroupResolver.cs`, `RosterBook.cs`, `RosterSettle.cs`, `RosterGroupWatch.cs` | `Domain/GroupKeysTests.cs`, `GroupResolverTests.cs`, `RosterBookTests.cs`, `RosterGroupingTests.cs`, `RosterGroupWatchTests.cs` |
-| When a sound plays | TS §IV.5; Impl Part 7 | `Core/SoundPolicyEngine.cs`, `SoundPolicyOptions.cs` | `Domain/SoundPolicyEngineTests.cs`, `RosterSoundTests.cs` |
+| When a sound plays | TS §IV.5; Impl Part 7 | `Core/SoundPolicyEngine.cs`, `SoundPolicyOptions.cs` | `Domain/SoundPolicyEngineTests.cs`, `RosterSoundTests.cs`, `SoundMarkTests.cs` |
 | Mute and pause | Impl §5.2 | `Core/Events/Variants.cs` (`SoundCommand`), `App/Ui/TrayViewModel.cs` | `Pipeline/SoundCommandPipelineTests.cs`, `InstantModeLabelTests.cs`, `Ui/TrayViewModelTests.cs` |
 | Acknowledgment, from the click to the Registry | Design §4; TS §I.3 | `Core/Acknowledgment.cs`, `App/Ui/AckPublisher.cs` | `Domain/AcknowledgmentTests.cs`, `Pipeline/AckPipelineTests.cs`, `Ui/AckTests.cs`, `GroupAckTests.cs`, `Architecture/AckAllGuardTests.cs` |
 | What Claude Code sends | [Hooks reference](claude-code-hooks-reference.md); event flow §13 for what was measured | `App/Ingress/HookPayload.cs`, `HookEventMapper.cs` | `Ingress/HookEventMapperTests.cs` |
 | How an event travels | Event flow §1 to §9; Impl Part 4 | `App/Pipeline/EventConsumer.cs`, `EventPipeline.cs` | `Pipeline/EventConsumerTests.cs`, `EventPipelineTests.cs`, `SettleWakeTests.cs` |
-| How a change reaches the UI thread | Impl Part 4 | `App/Ui/SessionProjection.cs`, `UiTick.cs` | `Pipeline/SessionProjectionTests.cs`, `UiTickTests.cs` |
+| How a change reaches the UI thread | Impl Part 4 | `App/Ui/SessionProjection.cs`, `UiTick.cs`, `SoundSigns.cs` | `Pipeline/SessionProjectionTests.cs`, `UiTickTests.cs`, `Ui/SoundSignTests.cs` |
 | The endpoints and the token | Impl §3.2, §3.4; hooks reference, "`GET /state` is not a hook" | `App/Ingress/IngressEndpoints.cs`, `IngressToken.cs` | `Ingress/IngressEndpointTests.cs`, `IngressResilienceTests.cs`, `Hosting/TokenHandoverTests.cs` |
 | The shape of `/state`, field by field | Impl §3.5 | `App/Ingress/StateReport.cs`, `StateBoard.cs`, `OperatorText.cs` | `Ingress/StateEndpointTests.cs`, `StateBoardTests.cs`, `Hosting/StateHostTests.cs` |
 | Which rows exist, and the collapse rules | Design §6; TS §IV.4; Impl §5.6.2 | `App/Ui/MainViewModel.cs` | `Ui/MainViewModelTests.cs`, `CollapseTests.cs`, `RosterEditingTests.cs` |
