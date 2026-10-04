@@ -489,7 +489,9 @@ public sealed class DecisionRecordTests : IAsyncLifetime
 
         foreach (var row in rows)
         {
-            foreach (var field in new[] { row.SessionId, row.FromState, row.ToState, row.Reason, row.Detail })
+            // Since T1.69 (issue #98) the session's name has its own column, and only that one: never
+            // reason, detail or any other field, the path included.
+            foreach (var field in new[] { row.SessionId, row.FromState, row.ToState, row.Reason, row.Detail, row.Cwd })
             {
                 if (field is not null)
                 {
@@ -497,6 +499,9 @@ public sealed class DecisionRecordTests : IAsyncLifetime
                 }
             }
         }
+
+        // The other half: the name the prompt set is in the name's column of the session's rows.
+        Assert.All(rows.Where(row => row.SessionId == Id.Value), row => Assert.Equal(Marker, row.SessionTitle));
     }
 
     // ---- Harness ------------------------------------------------------------------------------

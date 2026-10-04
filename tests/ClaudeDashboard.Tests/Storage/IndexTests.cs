@@ -160,7 +160,7 @@ public sealed class IndexTests : IDisposable
         Assert.Equal(Names, IndexesOf(path));
         Assert.Equal(events, ForeignSqliteReader.Query(path, OldDatabase.EventRows));
         Assert.Equal(decisions, ForeignSqliteReader.Query(path, OldDatabase.DecisionRows));
-        Assert.Equal(SqliteEventStore.UtcTimesVersion, long.Parse(ForeignSqliteReader.Column(path, "PRAGMA user_version")[0], System.Globalization.CultureInfo.InvariantCulture));
+        Assert.Equal(SqliteEventStore.NameColumnsVersion, long.Parse(ForeignSqliteReader.Column(path, "PRAGMA user_version")[0], System.Globalization.CultureInfo.InvariantCulture));
     }
 
     /// <summary>

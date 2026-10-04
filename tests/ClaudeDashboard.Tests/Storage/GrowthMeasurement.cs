@@ -83,6 +83,22 @@ public sealed class GrowthMeasurement(Xunit.Abstractions.ITestOutputHelper outpu
     /// </summary>
     private const double DecisionsPerEvent = 0.284;
 
+    /// <summary>
+    /// The session's name on each row (T1.69, issue #98): 17 characters, the mean of the 56 distinct
+    /// names in a copy of the operator's database on 2026-10-04 (the longest was 38).
+    /// </summary>
+    /// <remarks>
+    /// Written on every row, event and decision, as an upper bound: a session with no name stores NULL,
+    /// and in that copy 2,863 of 26,401 events carried a name in their payload.
+    /// </remarks>
+    private const int TitleLength = 17;
+
+    /// <summary>
+    /// The session's full path on each decision row (T1.69): 36 characters, the mean of
+    /// <c>events.cwd</c> in the same copy (the longest was 137).
+    /// </summary>
+    private const int PathLength = 36;
+
     private readonly string _folder =
         Path.Combine(Path.GetTempPath(), "claude-dashboard-tests", Guid.NewGuid().ToString("N"));
 
@@ -161,7 +177,7 @@ public sealed class GrowthMeasurement(Xunit.Abstractions.ITestOutputHelper outpu
 
         Assert.True(
             perYear < 2L * 1024 * 1024 * 1024,
-            $"a year of typical days extrapolates to {perYear:N0} bytes, which is too much for history.retentionDays 0, which keeps everything");
+            $"a year of typical days extrapolates to {perYear:N0} bytes, which is too much for a cleanupPeriodDays that keeps everything");
     }
 
     /// <summary>Writes one day of events at real sizes and returns the file's size on disk.</summary>
@@ -194,10 +210,14 @@ public sealed class GrowthMeasurement(Xunit.Abstractions.ITestOutputHelper outpu
                         FromState: "Working",
                         ToState: "Unread",
                         Reason: "Applied",
-                        Detail: "silentMinutes=11"));
+                        Detail: "silentMinutes=11")
+                    {
+                        SessionTitle = Title,
+                        Cwd = Folder,
+                    });
                 }
 
-                store.Append(new ArchiveRecord(inboundEvent, decisions));
+                store.Append(new ArchiveRecord(inboundEvent, decisions) { EventSessionTitle = Title });
             }
 
             for (var i = 0; i < prompts; i++)
@@ -232,6 +252,12 @@ public sealed class GrowthMeasurement(Xunit.Abstractions.ITestOutputHelper outpu
 
         return bytes;
     }
+
+    /// <summary>A name of the measured length, with filler rather than anybody's words.</summary>
+    private static readonly string Title = new('t', TitleLength);
+
+    /// <summary>A path of the measured length.</summary>
+    private static readonly string Folder = @"C:\" + new string('p', PathLength - 3);
 
     private static int Sample(Random rng, (int Length, int Weight)[] distribution)
     {

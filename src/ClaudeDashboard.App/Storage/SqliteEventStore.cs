@@ -47,10 +47,10 @@ namespace ClaudeDashboard.App.Storage;
 /// no <c>VACUUM</c>, by the operator's ruling. Two figures, and they differ by a factor of nine:
 /// </para>
 /// <list type="bullet">
-///   <item><description><strong>The synthetic day: about 300 KiB</strong> (307,200 bytes) —
-///   see <see cref="TypicalBytesPerDay"/>. Written through this store at payload sizes taken from
+///   <item><description><strong>The synthetic day: about 310 KiB</strong> (315,392 bytes, with a
+///   name and a path on each row since T1.69) — see <see cref="TypicalBytesPerDay"/>. Written through this store at payload sizes taken from
 ///   4,439 real prompts and 11,757 real assistant messages, with decisions at the real ratio. The
-///   busiest synthetic day is about 2.7 MiB.</description></item>
+///   busiest synthetic day is about 2.8 MiB.</description></item>
 ///   <item><description><strong>The operator's real file: about 2.7 MB a day</strong> (2,709,104
 ///   bytes over the 37.67 days its events spanned, measured on a copy on 2026-10-04). It carries
 ///   what the synthetic day does not: tool batches, every kind of notification, larger answers.
@@ -91,7 +91,7 @@ namespace ClaudeDashboard.App.Storage;
 public sealed class SqliteEventStore : IEventStore, IDisposable
 {
     /// <summary>
-    /// The bound on the synthetic typical day — 340,000 bytes, measured, not estimated, with a margin.
+    /// The bound on the synthetic typical day — 350,000 bytes, measured, not estimated, with a margin.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -100,7 +100,11 @@ public sealed class SqliteEventStore : IEventStore, IDisposable
     /// pages an empty file already holds: 286,720 bytes, because a new table costs a page that a day
     /// does not add. Since T1.63 it includes the six indexes: 299,008 bytes, under the constant by
     /// less than 1 %. Since T1.64 the day writes decisions too, at 0.284 for each event, the ratio of
-    /// the operator's real file: 307,200 bytes. The constant is that with a margin of more than 10 %,
+    /// the operator's real file: 307,200 bytes. Since T1.69 each row also carries the session's
+    /// name, and each decision its full path, at the sizes of a copy of the operator's database (a
+    /// 17-character name and a 36-character path, on every row): 315,392 bytes. That left less than
+    /// the margin under 340,000, so the constant rose to 350,000 (T1.69, issue #98). The constant is
+    /// the figure with a margin of more than 10 %,
     /// so a small change to a row does not fail the build and a large one does. The operator's real
     /// file grows about nine times faster (see the class remarks); the documents state that rate.
     /// It exists because the file holds the operator's prompts and Claude's answers: a retention
@@ -114,7 +118,7 @@ public sealed class SqliteEventStore : IEventStore, IDisposable
     /// clothes: change what is stored and the test says so.
     /// </para>
     /// </remarks>
-    public const long TypicalBytesPerDay = 340_000;
+    public const long TypicalBytesPerDay = 350_000;
 
     private const string Schema = """
         CREATE TABLE IF NOT EXISTS events (
@@ -126,6 +130,8 @@ public sealed class SqliteEventStore : IEventStore, IDisposable
             cwd          TEXT    NOT NULL
         );
 
+        -- events.session_title, decisions.session_title and decisions.cwd (T1.69, issue #98) are not
+        -- here: AddNameColumns adds them, to a new file and to an old one alike, so there is one path.
         -- One row per decision the dashboard made, or deliberately did not make (T1.37,
         -- issue #48). event_id is the causing row in events, or NULL for a tick. reason and
         -- detail carry enums and identifiers only, never operator text (T1.24). Created by the
@@ -186,13 +192,13 @@ public sealed class SqliteEventStore : IEventStore, IDisposable
         """;
 
     private const string Insert = """
-        INSERT INTO events (session_id, ts, event_type, payload_json, cwd)
-        VALUES ($session_id, $ts, $event_type, $payload_json, $cwd);
+        INSERT INTO events (session_id, ts, event_type, payload_json, cwd, session_title)
+        VALUES ($session_id, $ts, $event_type, $payload_json, $cwd, $session_title);
         """;
 
     private const string InsertDecision = """
-        INSERT INTO decisions (event_id, ts, session_id, kind, from_state, to_state, reason, detail)
-        VALUES ($event_id, $ts, $session_id, $kind, $from_state, $to_state, $reason, $detail);
+        INSERT INTO decisions (event_id, ts, session_id, kind, from_state, to_state, reason, detail, session_title, cwd)
+        VALUES ($event_id, $ts, $session_id, $kind, $from_state, $to_state, $reason, $detail, $session_title, $cwd);
         """;
 
     /// <summary>
@@ -205,6 +211,21 @@ public sealed class SqliteEventStore : IEventStore, IDisposable
     /// file from before: its times are converted at its next connection.
     /// </summary>
     public const long UtcTimesVersion = 1;
+
+    /// <summary>
+    /// <c>PRAGMA user_version</c> once the file has the session's name and path columns (T1.69,
+    /// issue #98). Raised by <c>AddNameColumns</c>, which checks the columns themselves and never
+    /// trusts this number alone.
+    /// </summary>
+    public const long NameColumnsVersion = 2;
+
+    /// <summary>The columns T1.69 adds, in the order they are added: (table, column).</summary>
+    private static readonly (string Table, string Column)[] NameColumns =
+    [
+        ("events", "session_title"),
+        ("decisions", "session_title"),
+        ("decisions", "cwd"),
+    ];
 
     // Available, as an int, so that it can be published with Volatile: the writer's thread sets
     // it, and the UI thread's tick reads it for the history notice.
@@ -362,6 +383,10 @@ public sealed class SqliteEventStore : IEventStore, IDisposable
                 command.Parameters.AddWithValue("$payload_json", inboundEvent.Payload.Reveal());
 
                 command.Parameters.AddWithValue("$cwd", inboundEvent.Cwd);
+
+                // The session's name as the Registry holds it after this event (T1.69): its own column,
+                // and a bound parameter like the payload. Never in a log line.
+                command.Parameters.AddWithValue("$session_title", (object?)record.EventSessionTitle ?? DBNull.Value);
 
                 command.ExecuteNonQuery();
 
@@ -646,6 +671,8 @@ public sealed class SqliteEventStore : IEventStore, IDisposable
             command.Parameters.AddWithValue("$to_state", (object?)decision.ToState ?? DBNull.Value);
             command.Parameters.AddWithValue("$reason", (object?)decision.Reason ?? DBNull.Value);
             command.Parameters.AddWithValue("$detail", (object?)decision.Detail ?? DBNull.Value);
+            command.Parameters.AddWithValue("$session_title", (object?)decision.SessionTitle ?? DBNull.Value);
+            command.Parameters.AddWithValue("$cwd", (object?)decision.Cwd ?? DBNull.Value);
             command.ExecuteNonQuery();
         }
     }
@@ -828,6 +855,10 @@ public sealed class SqliteEventStore : IEventStore, IDisposable
             // connection, so the start never waits; records that arrive meanwhile wait in the channel.
             ConvertTimesOnce(connection);
 
+            // The session's name and path (T1.69), after the times and before the indexes, on the same
+            // connection and thread. Safe on every open: it adds only the columns that are not there.
+            AddNameColumns(connection);
+
             // THEN THE INDEXES (T1.63), and the order is certain because it is this sequence: one
             // connection, one thread, under the store's lock, the conversion's transaction committed
             // before this line runs. On an old file the conversion then rewrites no index entries, and
@@ -931,6 +962,93 @@ public sealed class SqliteEventStore : IEventStore, IDisposable
             counts.AlreadyUtc,
             counts.Unparsed,
             watch.ElapsedMilliseconds);
+    }
+
+    /// <summary>
+    /// Adds <c>events.session_title</c>, <c>decisions.session_title</c> and <c>decisions.cwd</c> where
+    /// they are not, and raises <c>PRAGMA user_version</c> to 2 (T1.69, issue #98).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>Safe to run again, on every open.</strong> Each column is looked up in
+    /// <c>pragma_table_info</c> before it is added, so a second start adds nothing, and a file whose
+    /// version says 2 but lacks a column (a copy put back, a hand edit) still gains it. The version is
+    /// raised, never lowered, and never trusted alone.
+    /// </para>
+    /// <para>
+    /// <strong>Old rows keep NULL</strong>, and are not filled in afterwards: <c>ALTER TABLE … ADD
+    /// COLUMN</c> writes no row, so it is quick on a large file. One transaction: a failure adds no
+    /// column and leaves the version, and T1.54's catch tries again a minute later. The log line has
+    /// counts and the time, and is written only for a file that had rows.
+    /// </para>
+    /// </remarks>
+    private void AddNameColumns(SqliteConnection connection)
+    {
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var added = 0;
+
+        using (var transaction = connection.BeginTransaction())
+        {
+            foreach (var (table, column) in NameColumns)
+            {
+                if (HasColumn(connection, transaction, table, column))
+                {
+                    continue;
+                }
+
+                using var alter = connection.CreateCommand();
+                alter.Transaction = transaction;
+                alter.CommandText = $"ALTER TABLE {table} ADD COLUMN {column} TEXT;";
+                alter.ExecuteNonQuery();
+                added++;
+            }
+
+            using (var version = connection.CreateCommand())
+            {
+                version.Transaction = transaction;
+                version.CommandText = "PRAGMA user_version;";
+
+                if (Convert.ToInt64(version.ExecuteScalar(), CultureInfo.InvariantCulture) < NameColumnsVersion)
+                {
+                    version.CommandText = $"PRAGMA user_version = {NameColumnsVersion};";
+                    version.ExecuteNonQuery();
+                }
+            }
+
+            transaction.Commit();
+        }
+
+        if (added == 0 || !HasRows(connection))
+        {
+            return;
+        }
+
+        _logger.Information(
+            "Added the session's name and path columns to {DatabaseFile}: {Added} columns, in {ElapsedMs} ms. " +
+            "Rows written before keep them empty.",
+            _path,
+            added,
+            watch.ElapsedMilliseconds);
+    }
+
+    private static bool HasColumn(SqliteConnection connection, SqliteTransaction transaction, string table, string column)
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+
+        // The table name is one of NameColumns' constants, never input.
+        command.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('{table}') WHERE name = $column;";
+        command.Parameters.AddWithValue("$column", column);
+
+        return Convert.ToInt64(command.ExecuteScalar(), CultureInfo.InvariantCulture) > 0;
+    }
+
+    private static bool HasRows(SqliteConnection connection)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT EXISTS (SELECT 1 FROM events) OR EXISTS (SELECT 1 FROM decisions);";
+
+        return Convert.ToInt64(command.ExecuteScalar(), CultureInfo.InvariantCulture) != 0;
     }
 
     private static void ConvertTable(

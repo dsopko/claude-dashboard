@@ -53,6 +53,10 @@ public sealed partial class UtcTimesTests : IDisposable
         [.. log.Events.Select(e => e.RenderMessage(CultureInfo.InvariantCulture))
             .Where(line => line.Contains("in UTC, once", StringComparison.Ordinal))];
 
+    /// <summary>
+    /// The file's version. After a full open it is <see cref="SqliteEventStore.NameColumnsVersion"/>:
+    /// the open converts the times (1) and then adds the name columns (2, T1.69).
+    /// </summary>
     private static long UserVersion(string path) =>
         long.Parse(ForeignSqliteReader.Column(path, "PRAGMA user_version")[0], CultureInfo.InvariantCulture);
 
@@ -179,7 +183,7 @@ public sealed partial class UtcTimesTests : IDisposable
         Assert.Equal(4, times.Length);
         Assert.All(times, ts => Assert.Matches(OneForm(), ts));
         Assert.Equal("2026-10-02T12:03:11.1230000Z", times[0]);
-        Assert.Equal(SqliteEventStore.UtcTimesVersion, UserVersion(path));
+        Assert.Equal(SqliteEventStore.NameColumnsVersion, UserVersion(path));
     }
 
     // ---- The conversion -----------------------------------------------------------------------
@@ -208,7 +212,7 @@ public sealed partial class UtcTimesTests : IDisposable
             Assert.Equal(3, store.CountDecisions());
         }
 
-        Assert.Equal(SqliteEventStore.UtcTimesVersion, UserVersion(path));
+        Assert.Equal(SqliteEventStore.NameColumnsVersion, UserVersion(path));
 
         var eventsAfter = ForeignSqliteReader.Query(path, Events);
         var decisionsAfter = ForeignSqliteReader.Query(path, Decisions);
@@ -264,7 +268,7 @@ public sealed partial class UtcTimesTests : IDisposable
         Assert.Equal(
             ["not a time", "2026-10-25T01:00:00.5000000Z"],
             ForeignSqliteReader.Column(path, "SELECT ts FROM events ORDER BY id"));
-        Assert.Equal(SqliteEventStore.UtcTimesVersion, UserVersion(path));
+        Assert.Equal(SqliteEventStore.NameColumnsVersion, UserVersion(path));
 
         var line = Assert.Single(ConversionLines(log));
         Assert.Contains("1 rows converted", line, StringComparison.Ordinal);
@@ -302,7 +306,7 @@ public sealed partial class UtcTimesTests : IDisposable
         notice.Tick(clock.Now);
 
         Assert.False(notice.IsShown);
-        Assert.Equal(SqliteEventStore.UtcTimesVersion, UserVersion(path));
+        Assert.Equal(SqliteEventStore.NameColumnsVersion, UserVersion(path));
         Assert.All(ForeignSqliteReader.Column(path, "SELECT ts FROM events"), ts => Assert.Matches(OneForm(), ts));
     }
 
@@ -326,7 +330,7 @@ public sealed partial class UtcTimesTests : IDisposable
             store.CountDecisions();
         }
 
-        Assert.Equal(SqliteEventStore.UtcTimesVersion, UserVersion(converted));
+        Assert.Equal(SqliteEventStore.NameColumnsVersion, UserVersion(converted));
         Assert.Equal(0, UserVersion(old));
 
         Assert.Equal(0, ReplaySwitch.Run(old, _ => { }, Serilog.Core.Logger.None));
@@ -341,7 +345,7 @@ public sealed partial class UtcTimesTests : IDisposable
         Assert.Equal(fromOld, ForeignSqliteReader.Query(converted, Rows));
 
         // The old file was converted by replay's own open.
-        Assert.Equal(SqliteEventStore.UtcTimesVersion, UserVersion(old));
+        Assert.Equal(SqliteEventStore.NameColumnsVersion, UserVersion(old));
     }
 
     private static void SameInstantInOneForm(string before, string after)

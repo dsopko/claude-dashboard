@@ -143,12 +143,19 @@ public sealed class DecisionRecorder : IDecisionSink, IDecisionLog
         // the truth: nothing in the events table caused them.
         if (_externalBuffer.Count > 0)
         {
-            _archive.TryArchive(new ArchiveRecord(null, [.. _externalBuffer]));
+            _archive.TryArchive(new ArchiveRecord(null, [.. _externalBuffer.Select(decision => Stamped(decision, null))]));
             _externalBuffer.Clear();
         }
 
         var eventRow = _current is null or SoundCommand or RostersChanged ? null : _current;
-        var record = new ArchiveRecord(eventRow, [.. _buffer]);
+
+        // The session's name and path, stamped here, on the consumer thread, after the event is
+        // applied and the sound engine has decided (T1.69, issue #98): so a rename's own row holds the
+        // new name, and a decision made by the clock holds the name the session has now.
+        var record = new ArchiveRecord(eventRow, [.. _buffer.Select(decision => Stamped(decision, eventRow))])
+        {
+            EventSessionTitle = eventRow is null ? null : TitleOf(eventRow.SessionId.Value, eventRow),
+        };
 
         _current = null;
         _buffer.Clear();
@@ -440,6 +447,51 @@ public sealed class DecisionRecorder : IDecisionSink, IDecisionLog
             decision.Reason ?? "-",
             decision.Detail ?? "-");
     }
+
+    /// <summary>
+    /// The decision with the session's name and full path as they are now (T1.69, issue #98).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>The Registry's, first.</strong> Read on the consumer thread, the one that owns it, after
+    /// the event is applied. <c>Session.Title</c> verbatim, not folded or cut; an empty name or path is
+    /// null.
+    /// </para>
+    /// <para>
+    /// <strong>Then the event's</strong>, for a session the Registry does not hold (a declined event, a
+    /// session not yet seen): the decision's own event, if the scope has one for that session.
+    /// <strong>Else null</strong>, and always null for a decision with no session (a group's sound, an
+    /// hourly summary).
+    /// </para>
+    /// <para>
+    /// The name goes to its own column only, never into <see cref="Decision.Reason"/>,
+    /// <see cref="Decision.Detail"/> or a log line (T1.24 as T1.69 changed it).
+    /// </para>
+    /// </remarks>
+    private Decision Stamped(Decision decision, InboundEvent? scopeEvent)
+    {
+        if (string.IsNullOrEmpty(decision.SessionId))
+        {
+            return decision;
+        }
+
+        if (_registry.Sessions.TryGetValue(new SessionId(decision.SessionId), out var session))
+        {
+            return decision with { SessionTitle = Blank(session.Title), Cwd = Blank(session.Cwd) };
+        }
+
+        return scopeEvent is not null && scopeEvent.SessionId.Value == decision.SessionId
+            ? decision with { SessionTitle = Blank(scopeEvent.SessionTitle), Cwd = Blank(scopeEvent.Cwd) }
+            : decision;
+    }
+
+    /// <summary>The name for an event row: the Registry's, else the event's own, else null (T1.69).</summary>
+    private string? TitleOf(string sessionId, InboundEvent inboundEvent) =>
+        !string.IsNullOrEmpty(sessionId) && _registry.Sessions.TryGetValue(new SessionId(sessionId), out var session)
+            ? Blank(session.Title)
+            : Blank(inboundEvent.SessionTitle);
+
+    private static string? Blank(string? text) => string.IsNullOrEmpty(text) ? null : text;
 
     private void DrainExternal()
     {
