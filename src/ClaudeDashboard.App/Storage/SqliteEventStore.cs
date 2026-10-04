@@ -72,6 +72,17 @@ namespace ClaudeDashboard.App.Storage;
 /// day. A failed retry writes no log line; the write that succeeds writes one, with the count of
 /// records lost.
 /// </para>
+/// <para>
+/// <strong>It may be closed while it writes (T1.59, issue #84).</strong> The product stops the
+/// archive writer before the container disposes this store, but a host disposed without a stop
+/// does not. Without a guard, <see cref="Dispose"/> could close the connection between
+/// <c>BeginTransaction</c> and <c>Commit</c>, and the write threw; or a write could pass its check,
+/// the close run, and the write open a connection that nothing closed. One private lock, held by
+/// the writes, the reads and <see cref="Dispose"/>, closes both orders: the close waits for the
+/// current write, which takes milliseconds, and a write after it returns <see langword="false"/>
+/// without opening the file. The lock is on the disk path only. The Registry's "one writer, no
+/// locks" rule is not touched, because the consumer never calls the store.
+/// </para>
 /// </remarks>
 public sealed class SqliteEventStore : IEventStore, IDisposable
 {
@@ -147,6 +158,10 @@ public sealed class SqliteEventStore : IEventStore, IDisposable
     private readonly ILogger _logger;
     private readonly IClock _clock;
 
+    // Held by every write, both reads and Dispose (T1.59, issue #84). Only the archive writer's
+    // thread, the replay and the disposing thread take it; the consumer never calls the store.
+    private readonly Lock _gate = new();
+
     private SqliteConnection? _connection;
     private DateTimeOffset? _failedAt;
     private bool _announced;
@@ -208,6 +223,12 @@ public sealed class SqliteEventStore : IEventStore, IDisposable
     /// <summary>The file this store writes to.</summary>
     public string Path => _path;
 
+    /// <summary>
+    /// A test seam: runs inside each write's transaction, just before the commit, on the writer's
+    /// thread. A test blocks here to hold a write open while it closes the store (T1.59).
+    /// </summary>
+    internal Action? InsideTransaction { get; set; }
+
     /// <inheritdoc/>
     public bool Append(InboundEvent inboundEvent)
     {
@@ -221,11 +242,22 @@ public sealed class SqliteEventStore : IEventStore, IDisposable
     {
         ArgumentNullException.ThrowIfNull(record);
 
-        if (_disposed || record.IsEmpty)
+        if (record.IsEmpty)
         {
             return false;
         }
 
+        lock (_gate)
+        {
+            // A write after the close is dropped without a sound: no log line, no change to
+            // Available. The store is going away, so the board has nothing to show (T1.59).
+            return !_disposed && AppendUnderGate(record);
+        }
+    }
+
+    /// <summary>The write itself. The caller holds <see cref="_gate"/> and has seen the store open.</summary>
+    private bool AppendUnderGate(ArchiveRecord record)
+    {
         if (Waiting())
         {
             return false;
@@ -273,6 +305,7 @@ public sealed class SqliteEventStore : IEventStore, IDisposable
 
             WriteDecisions(connection, transaction, eventId, record.Decisions);
 
+            InsideTransaction?.Invoke();
             transaction.Commit();
 
             WrittenCount++;
@@ -299,11 +332,20 @@ public sealed class SqliteEventStore : IEventStore, IDisposable
     {
         ArgumentNullException.ThrowIfNull(decisions);
 
-        if (_disposed || decisions.Count == 0)
+        if (decisions.Count == 0)
         {
             return false;
         }
 
+        lock (_gate)
+        {
+            return !_disposed && AppendDecisionsUnderGate(eventId, decisions);
+        }
+    }
+
+    /// <summary>The replay's write itself. The caller holds <see cref="_gate"/> and has seen the store open.</summary>
+    private bool AppendDecisionsUnderGate(long? eventId, IReadOnlyList<Decision> decisions)
+    {
         if (Waiting())
         {
             return false;
@@ -315,6 +357,7 @@ public sealed class SqliteEventStore : IEventStore, IDisposable
 
             using var transaction = connection.BeginTransaction();
             WriteDecisions(connection, transaction, eventId, decisions);
+            InsideTransaction?.Invoke();
             transaction.Commit();
             Recorded();
 
@@ -377,7 +420,19 @@ public sealed class SqliteEventStore : IEventStore, IDisposable
     /// kind of same-connection interleaving that works until it does not. A month of history is
     /// ~10 MB (the store's own measured 300 KB/day); the simplicity is worth the allocation.
     /// </remarks>
+    /// <exception cref="ObjectDisposedException">The store is closed.</exception>
     public IReadOnlyList<ArchivedEvent> ReadEvents()
+    {
+        lock (_gate)
+        {
+            // A closed store never opens the file again (T1.59). No caller reads after the close.
+            ObjectDisposedException.ThrowIf(_disposed, this);
+
+            return ReadEventsUnderGate();
+        }
+    }
+
+    private List<ArchivedEvent> ReadEventsUnderGate()
     {
         var connection = Connect();
 
@@ -408,34 +463,46 @@ public sealed class SqliteEventStore : IEventStore, IDisposable
     /// Connecting runs the schema step, so a database older than T1.37 gains an empty table and
     /// reads zero, which is the case replay exists for.
     /// </remarks>
+    /// <exception cref="ObjectDisposedException">The store is closed.</exception>
     public long CountDecisions()
     {
-        var connection = Connect();
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
 
-        using var command = connection.CreateCommand();
-        command.CommandText = "SELECT COUNT(*) FROM decisions;";
+            var connection = Connect();
 
-        return (long)(command.ExecuteScalar() ?? 0L);
+            using var command = connection.CreateCommand();
+            command.CommandText = "SELECT COUNT(*) FROM decisions;";
+
+            return (long)(command.ExecuteScalar() ?? 0L);
+        }
     }
 
-    /// <summary>Closes the file. Safe to call twice.</summary>
+    /// <summary>
+    /// Closes the file. Safe to call twice, and safe while the writer's thread is inside a write:
+    /// it waits for that write to commit (T1.59).
+    /// </summary>
     public void Dispose()
     {
-        if (_disposed)
+        lock (_gate)
         {
-            return;
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
+
+            _connection?.Dispose();
+            _connection = null;
+
+            // Microsoft.Data.Sqlite pools connections, so disposing one does not release the file
+            // handle — measured at T1.17, where a File.Delete straight after a using block failed
+            // with "used by another process". A resident app that never released the handle would
+            // hold dashboard.db open against a backup or a copy for the life of the process.
+            SqliteConnection.ClearAllPools();
         }
-
-        _disposed = true;
-
-        _connection?.Dispose();
-        _connection = null;
-
-        // Microsoft.Data.Sqlite pools connections, so disposing one does not release the file
-        // handle — measured at T1.17, where a File.Delete straight after a using block failed
-        // with "used by another process". A resident app that never released the handle would
-        // hold dashboard.db open against a backup or a copy for the life of the process.
-        SqliteConnection.ClearAllPools();
     }
 
     private static string Located(DashboardPaths paths)
