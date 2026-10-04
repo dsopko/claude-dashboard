@@ -50,6 +50,38 @@
                        Foreground="{StaticResource Ink2Brush}"
                        TextWrapping="Wrap"
                        Margin="22,6,0,0" />
+
+            <!--
+                Test connection (T1.61, issue #74): runs the dashboard's own script as Claude Code does,
+                and says beside the button whether the test message arrived. The command is disabled
+                while a test runs, so it cannot start a second.
+            -->
+            <Grid Margin="0,14,0,0"
+                  Visibility="{Binding CanTest, Converter={StaticResource BoolToVisible}}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <Button x:Name="TestConnectionButton"
+                        Grid.Column="0"
+                        Command="{Binding TestConnectionCommand}"
+                        FontFamily="{StaticResource UiFont}"
+                        FontSize="13"
+                        Padding="10,3"
+                        VerticalAlignment="Top" />
+
+                <TextBlock x:Name="TestResultText"
+                           Grid.Column="1"
+                           Text="{Binding TestResult}"
+                           Visibility="{Binding HasTestResult, Converter={StaticResource BoolToVisible}}"
+                           FontFamily="{StaticResource UiFont}"
+                           FontSize="12"
+                           Foreground="{StaticResource Ink2Brush}"
+                           TextWrapping="Wrap"
+                           VerticalAlignment="Center"
+                           Margin="10,0,0,0" />
+            </Grid>
         </StackPanel>
     </Border>
 </Window>

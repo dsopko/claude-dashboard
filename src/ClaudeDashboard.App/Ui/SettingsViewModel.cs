@@ -1,6 +1,7 @@
 using ClaudeDashboard.App.Configuration;
 using ClaudeDashboard.App.Setup;
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using Serilog;
 
 namespace ClaudeDashboard.App.Ui;
@@ -43,9 +44,13 @@ public sealed partial class SettingsViewModel : ObservableObject
     public const string NotRememberedNote =
         "This choice is not remembered: the settings file could not be opened.";
 
+    /// <summary>The button that runs the self-test (T1.61, issue #74).</summary>
+    public const string TestConnectionLabel = "Test connection";
+
     private readonly StartWithWindows _startup;
     private readonly SettingsStore _store;
     private readonly ILogger _logger;
+    private readonly HookSelfTest? _selfTest;
     private bool _showing;
 
     /// <summary>Creates the view model.</summary>
@@ -61,6 +66,52 @@ public sealed partial class SettingsViewModel : ObservableObject
         _logger = logger;
 
         Refresh();
+    }
+
+    /// <summary>Creates the view model with the Test connection button (T1.61, issue #74).</summary>
+    /// <param name="startup">The start-with-Windows switch.</param>
+    /// <param name="store">The settings file.</param>
+    /// <param name="logger">Where a refused change is logged.</param>
+    /// <param name="selfTest">The self-test the button runs: the same one the start runs.</param>
+    /// <exception cref="ArgumentNullException">Any argument is null.</exception>
+    public SettingsViewModel(StartWithWindows startup, SettingsStore store, ILogger logger, HookSelfTest selfTest)
+        : this(startup, store, logger)
+    {
+        ArgumentNullException.ThrowIfNull(selfTest);
+
+        _selfTest = selfTest;
+    }
+
+    /// <summary>
+    /// What the last Test connection found, in the notice's words, or null before the first.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasTestResult))]
+    private string? _testResult;
+
+    /// <summary>Whether the button can run: a view model made with the self-test.</summary>
+    public bool CanTest => _selfTest is not null;
+
+    /// <summary>Whether there is a result to show beside the button.</summary>
+    public bool HasTestResult => !string.IsNullOrEmpty(TestResult);
+
+    /// <summary>
+    /// Runs the self-test and shows the result beside the button. The command is disabled while it
+    /// runs, so the button cannot start a second test; a start's test still running is joined.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanTest))]
+    private async Task TestConnection()
+    {
+        if (_selfTest is null)
+        {
+            return;
+        }
+
+        TestResult = "Testing…";
+
+        var result = await _selfTest.RunAsync().ConfigureAwait(true);
+
+        TestResult = Ingress.SelfTestNotice.Describe(result);
     }
 
     /// <summary>The checkbox: whether the dashboard will start at the next sign-in.</summary>

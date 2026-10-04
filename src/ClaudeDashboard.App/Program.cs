@@ -234,6 +234,10 @@ public static class Program
                 announcement = host.Services.GetRequiredService<IngressAnnouncement>();
                 announcement.Announce();
 
+                // The self-test (T1.61, issue #74): AFTER the announcement, because the script reads
+                // listening.txt to find the port and the token. On a pool thread: the start never waits.
+                host.Services.GetRequiredService<HookSelfTest>().RunInBackground();
+
                 // Reads Claude Code's settings and never writes them. When the dashboard's plugin
                 // is missing and the operator has not opted out, it asks Claude Code to register
                 // it (issues #39 and #30). In every case where the dashboard is left unconnected,

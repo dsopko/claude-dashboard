@@ -166,6 +166,14 @@ public static class AppHost
         // Set by StartupHookInstall, read by the tray and, through it, the window.
         builder.Services.AddSingleton<HookNotice>();
 
+        // The path from Claude Code (T1.61, issue #74): when a message last arrived, the refusals, and the
+        // self-test that runs the script as Claude Code does. Written on request threads and the
+        // self-test's thread; read on the tray's tick and by /state.
+        builder.Services.AddSingleton<HookHealth>();
+        builder.Services.AddSingleton<HookSelfTest>();
+        builder.Services.AddSingleton<SelfTestNotice>();
+        builder.Services.AddSingleton<RefusedNotice>();
+
         // Start with Windows and the Settings window (issue #36). The registry seam is the real HKCU
         // here; the exe comes from Velopack, and is null for a copy that is not installed, which then
         // never reads or writes the registry at all.
@@ -262,7 +270,8 @@ public static class AppHost
             sp.GetRequiredService<IngressStatus>(),
             sp.GetRequiredService<ILogger>(),
             sp.GetRequiredService<DecisionRecorder>(),
-            sp.GetRequiredService<NoticeBoard>()));
+            sp.GetRequiredService<NoticeBoard>(),
+            sp.GetRequiredService<HookHealth>()));
         builder.Services.AddSingleton<TrayIcon>();
         builder.Services.AddSingleton<StateBoard>();
         // The durable event log (T1.17). The archive is the channel the consumer hands records
@@ -300,7 +309,8 @@ public static class AppHost
         builder.Services.AddSingleton<EventConsumer>();
 
         // The notice row and the tooltip's faults (T1.54, issue #71): the port first (T1.57, issue #14),
-        // then the hook route, then the history, then the sound device (T1.55, issue #72), then the
+        // then the hook route, then the self-test and the refused messages (T1.61, issue #74), then the
+        // history, then the sound device (T1.55, issue #72), then the
         // settings file (T1.56, issue #73). The port is the one path for the ingress fault: the tray adds
         // no term of its own. The history and sound notices read a published state on the tray's tick;
         // neither touches the file or the device, so the UI thread never waits on a disk or a driver.
@@ -328,6 +338,8 @@ public static class AppHost
         builder.Services.AddSingleton(sp => new NoticeBoard(
             sp.GetRequiredService<IngressStatus>(),
             sp.GetRequiredService<HookNotice>(),
+            sp.GetRequiredService<SelfTestNotice>(),
+            sp.GetRequiredService<RefusedNotice>(),
             sp.GetRequiredService<HistoryNotice>(),
             sp.GetRequiredService<SoundDeviceNotice>(),
             sp.GetRequiredService<SettingsNotice>(),
@@ -391,6 +403,11 @@ public static class AppHost
                 Storage.DecisionKind.EventDropped,
                 Reason: why == PipelineDrop.Shed ? "noise" : "pipeline",
                 Detail: why == PipelineDrop.Shed ? EventPipeline.KindOf(dropped) : null));
+
+        // A refused post is one row with no event and no session (T1.61, the operator's comment on #74).
+        // Nothing from the post: it is not trusted.
+        app.Services.GetRequiredService<HookHealth>().RefusedPost = at =>
+            decisions.External(new Storage.Decision(at, null, Storage.DecisionKind.HookRefused));
 
         app.Services.GetRequiredService<EventArchive>().Dropped = record =>
             decisions.External(new Storage.Decision(
