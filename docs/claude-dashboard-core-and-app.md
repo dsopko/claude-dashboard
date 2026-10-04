@@ -190,6 +190,7 @@ A second interface needs none of these. The dashboard process keeps them.
 | The band heading | `BandHeaderViewModel` | NEEDS YOU, UNREAD, WORKING, QUIET, ENDED, and the colour of each |
 | The counts strip | `MainViewModel.RecountBands`, `CountsText` | "11 sessions · 3 need you · 5 unread · 8 working". A zero band is left out |
 | The Activity window's lines | `ActivityWords`, `ActivityViewModel` | Which decisions show, and the plain words for each kind and reason. The name: the decision's name, the short id, or the group's name. The project by `WorkspaceLabel`. One line wide, two lines narrow, the detail going first |
+| The links to and from the Activity window | `MainViewModel.Reveal`, `MainViewModel.Has`; `ActivityViewModel.ShowOnly`; `ActivityLog.Recheck` | A click on a line unfolds what holds the row, opens the row as a click on it does, and does not open it in selection mode. A session or group not in the window: nothing but the front. "Show activity" filters the one list by session id; a line about no session never passes (T1.71) |
 | Selection | `SessionViewModel.CanSelect`, `MainViewModel.GroupSelected` | A session with no title cannot be selected. A group needs 2 members. The default name is "Group", "Group 2" |
 | The roster prompt | `RosterPromptViewModel`, `MainViewModel.RememberRoster` | A prompt with no answer is a "no" |
 | The tray colour | `TrayVisuals.ColourOf` | Thresholds on `AttentionOrder.Rank`. Not the row palette: a lone question is amber in the tray and red on its row |
@@ -268,6 +269,7 @@ Thus the dashboard process stays the only holder of Core. ClaudeDashWebApp is a 
 | **Commands:** Ack, Ack all, mute, pause, form a group, remove from a group | The events exist in Core. No endpoint sends them |
 | **Authority:** proof that the caller may read and command | A token in `listening.txt`. A browser page cannot read that file |
 | **The Activity lines** (T1.70): what the dashboard did, in plain words | None. The window keeps a log in memory, fed by the consumer's decisions in process. A second screen needs the same feed (the decisions as they are made, which today reach only the archive and this log) and a push of new lines, and then the same words: `ActivityWords` is a display rule in App (section 4.3), so a web screen would write the table again unless it moves to a shared place |
+| **The links** (T1.71): from a line to its row, and from a row to its lines | In process only. A second screen needs the session id on each line (the decision has it), the rule for showing a row (unfold, open, and not in selection mode: `MainViewModel.Reveal`, App), and the filter, which compares that id. On a phone there is no right click, which is why "Show activity" is an action in the open row |
 
 ### 6.3 What `/state` gives, and what the window needs
 
