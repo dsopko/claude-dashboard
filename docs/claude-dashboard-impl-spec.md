@@ -249,7 +249,7 @@ The port that is bound goes into `port.txt`, and into `listening.txt` for as lon
 - **`/hook`** reads the body as text, parses it into `HookPayload` (all fields optional), maps it to an `InboundEvent` (§9.1), writes the event to the channel (Part 4), and answers. It does no Registry work.
 - **The self-test's message is taken out before the mapper** (T1.61, issue #74). A body whose `hook_event_name` is `ClaudeDashboardSelfTest` is noted as arrived, by its one-time value in `self_test`, and answered `200` empty. It reaches no mapper, no channel, no Registry and no archive, so it makes no session, no row, no sound and no decision. `HookEventNames.Accepted` does not have it (§9.4).
 - **Every other post with a good token moves "last heard"** (`HookHealth.Heard`, on the request thread), the tooltip's last item (§5.2). The self-test and a refused post do not.
-- **A refused post** (`401`) is counted (`HookHealth.RefusedCount`, which #76 reads) and is recorded in `HookRefused` decision rows (§8.3), with no event and no session: at most one row a second, with the count (the operator's ruling of 2026-10-04; a flood wrote about 100 MB a minute). The tick writes what a flood left over, so no refusal goes unrecorded. It is not trusted, so nothing from its body or headers is kept. The Warning for each refused post stays.
+- **A refused post** (`401`) is counted (`HookHealth.RefusedCount`, which #76 reads) and is recorded in `HookRefused` decision rows (§8.3), with no event and no session: at most one row a second, with the count (the operator's ruling of 2026-10-04; a flood wrote about 100 MB a minute). The tick writes what a flood left over, so no refusal goes unrecorded while the dashboard runs; at a stop, the refusals counted since the last row (at most one tick, 15 seconds) are not written (T1.62). It is not trusted, so nothing from its body or headers is kept. The Warning for each refused post stays.
 - **`/health` has no token, and single-instance detection depends on that.** A start asks this endpoint if the dashboard on a port is a copy of itself. The dashboard of a different user has a different token, which the caller cannot hold. The instance value is the name of the single-instance gate (§5.3): a hash of a local path, not a secret.
 
 ### 3.3 The pure-observer property
@@ -379,6 +379,8 @@ ORDER BY d.session_id, d.id;
 ```
 
 The rows of one event share `ts` and `event_id`. The sound row comes before the row of the move that caused it, because the engine decides inside the Registry's change notification.
+
+**`$from`, `$to` and `$since` are UTC text** in the one form of §8.3, for example `2026-10-02T12:03:11.1230000Z` (T1.62). Text order is then time order, also across a clock change. To read a time as local, select `datetime(d.ts, 'localtime')`.
 
 ---
 
@@ -738,13 +740,22 @@ If the file cannot be opened or written, the store writes one Warning when it fa
 - A failed retry writes no log line. The first write that succeeds writes one Information line with the count of records lost. A record is one event with its decisions, or the decisions of one tick. The open announcement is not written again.
 - The notice reads `SqliteEventStore.Available` (false while the last write failed) on the tray's 15-second tick. The writer thread publishes it with `Volatile`. So the notice shows within one tick of the failure, and clears within one tick of the write that succeeds.
 
+**Every time in the file is UTC, in one form** (T1.62, issue #80): `UtcDateTime.ToString("o", CultureInfo.InvariantCulture)`, seven fractional digits and `Z`. One helper (`SqliteEventStore.Utc`) writes `ts`, `started_at` and `stopped_at`. Text order is time order only when every row has the same form, so a range that crosses a clock change compares correctly as text. The window and the log still show local time.
+
+- **Existing rows are converted once,** in the schema step, on the archive writer's thread, when `PRAGMA user_version` is 0: every `ts` in `events` and `decisions` is read, parsed and written back in the one form, and `user_version` becomes 1, in one transaction. The start never waits; records that arrive meanwhile wait in the archive channel. It is the first upgrade step the file has had.
+- **A time that will not parse is left as it is,** and counted. One bad row does not stop the rest.
+- **A conversion that fails** (a full disk, a locked file) rolls back: `user_version` stays 0, and T1.54's rule applies, the history notice and another attempt a minute later.
+- **One Information line** says how many rows were converted, how many were already in UTC, how many were left, and the time it took. No time from a row, and no payload. A new file has no rows and writes no line.
+- Rows, ids and payloads never change: only the text of the time. No `VACUUM` (the operator's ruling on #81).
+- Measured on a copy of the operator's database (2026-10-04): 32,169 rows converted, 0 left as they were, in 865 ms; the file went from 97,669,120 to 101,163,008 bytes.
+
 **The table `events`:** one row for each event that reached the consumer.
 
 | Column | Type | Content |
 |---|---|---|
 | `id` | INTEGER PRIMARY KEY | The row id |
 | `session_id` | TEXT | The session |
-| `ts` | TEXT | The arrival time, ISO 8601 with the local offset |
+| `ts` | TEXT | The arrival time, in UTC: ISO 8601 with seven fractional digits and `Z`, for example `2026-10-02T12:03:11.1230000Z` (T1.62) |
 | `event_type` | TEXT | The hook name, or `Ack` |
 | `payload_json` | TEXT | **The hook body exactly as it arrived.** Empty for an `Ack` |
 | `cwd` | TEXT | The directory |
@@ -757,7 +768,7 @@ An event that the Registry declined is in the table too. A `SoundCommand` and a 
 |---|---|---|
 | `id` | INTEGER PRIMARY KEY | The row id |
 | `event_id` | INTEGER or NULL | The `events` row that caused it. NULL for a tick, and for a decision from a different thread |
-| `ts` | TEXT | When it was decided |
+| `ts` | TEXT | When it was decided, in UTC, in the same form |
 | `session_id` | TEXT or NULL | The session. NULL for a decision that is about no one session |
 | `kind` | TEXT | The name of a `DecisionKind` |
 | `from_state`, `to_state` | TEXT or NULL | For a kind that moves something |
@@ -808,12 +819,12 @@ An event that the Registry declined is in the table too. A `SoundCommand` and a 
 - **The start row** is written once per process, by the archive writer's loop, never on the consumer or the UI thread. The time is taken when the host has started, before `listening.txt` names the run, so no hook of the run is older than its start. A run so short that the loop never ran writes the row at the stop, before the drain. A second instance that stands down writes no row, and a start whose bind throws ends before it.
 - **The stop** is set after the archive's drain and before the store closes, so every record that the run queued is written first.
 - A row that the disk refuses is lost and counted like any record (`LostCount`), and not retried: a late row would say the wrong time.
-- **Times are UTC from the first row.** `events` and `decisions` keep local time with its offset until #80.
+- **Times are UTC from the first row,** in the one form above. `events` and `decisions` have the same form since T1.62.
 - **No operator text.** The data folder is the one path.
 
-**`--replay <path>`** builds the `decisions` table for a database that has events and no decisions. It runs the stored events through the real Registry and sound engine. It writes only `decisions` rows, and refuses a database whose `decisions` table is not empty. Run it on a copy.
+**`--replay <path>`** builds the `decisions` table for a database that has events and no decisions. It runs the stored events through the real Registry and sound engine. It writes only `decisions` rows, and refuses a database whose `decisions` table is not empty. Run it on a copy. **It opens the file through the store,** so a file that was never converted has its times converted to UTC first (T1.62): the instants, the rows and the payloads are unchanged, and only the form of `ts` changes. Apart from that, replay never modifies `events`.
 
-**Replay forgets every session at each run's start, as a live start does (T1.60).** When the next tick or event is at or after a `runs` row's `started_at`, replay first starts a new Registry and sound engine, empty. It does the same at a clean `stopped_at`, because a dashboard that is off sends no nudges; a run with no stop (a crash or a kill) keeps its sessions until the next start. It compares the times as instants, never as text: `events` holds local times with their offsets, and `runs` holds UTC. History before the first `runs` row replays as one uninterrupted run, as before T1.60, because older restarts were never recorded. That is where most nudge rows came from: over the operator's database, all one such run, one session that never sent another event made 4,076 of 5,168 nudge rows, a question nudge every ten minutes for four weeks. The summary line says how many runs replay saw, and how many events came before the first. Replay never writes `runs`.
+**Replay forgets every session at each run's start, as a live start does (T1.60).** When the next tick or event is at or after a `runs` row's `started_at`, replay first starts a new Registry and sound engine, empty. It does the same at a clean `stopped_at`, because a dashboard that is off sends no nudges; a run with no stop (a crash or a kill) keeps its sessions until the next start. It compares the times as instants, never as text. Since T1.62 both tables hold UTC in one form, so text would agree; a time that would not parse stays in its old form. History before the first `runs` row replays as one uninterrupted run, as before T1.60, because older restarts were never recorded. That is where most nudge rows came from: over the operator's database, all one such run, one session that never sent another event made 4,076 of 5,168 nudge rows, a question nudge every ten minutes for four weeks. The summary line says how many runs replay saw, and how many events came before the first. Replay never writes `runs`.
 
 **To read the database:** copy `dashboard.db` and its `-wal` file, and query the copy.
 
@@ -1080,3 +1091,4 @@ The text above says what is true now. This list says when each part changed.
 | 2026-10-03 | The history store may be closed while it writes: the close waits for the current write, and a write after it is dropped without a sound (Part 4) | T1.59; issue #84 |
 | 2026-10-03 | The history database records each start and stop in a table of its own, `runs`, in UTC; `--replay` forgets every session at each start and each clean stop (§8.1, §8.3) | T1.60; issue #78 |
 | 2026-10-03 | The dashboard tests the path from Claude Code at each start and from a Settings button; notices for messages that cannot arrive or are refused; `HookRefused` rows, at most one a second; "last heard" is the tooltip's last item; the tooltip keeps to 127 characters; `/state` has `health` (§3.2, §3.5, §5.2, §5.6.1, §8.3, §9.4) | T1.61; issue #74 |
+| 2026-10-04 | Every time in `dashboard.db` is UTC text in one form; existing rows are converted once, and the file has `user_version` 1. The documented query takes UTC. "No refusal goes unrecorded" holds while the dashboard runs (Part 4, §3.2, §8.3) | T1.62; issue #80 |
