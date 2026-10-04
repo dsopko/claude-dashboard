@@ -299,6 +299,8 @@ When an event changes a session, the Registry raises `SessionChanged` on the con
 
 The consumer never waits for the disk. The decisions of a tick have no event, so their `event_id` is NULL.
 
+**Every `ts` is UTC,** in one form: seven fractional digits and `Z`, for example `2026-10-02T12:03:11.1230000Z`. Rows written before T1.62 had the local offset; the store converts them once, the first time it opens the file, and sets `PRAGMA user_version` to 1 (T1.62).
+
 **The run.** The same writer also writes one row in `runs` for each start of the dashboard, when the host has started: the time in UTC, the version, the port that ingress bound and the data folder. A clean stop sets `stopped_at` after the last records are written; a kill leaves it empty (T1.60).
 
 ---
@@ -352,13 +354,13 @@ The tick is not an event. It causes changes that no hook causes:
 **The database.** Copy `dashboard.db` and its `-wal` file, then query the copy. This query shows the last events of one session and the decision that each caused:
 
 ```sql
-SELECT e.id, e.ts, e.event_type, d.kind, d.from_state, d.to_state, d.reason
+SELECT e.id, datetime(e.ts, 'localtime') AS local_time, e.event_type, d.kind, d.from_state, d.to_state, d.reason
 FROM events e LEFT JOIN decisions d ON d.event_id = e.id
 WHERE e.session_id = $session
 ORDER BY e.id DESC LIMIT 40;
 ```
 
-An event that the Registry declines has an `EventDeclined` row with the outcome as the reason. Part 4 of the Implementation Specification has the query for a sound.
+The times are stored in UTC; `datetime(e.ts, 'localtime')` shows them in local time. A range on `ts` takes UTC text in the same form. An event that the Registry declines has an `EventDeclined` row with the outcome as the reason. Part 4 of the Implementation Specification has the query for a sound.
 
 **One test event.** This command posts one event to the dashboard that runs:
 
