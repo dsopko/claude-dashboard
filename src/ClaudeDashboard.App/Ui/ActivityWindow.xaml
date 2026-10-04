@@ -53,7 +53,11 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
-            <RowDefinition Height="Auto" />
+            <!--
+                The footer's row has a fixed height, there from the start (the T1.71 review): the list's height never
+                changes when the footer appears, and a new line never measures the footer's row again.
+            -->
+            <RowDefinition x:Name="FooterRow" Height="28" />
         </Grid.RowDefinitions>
 
         <!-- "last heard from Claude Code …", the tray tooltip's own words (T1.61). -->
@@ -83,6 +87,8 @@
         <ListBox x:Name="ActivityList"
                  Grid.Row="2"
                  ItemsSource="{Binding Shown}"
+                 IsSynchronizedWithCurrentItem="False"
+                 ui:ActivityLayoutHost.Layout="{Binding Layout}"
                  Background="Transparent"
                  BorderThickness="0"
                  HorizontalContentAlignment="Stretch"
@@ -175,27 +181,27 @@
                         </DataTrigger>
 
                         <!-- Two lines: the project and the detail move to the second line. -->
-                        <DataTrigger Binding="{Binding DataContext.Layout, RelativeSource={RelativeSource AncestorType=ListBox}}" Value="TwoLines">
+                        <Trigger Property="ui:ActivityLayoutHost.Layout" Value="TwoLines">
                             <Setter TargetName="WideProject" Property="Visibility" Value="Collapsed" />
                             <Setter TargetName="WideDetail" Property="Visibility" Value="Collapsed" />
                             <Setter TargetName="SecondLine" Property="Visibility" Value="Visible" />
-                        </DataTrigger>
+                        </Trigger>
 
                         <!-- Narrower: the detail goes. -->
-                        <DataTrigger Binding="{Binding DataContext.Layout, RelativeSource={RelativeSource AncestorType=ListBox}}" Value="NoDetail">
+                        <Trigger Property="ui:ActivityLayoutHost.Layout" Value="NoDetail">
                             <Setter TargetName="WideProject" Property="Visibility" Value="Collapsed" />
                             <Setter TargetName="WideDetail" Property="Visibility" Value="Collapsed" />
                             <Setter TargetName="SecondLine" Property="Visibility" Value="Visible" />
                             <Setter TargetName="NarrowDetail" Property="Visibility" Value="Collapsed" />
                             <Setter TargetName="NarrowSeparator" Property="Visibility" Value="Collapsed" />
-                        </DataTrigger>
+                        </Trigger>
 
                         <!-- Narrowest: the project goes too, and the line is one line. -->
-                        <DataTrigger Binding="{Binding DataContext.Layout, RelativeSource={RelativeSource AncestorType=ListBox}}" Value="NoProject">
+                        <Trigger Property="ui:ActivityLayoutHost.Layout" Value="NoProject">
                             <Setter TargetName="WideProject" Property="Visibility" Value="Collapsed" />
                             <Setter TargetName="WideDetail" Property="Visibility" Value="Collapsed" />
                             <Setter TargetName="SecondLine" Property="Visibility" Value="Collapsed" />
-                        </DataTrigger>
+                        </Trigger>
                     </DataTemplate.Triggers>
                 </DataTemplate>
             </ListBox.ItemTemplate>
@@ -204,7 +210,7 @@
         <!-- The bottom of the list, once the oldest lines have gone: 19,000 to 20,000 of the newest are kept. -->
         <TextBlock x:Name="DroppedLine"
                    Grid.Row="3"
-                   Margin="12,6,12,10"
+                   Margin="12,0,12,4"
                    Style="{StaticResource ActivitySmall}"
                    Text="{Binding Log.DroppedLine}"
                    Visibility="{Binding Log.HasDropped, Converter={StaticResource BoolToVisible}}" />

@@ -1,10 +1,12 @@
 using System.Diagnostics;
+using System.IO;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Threading;
 using ClaudeDashboard.App.Storage;
 using ClaudeDashboard.App.Ui;
+using ClaudeDashboard.Tests.Architecture;
 using ClaudeDashboard.Tests.Fakes;
 using ClaudeDashboard.Tests.Pipeline;
 
@@ -160,6 +162,97 @@ public sealed class ActivityWindowTests(StaHarness harness)
 
         Assert.Equal(20_000, realized.Item2);
         Assert.InRange(realized.Item1, 1, 100);
+    }
+
+    /// <summary>
+    /// <strong>The footer has a row of its own, of a fixed height, from the start</strong> (the T1.71 review): when
+    /// the oldest lines go and the footer appears, the list's height does not change, and a new line after that
+    /// changes neither the list's height nor the footer's row.
+    /// </summary>
+    [Fact]
+    public void The_footer_has_a_fixed_row_and_moves_nothing_when_it_appears()
+    {
+        _harness.Invoke(() =>
+        {
+            var dispatcher = new QueueingDispatcher();
+            var log = new ActivityLog(dispatcher, new FakeClock(At), limit: 10, keep: 5);
+            var viewModel = new ActivityViewModel(log, new FakeClock(At), health: null);
+            log.Decided([.. Enumerable.Range(0, 10).Select(i => Nudge($"s-{i}"))]);
+            dispatcher.Pump();
+
+            var window = new ActivityWindow(viewModel);
+            using var bindings = new BindingErrorWatch();
+
+            try
+            {
+                ShowOffScreen(window);
+
+                var list = (ListBox)window.FindName("ActivityList");
+                var footer = (TextBlock)window.FindName("DroppedLine");
+                var row = (RowDefinition)window.FindName("FooterRow");
+                Assert.True(row.Height.IsAbsolute, "the footer's row has a fixed height, not Auto");
+                Assert.False(footer.IsVisible);
+
+                var listHeight = list.ActualHeight;
+                var rowHeight = row.ActualHeight;
+
+                log.Decided([Nudge("past the limit")]);
+                dispatcher.Pump();
+                Settle(window);
+
+                Assert.True(footer.IsVisible);
+                Assert.Equal(listHeight, list.ActualHeight);
+                Assert.Equal(rowHeight, row.ActualHeight);
+                Assert.InRange(footer.ActualHeight + footer.Margin.Top + footer.Margin.Bottom, 1, rowHeight);
+
+                log.Decided([Nudge("one more")]);
+                dispatcher.Pump();
+                Settle(window);
+
+                Assert.Equal(listHeight, list.ActualHeight);
+                Assert.Equal(rowHeight, row.ActualHeight);
+                Assert.Empty(bindings.Problems);
+            }
+            finally
+            {
+                window.Close();
+            }
+        });
+    }
+
+    /// <summary>
+    /// <strong>A line reads the window's layout by inheritance from the list</strong> (T1.71 fix cycle), never by a
+    /// binding that looks for the list. A reused row then has the layout as soon as it is back in the list, and is
+    /// measured once, in the right form. With the old <c>AncestorType=ListBox</c> triggers it came back in the
+    /// one-line form and was measured again as two lines inside the same layout pass: 6 to 17 ms a line in a narrow
+    /// window at the limit, against about 1 ms now. The second measure is inside one pass, so neither the row's
+    /// size changes nor the window's layout passes show it; this guard holds the mechanism, and the width test above
+    /// holds that every form still shows the right parts.
+    /// </summary>
+    [Fact]
+    public void A_line_reads_the_layout_by_inheritance_from_the_list()
+    {
+        var markup = File.ReadAllText(Path.Combine(RepoLayout.Root.FullName, "src", "ClaudeDashboard.App", "Ui", "ActivityWindow.xaml"));
+
+        Assert.DoesNotContain("AncestorType=ListBox", markup, StringComparison.Ordinal);
+        Assert.Contains("ui:ActivityLayoutHost.Layout=\"{Binding Layout}\"", markup, StringComparison.Ordinal);
+        Assert.Equal(3, System.Text.RegularExpressions.Regex.Count(markup, "<Trigger Property=\"ui:ActivityLayoutHost.Layout\" Value=\"(TwoLines|NoDetail|NoProject)\">"));
+    }
+
+    private void ShowOffScreen(Window window)
+    {
+        OffScreen(window);
+        window.ShowActivated = false;
+        window.ShowInTaskbar = false;
+        window.Show();
+        Settle(window);
+    }
+
+    private void Settle(Window window)
+    {
+        window.UpdateLayout();
+        _harness.Pump(DispatcherPriority.Background);
+        window.UpdateLayout();
     }
 
     private T WithWindow<T>(Func<ActivityWindow, T> assert, int lines = 0) =>
