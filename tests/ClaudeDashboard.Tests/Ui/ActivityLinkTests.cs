@@ -421,6 +421,60 @@ public sealed class ActivityLinkTests(StaHarness harness)
         Assert.DoesNotContain("ContextMenu", markup, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// <strong>No line is selected until the operator selects one</strong> (the T1.71 review): not on first show
+    /// with lines already there, not after new lines, not after "Show activity" and not after <b>Show all</b>. So
+    /// Enter does nothing until the operator selects a line. The list does not follow the view's current item.
+    /// </summary>
+    [Fact]
+    public void No_line_is_selected_until_the_operator_selects_one()
+    {
+        WithBoth(
+            registry =>
+            {
+                registry.Working("s-1", At, Workspace(1), title: "Director");
+                registry.Working("s-2", At.AddSeconds(1), Workspace(2));
+            },
+            both =>
+            {
+                var list = List(both.ActivityWindow);
+                Assert.Equal(2, list.Items.Count);
+                Assert.Null(list.SelectedItem);
+
+                Line(both, "s-1");
+                Line(both, "s-2");
+                Assert.Null(list.SelectedItem);
+
+                both.Activity.ShowOnly(new SessionId("s-1"), "Director");
+                Settle(both);
+                Assert.Null(list.SelectedItem);
+
+                both.Activity.ShowAllCommand.Execute(null);
+                Settle(both);
+                Assert.Null(list.SelectedItem);
+                Assert.Equal(-1, list.SelectedIndex);
+
+                // Enter with nothing selected: the main window stays hidden.
+                both.Window.Hide();
+                var before = Before(both);
+                list.Focus();
+                list.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(list), 0, Key.Enter)
+                {
+                    RoutedEvent = Keyboard.KeyDownEvent,
+                });
+                Settle(both);
+
+                Assert.False(both.Window.IsVisible);
+                NothingElse(both, before);
+            },
+            seed: (log, dispatcher) =>
+            {
+                log.Decided([new Decision(At, "s-1", DecisionKind.StateMoved, "Working", "Unread")]);
+                log.Decided([new Decision(At, "s-2", DecisionKind.StateMoved, "Working", "Unread")]);
+                dispatcher.Pump();
+            });
+    }
+
     // ---- The fixture ---------------------------------------------------------------------------
 
     private const string Shared = @"C:\dev\shared";
@@ -477,7 +531,8 @@ public sealed class ActivityLinkTests(StaHarness harness)
         Action<RegistryHarness> arrange,
         Action<Both> assert,
         bool grouped = true,
-        Action<MainViewModel>? prepare = null)
+        Action<MainViewModel>? prepare = null,
+        Action<ActivityLog, QueueingDispatcher>? seed = null)
     {
         _harness.Invoke(() =>
         {
@@ -497,6 +552,9 @@ public sealed class ActivityLinkTests(StaHarness harness)
             var window = new MainWindow(main, TestTrays.For(registry.Projection, sink: traySink));
             var dispatcher = new QueueingDispatcher();
             var log = new ActivityLog(dispatcher, new FakeClock(At));
+
+            // Lines from before the Activity window's view model exists, as at a start with events already in.
+            seed?.Invoke(log, dispatcher);
             var activity = new ActivityViewModel(log, new FakeClock(At), health: null);
             var activityWindow = new ActivityWindow(activity) { Width = 820 };
 

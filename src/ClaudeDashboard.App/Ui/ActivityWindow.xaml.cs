@@ -195,3 +195,31 @@ public sealed class ActivityWindowHost
         }
     }
 }
+
+/// <summary>
+/// The Activity window's layout, inherited from the list down to each line (T1.71 fix cycle): a new line has it
+/// as soon as it joins the list, so it is measured once, in the right layout.
+/// </summary>
+public static class ActivityLayoutHost
+{
+    /// <summary>The layout, inherited.</summary>
+    public static readonly DependencyProperty LayoutProperty = DependencyProperty.RegisterAttached(
+        "Layout",
+        typeof(ActivityLayout),
+        typeof(ActivityLayoutHost),
+        new FrameworkPropertyMetadata(ActivityLayout.Wide, FrameworkPropertyMetadataOptions.Inherits));
+
+    /// <summary>Reads the layout.</summary>
+    public static ActivityLayout GetLayout(DependencyObject element)
+    {
+        ArgumentNullException.ThrowIfNull(element);
+        return (ActivityLayout)element.GetValue(LayoutProperty);
+    }
+
+    /// <summary>Sets the layout.</summary>
+    public static void SetLayout(DependencyObject element, ActivityLayout value)
+    {
+        ArgumentNullException.ThrowIfNull(element);
+        element.SetValue(LayoutProperty, value);
+    }
+}
