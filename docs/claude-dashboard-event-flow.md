@@ -330,7 +330,9 @@ The tick is not an event. It causes changes that no hook causes:
 | A different program has a port at start | The dashboard skips that port and binds the next free one (section 2.4). Only when no port is free, or the pinned port is taken, does it start without one: it writes no `listening.txt`, and the log, the tray and the window say what to do. Until the T1.57 review a program on the port in `port.txt` left the dashboard deaf although its choice had found a free port |
 | The plugin is not registered, or is turned off | No event arrives. The next start registers it if the rules of section 2.2 permit. If not, the window and the tray show a notice with what to do |
 | An old hook from a build before the plugin is in Claude Code's settings | Events arrive through the old hook. The dashboard registers no plugin beside it, and shows a notice that asks the operator to remove the hook |
-| A hook reads `listening.txt` just before a restart replaces it | That one post carries the old token and gets `401`. The next hook reads the new file |
+| A hook reads `listening.txt` just before a restart replaces it | That one post carries the old token and gets `401`. The next hook reads the new file. One refusal shows nothing; 3 within 10 minutes show "messages refused" until 10 minutes after the last. Each refusal is a `HookRefused` row (T1.61) |
+| The script, `curl.exe`, the token or the port fails | The self-test at each start runs the script and finds it: the window and the tray say messages from Claude Code cannot arrive, with the cause. The Settings window's Test connection button runs the same test (T1.61) |
+| Claude Code stops sending | Nothing alarms: a quiet afternoon is not a fault. The tooltip's last item says when the dashboard last heard from Claude Code |
 | The script cannot be rewritten at start | The dashboard tries three times, then writes one Error line. An old script sends no token, so its hooks get `401` until the next start |
 | The event channel is full | Only noise is shed: tool batches, and notifications that move no state. The window says "fell behind" for 5 minutes after the last shed. At the hard limit of 16,384 the oldest event is discarded and the window says "events lost" until the next start. The decisions table records each, and the log the start and the end (T1.58) |
 | The disk is slow | The archive channel fills and discards its oldest records. The count goes into the log at shutdown. The window and the sound continue |
@@ -344,6 +346,8 @@ The tick is not an event. It causes changes that no hook causes:
 ## 12. How to see the path work
 
 **The log.** The file is `%LocalAppData%\ClaudeDashboard\logs\dashboard-<date>.log`. At each start it shows the port and its source, and the announcement in `listening.txt`. It shows a line about the plugin only if the plugin was absent, was turned off, was registered at this start, or could not be checked. The file keeps lines at the level `logging.minimumLevel` sets, Information by default. Set it to `Debug` to see each decision as it is made, and each event the Registry declined. The decisions table holds the same record, and is the one to query.
+
+**The self-test.** At each start the log has `The test message from the hook script arrived in <n> ms`: the cost of one message on this machine, measured. The Settings window's **Test connection** button runs it again and shows the result beside it. `/state` has `health.lastHeardAt` and `health.selfTest` (T1.61).
 
 **The database.** Copy `dashboard.db` and its `-wal` file, then query the copy. This query shows the last events of one session and the decision that each caused:
 
