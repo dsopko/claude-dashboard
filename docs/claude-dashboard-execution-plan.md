@@ -727,6 +727,30 @@ The work in GitHub milestone 3, "Observability 1": issues #3, #14, #67, #71, #72
 
 **Milestone 1F, first pass, closed 2026-10-03:** every open issue in GitHub milestone 3 has a merged change (T1.53 to T1.58). Not built from the observability review, and not in milestone 3: the hook self-test and "last hook received" (#74), a health block in `/state`, an Activity window, start and stop rows in the database, and indexes.
 
+**Milestone 1F, second pass: GitHub milestone 4, "Observability 2".** Issues #74, #76, #78, #79, #80, #81 and #86, and #84 added at the operator's word. Each task is written here before it is dispatched, as in the first pass.
+
+**Order, set 2026-10-03 (operator and director):** the operator's order on the milestone page (#78, #74, #80, #79, #81, #76, #86), with #84 added in front. **Why this order:** #84 first, because #78, #80 and #81 all change the history store, and its race makes about one suite run in four fail for no reason. #80 comes before #79, so that the conversion of the times does not also update indexes. #81 comes after #80, because it deletes by time and the times only compare correctly in UTC; it uses the time index of #79 and prunes the table of #78. #76 uses the refused-post count of #74. #86 is last: it shows its figures in the health block of #76, takes the hook round trip from #74 and writes its worst case to the `runs` row of #78. **#74 writes "last hook received" into a `health` object in `/state`, and #76 adds to that object**, so that no field moves (director).
+
+**Rulings, operator, 2026-10-03:** #84 joins milestone 4, first. #78 is a table of its own, `runs`, not two new decision kinds. The Activity window is left for a later milestone: milestone 4 shows its figures in `/state` and the log. #81 stops the growth of the file and does not shrink it: no `VACUUM` and no `auto_vacuum`, because the space of deleted rows is used again for new rows.
+
+**T1.59 — The history store can be closed while it writes**
+- **Goal:** closing the history store while its writer thread is inside a write never throws, never leaves a half-written record, and never opens the file again afterwards. For issue #84.
+- **Depends:** T1.54 (the store's retry, its `Available` flag and its present shape), T1.37 (one transaction for an event and its decisions)
+- **Realizes:** degrade, never crash (Part 1). #84's first fix: **make the store safe on every path**, not only remove the one test's exposure. The product stops the archive writer before the container disposes the store, but a host disposed without a stop (a test, a failed start, a later caller) reaches the race, and the store is the place that can close it.
+- **Deliverables:**
+  - **The race, closed in `SqliteEventStore`.** Today `Dispose` (on the disposing thread) can dispose the connection while `Append` or `AppendDecisions` (on the writer's thread) is between `BeginTransaction` and `Commit`. The write then throws a `NullReferenceException` that no `catch` takes. The opposite order is possible too: `Append` passes its `_disposed` check, `Dispose` runs, and `Connect` opens a new connection that nothing ever closes.
+  - **The fix to consider first:** one private lock object, held by `Append`, `AppendDecisions`, the count queries and `Dispose`. `Dispose` then waits for the current write, which takes milliseconds, and every write that starts after it sees `_disposed` and returns `false` without opening the file. This lock is in an App adapter, on the disk path. The Registry's "one writer, no locks" rule is not touched: the Registry is not here, and the consumer never calls the store. If a lighter guard closes both orders, use it and say why. A lock that the consumer thread can wait on is not acceptable.
+  - **What a write after the close does:** it returns `false`, writes no log line and does not change `Available`. The store is going away, so the board has nothing to show.
+  - **The test keeps its shape.** `TokenHandoverTests` keeps `await using` without `StopAsync` on the second host. With the store fixed, that path must be safe, so the test is now a check of it.
+  - **Documents, in the same change:** Impl Part 4, at "The archive and the decision record": one sentence that the store may be closed during a write, that the close waits for the current write, and that a write after the close is dropped without a sound. One row in Impl Appendix C.
+- **Acceptance:**
+  - **A deterministic test of each order.** It must not depend on timing and must not loop until it gets lucky. Use a seam, for example a hook inside the transaction that the test can block on, to hold a write between `BeginTransaction` and `Commit` and then call `Dispose` from a second thread. (a) `Dispose` waits until the write commits, and the row is in the file. (b) `Dispose` first, then `Append`: it returns `false` and the file is not opened again; check with `File.Delete` succeeding at once, as T1.17 measured.
+  - **No log line** and no change to `Available` for a write after the close.
+  - **The flake is gone:** report 50 runs of `TokenHandoverTests` (Release), and both full suite counts.
+  - **Plant:** remove the guard, and test (a) fails with the error that #84 recorded (or with a `false` where `true` was due). Report the failing output.
+  - Build clean, 0 warnings.
+- **Guardrails:** the consumer thread never waits on the store; only the archive writer's thread and the disposing thread take the guard. No payload in a log line or an exception message. No change to the retry of T1.54, the schema, the archive channel or the shutdown order. The store does not start to throw on any path where it returned `false` before.
+
 ---
 
 ## Part 4 — Phases 2–7 task outlines
