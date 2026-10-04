@@ -23,6 +23,12 @@ public partial class ActivityWindow : Window
         DataContext = viewModel;
 
         SizeChanged += (_, e) => ViewModel.SetWidth(e.NewSize.Width);
+
+        // Collapsed while the window is hidden (the T1.70 review): a hidden list that has been laid out still
+        // runs a layout for each new line. Shown again when the window opens; the recycled rows are made for the
+        // view only.
+        ActivityList.Visibility = Visibility.Collapsed;
+        IsVisibleChanged += (_, _) => ActivityList.Visibility = IsVisible ? Visibility.Visible : Visibility.Collapsed;
     }
 
     /// <summary>What the window shows.</summary>

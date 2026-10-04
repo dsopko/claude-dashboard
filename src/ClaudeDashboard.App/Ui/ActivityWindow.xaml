@@ -14,8 +14,8 @@
     <!--
         The Activity window (T1.70, issue #97): what the dashboard did since it started, newest first, in
         plain words. The lines are ActivityLog's one list, in memory, fed from the consumer's decisions since the
-        start; nothing is read from dashboard.db. The window is made at start and only hidden when it closes,
-        and the list is virtualized, so lines added while it is hidden cost nothing to draw. Nothing here
+        start; nothing is read from dashboard.db. The window is made at start and only hidden when it closes.
+        The list is virtualized, and collapsed while the window is hidden, so lines added then cost no layout. Nothing here
         moves: no storyboard, no fade, so the motion rule holds.
 
         The layout follows the width (ActivityViewModel.LayoutFor): one line in columns when wide; two lines
@@ -165,7 +165,7 @@
             </ListBox.ItemTemplate>
         </ListBox>
 
-        <!-- The bottom of the list, once the oldest lines have gone: the newest 20,000 are kept. -->
+        <!-- The bottom of the list, once the oldest lines have gone: 19,000 to 20,000 of the newest are kept. -->
         <TextBlock x:Name="DroppedLine"
                    Grid.Row="2"
                    Margin="12,6,12,10"
