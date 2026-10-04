@@ -514,6 +514,8 @@ A control that is the main action of the current state is *lit*: `Ack all` when 
 
 Rows are used again and not made again. A refresh changes only what moved, so the selection and the scroll position stay.
 
+**A row of another kind takes a place by a remove and an insert, not by a replace** (`MainViewModel.Reconcile`; T1.71, for issue #23). A replace kept the place's container, and WPF bound the old kind's template once to the new row before it changed the template, which wrote a binding error for each of its bindings. This happened when a group or a band was opened (a session row where `+ 3 quiet` was) and when the view changed between Grouped and Flat: 212 binding errors for one toggle there and back with five sessions, measured in T1.71, and none now. A row of the same kind still takes its place by a replace.
+
 #### 5.6.3 A session row
 
 | Part | Content | Source |
@@ -552,6 +554,7 @@ A click opens the row. In selection mode a click selects it.
 | `✓ Acknowledge` | The same command as the row's Ack, shown where §5.6.7 says |
 | `Open terminal` | Hidden. The markup stays in the template for Phase 2. *Not built* (issues #60, #63) |
 | The session id | The first 8 characters. A click copies the **full** id. `copy failed` shows if the clipboard refused |
+| `Show activity` | Beside the session id (T1.71): the Activity window lists only this session's lines and comes to the front (§5.7). Collapsed when the session has no id. It only asks: it changes nothing on the row and sends no event. Here, and not in a right-click menu, because the open row holds the row's actions, no row has a menu, and an action here works on a phone later |
 
 #### 5.6.5 The row's clock
 
@@ -637,13 +640,14 @@ The mode ends when the operator groups, cancels, or hides the window.
 | Mute or pause changed | The consumer sends a tick after the `SoundCommand` |
 | A sound played | `SoundPolicyEngine.SoundMarked` → `SoundSigns` → `MainViewModel.SoundPlayed`: one post for each sound that played (§5.6.3) |
 | The operator opened or closed a heading, changed the view, or edited a roster | The view model refreshes itself |
+| The operator clicked a line in the Activity window | `ActivityLineViewModel.ShowCommand` → `MainWindow.Show` → `MainViewModel.Reveal`, which may open a heading and a row; nothing else changes (§5.7) |
 | A notice changed | A source raises a property change, and `NoticeBoard` rebuilds the list. `HookNotice` changes at a start or an event. `HistoryNotice` looks at the store, and `SoundDeviceNotice` at the player, on `TrayViewModel.Tick`, which passes the tick to the board |
 
 `EventConsumer` is the only caller of `UiTick`. A test holds that, because the view models do not check that time goes forward.
 
 ### 5.7 The Activity window
 
-**What it is** (T1.70, issue #97; the operator's rulings of 2026-10-04): a window named **Activity** that lists what the dashboard did since it started, newest first, in plain words, with the session's name and project on each line. An operator who hears a sound opens it and sees what made the sound: the top `♪` line. **This start only.** A click on a line and "Show activity" on a row are T1.71, *not built*.
+**What it is** (T1.70, issue #97; the operator's rulings of 2026-10-04): a window named **Activity** that lists what the dashboard did since it started, newest first, in plain words, with the session's name and project on each line. An operator who hears a sound opens it and sees what made the sound: the top `♪` line. **This start only.** A click on a line shows its row in the main window, and "Show activity" on a row lists only that row's lines (T1.71, below).
 
 **It opens** from the tray menu (`Activity…`) and from the toolbar (`Activity`), which share one command (`TrayViewModel.OpenActivityCommand`). **One window, made at start and always there** (`ActivityWindowHost.Create`, in `Program`): opening it only shows it or brings it to the front, and closing it only hides it. It remembers its place and size in `settings.json`, under `activityWindow` (§8.2), saved when it is hidden and when it closes at quit. It moves nothing: no storyboard, no fade, and the motion rule holds.
 
@@ -693,6 +697,22 @@ The states: `NeedsPermission` needs permission · `NeedsQuestion` asks a questio
 | under 320 | One line; **then the project goes**. The time, the `♪`, what occurred and the name never go |
 
 **The top of the window:** `last heard from Claude Code …`, the tray tooltip's own words (`TrayTooltip.LastHeard`, T1.61), moved by the consumer's tick. Nothing else: the history notice of T1.54 is in the main window, because the store's state changes nothing here.
+
+**From a line to its row** (T1.71, issue #97; the director's rulings):
+
+- **A click on a line, and Enter on a selected line,** run the line's own command (`ActivityLineViewModel.ShowCommand`): a `MouseBinding` on the line, a `KeyBinding` on the list, and no handler in code-behind. The main window comes to the front (`MainWindow.ShowDashboard`, the path that `/show` uses). Then `MainViewModel.Reveal` makes the session's row a row on screen and opens it, and the window scrolls it into view (`BringIntoView`, after a layout, so the open row is what is brought into view). **Opening it is what a click on the row does, and nothing more:** no Ack, no mute, no event, and the Registry does not hear of it.
+- **A folded row is unfolded the way a click unfolds it today:** in Grouped view its group's heading is opened (a stale group, or a group whose quiet members are behind `+ 3 quiet`); in Flat view its band's (the `QUIET` and `ENDED` lines). Then the row is scrolled to and opened.
+- **In selection mode** the row is brought into view, not opened, and the selection does not change. Why: in that mode a click on a row selects it (§5.6.8), and setting `IsExpanded` toggles the selection.
+- **A session that is not in the main window:** the click brings the window to the front and does nothing more. Phase 1 never takes a session out of the Registry, so this is a session the window never showed, such as one whose line arrived before its row. The hover adds why, under the sentence: `This session is no longer in the window.` A screen reader hears it as the line's help text. The lines ask again when the main window's sessions or groups change (`MainViewModel.PresenceChanged` → `ActivityLog.Recheck`), and never on a timer.
+- **A group's sound** has no session. In Grouped view the click scrolls to the group's heading and does not open it. In Flat view no group has a heading, so the click brings the window to the front, and the hover says `This group is not in the window.`
+- **A line about no session and no group** (a mute, a pause) brings the window to the front, and its hover adds nothing.
+
+**From a row to its lines:**
+
+- **`Show activity`** in the open row (§5.6.4) lists only that session's lines. The list shows `ActivityViewModel.Shown`, **a view over the log's one list with a filter, not a copy:** a new line for that session arrives in it, and a line for another session does not. A line with no session (a group's sound) does not pass a session's filter.
+- **A bar at the top** reads `Only Director`, or `Only` and the short id for a session with no name, with **Show all**, which clears the filter. `Show activity` on another row changes the filter to that row.
+- **The filter stays while the window is hidden.** Opened again from the tray or the toolbar, the window shows the bar and the filtered list. Why: the bar says what the list shows, and one click on **Show all** clears it, while a filter that went away on its own would lose what the operator asked for.
+- **Connected once,** in `Program`, when both windows exist: `ActivityLinks.Connect`. Guards in `Ui/ActivityLinkTests.cs` hold that call, and that no row and no line has a right-click menu.
 
 **No title, prompt or path in a log line.** The log, the words and the view model log nothing. The recorder logs only the type of an exception if the hand-off throws.
 
@@ -1242,3 +1262,4 @@ The text above says what is true now. This list says when each part changed.
 | 2026-10-04 | The history follows Claude Code's `cleanupPeriodDays`, read at each prune from `~/.claude/settings.json` and judged in Core (`HistoryRetention`), strict JSON: 30 days when the key is absent; nothing deleted for a file that cannot be read or a value Claude Code would not use; the rule line, again only when it changes. `history.retentionDays` is no longer used, kept in the file and logged once. A settling member that leaves its roster keeps the reminder's sign (§5.6.3, §8.2, §8.3, §9.3, Appendix B) | T1.68; issue #102 |
 | 2026-10-04 | `events` gains `session_title`, and `decisions` gains `session_title` and `cwd`: the Registry's name and full path after the event is applied, NULL for a decision with no session. The upgrade checks the columns and is safe on every open; `user_version` is 2. The name is in no other column and in no log line. The growth constant is 350,000 (§3.4, §8.3) | T1.69; issue #98 |
 | 2026-10-04 | The Activity window: a log in memory of the consumer's shown decisions since the start, one post for each batch with a shown line, between 19,000 and 20,000 of the newest kept, the oldest trimmed in one step; a record's sound line on top of its cause; the day name read again when the date changes; never read from `dashboard.db`; made at start and only hidden, the list collapsed while hidden; plain words for every shown kind and reason; the name, the short id or the group; the project with its path on hover; one line wide, two lines narrow, the detail going first; "last heard" at the top; `activityWindow` in the settings (§5.2, §5.6.1, §5.7, §8.2) | T1.70; issue #97 |
+| 2026-10-04 | From an Activity line to its row, and from a row to its lines: a click or Enter on a line brings the main window up, unfolds the row's group or band, opens the row (not in selection mode) and scrolls to it, with no Ack, mute or event; a session or group that is not there only brings the window up, and the hover says why; a group's sound goes to its heading; "Show activity" in the open row filters the one list to that session, under a bar with Show all. A row of another kind takes a place by a remove and an insert, which ends the binding errors of the Grouped/Flat toggle (§5.6.2, §5.6.4, §5.6.9, §5.7) | T1.71; issue #97; for issue #23 |
