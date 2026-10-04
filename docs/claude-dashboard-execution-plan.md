@@ -750,6 +750,31 @@ The work in GitHub milestone 3, "Observability 1": issues #3, #14, #67, #71, #72
   - **Plant:** remove the guard, and test (a) fails with the error that #84 recorded (or with a `false` where `true` was due). Report the failing output.
   - Build clean, 0 warnings.
 - **Guardrails:** the consumer thread never waits on the store; only the archive writer's thread and the disposing thread take the guard. No payload in a log line or an exception message. No change to the retry of T1.54, the schema, the archive channel or the shutdown order. The store does not start to throw on any path where it returned `false` before.
+- **Done 2026-10-03:** PR #88, merged as `85138a8`, `8e0d0a9` (no fix cycle). One private lock in `SqliteEventStore`; a read after the close throws `ObjectDisposedException` (director's ruling: the standard contract for a closed object, and no caller reads after the close). Seven plants, each caught. The `NullReferenceException` itself was not reproduced: the lock makes the commit and the close exclusive, which removes its window.
+
+**T1.60 — The history database records each start and stop of the dashboard**
+- **Goal:** `dashboard.db` says when the dashboard started and stopped, and which version it was. A crash or a kill shows as a start with no stop. `--replay` uses those rows to forget sessions at each start, as the live dashboard does. For issue #78.
+- **Depends:** T1.59 (the store is safe to close), T1.37 (the decisions record and `--replay`), T1.17 (the store)
+- **Realizes:** the operator's ruling of 2026-10-03 on #78: **a table of its own, `runs`**, not two new decision kinds. A run is not a decision: it has two times, and the stop may never come.
+- **Deliverables:**
+  - **The table**, created with the others in the store's schema, so an existing file gains it at the next start: `runs (id INTEGER PRIMARY KEY, started_at TEXT NOT NULL, stopped_at TEXT, version TEXT NOT NULL, port INTEGER, data_root TEXT NOT NULL)`, as #78 gives it.
+  - **Times in UTC** from the first row: `ToUniversalTime().ToString("o")`, which ends in `Z`. The other two tables change to UTC in #80; this table never holds the old form.
+  - **`version`** is the informational version, as `StartupVersion` gives it for the log's first line. **`port`** is the port that ingress bound; NULL when it could not bind. **`data_root`** is the data folder.
+  - **The start row** is written once per process, after ingress has bound or failed, on the archive writer's thread (a record through the archive, or a call that the writer makes). It is never written on the UI thread or the consumer thread. A second instance that stands down writes no row. If the database cannot be written at that moment, the row is lost like any other record, counted, and not retried.
+  - **The stop row:** a clean stop sets `stopped_at` on this process's row, after the archive's drain, before the store closes. A kill, a crash or a host disposed without a stop leaves it NULL.
+  - **`--replay`** reads `runs`. When the next event to apply is at or after a run's `started_at`, replay first starts a new Registry and sound engine state, empty, as a live start does, and then continues. Compare times as parsed `DateTimeOffset` values, never as text: the `events` times are local text until #80. History before the first `runs` row replays as one run, as today, and the summary line says how many runs replay saw and whether older history had none. Replay never writes `runs`.
+  - **No operator text** in this table: no title, no prompt, no path but the data folder.
+  - **Documents, in the same change:** Impl §8.3 (the table; the note on `--replay`, where the 4,076 nudge rows came from one uninterrupted run), Part 8 (the `dashboard.db` row, if it lists the tables); event flow §9; the remarks on `ReplaySwitch`. TS where the database's contents are listed (find it). One row each in TS Appendix D and Impl Appendix C.
+- **Acceptance:**
+  - A host started and stopped twice against a scratch data folder leaves two `runs` rows, each with `started_at`, `stopped_at`, the version, the port and the data folder; both times end in `Z`.
+  - A host disposed without `StopAsync` leaves its row with `stopped_at` NULL.
+  - An existing database without the table gains it at the next start; its `events` and `decisions` rows are unchanged.
+  - The start row is not written on the consumer thread (a test or a seam shows the thread, or the code path makes it plain to the reviewer).
+  - Replay: events from two runs, with a session that went quiet in the first run. Its question nudge stops at the second run's start, and the same history without the `runs` rows still nudges (the old behaviour, which is what a pre-T1.60 database gets).
+  - A time comparison across an offset change: a run started at `…T01:30:00Z`, with events in `+02:00` and `+01:00` text on either side, splits at the right event.
+  - Plant: replay ignores `runs`, and the replay test fails. Plant: the stop row is written before the drain, and a test that queues a record at shutdown finds the order wrong (or explain why that cannot be observed and drop this plant).
+  - Both suite counts; build clean, 0 warnings.
+- **Guardrails:** tests use scratch data folders, never the operator's `dashboard.db`. Replay still never modifies `events`, and still refuses a database whose `decisions` table is not empty. No change to the `events` or `decisions` schema, the archive channel or the retry of T1.54. Never log a payload.
 
 ---
 
