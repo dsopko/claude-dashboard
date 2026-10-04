@@ -805,6 +805,7 @@ The work in GitHub milestone 3, "Observability 1": issues #3, #14, #67, #71, #72
   - Plants: (a) the test event goes through the mapper, and the no-session test fails; (b) refused counted without the 10-minute window, and the clear test fails; (c) the self-test moves "last heard", and its test fails.
   - Both suite counts; build clean, 0 warnings.
 - **Guardrails:** no edit to `post-status.cmd`. `/hook` answers `200` empty with no decision field, for the test event too. No payload, title, prompt or token in a log line, a notice or `/state`. Tests run a scratch copy of the script against a test host and a scratch data folder; they never run the operator's installed script, read the operator's `listening.txt`, or post to a real dashboard. No poller: "last heard" is read on the tick that already runs.
+- **Addition (2026-10-03, at the coder's question):** the operator's comment on #74 (2026-10-03 21:18 UTC), which this block missed, is part of the task. Each refused post writes one decision row, kind `HookRefused` (the next free number), through `DecisionRecorder.External` from the Kestrel thread, as `EventDropped` does: `event_id` NULL, `session_id` NULL, reason and detail empty. A refused post is not trusted, so nothing from its body or headers reaches the row. The tooltip threshold is a named constant with its reason beside it. Impl §8.3 lists the kind.
 
 ---
 
