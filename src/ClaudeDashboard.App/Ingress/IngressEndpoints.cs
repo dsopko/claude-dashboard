@@ -149,7 +149,9 @@ public static class IngressEndpoints
 
         // The health object, read now: it is written on request threads, not by the consumer (T1.61).
         var report = services.GetService(typeof(HookHealth)) is HookHealth health
-            ? board.Current with { Health = health.Report() }
+            // The consumer's last snapshot, never a live counter (T1.65): the request thread reads one
+            // published reference, as it does for the report.
+            ? board.Current with { Health = health.Report().With((services.GetService(typeof(Pipeline.HealthBoard)) as Pipeline.HealthBoard)?.Current) }
             : board.Current;
 
         logger.Debug("Served /state with {SessionCount} sessions.", report.SessionCount);

@@ -291,10 +291,102 @@ public enum SelfTestCause
 /// <param name="Cause">Why it failed, or <see cref="SelfTestCause.None"/>.</param>
 public sealed record SelfTestResult(bool Passed, long? RoundTripMs, DateTimeOffset At, SelfTestCause Cause);
 
-/// <summary><c>/state</c>'s <c>health</c> object (T1.61). #76 adds to it.</summary>
+/// <summary><c>/state</c>'s <c>health</c> object (T1.61, T1.65).</summary>
+/// <remarks>
+/// <c>lastHeardAt</c> and <c>selfTest</c> are read from <see cref="HookHealth"/> at the request. The
+/// other members are the consumer's last published snapshot (<see cref="Pipeline.HealthBoard"/>), up
+/// to one tick old, and null before the first tick. T1.66 adds its timings as one more member; none
+/// of these moves. Identifiers and numbers only.
+/// </remarks>
 /// <param name="LastHeardAt">When the last real message was accepted, in UTC, or null since start.</param>
 /// <param name="SelfTest">The last self-test, or null before the first has finished.</param>
-public sealed record HealthEntry(DateTime? LastHeardAt, SelfTestEntry? SelfTest);
+public sealed record HealthEntry(DateTime? LastHeardAt, SelfTestEntry? SelfTest)
+{
+    /// <summary>The informational version.</summary>
+    public string? Version { get; init; }
+
+    /// <summary>When the dashboard started, in UTC.</summary>
+    public DateTime? StartedAt { get; init; }
+
+    /// <summary>The tick that took these counts, in UTC: they can be up to one tick old.</summary>
+    public DateTime? CountedAt { get; init; }
+
+    /// <summary>The port ingress bound, and whether it can receive messages.</summary>
+    public IngressEntry? Ingress { get; init; }
+
+    /// <summary>Whether the history database is being written.</summary>
+    public DatabaseState? Database { get; init; }
+
+    /// <summary>Whether a sound output device is bound.</summary>
+    public bool? SoundOutput { get; init; }
+
+    /// <summary>The pause and mute modes.</summary>
+    public ModesEntry? Modes { get; init; }
+
+    /// <summary>The counts since the start, for the present hour, and for the last summary.</summary>
+    public CountsEntry? Counts { get; init; }
+
+    /// <summary>This entry with the consumer's snapshot, or as it is when there is none yet.</summary>
+    public HealthEntry With(Pipeline.HealthSnapshot? snapshot) => snapshot is null
+        ? this
+        : this with
+        {
+            Version = snapshot.Version,
+            StartedAt = snapshot.StartedAt.UtcDateTime,
+            CountedAt = snapshot.CountedAt.UtcDateTime,
+            Ingress = new IngressEntry(snapshot.Port, snapshot.CanReceive),
+            Database = snapshot.DatabaseAvailable switch
+            {
+                true => DatabaseState.Writing,
+                false => DatabaseState.NotWriting,
+                null => DatabaseState.NotYetKnown,
+            },
+            SoundOutput = snapshot.SoundOutput,
+            Modes = new ModesEntry(snapshot.Paused, snapshot.MutedUntil?.UtcDateTime),
+            Counts = new CountsEntry(
+                snapshot.SinceStart,
+                snapshot.ThisHour,
+                snapshot is { LastHour: { } hour, LastHourFrom: { } from, LastHourTo: { } to }
+                    ? new LastHourEntry(from.UtcDateTime, to.UtcDateTime, snapshot.LastHourPartial, hour)
+                    : null),
+        };
+}
+
+/// <summary>Ingress in <c>health</c>.</summary>
+/// <param name="Port">The port bound, or null when it could not bind.</param>
+/// <param name="Receiving">Whether it can receive messages from Claude Code.</param>
+public sealed record IngressEntry(int? Port, bool Receiving);
+
+/// <summary>The history database in <c>health</c>.</summary>
+public enum DatabaseState
+{
+    /// <summary>Nothing has been written yet.</summary>
+    NotYetKnown = 0,
+
+    /// <summary>The last write succeeded.</summary>
+    Writing = 1,
+
+    /// <summary>The last write failed (T1.54's notice shows).</summary>
+    NotWriting = 2,
+}
+
+/// <summary>The modes in <c>health</c>.</summary>
+/// <param name="Paused">Whether monitoring is paused.</param>
+/// <param name="MutedUntil">When a global mute lapses, in UTC, or null.</param>
+public sealed record ModesEntry(bool Paused, DateTime? MutedUntil);
+
+/// <summary>The counts in <c>health</c>.</summary>
+/// <param name="SinceStart">Since the start.</param>
+/// <param name="ThisHour">Since the last hourly summary, or the start.</param>
+/// <param name="LastHour">The last hourly summary, or null before the first.</param>
+public sealed record CountsEntry(Pipeline.HealthCounts SinceStart, Pipeline.HealthCounts ThisHour, LastHourEntry? LastHour);
+
+/// <summary>The last hourly summary in <c>health</c>.</summary>
+/// <param name="From">Where it began, in UTC.</param>
+/// <param name="To">Where it ended, in UTC.</param>
+/// <param name="Partial">Whether it was the first after a start, from the start.</param>
+/// <param name="Counts">Its counts.</param>
+public sealed record LastHourEntry(DateTime From, DateTime To, bool Partial, Pipeline.HealthCounts Counts);
 
 /// <summary>The self-test in <c>/state</c>.</summary>
 /// <param name="Passed">Whether the test message arrived.</param>

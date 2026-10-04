@@ -151,6 +151,38 @@ public sealed class RetentionTests : IDisposable
         Assert.Equal(4, ForeignSqliteReader.Column(path, "SELECT id FROM decisions").Count);
     }
 
+    /// <summary>
+    /// Inside the minute after a failure, a prune is skipped: it deletes nothing, and counts neither a
+    /// failure nor a lost record, because a prune is not a record (T1.65, from T1.64's review). After
+    /// the minute it prunes.
+    /// </summary>
+    [Fact]
+    public void A_prune_inside_the_retry_minute_is_skipped_and_counts_no_lost_record()
+    {
+        var path = Db();
+        var clock = new FakeClock(Now);
+
+        using var store = new SqliteEventStore(path, Serilog.Core.Logger.None, clock);
+        Fill(store);
+
+        store.InsidePrune = () => throw new SqliteException("planted: database or disk is full", 13);
+        Assert.Null(store.Prune(30, clock.Now, keepRunId: null));
+        store.InsidePrune = null;
+
+        var lost = store.LostCount;
+        var failed = store.FailedCount;
+
+        clock.Now = Now + TimeSpan.FromSeconds(30);
+        Assert.Null(store.Prune(30, clock.Now, keepRunId: null));
+
+        Assert.Equal(lost, store.LostCount);
+        Assert.Equal(failed, store.FailedCount);
+        Assert.Equal(2, ForeignSqliteReader.Column(path, "SELECT id FROM events").Count);
+
+        clock.Now = Now + SqliteEventStore.RetryAfter;
+        Assert.Equal(new PruneCounts(1, 2, 0), store.Prune(30, clock.Now, keepRunId: null));
+    }
+
     // ---- The writer ---------------------------------------------------------------------------
 
     /// <summary>
@@ -270,6 +302,24 @@ public sealed class RetentionTests : IDisposable
         var line = Assert.Single(lines);
         Assert.Contains("\"history.retentionDays\" setting is negative", line, StringComparison.Ordinal);
         Assert.DoesNotContain("-7", line, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The repaired-port sentence names the setting and the repair, never the value (T1.65, from
+    /// T1.64's review: T1.56 set that no setting value is logged).
+    /// </summary>
+    [Fact]
+    public void A_port_that_is_not_a_port_is_repaired_without_its_value()
+    {
+        var paths = new DashboardPaths(_folder);
+        File.WriteAllText(paths.SettingsFile, """{ "port": 99999 }""");
+
+        var problem = new SettingsStore(paths).Load().Problem;
+
+        Assert.NotNull(problem);
+        Assert.StartsWith("The \"port\" setting is not a usable port.", problem, StringComparison.Ordinal);
+        Assert.DoesNotContain("99999", problem, StringComparison.Ordinal);
+        Assert.DoesNotContain(" , ", problem, StringComparison.Ordinal);
     }
 
     /// <summary>An absent value, and an absent section, are the default; 36,525 days fits.</summary>

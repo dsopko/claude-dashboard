@@ -68,6 +68,10 @@ public sealed class EventConsumer : BackgroundService
     private readonly EventArchive _archive;
     private readonly DecisionRecorder _recorder;
 
+    // The counts since the start and by the hour, and the hourly summary (T1.65, issue #76). The host
+    // passes it, by factory; a test that is not about it may omit it.
+    private readonly HealthBoard? _health;
+
     /// <summary>Creates the consumer.</summary>
     /// <param name="uiTick">
     /// Where the tick is echoed for the UI's age and staleness display (T1.11) and the tray's
@@ -93,7 +97,8 @@ public sealed class EventConsumer : BackgroundService
         DecisionRecorder recorder,
         TimeSpan? tickInterval = null,
         RosterGroupWatch? watch = null,
-        TimeSpan? silenceThreshold = null)
+        TimeSpan? silenceThreshold = null,
+        HealthBoard? health = null)
     {
         ArgumentNullException.ThrowIfNull(pipeline);
         ArgumentNullException.ThrowIfNull(registry);
@@ -119,6 +124,7 @@ public sealed class EventConsumer : BackgroundService
         _tickInterval = tickInterval ?? DefaultTickInterval;
         _silenceThreshold = silenceThreshold ?? SilenceWatch.DefaultThreshold;
         _uiTick = uiTick;
+        _health = health;
     }
 
     /// <summary>How many sessions the silence sweep has moved. Diagnostic only.</summary>
@@ -158,6 +164,10 @@ public sealed class EventConsumer : BackgroundService
     /// silently stop advancing, which is the failure T1.11's wiring exists to prevent and the
     /// kind a green suite hides best.
     /// </remarks>
+    /// <summary>This consumer's own counters, as one value (T1.65).</summary>
+    public ConsumerCounts Counts =>
+        new(AppliedCount, DeclinedCount, UncorrelatedCount, TickCount, SilencedCount, SettledCount);
+
     internal IUiTick UiTick => _uiTick;
 
     /// <summary>Where events are handed over to be recorded.</summary>
@@ -254,11 +264,13 @@ public sealed class EventConsumer : BackgroundService
         // the writer is stopped before this service or after it.
         _archive.Complete();
 
+        // The same counts in the same form as the hourly summary, since the start (T1.65). No summary
+        // row here: the consumer has drained, so a decision written now has no scope to leave in.
         _logger.Information(
-            "Event consumer stopped after {Applied} applied, {Declined} declined, {Ticks} nudge evaluations.",
-            AppliedCount,
-            DeclinedCount,
-            TickCount);
+            "Event consumer stopped. Since the start: {Counts:l}",
+            (_health?.Gather(Counts) ?? new HealthCounts(
+                AppliedCount, DeclinedCount, UncorrelatedCount, 0, 0, 0, 0, 0, TickCount, SilencedCount, SettledCount))
+                .ToDetail());
     }
 
     /// <summary>Awaits a branch, turning cancellation into "stop" rather than an exception.</summary>
@@ -713,6 +725,10 @@ public sealed class EventConsumer : BackgroundService
 
                     _sound.Evaluate(now);
                     ObserveRosterGroups(now);
+
+                    // Inside the tick's scope, so the hourly summary is a decision like the others, and
+                    // after the tick's work, so the snapshot counts it (T1.65).
+                    _health?.Tick(now, Counts, _recorder);
                 }
                 finally
                 {

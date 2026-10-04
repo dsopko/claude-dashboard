@@ -335,6 +335,8 @@ public sealed class UnprotectedTextInventory
         // T1.60: a runs row beside its times. The informational version, and the data folder, which is
         // the one path the runs table holds.
         "RunStart.DataRoot", "RunStart.Version",
+        // T1.65: the informational version in the health snapshot and in /state's health object.
+        "HealthEntry.Version", "HealthSnapshot.Version", "HealthSources.Version",
         "SettingsLoadResult.Problem",
         "ShowSignalResult.Problem", "SingleInstanceGate.Name", "SqliteEventStore.Path",
     };

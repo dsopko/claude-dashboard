@@ -129,9 +129,9 @@ public sealed class SettingsStore(DashboardPaths paths, Serilog.ILogger? logger 
                 port.ValueKind != JsonValueKind.Null)
             {
                 return
-                    $"The \"port\" setting is {port} , which is not a usable port. The dashboard will " +
-                    "choose one for this user instead. Remove the setting, or give it a number between " +
-                    "1 and 65535.";
+                    // The setting and the repair, never the value: no setting value is logged (T1.56, T1.65).
+                    "The \"port\" setting is not a usable port. The dashboard will choose one for this user " +
+                    "instead. Remove the setting, or give it a number between 1 and 65535.";
             }
         }
         catch (JsonException)
