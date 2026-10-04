@@ -676,7 +676,7 @@ Location: **`%LOCALAPPDATA%\ClaudeDashboard\`**. The variable `CLAUDE_DASHBOARD_
 |---|---|---|---|
 | `settings.json` | The dashboard, and the operator by hand | At quit (the window's place); when the operator remembers a roster; at the Settings window; at `--install-hooks` and `--remove-hooks` | §8.2 |
 | `settings.error-<yyyyMMdd-HHmmss>.json` | The dashboard, by a rename | At a start that finds `settings.json` does not parse (§8.2) | The operator's file, byte for byte. The dashboard never writes or deletes it |
-| `dashboard.db` | The archive writer | For each event | §8.3. **It holds prompts and answers** |
+| `dashboard.db` | The archive writer | For each event; at each start and clean stop (`runs`) | §8.3. **It holds prompts and answers** |
 | `logs\dashboard-<date>.log` | Serilog | Always | §8.4 |
 | `port.txt` | The dashboard | After a bind. Never deleted | The port that this user last bound. An *input* to the next start and to a second instance |
 | `listening.txt` | The dashboard | After a bind and after the script is written. Deleted at exit | Line 1: the port. Line 2: the token. Its presence means "a dashboard listens now" |
@@ -721,7 +721,7 @@ The dashboard's own settings. A person can edit it: comments and a comma at the 
 
 ### 8.3 `dashboard.db`
 
-SQLite, through `Microsoft.Data.Sqlite`. One writer thread. Append-only. **Never pruned** (retention is *not built*). A typical day adds about 300 KB.
+SQLite, through `Microsoft.Data.Sqlite`. One writer thread. Append-only, but for one update: a clean stop sets `stopped_at` on its own `runs` row. **Never pruned** (retention is *not built*). A typical day adds about 300 KB.
 
 If the file cannot be opened or written, the store writes one Warning when it fails (not for a failed retry), and the window and the tray say `history not recorded` (§5.6.1). **It tries again each minute** (the operator's ruling in issue #71; before T1.54 it stopped until the next start):
 
@@ -787,7 +787,26 @@ An event that the Registry declined is in the table too. A `SoundCommand` and a 
 | `WindowSurfaced` | A `/show` | — |
 | `RosterEdited` | The operator edited a roster | — |
 
+**The table `runs`:** one row for each start of the dashboard (T1.60, issue #78). **A table of its own, not two decision kinds** (the operator's ruling of 2026-10-03): a run has two times, and the stop may never come.
+
+| Column | Type | Content |
+|---|---|---|
+| `id` | INTEGER PRIMARY KEY | The row id |
+| `started_at` | TEXT | When the host had started (ingress bound or failed). UTC, ISO 8601, ending in `Z` |
+| `stopped_at` | TEXT or NULL | The clean stop, in UTC. NULL after a kill, a crash or a host disposed without a stop: an empty stop is the record of the crash |
+| `version` | TEXT | The informational version, as the log's first line has it (`StartupVersion`) |
+| `port` | INTEGER or NULL | The port that ingress bound. NULL when it could not bind |
+| `data_root` | TEXT | The data folder |
+
+- **The start row** is written once per process, by the archive writer's loop, never on the consumer or the UI thread. The time is taken when the host has started, before `listening.txt` names the run, so no hook of the run is older than its start. A run so short that the loop never ran writes the row at the stop, before the drain. A second instance that stands down writes no row, and a start whose bind throws ends before it.
+- **The stop** is set after the archive's drain and before the store closes, so every record that the run queued is written first.
+- A row that the disk refuses is lost and counted like any record (`LostCount`), and not retried: a late row would say the wrong time.
+- **Times are UTC from the first row.** `events` and `decisions` keep local time with its offset until #80.
+- **No operator text.** The data folder is the one path.
+
 **`--replay <path>`** builds the `decisions` table for a database that has events and no decisions. It runs the stored events through the real Registry and sound engine. It writes only `decisions` rows, and refuses a database whose `decisions` table is not empty. Run it on a copy.
+
+**Replay forgets every session at each run's start, as a live start does (T1.60).** When the next tick or event is at or after a `runs` row's `started_at`, replay first starts a new Registry and sound engine, empty. It compares the times as instants, never as text: `events` holds local times with their offsets, and `runs` holds UTC. History before the first `runs` row replays as one uninterrupted run, as before T1.60, because older restarts were never recorded. That is where most nudge rows came from: over the operator's database, all one such run, one session that never sent another event made 4,076 of 5,168 nudge rows, a question nudge every ten minutes for four weeks. The summary line says how many runs replay saw, and how many events came before the first. Replay never writes `runs`.
 
 **To read the database:** copy `dashboard.db` and its `-wal` file, and query the copy.
 
@@ -1044,3 +1063,4 @@ The text above says what is true now. This list says when each part changed.
 | 2026-10-03 | A port that is taken says what to do, in the log, the tray and the window; the port fault is the first notice on the board (§3.1, §5.2, §5.3, §5.6.1). A program on the port in `port.txt` no longer leaves the dashboard deaf: the choice walks on (§5.3). A start whose settings were unreadable leaves start with Windows as it found it (§8.2, §10.1) | T1.57; issue #14 |
 | 2026-10-03 | The event channel sheds only noise when full, and drops the oldest only at a hard limit of 16,384; the bound is asserted (Part 4, §8.3). Two queue notices (§5.2, §5.6.1) | T1.58; issue #3 |
 | 2026-10-03 | The history store may be closed while it writes: the close waits for the current write, and a write after it is dropped without a sound (Part 4) | T1.59; issue #84 |
+| 2026-10-03 | The history database records each start and stop in a table of its own, `runs`, in UTC; `--replay` forgets every session at each start (§8.1, §8.3) | T1.60; issue #78 |
