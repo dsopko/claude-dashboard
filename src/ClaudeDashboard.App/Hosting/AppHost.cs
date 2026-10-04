@@ -311,35 +311,18 @@ public static class AppHost
         // By factory (T1.65, issue #76): the consumer also keeps the health board, which counts since the
         // start and by the hour, writes the hourly summary inside the tick, and publishes the snapshot
         // /state reads. Each source is read on the consumer thread, from a value its owner publishes.
-        builder.Services.AddSingleton(sp =>
-        {
-            var pipeline = sp.GetRequiredService<EventPipeline>();
-            var archive = sp.GetRequiredService<EventArchive>();
-            var hookHealth = sp.GetRequiredService<HookHealth>();
-            var writer = sp.GetRequiredService<EventArchiveWriter>();
-            var store = sp.GetRequiredService<SqliteEventStore>();
-            var output = sp.GetRequiredService<ISoundOutput>();
-            var modes = sp.GetRequiredService<ISoundModeReader>();
-
-            return new HealthBoard(
-                new HealthSources
-                {
-                    Version = StartupVersion.Value,
-                    Port = ingress.CanReceiveHooks ? ingress.Port : null,
-                    CanReceive = ingress.CanReceiveHooks,
-                    Shed = () => pipeline.ShedCount,
-                    Lost = () => pipeline.DroppedCount,
-                    ArchiveDropped = () => archive.DroppedCount,
-                    Refused = () => hookHealth.RefusedCount,
-                    NotWritten = () => writer.RefusedCount,
-                    DatabaseAvailable = () => store.Available,
-                    SoundOutput = () => output.HasOutput,
-                    Paused = () => modes.IsMonitoringPaused,
-                    MutedUntil = () => modes.AllMutedUntil,
-                },
-                sp.GetRequiredService<Core.Ports.IClock>(),
-                sp.GetRequiredService<ILogger>());
-        });
+        builder.Services.AddSingleton(sp => new HealthBoard(
+            HealthSourcesFor(
+                ingress,
+                sp.GetRequiredService<EventPipeline>(),
+                sp.GetRequiredService<EventArchive>(),
+                sp.GetRequiredService<HookHealth>(),
+                sp.GetRequiredService<EventArchiveWriter>(),
+                sp.GetRequiredService<SqliteEventStore>(),
+                sp.GetRequiredService<ISoundOutput>(),
+                sp.GetRequiredService<ISoundModeReader>()),
+            sp.GetRequiredService<Core.Ports.IClock>(),
+            sp.GetRequiredService<ILogger>()));
         builder.Services.AddSingleton(sp => new EventConsumer(
             sp.GetRequiredService<EventPipeline>(),
             sp.GetRequiredService<SessionRegistry>(),
@@ -514,6 +497,35 @@ public static class AppHost
 
         return app;
     }
+
+    /// <summary>
+    /// Where the health board reads each count it does not keep itself (T1.65). One method, so a test
+    /// holds the wiring: <c>notWritten</c> must be the writer's count since the start, not the store's
+    /// <c>LostCount</c>, which starts again at each recovery.
+    /// </summary>
+    internal static HealthSources HealthSourcesFor(
+        IngressStatus ingress,
+        EventPipeline pipeline,
+        EventArchive archive,
+        HookHealth hookHealth,
+        EventArchiveWriter writer,
+        SqliteEventStore store,
+        ISoundOutput output,
+        ISoundModeReader modes) => new()
+        {
+            Version = StartupVersion.Value,
+            Port = ingress.CanReceiveHooks ? ingress.Port : null,
+            CanReceive = ingress.CanReceiveHooks,
+            Shed = () => pipeline.ShedCount,
+            Lost = () => pipeline.DroppedCount,
+            ArchiveDropped = () => archive.DroppedCount,
+            Refused = () => hookHealth.RefusedCount,
+            NotWritten = () => writer.RefusedCount,
+            DatabaseAvailable = () => store.Available,
+            SoundOutput = () => output.HasOutput,
+            Paused = () => modes.IsMonitoringPaused,
+            MutedUntil = () => modes.AllMutedUntil,
+        };
 
     /// <summary>
     /// Subscribes the two process-wide exception handlers (Impl §10.1). The dispatcher handler

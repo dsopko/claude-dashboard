@@ -33,9 +33,9 @@ public sealed class HealthBoardTests
     /// <summary>A board, its recorder and its archive channel, as the consumer holds them.</summary>
     private sealed class Rig
     {
-        public Rig(HealthSources? sources = null)
+        public Rig(HealthSources? sources = null, DateTimeOffset? start = null)
         {
-            Clock = new FakeClock(Start);
+            Clock = new FakeClock(start ?? Start);
             Log = new RecordingLogSink();
             Archive = new EventArchive(Serilog.Core.Logger.None);
             Recorder = TestDecisions.For(new SessionRegistry(new SingleWriterGuard()), Archive);
@@ -293,6 +293,102 @@ public sealed class HealthBoardTests
             log.Events.Select(e => e.RenderMessage(CultureInfo.InvariantCulture)),
             line => line.StartsWith("Event consumer stopped", StringComparison.Ordinal));
         Assert.Matches(@"Since the start: applied=\d+ declined=\d+ .* ticks=\d+ sweeps=\d+ settles=\d+$", stop);
+    }
+
+    /// <summary>
+    /// The summary comes at the UTC hour, not the local one: with a clock at +05:30, a start at 19:10
+    /// local (13:40 UTC) gets its summary at the first tick after 14:00 UTC (19:30 local), and none at
+    /// the local hour, 20:00 (14:30 UTC).
+    /// </summary>
+    [Fact]
+    public void The_summary_comes_at_the_utc_hour_with_a_half_hour_offset()
+    {
+        var offset = TimeSpan.FromHours(5.5);
+        var rig = new Rig(start: new DateTimeOffset(2026, 10, 4, 19, 10, 0, offset));
+
+        rig.Tick(new DateTimeOffset(2026, 10, 4, 19, 25, 0, offset), Applied(1, 1));
+        Assert.Empty(rig.Summaries());
+
+        var utcHour = new DateTimeOffset(2026, 10, 4, 19, 35, 0, offset);
+        rig.Tick(utcHour, Applied(2, 2));
+        var row = Assert.Single(rig.Summaries());
+        Assert.Equal(utcHour, row.Ts);
+        Assert.Equal("partial", row.Reason);
+
+        rig.Tick(new DateTimeOffset(2026, 10, 4, 20, 5, 0, offset), Applied(3, 3));
+        Assert.Empty(rig.Summaries());
+    }
+
+    /// <summary>
+    /// <c>notWritten</c> is the writer's count since the start: after a failure, a record lost inside
+    /// the retry minute and a recovery, the store's own <c>LostCount</c> is 0 again and
+    /// <c>notWritten</c> still says 2. Through AppHost's own wiring of the sources.
+    /// </summary>
+    [Fact]
+    public async Task Not_written_keeps_counting_through_a_recovery()
+    {
+        var folder = Path.Combine(Path.GetTempPath(), "claude-dashboard-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(folder);
+
+        try
+        {
+            var clock = new FakeClock(Start);
+            using var store = new SqliteEventStore(Path.Combine(folder, "dashboard.db"), Serilog.Core.Logger.None, clock);
+            var archive = new EventArchive(Serilog.Core.Logger.None);
+            using var writer = new EventArchiveWriter(archive, store, Serilog.Core.Logger.None);
+
+            var sources = ClaudeDashboard.App.Hosting.AppHost.HealthSourcesFor(
+                ClaudeDashboard.App.Hosting.IngressStatus.Healthy(5000),
+                new EventPipeline(Serilog.Core.Logger.None),
+                archive,
+                new HookHealth(),
+                writer,
+                store,
+                new FixedOutput(),
+                new SettableSoundModes());
+
+            await writer.StartAsync(CancellationToken.None);
+
+            store.InsideTransaction = () => throw new Microsoft.Data.Sqlite.SqliteException("planted: database or disk is full", 13);
+
+            archive.TryArchive(new ArchiveRecord(TestEvents.Hook("{}"), []));
+            Assert.True(SpinWait.SpinUntil(() => writer.RefusedCount == 1, TimeSpan.FromSeconds(30)));
+
+            // Inside the retry minute: lost without an attempt.
+            archive.TryArchive(new ArchiveRecord(TestEvents.Hook("{}"), []));
+            Assert.True(SpinWait.SpinUntil(() => writer.RefusedCount == 2, TimeSpan.FromSeconds(30)));
+
+            Assert.Equal(2, store.LostCount);
+            Assert.Equal(2, sources.NotWritten());
+
+            store.InsideTransaction = null;
+            clock.Now += SqliteEventStore.RetryAfter;
+
+            archive.TryArchive(new ArchiveRecord(TestEvents.Hook("{}"), []));
+            Assert.True(SpinWait.SpinUntil(() => writer.WrittenCount == 1, TimeSpan.FromSeconds(30)));
+
+            Assert.Equal(0, store.LostCount);
+            Assert.Equal(2, sources.NotWritten());
+
+            await writer.StopAsync(CancellationToken.None);
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(folder, recursive: true);
+            }
+            catch (IOException)
+            {
+                // Disposable temp folder.
+            }
+        }
+    }
+
+    /// <summary>An output that is always bound.</summary>
+    private sealed class FixedOutput : ClaudeDashboard.App.Adapters.ISoundOutput
+    {
+        public bool HasOutput => true;
     }
 
     /// <summary>Replay over a history that spans hours writes no hourly summary: it is not a running process.</summary>
