@@ -76,7 +76,15 @@ public sealed class RosterSettingsTests
             .OrderBy(name => name, StringComparer.Ordinal)
             .ToList();
 
-        Assert.Equal(["InstallHooksAtStart", "Logging", "Port", "Rosters", "Sound", "StartWithWindows", "Window"], found);
+        // UnknownKeys is the one property not in equality, on purpose (T1.64): the keys this version does
+        // not know are carried back to the file, not compared.
+        Assert.Equal(["History", "InstallHooksAtStart", "Logging", "Port", "Rosters", "Sound", "StartWithWindows", "UnknownKeys", "Window"], found);
+
+        var plain = JsonSerializer.Deserialize<DashboardSettings>("""{"port":52789}""")!;
+        var withUnknown = JsonSerializer.Deserialize<DashboardSettings>("""{"port":52789,"fromANewerVersion":1}""")!;
+
+        Assert.NotNull(withUnknown.UnknownKeys);
+        Assert.Equal(plain, withUnknown);
     }
 
     /// <summary>An absent section is no rosters, and says nothing about it.</summary>

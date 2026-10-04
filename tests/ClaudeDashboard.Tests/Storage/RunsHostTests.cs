@@ -42,10 +42,10 @@ public sealed class RunsHostTests : IDisposable
         }
     }
 
-    private WebApplication Host(out int port, bool ingressAvailable = true)
+    private WebApplication Host(out int port, bool ingressAvailable = true, int retentionDays = HistorySettings.DefaultRetentionDays)
     {
         port = ClaudeDashboard.Tests.Hosting.AppHostTests.FreePort();
-        new SettingsStore(_paths).Save(new DashboardSettings { Port = port });
+        new SettingsStore(_paths).Save(new DashboardSettings { Port = port, History = new HistorySettings { RetentionDays = retentionDays } });
 
         return AppHost.Build(_paths, ingressAvailable: ingressAvailable);
     }
@@ -134,7 +134,8 @@ public sealed class RunsHostTests : IDisposable
         var events = ForeignSqliteReader.Query(_paths.DatabaseFile, OldDatabase.EventRows);
         var decisions = ForeignSqliteReader.Query(_paths.DatabaseFile, OldDatabase.DecisionRows);
 
-        await using (var app = Host(out _))
+        // Keeps everything: the old rows are from 2026-09-01, older than the default 30 days (T1.64).
+        await using (var app = Host(out _, retentionDays: 0))
         {
             await app.StartAsync();
             await app.StopAsync();

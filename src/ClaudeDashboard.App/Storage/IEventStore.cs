@@ -57,4 +57,27 @@ public interface IEventStore
     /// <summary>Sets the stop time on a row <see cref="StartRun"/> wrote (T1.60). Never throws.</summary>
     /// <returns><see langword="true"/> if the time was written.</returns>
     bool StopRun(long runId, DateTimeOffset stoppedAt);
+
+    /// <summary>
+    /// Deletes what is older than <paramref name="retentionDays"/> days before
+    /// <paramref name="now"/>, in one transaction (T1.64). 0 keeps everything. Never throws.
+    /// </summary>
+    /// <param name="retentionDays">The days to keep; 0 keeps everything.</param>
+    /// <param name="now">The instant the window is counted back from.</param>
+    /// <param name="keepRunId">This process's run, which is kept however long ago it started; or null.</param>
+    /// <returns>What was deleted; null if the store could not prune now (closed, or failing).</returns>
+    PruneCounts? Prune(int retentionDays, DateTimeOffset now, long? keepRunId);
+}
+
+/// <summary>What one prune deleted, by table (T1.64).</summary>
+/// <param name="Events">Rows deleted from <c>events</c>.</param>
+/// <param name="Decisions">Rows deleted from <c>decisions</c>: those of the deleted events, and those with no event.</param>
+/// <param name="Runs">Rows deleted from <c>runs</c>.</param>
+public sealed record PruneCounts(long Events, long Decisions, long Runs)
+{
+    /// <summary>Nothing deleted.</summary>
+    public static PruneCounts None { get; } = new(0, 0, 0);
+
+    /// <summary>All the rows deleted.</summary>
+    public long Total => Events + Decisions + Runs;
 }

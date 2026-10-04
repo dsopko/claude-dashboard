@@ -230,7 +230,7 @@ public sealed class SqliteEventStoreTests : IDisposable
         var rendered = line.RenderMessage(System.Globalization.CultureInfo.InvariantCulture);
 
         Assert.Contains("dashboard.db", rendered, StringComparison.Ordinal);
-        Assert.Contains("not pruned", rendered, StringComparison.Ordinal);
+        Assert.Contains("retention window", rendered, StringComparison.Ordinal);
         Assert.Contains(
             SqliteEventStore.TypicalBytesPerDay.ToString(System.Globalization.CultureInfo.InvariantCulture),
             rendered,

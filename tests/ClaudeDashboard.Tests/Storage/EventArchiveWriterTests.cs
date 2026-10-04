@@ -65,6 +65,8 @@ public sealed class EventArchiveWriterTests : IDisposable
 
             return false;
         }
+
+        public PruneCounts? Prune(int retentionDays, DateTimeOffset now, long? keepRunId) => null;
     }
 
     /// <summary>What the channel is given reaches the file.</summary>
