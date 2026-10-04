@@ -152,6 +152,13 @@ public sealed partial class TrayViewModel : ObservableObject, IUiTickTarget, IDi
     /// </summary>
     public event EventHandler? SettingsRequested;
 
+    /// <summary>
+    /// Raised when the operator asks for the Activity window (T1.70, issue #97), from the tray menu or
+    /// the main window's toolbar, which share this command. The host opens the window, or brings the
+    /// open one to the front.
+    /// </summary>
+    public event EventHandler? ActivityRequested;
+
     /// <summary>What the mute menu item reads (Impl §5.2: the item toggles).</summary>
     public string MuteAllLabel => IsMuted ? "Unmute all" : "Mute all";
 
@@ -207,6 +214,10 @@ public sealed partial class TrayViewModel : ObservableObject, IUiTickTarget, IDi
     /// </remarks>
     [RelayCommand]
     private void OpenSettings() => SettingsRequested?.Invoke(this, EventArgs.Empty);
+
+    /// <summary>Asks for the Activity window (T1.70).</summary>
+    [RelayCommand]
+    private void OpenActivity() => ActivityRequested?.Invoke(this, EventArgs.Empty);
 
     /// <summary>Ends the process.</summary>
     [RelayCommand]

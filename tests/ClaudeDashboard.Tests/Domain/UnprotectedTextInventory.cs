@@ -113,6 +113,12 @@ public sealed class UnprotectedTextInventory
         "Decision.SessionTitle",
         "ArchiveRecord.EventSessionTitle",
 
+        // The Activity window (T1.70, issue #97): the session's name on a line, and the sentence that holds
+        // it. On screen only; nothing logs a line.
+        "ActivityLine.Name",
+        "ActivityLineViewModel.Name",
+        "ActivityLineViewModel.Sentence",
+
         // What the screen binds to — and the type most likely to be logged.
         "SessionViewModel.Prompt",
         "SessionViewModel.PromptSnippet",
@@ -204,6 +210,11 @@ public sealed class UnprotectedTextInventory
         "Exchange.PromptId", "Session.Cwd", "Session.ErrorKind",
         // T1.69: the session's full path on a decision row, as Session.Cwd.
         "Decision.Cwd",
+        // T1.70: the Activity window's lines. Paths and the window's own words.
+        "ActivityLine.Detail", "ActivityLine.Project", "ActivityLine.ProjectPath", "ActivityLine.What",
+        "ActivityLineViewModel.Detail", "ActivityLineViewModel.Project", "ActivityLineViewModel.ProjectPath",
+        "ActivityLineViewModel.Sign", "ActivityLineViewModel.Time", "ActivityLineViewModel.What",
+        "ActivityViewModel.LastHeardText", "ActivityLog.DroppedLine",
         "SessionId.Value", "GroupKey.Value", "SoundId.Name", "StateTransition.Cause",
 
         // T1.44: the error matcher a quiet tick puts back — Session.ErrorKind, copied. The cron

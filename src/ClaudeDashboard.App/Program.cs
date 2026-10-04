@@ -317,10 +317,20 @@ public static class Program
                 var settingsWindows = host.Services.GetRequiredService<SettingsWindowHost>();
                 tray.ViewModel.SettingsRequested += (_, _) => settingsWindows.Show();
 
+                // The Activity window (T1.70): made now, hidden, and always there; the tray menu and the toolbar
+                // share one command that only shows it.
+                var activityWindows = host.Services.GetRequiredService<ActivityWindowHost>();
+                activityWindows.Create();
+                tray.ViewModel.ActivityRequested += (_, _) => activityWindows.Show();
+
                 phases.Mark("window");
                 phases.Log(host.Services.GetRequiredService<Serilog.ILogger>());
 
                 var exitCode = app.Run(window);
+
+                // The Activity window's place first, if it is shown, and then it may close; the main window's save
+                // below reads the file back.
+                activityWindows.Quit();
 
                 // Where the operator left the window, so the next launch opens there (Impl §5.4).
                 // Best effort: a dashboard that cannot write its own settings file should still

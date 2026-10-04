@@ -1,0 +1,176 @@
+<Window x:Class="ClaudeDashboard.App.Ui.ActivityWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="clr-namespace:ClaudeDashboard.App.Ui"
+        Title="Activity"
+        Width="640"
+        Height="480"
+        MinWidth="260"
+        MinHeight="200"
+        ShowInTaskbar="True"
+        UseLayoutRounding="True"
+        TextOptions.TextFormattingMode="Display">
+
+    <!--
+        The Activity window (T1.70, issue #97): what the dashboard did since it started, newest first, in
+        plain words. The lines are ActivityLog's one list, in memory, fed from the consumer's decisions since the
+        start; nothing is read from dashboard.db. The window is made at start and only hidden when it closes,
+        and the list is virtualized, so lines added while it is hidden cost nothing to draw. Nothing here
+        moves: no storyboard, no fade, so the motion rule holds.
+
+        The layout follows the width (ActivityViewModel.LayoutFor): one line in columns when wide; two lines
+        when narrow, the second small and grey; narrower still, the detail goes first, then the project. The
+        time, the sound sign, what occurred and the name never go, and the hover on a line holds everything.
+    -->
+
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="/ClaudeDashboard.App;component/Ui/RowTemplates.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+
+            <Style x:Key="ActivityText" TargetType="TextBlock">
+                <Setter Property="FontFamily" Value="{StaticResource UiFont}" />
+                <Setter Property="FontSize" Value="12" />
+                <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+                <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+                <Setter Property="VerticalAlignment" Value="Center" />
+            </Style>
+
+            <Style x:Key="ActivitySmall" TargetType="TextBlock" BasedOn="{StaticResource ActivityText}">
+                <Setter Property="FontSize" Value="11" />
+                <Setter Property="Foreground" Value="{StaticResource Ink3Brush}" />
+            </Style>
+        </ResourceDictionary>
+    </Window.Resources>
+
+    <Grid Background="{StaticResource SurfaceBrush}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- "last heard from Claude Code …", the tray tooltip's own words (T1.61). -->
+        <TextBlock x:Name="LastHeardLine"
+                   Grid.Row="0"
+                   Margin="12,10,12,6"
+                   Style="{StaticResource ActivitySmall}"
+                   Text="{Binding LastHeardText}" />
+
+        <ListBox x:Name="ActivityList"
+                 Grid.Row="1"
+                 ItemsSource="{Binding Log.Lines}"
+                 Background="Transparent"
+                 BorderThickness="0"
+                 HorizontalContentAlignment="Stretch"
+                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                 VirtualizingPanel.IsVirtualizing="True"
+                 VirtualizingPanel.VirtualizationMode="Recycling"
+                 VirtualizingPanel.ScrollUnit="Pixel"
+                 Grid.IsSharedSizeScope="True">
+            <ListBox.ItemContainerStyle>
+                <Style TargetType="ListBoxItem">
+                    <Setter Property="Padding" Value="12,3" />
+                    <Setter Property="AutomationProperties.Name" Value="{Binding Sentence}" />
+                    <Setter Property="ToolTip" Value="{Binding Sentence}" />
+                    <Setter Property="Template">
+                        <Setter.Value>
+                            <ControlTemplate TargetType="ListBoxItem">
+                                <Border x:Name="LineSurface" Background="Transparent" Padding="{TemplateBinding Padding}">
+                                    <ContentPresenter />
+                                </Border>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter TargetName="LineSurface" Property="Background" Value="{StaticResource RaisedBrush}" />
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Setter.Value>
+                    </Setter>
+                </Style>
+            </ListBox.ItemContainerStyle>
+
+            <ListBox.ItemTemplate>
+                <DataTemplate DataType="{x:Type ui:ActivityLineViewModel}">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <!-- Shared across the realized lines, so the wide form reads as columns. -->
+                            <ColumnDefinition Width="64" />
+                            <ColumnDefinition Width="16" />
+                            <ColumnDefinition Width="Auto" SharedSizeGroup="What" />
+                            <ColumnDefinition Width="Auto" SharedSizeGroup="Name" />
+                            <ColumnDefinition Width="Auto" SharedSizeGroup="Project" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+
+                        <TextBlock x:Name="TimeText" Grid.Column="0" Text="{Binding Time}" Style="{StaticResource ActivitySmall}" />
+                        <TextBlock x:Name="SignText" Grid.Column="1" Text="{Binding Sign}" Style="{StaticResource ActivityText}" />
+                        <TextBlock x:Name="WhatText" Grid.Column="2" Margin="0,0,10,0" Text="{Binding What}" Style="{StaticResource ActivityText}" />
+                        <TextBlock x:Name="NameText" Grid.Column="3" Margin="0,0,10,0" Text="{Binding Name}" Style="{StaticResource ActivityText}" FontWeight="SemiBold" />
+
+                        <!-- Wide: the project and the detail in their own columns. -->
+                        <TextBlock x:Name="WideProject" Grid.Column="4" Margin="0,0,10,0" Text="{Binding Project}"
+                                   ToolTip="{Binding ProjectPath}" Style="{StaticResource ActivitySmall}" />
+                        <TextBlock x:Name="WideDetail" Grid.Column="5" Text="{Binding Detail}" Style="{StaticResource ActivitySmall}" />
+
+                        <!-- Narrow: the second line, small and grey. The detail goes first, then the project. -->
+                        <StackPanel x:Name="SecondLine" Grid.Row="1" Grid.Column="2" Grid.ColumnSpan="4"
+                                    Orientation="Horizontal" Visibility="Collapsed">
+                            <TextBlock x:Name="NarrowProject" Text="{Binding Project}" ToolTip="{Binding ProjectPath}"
+                                       Style="{StaticResource ActivitySmall}" />
+                            <TextBlock x:Name="NarrowSeparator" Text=" · " Style="{StaticResource ActivitySmall}" />
+                            <TextBlock x:Name="NarrowDetail" Text="{Binding Detail}" Style="{StaticResource ActivitySmall}" />
+                        </StackPanel>
+                    </Grid>
+
+                    <DataTemplate.Triggers>
+                        <!-- Nothing to show leaves no gap and no separator. -->
+                        <DataTrigger Binding="{Binding HasProject}" Value="False">
+                            <Setter TargetName="NarrowProject" Property="Visibility" Value="Collapsed" />
+                            <Setter TargetName="NarrowSeparator" Property="Visibility" Value="Collapsed" />
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding HasDetail}" Value="False">
+                            <Setter TargetName="NarrowSeparator" Property="Visibility" Value="Collapsed" />
+                        </DataTrigger>
+
+                        <!-- Two lines: the project and the detail move to the second line. -->
+                        <DataTrigger Binding="{Binding DataContext.Layout, RelativeSource={RelativeSource AncestorType=ListBox}}" Value="TwoLines">
+                            <Setter TargetName="WideProject" Property="Visibility" Value="Collapsed" />
+                            <Setter TargetName="WideDetail" Property="Visibility" Value="Collapsed" />
+                            <Setter TargetName="SecondLine" Property="Visibility" Value="Visible" />
+                        </DataTrigger>
+
+                        <!-- Narrower: the detail goes. -->
+                        <DataTrigger Binding="{Binding DataContext.Layout, RelativeSource={RelativeSource AncestorType=ListBox}}" Value="NoDetail">
+                            <Setter TargetName="WideProject" Property="Visibility" Value="Collapsed" />
+                            <Setter TargetName="WideDetail" Property="Visibility" Value="Collapsed" />
+                            <Setter TargetName="SecondLine" Property="Visibility" Value="Visible" />
+                            <Setter TargetName="NarrowDetail" Property="Visibility" Value="Collapsed" />
+                            <Setter TargetName="NarrowSeparator" Property="Visibility" Value="Collapsed" />
+                        </DataTrigger>
+
+                        <!-- Narrowest: the project goes too, and the line is one line. -->
+                        <DataTrigger Binding="{Binding DataContext.Layout, RelativeSource={RelativeSource AncestorType=ListBox}}" Value="NoProject">
+                            <Setter TargetName="WideProject" Property="Visibility" Value="Collapsed" />
+                            <Setter TargetName="WideDetail" Property="Visibility" Value="Collapsed" />
+                            <Setter TargetName="SecondLine" Property="Visibility" Value="Collapsed" />
+                        </DataTrigger>
+                    </DataTemplate.Triggers>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+
+        <!-- The bottom of the list, once the oldest lines have gone: the newest 20,000 are kept. -->
+        <TextBlock x:Name="DroppedLine"
+                   Grid.Row="2"
+                   Margin="12,6,12,10"
+                   Style="{StaticResource ActivitySmall}"
+                   Text="{Binding Log.DroppedLine}"
+                   Visibility="{Binding Log.HasDropped, Converter={StaticResource BoolToVisible}}" />
+    </Grid>
+</Window>

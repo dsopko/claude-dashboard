@@ -78,7 +78,7 @@ public sealed class RosterSettingsTests
 
         // UnknownKeys is the one property not in equality, on purpose (T1.64): the keys this version does
         // not know are carried back to the file, not compared.
-        Assert.Equal(["InstallHooksAtStart", "Logging", "Port", "Rosters", "Sound", "StartWithWindows", "UnknownKeys", "Window"], found);
+        Assert.Equal(["ActivityWindow", "InstallHooksAtStart", "Logging", "Port", "Rosters", "Sound", "StartWithWindows", "UnknownKeys", "Window"], found);
 
         var plain = JsonSerializer.Deserialize<DashboardSettings>("""{"port":52789}""")!;
         var withUnknown = JsonSerializer.Deserialize<DashboardSettings>("""{"port":52789,"fromANewerVersion":1}""")!;

@@ -100,7 +100,7 @@ public sealed class TrayIcon : IDisposable
     }
 
     /// <summary>
-    /// Open · Mute all (and for 30 min) · Pause monitoring · Settings · Quit (Impl §5.2).
+    /// Open · Activity · Mute all (and for 30 min) · Pause monitoring · Settings · Quit (Impl §5.2).
     /// </summary>
     /// <remarks>
     /// The mute and pause headers bind their text, because both items toggle: "Mute all" becomes
@@ -113,6 +113,7 @@ public sealed class TrayIcon : IDisposable
         var menu = new ContextMenu { DataContext = viewModel };
 
         menu.Items.Add(Item("Open", viewModel.OpenCommand));
+        menu.Items.Add(Item("Activity…", viewModel.OpenActivityCommand));
         menu.Items.Add(new Separator());
         menu.Items.Add(Bound(nameof(TrayViewModel.MuteAllLabel), viewModel, viewModel.MuteAllCommand));
         menu.Items.Add(Item("Mute all for 30 min", viewModel.MuteAllForThirtyMinutesCommand));

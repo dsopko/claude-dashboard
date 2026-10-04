@@ -337,13 +337,14 @@
                                 ClipToBounds="True" />
             </Border>
 
-            <!-- ==== Toolbar: Grouped/Flat · Select · Mute all · Ack all (2c + issue #43) ======= -->
+            <!-- ==== Toolbar: Grouped/Flat · Select · Activity · Mute all · Ack all (2c + issue #43) == -->
             <Border Grid.Row="2" Padding="12,10"
                     BorderBrush="{StaticResource HairlineBrush}" BorderThickness="0,0,0,1">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="Auto" />
@@ -404,6 +405,18 @@
                     </StackPanel>
 
                     <!--
+                        Activity (T1.70, issue #97): the window of what the dashboard did. The tray
+                        menu's own command, as Mute all is: this button's DataContext is the tray's
+                        view model, set in the window's constructor.
+                    -->
+                    <Button x:Name="ActivityButton" Grid.Column="3"
+                            Content="Activity"
+                            Command="{Binding OpenActivityCommand}"
+                            Style="{StaticResource HeaderButtonStyle}"
+                            Margin="0,0,6,0"
+                            ToolTip="What the dashboard did since it started, and what made a sound." />
+
+                    <!--
                         Mute all (T1.47, the operator's ruling of 2026-09-29). ONE SOURCE WITH THE
                         TRAY: this button's DataContext is the TrayViewModel itself, set in the
                         window's constructor, so its label and its command are the tray menu's own
@@ -411,7 +424,7 @@
                         nothing to keep in step: muting from either place publishes the same
                         SoundCommand and shows on both at the tray's next refresh.
                     -->
-                    <Button x:Name="MuteAllButton" Grid.Column="3"
+                    <Button x:Name="MuteAllButton" Grid.Column="4"
                             Content="{Binding MuteAllLabel}"
                             Command="{Binding MuteAllCommand}"
                             Style="{StaticResource HeaderButtonStyle}"
@@ -423,7 +436,7 @@
                         that clears the board. Lit exactly when enabled — the style's remark says
                         why unlit is plain rather than dimmed.
                     -->
-                    <Button x:Name="AckAllButton" Grid.Column="4" Content="Ack all"
+                    <Button x:Name="AckAllButton" Grid.Column="5" Content="Ack all"
                             Margin="6,0,0,0"
                             Style="{StaticResource LitActionButtonStyle}"
                             Command="{Binding AckAllCommand}"
