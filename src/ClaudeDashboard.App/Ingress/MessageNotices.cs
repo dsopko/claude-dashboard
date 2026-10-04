@@ -141,6 +141,9 @@ public sealed class RefusedNotice : INotice, IUiTickTarget
     /// <inheritdoc/>
     public void Tick(DateTimeOffset now)
     {
+        // The refusals a flood left uncounted become one last row on this tick (the ruling of 2026-10-04).
+        _health.FlushRefusals(now);
+
         var shown = _health.RefusalsShowAt(now);
 
         if (shown == IsShown)

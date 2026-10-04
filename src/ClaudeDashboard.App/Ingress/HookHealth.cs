@@ -46,21 +46,36 @@ public sealed class HookHealth
     /// <summary>The window the refusals are counted in, and how long the notice stays after the last.</summary>
     public static readonly TimeSpan RefusalWindow = TimeSpan.FromMinutes(10);
 
+    /// <summary>
+    /// The least time between two <c>HookRefused</c> rows: one second (the operator's ruling of
+    /// 2026-10-04 on #74).
+    /// </summary>
+    /// <remarks>
+    /// A flood of refused posts wrote a row for each one, about 100 MB a minute in the review's
+    /// probe. Now the refusals in between are counted, and the next row carries the count
+    /// (<c>refused=37</c>). A lone refusal still writes its row at once, and the tick writes what a
+    /// flood that stopped left over, so no refusal goes unrecorded.
+    /// </remarks>
+    public static readonly TimeSpan RefusedRowEvery = TimeSpan.FromSeconds(1);
+
     private readonly Lock _gate = new();
     private readonly Queue<DateTimeOffset> _recentRefusals = new();
 
     private long _lastHeardTicks;
     private long _refusedCount;
     private DateTimeOffset? _refusedShownUntil;
+    private DateTimeOffset? _lastRefusedRowAt;
+    private long _refusedSinceRow;
     private string? _pendingTest;
     private TaskCompletionSource<DateTimeOffset>? _arrival;
     private SelfTestResult? _lastSelfTest;
 
     /// <summary>
-    /// Told on the request thread for each refused post (the decisions recorder writes
-    /// <c>HookRefused</c>). Set once at composition.
+    /// Told when a <c>HookRefused</c> row is due, with its time and the refusals it counts: at most
+    /// once each <see cref="RefusedRowEvery"/>, on the request thread or the tick. The decisions
+    /// recorder writes the row. Set once at composition.
     /// </summary>
-    public Action<DateTimeOffset>? RefusedPost { get; set; }
+    public Action<DateTimeOffset, long>? RefusedPost { get; set; }
 
     /// <summary>When the last real message was accepted, or null since start. Read from any thread.</summary>
     public DateTimeOffset? LastHeardAt =>
@@ -93,11 +108,21 @@ public sealed class HookHealth
     {
         Interlocked.Increment(ref _refusedCount);
 
+        long due;
+
         lock (_gate)
         {
             _recentRefusals.Enqueue(at);
 
             while (_recentRefusals.Count > 0 && at - _recentRefusals.Peek() >= RefusalWindow)
+            {
+                _recentRefusals.Dequeue();
+            }
+
+            // At most RefusalsToShow instants (T1.61 review): the newest three decide whether three fell in
+            // the window, so older ones add nothing. A flood of refused posts then costs three instants of
+            // memory, not one for each post. Degrade, never crash.
+            while (_recentRefusals.Count > RefusalsToShow)
             {
                 _recentRefusals.Dequeue();
             }
@@ -108,9 +133,64 @@ public sealed class HookHealth
             {
                 _refusedShownUntil = at + RefusalWindow;
             }
+
+            _refusedSinceRow++;
+            due = RowDue(at);
         }
 
-        RefusedPost?.Invoke(at);
+        if (due > 0)
+        {
+            RefusedPost?.Invoke(at, due);
+        }
+    }
+
+    /// <summary>
+    /// On the tick: writes the refusals a flood that stopped left uncounted, as one last row, once a
+    /// second has passed since the last row.
+    /// </summary>
+    public void FlushRefusals(DateTimeOffset now)
+    {
+        long due;
+
+        lock (_gate)
+        {
+            due = _refusedSinceRow > 0 ? RowDue(now) : 0;
+        }
+
+        if (due > 0)
+        {
+            RefusedPost?.Invoke(now, due);
+        }
+    }
+
+    /// <summary>
+    /// The count for a row due at <paramref name="at"/>, or 0 if the last row was less than
+    /// <see cref="RefusedRowEvery"/> ago. Called under the lock.
+    /// </summary>
+    private long RowDue(DateTimeOffset at)
+    {
+        if (_lastRefusedRowAt is { } last && at - last < RefusedRowEvery)
+        {
+            return 0;
+        }
+
+        var due = _refusedSinceRow;
+        _refusedSinceRow = 0;
+        _lastRefusedRowAt = at;
+
+        return due;
+    }
+
+    /// <summary>How many refusal instants are held now: never more than <see cref="RefusalsToShow"/>.</summary>
+    internal int HeldRefusals
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _recentRefusals.Count;
+            }
+        }
     }
 
     /// <summary>Whether the refused notice shows at <paramref name="now"/>.</summary>

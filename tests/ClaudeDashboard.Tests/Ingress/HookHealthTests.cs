@@ -103,18 +103,144 @@ public sealed class HookHealthTests
         Assert.Equal(3, health.RefusedCount);
     }
 
-    /// <summary>Each refusal is told to the recorder, with its time and nothing else.</summary>
+    // ---- HookRefused rows: at most one a second (the ruling of 2026-10-04) ----------------------
+
+    /// <summary>
+    /// A burst of 1,000 refusals within one second writes one row at once, for the first, and the
+    /// tick writes the other 999 as one last row. No refusal goes unrecorded.
+    /// </summary>
     [Fact]
-    public void Each_refusal_is_told_once()
+    public void A_burst_of_a_thousand_refusals_writes_one_row_and_the_tick_the_rest()
     {
         var health = new HookHealth();
-        var told = new List<DateTimeOffset>();
-        health.RefusedPost = told.Add;
+        var rows = new List<(DateTimeOffset At, long Count)>();
+        health.RefusedPost = (at, count) => rows.Add((at, count));
 
-        health.Refused(Start);
+        for (var i = 0; i < 1_000; i++)
+        {
+            health.Refused(Start + TimeSpan.FromMilliseconds(i * 0.9));
+        }
+
+        Assert.Equal([(Start, 1L)], rows);
+
+        // The tray's tick, through the notice: what the burst left is one last row.
+        new RefusedNotice(health).Tick(Start + TimeSpan.FromSeconds(15));
+
+        Assert.Equal([(Start, 1L), (Start + TimeSpan.FromSeconds(15), 999L)], rows);
+        Assert.Equal(1_000, rows.Sum(row => row.Count));
+        Assert.Equal(1_000, health.RefusedCount);
+    }
+
+    /// <summary>A refusal a second or more after the last row carries the count of those in between.</summary>
+    [Fact]
+    public void The_next_row_carries_the_refusals_in_between()
+    {
+        var health = new HookHealth();
+        var rows = new List<(DateTimeOffset At, long Count)>();
+        health.RefusedPost = (at, count) => rows.Add((at, count));
+
+        for (var i = 0; i < 37; i++)
+        {
+            health.Refused(Start + TimeSpan.FromMilliseconds(i * 10));
+        }
+
         health.Refused(Start + TimeSpan.FromSeconds(1));
 
-        Assert.Equal([Start, Start + TimeSpan.FromSeconds(1)], told);
+        Assert.Equal([(Start, 1L), (Start + TimeSpan.FromSeconds(1), 37L)], rows);
+    }
+
+    /// <summary>Refusals two seconds apart write one row each, each for one refusal.</summary>
+    [Fact]
+    public void Refusals_two_seconds_apart_write_one_row_each()
+    {
+        var health = new HookHealth();
+        var rows = new List<(DateTimeOffset At, long Count)>();
+        health.RefusedPost = (at, count) => rows.Add((at, count));
+
+        health.Refused(Start);
+        health.Refused(Start + TimeSpan.FromSeconds(2));
+        health.Refused(Start + TimeSpan.FromSeconds(4));
+
+        Assert.Equal(
+            [(Start, 1L), (Start + TimeSpan.FromSeconds(2), 1L), (Start + TimeSpan.FromSeconds(4), 1L)],
+            rows);
+    }
+
+    /// <summary>The tick writes nothing when nothing is left, or within a second of the last row.</summary>
+    [Fact]
+    public void The_tick_writes_only_a_remainder_and_keeps_to_one_row_a_second()
+    {
+        var health = new HookHealth();
+        var rows = new List<(DateTimeOffset At, long Count)>();
+        health.RefusedPost = (at, count) => rows.Add((at, count));
+
+        health.FlushRefusals(Start);
+        Assert.Empty(rows);
+
+        health.Refused(Start);
+        health.Refused(Start + TimeSpan.FromMilliseconds(100));
+
+        health.FlushRefusals(Start + TimeSpan.FromMilliseconds(500));
+        Assert.Equal([(Start, 1L)], rows);
+
+        health.FlushRefusals(Start + TimeSpan.FromSeconds(1));
+        health.FlushRefusals(Start + TimeSpan.FromSeconds(16));
+        Assert.Equal([(Start, 1L), (Start + TimeSpan.FromSeconds(1), 1L)], rows);
+    }
+
+    /// <summary>
+    /// A flood of refused posts holds at most <see cref="HookHealth.RefusalsToShow"/> instants, and
+    /// the notice still shows and clears as before (T1.61 review: 154,746 held before the fix).
+    /// </summary>
+    [Fact]
+    public void A_flood_of_refusals_holds_at_most_three_and_shows_and_clears_as_before()
+    {
+        var health = new HookHealth();
+        var notice = new RefusedNotice(health);
+        var last = Start;
+
+        for (var i = 0; i < 200_000; i++)
+        {
+            last = Start + TimeSpan.FromMilliseconds(i);
+            health.Refused(last);
+
+            Assert.True(health.HeldRefusals <= HookHealth.RefusalsToShow, $"{health.HeldRefusals} held after {i + 1}.");
+        }
+
+        Assert.Equal(200_000, health.RefusedCount);
+
+        notice.Tick(last);
+        Assert.True(notice.IsShown);
+
+        notice.Tick(last + HookHealth.RefusalWindow - TimeSpan.FromSeconds(1));
+        Assert.True(notice.IsShown);
+
+        notice.Tick(last + HookHealth.RefusalWindow);
+        Assert.False(notice.IsShown);
+    }
+
+    // ---- The self-test's one-time value -------------------------------------------------------
+
+    /// <summary>
+    /// Only the value the test waits for completes it: another value, or none, is answered and
+    /// changes nothing.
+    /// </summary>
+    [Fact]
+    public async Task Only_the_awaited_value_completes_the_self_test()
+    {
+        var health = new HookHealth();
+        var arrival = health.Expect("the-value");
+
+        Assert.False(health.TestArrived("another-value", Start));
+        Assert.False(health.TestArrived(null, Start));
+        Assert.False(arrival.IsCompleted);
+
+        Assert.True(health.TestArrived("the-value", Start + TimeSpan.FromSeconds(1)));
+        Assert.True(arrival.IsCompletedSuccessfully);
+        Assert.Equal(Start + TimeSpan.FromSeconds(1), await arrival);
+
+        // Once arrived, the same value is not accepted twice.
+        Assert.False(health.TestArrived("the-value", Start + TimeSpan.FromSeconds(2)));
     }
 
     // ---- Last heard ---------------------------------------------------------------------------

@@ -404,10 +404,14 @@ public static class AppHost
                 Reason: why == PipelineDrop.Shed ? "noise" : "pipeline",
                 Detail: why == PipelineDrop.Shed ? EventPipeline.KindOf(dropped) : null));
 
-        // A refused post is one row with no event and no session (T1.61, the operator's comment on #74).
-        // Nothing from the post: it is not trusted.
-        app.Services.GetRequiredService<HookHealth>().RefusedPost = at =>
-            decisions.External(new Storage.Decision(at, null, Storage.DecisionKind.HookRefused));
+        // Refused posts are rows with no event and no session (T1.61, the operator's comment on #74): at most
+        // one a second, with the count (the ruling of 2026-10-04). Nothing from the post: it is not trusted.
+        app.Services.GetRequiredService<HookHealth>().RefusedPost = (at, count) =>
+            decisions.External(new Storage.Decision(
+                at,
+                null,
+                Storage.DecisionKind.HookRefused,
+                Detail: string.Create(CultureInfo.InvariantCulture, $"refused={count}")));
 
         app.Services.GetRequiredService<EventArchive>().Dropped = record =>
             decisions.External(new Storage.Decision(

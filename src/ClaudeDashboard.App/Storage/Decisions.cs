@@ -89,8 +89,9 @@ public enum DecisionKind
 
     /// <summary>
     /// A <c>/hook</c> post was refused: its token did not match (T1.61, issue #74). <c>event_id</c>
-    /// and <c>session_id</c> are NULL, and <c>reason</c> and <c>detail</c> are empty: a refused post is
-    /// not trusted, so nothing from its body or headers is recorded.
+    /// and <c>session_id</c> are NULL, and <c>reason</c> is empty: a refused post is not trusted, so
+    /// nothing from its body or headers is recorded. At most one row a second; <c>detail</c> is the
+    /// count of refusals it stands for (<c>refused=37</c>).
     /// </summary>
     HookRefused = 42,
 
