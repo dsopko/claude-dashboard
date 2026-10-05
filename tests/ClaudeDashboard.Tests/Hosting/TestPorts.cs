@@ -93,6 +93,7 @@ internal static class TestPorts
                 }
             }
 
+            Discarded(host);
             await host.DisposeAsync();
         }
 
@@ -122,6 +123,7 @@ internal static class TestPorts
                 }
             }
 
+            Discarded(host);
             host.DisposeAsync().AsTask().GetAwaiter().GetResult();
         }
 
@@ -135,6 +137,14 @@ internal static class TestPorts
     /// <summary>Kestrel's bind failure: an address in use, alone or wrapped in an <see cref="IOException"/>.</summary>
     private static bool TakenAtStart(Exception ex) =>
         ex is AddressInUseException || (ex is IOException && ex.InnerException is AddressInUseException);
+
+    /// <summary>
+    /// Closes the logger of a host that did not keep its port (the T1.77 review). <c>AppHost.Build</c> makes a Serilog
+    /// logger that the container does not dispose, and a host that never ran its stop holds the log file open: the
+    /// test could not then delete its scratch folder.
+    /// </summary>
+    private static void Discarded(WebApplication host) =>
+        (host.Services.GetService<Serilog.ILogger>() as IDisposable)?.Dispose();
 
     private static async Task Stopped(WebApplication host)
     {
