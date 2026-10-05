@@ -208,8 +208,7 @@ public static class IngressEndpoints
         // bounds what this can read.
         //
         // From this line until it reaches the archive, the text is the operator's prompt and
-        // Claude's answer. It is wrapped in PayloadJson, which cannot be printed, before it goes
-        // anywhere that a log statement could reach it.
+        // Claude's answer. It travels in PayloadJson, as one value, to the archive's insert.
         string body;
         HookPayload? payload;
         try

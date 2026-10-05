@@ -191,4 +191,24 @@ public sealed class EventArchiveTests
 
         Assert.False(archive.TryArchive(Record(TestEvents.Hook("{}"))));
     }
+    /// <summary>
+    /// <strong>A dropped event is a Debug line with its hook's name and its session</strong>, when the archive is full
+    /// (the line lost its test with the body check of T1.24; T1.76 review).
+    /// </summary>
+    [Fact]
+    public void A_dropped_event_is_a_debug_line_with_its_hook_and_session()
+    {
+        var log = new RecordingLogSink();
+        var archive = new EventArchive(Logger(log), capacity: 1);
+
+        archive.TryArchive(Record(TestEvents.Hook("""{"prompt":"the first"}""", sessionId: "s-dropped")));
+        archive.TryArchive(Record(TestEvents.Hook("""{"prompt":"the one that displaced it"}""", sessionId: "s-kept")));
+
+        var line = Assert.Single(log.Events, entry => entry.Level == LogEventLevel.Debug
+            && entry.MessageTemplate.Text.StartsWith("The event archive is full; discarded {HookEventName}", StringComparison.Ordinal));
+
+        Assert.Equal(
+            "The event archive is full; discarded \"UserPromptSubmit\" for session \"s-dropped\" unwritten.",
+            line.RenderMessage(System.Globalization.CultureInfo.InvariantCulture));
+    }
 }
