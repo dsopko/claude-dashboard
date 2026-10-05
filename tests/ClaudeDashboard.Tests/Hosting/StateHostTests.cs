@@ -36,12 +36,14 @@ public sealed class StateHostTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        var port = AppHostTests.FreePort();
         var paths = new DashboardPaths(_root);
-        new SettingsStore(paths).Save(new DashboardSettings { Port = port });
 
-        _app = AppHost.Build(paths, claude: new ClaudeCodePaths(Path.Combine(paths.Root, "claude-config")));
-        await _app.StartAsync();
+        // A port the host keeps: a taken one is chosen again (T1.77, issue #120).
+        (_app, var port, _) = await TestPorts.StartAsync(chosen =>
+        {
+            new SettingsStore(paths).Save(new DashboardSettings { Port = chosen });
+            return AppHost.Build(paths, claude: new ClaudeCodePaths(Path.Combine(paths.Root, "claude-config")));
+        });
 
         _client = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}") };
         _board = _app.Services.GetRequiredService<StateBoard>();

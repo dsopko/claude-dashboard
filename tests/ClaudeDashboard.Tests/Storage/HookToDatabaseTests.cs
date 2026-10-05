@@ -42,13 +42,14 @@ public sealed class HookToDatabaseTests : IAsyncLifetime, IDisposable
 
     public async Task InitializeAsync()
     {
-        _port = ClaudeDashboard.Tests.Hosting.AppHostTests.FreePort();
         _paths = new DashboardPaths(_root);
-        new SettingsStore(_paths).Save(new DashboardSettings { Port = _port });
 
-        _app = AppHost.Build(_paths, claude: new ClaudeCodePaths(Path.Combine(_paths.Root, "claude-config")));
-
-        await _app.StartAsync();
+        // A port the host keeps: a taken one is chosen again (T1.77, issue #120).
+        (_app, _port, _) = await ClaudeDashboard.Tests.Hosting.TestPorts.StartAsync(chosen =>
+        {
+            new SettingsStore(_paths).Save(new DashboardSettings { Port = chosen });
+            return AppHost.Build(_paths, claude: new ClaudeCodePaths(Path.Combine(_paths.Root, "claude-config")));
+        });
         _client = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_port}") };
         _store = _app.Services.GetRequiredService<IEventStore>();
     }

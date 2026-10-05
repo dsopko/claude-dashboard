@@ -266,9 +266,6 @@ public sealed class CleanupPeriodTests : IDisposable
         Directory.CreateDirectory(paths.Root);
         File.WriteAllText(ClaudeSettings, "{}");
 
-        var port = ClaudeDashboard.Tests.Hosting.AppHostTests.FreePort();
-        File.WriteAllText(paths.SettingsFile, $$"""{ "port": {{port}}, "history": { "retentionDays": 0 } }""");
-
         var now = DateTimeOffset.UtcNow;
 
         using (var store = new SqliteEventStore(paths.DatabaseFile, Serilog.Core.Logger.None))
@@ -280,9 +277,16 @@ public sealed class CleanupPeriodTests : IDisposable
             }
         }
 
-        await using (var app = AppHost.Build(paths, claude: Claude))
+        // A port the host keeps: a taken one is chosen again (T1.77, issue #120). Each build writes the start-up
+        // lines, so the retired key's line is counted once for each build below.
+        var (started, _, builds) = await ClaudeDashboard.Tests.Hosting.TestPorts.StartAsync(port =>
         {
-            await app.StartAsync();
+            File.WriteAllText(paths.SettingsFile, $$"""{ "port": {{port}}, "history": { "retentionDays": 0 } }""");
+            return AppHost.Build(paths, claude: Claude);
+        });
+
+        await using (var app = started)
+        {
 
             Assert.True(SpinWait.SpinUntil(() => AgedRows(paths) == 1, Generous));
 
@@ -293,7 +297,7 @@ public sealed class CleanupPeriodTests : IDisposable
         Assert.Equal(["""{"age":29}"""], ForeignSqliteReader.Column(paths.DatabaseFile, "SELECT payload_json FROM events WHERE payload_json LIKE '{\"age\"%'"));
 
         var lines = File.ReadAllLines(Directory.EnumerateFiles(paths.LogFolder, "*.log").Single());
-        Assert.Single(lines, line => line.Contains("history.retentionDays", StringComparison.Ordinal));
+        Assert.Equal(builds, lines.Count(line => line.Contains("history.retentionDays", StringComparison.Ordinal)));
         Assert.Contains(lines, line => line.Contains(DefaultLine, StringComparison.Ordinal));
 
         var settings = new SettingsStore(paths);

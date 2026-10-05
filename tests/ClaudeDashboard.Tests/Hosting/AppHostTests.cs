@@ -47,19 +47,10 @@ public sealed class AppHostTests : IDisposable
         _paths = new DashboardPaths(_root);
         _claude = new ClaudeCodePaths(Path.Combine(_root, "claude-config"));
 
-        // Every host now binds Kestrel (T1.8). Tests take a free ephemeral port so they neither
-        // collide with each other nor with a dashboard actually running on the fixed 52789.
-        new SettingsStore(_paths).Save(new DashboardSettings { Port = FreePort() });
-    }
-
-    /// <summary>Asks the OS for a free loopback port and releases it.</summary>
-    internal static int FreePort()
-    {
-        using var probe = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
-        probe.Start();
-        var port = ((System.Net.IPEndPoint)probe.LocalEndpoint).Port;
-        probe.Stop();
-        return port;
+        // A pin, so a build never derives a port in a real dashboard's range (T1.21). Most tests here build a
+        // host and never start it, so nothing listens on this port; a test that starts one takes its port
+        // through StartedHost, which chooses again when the port was taken (T1.77, issue #120).
+        new SettingsStore(_paths).Save(new DashboardSettings { Port = TestPorts.Unbound() });
     }
 
     /// <summary>Removes this fixture's temporary root.</summary>
@@ -106,6 +97,14 @@ public sealed class AppHostTests : IDisposable
 
         return host;
     }
+
+    /// <summary>A started host on a port it keeps (T1.77): the settings name the port, and a taken one is chosen again.</summary>
+    private Task<(WebApplication Host, int Port, int Builds)> StartedHost() =>
+        TestPorts.StartAsync(port =>
+        {
+            new SettingsStore(_paths).Save(new DashboardSettings { Port = port });
+            return Build();
+        });
 
     /// <summary>Closes the loggers this class made, then reads what they wrote.</summary>
     /// <remarks>
@@ -192,9 +191,9 @@ public sealed class AppHostTests : IDisposable
     [Fact]
     public async Task The_host_builds_starts_and_stops()
     {
-        using var host = Build();
+        var (started, _, _) = await StartedHost();
+        using var host = started;
 
-        host.Start();
         await host.StopAsync();
     }
 
@@ -204,9 +203,10 @@ public sealed class AppHostTests : IDisposable
     [Fact]
     public async Task Starting_writes_a_real_log_file_to_disk()
     {
-        using (var host = Build())
+        var (started, _, _) = await StartedHost();
+
+        using (var host = started)
         {
-            host.Start();
             await host.StopAsync();
         }
 
@@ -666,11 +666,8 @@ public sealed class AppHostTests : IDisposable
     [Fact]
     public async Task A_started_host_binds_the_port_the_settings_name()
     {
-        var port = FreePort();
-        new SettingsStore(_paths).Save(new DashboardSettings { Port = port });
-
-        using var host = Build();
-        host.Start();
+        var (started, port, _) = await StartedHost();
+        using var host = started;
 
         try
         {
@@ -708,11 +705,12 @@ public sealed class AppHostTests : IDisposable
     [Fact]
     public async Task A_host_whose_port_is_taken_starts_and_says_it_cannot_hear()
     {
-        var port = FreePort();
-        new SettingsStore(_paths).Save(new DashboardSettings { Port = port });
-
-        var stranger = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, port);
+        // The stranger takes its port from Windows as it listens, so nothing can take that port first (T1.77);
+        // then the settings name it.
+        var stranger = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
         stranger.Start();
+        var port = ((System.Net.IPEndPoint)stranger.LocalEndpoint).Port;
+        new SettingsStore(_paths).Save(new DashboardSettings { Port = port });
 
         try
         {

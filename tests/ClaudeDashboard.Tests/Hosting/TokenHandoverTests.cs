@@ -36,13 +36,14 @@ public sealed class TokenHandoverTests : IDisposable
         Path.Combine(Path.GetTempPath(), "claude-dashboard-tests", Guid.NewGuid().ToString("N"));
 
     private readonly DashboardPaths _paths;
-    private readonly int _port = AppHostTests.FreePort();
+    private int _port;
+    private int _builds;
+    private LoggingSettings _logging = new();
     private readonly List<IDisposable> _loggers = [];
 
     public TokenHandoverTests()
     {
         _paths = new DashboardPaths(_root);
-        new SettingsStore(_paths).Save(new DashboardSettings { Port = _port });
     }
 
     public void Dispose()
@@ -133,8 +134,8 @@ public sealed class TokenHandoverTests : IDisposable
     {
         if (minimumLevel is not null)
         {
-            // The same port the fixture saved, and the level.
-            new SettingsStore(_paths).Save(new DashboardSettings { Port = _port, Logging = new LoggingSettings { MinimumLevel = minimumLevel } });
+            // The level, which the start saves with its port.
+            _logging = new LoggingSettings { MinimumLevel = minimumLevel };
         }
 
         const string RetiredValue = "RETIRED-VALUE-MARKER-6f2c";
@@ -180,7 +181,8 @@ public sealed class TokenHandoverTests : IDisposable
         var log = ReadLogs();
 
         Assert.Contains("Rejected a /hook post with a missing or incorrect token.", log, StringComparison.Ordinal);
-        Assert.Equal(1, Occurrences(log, $"{IngressToken.RetiredEnvironmentVariable} is set and is ignored"));
+        // Once for each build: a start that chose its port again built twice (T1.77).
+        Assert.Equal(_builds, Occurrences(log, $"{IngressToken.RetiredEnvironmentVariable} is set and is ignored"));
         Assert.DoesNotContain(RetiredValue, log, StringComparison.Ordinal);
         Assert.DoesNotContain(token, log, StringComparison.Ordinal);
 
@@ -195,14 +197,22 @@ public sealed class TokenHandoverTests : IDisposable
 
     private async Task<WebApplication> Start()
     {
-        var host = AppHost.Build(_paths, claude: new ClaudeCodePaths(Path.Combine(_paths.Root, "claude-config")));
-
-        if (host.Services.GetService<Serilog.ILogger>() is IDisposable logger)
+        // A port the host keeps: the settings name it, and a taken one is chosen again (T1.77, issue #120).
+        var (host, port, builds) = await TestPorts.StartAsync(chosen =>
         {
-            _loggers.Add(logger);
-        }
+            new SettingsStore(_paths).Save(new DashboardSettings { Port = chosen, Logging = _logging });
+            var built = AppHost.Build(_paths, claude: new ClaudeCodePaths(Path.Combine(_paths.Root, "claude-config")));
 
-        await host.StartAsync();
+            if (built.Services.GetService<Serilog.ILogger>() is IDisposable logger)
+            {
+                _loggers.Add(logger);
+            }
+
+            return built;
+        });
+
+        _port = port;
+        _builds += builds;
 
         // Program's order since T1.48: the script first, then the announcement.
         Assert.True(HookScript.EnsureWritten(_paths, Serilog.Core.Logger.None));
