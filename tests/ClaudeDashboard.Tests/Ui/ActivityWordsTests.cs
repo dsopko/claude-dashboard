@@ -185,6 +185,27 @@ public sealed class ActivityWordsTests
         Assert.True(group.Played);
     }
 
+    /// <summary>
+    /// <strong>A held-back and a dropped group line name the group</strong>, as a played one does (T1.73, issue #108):
+    /// the roster's name, no project, and the group a click goes to.
+    /// </summary>
+    [Theory]
+    [InlineData(DecisionKind.NoticeSuppressed, "AlreadyAnnounced", "finished, announced before")]
+    [InlineData(DecisionKind.NoticeSuppressed, "GroupMuted", "finished, its group is muted")]
+    [InlineData(DecisionKind.SoundDropped, "NoOutput", "finished, no sound device")]
+    public void A_held_back_or_dropped_group_line_names_the_group(DecisionKind kind, string reason, string detail)
+    {
+        var line = ActivityWords.LineOf(1, Row(kind, reason: reason, detail: "kind=GroupNotice sound=finished group=roster:orchestration members=s-1,s-2", sessionId: null))!;
+
+        Assert.Equal("no sound", line.What);
+        Assert.Equal("orchestration", line.Name);
+        Assert.Equal(detail, line.Detail);
+        Assert.Equal(string.Empty, line.Project);
+        Assert.False(line.Played);
+        Assert.Equal(GroupKeys.ForRoster("orchestration"), line.Group);
+        Assert.Null(line.SessionId);
+    }
+
     /// <summary>The time is "14:32" today, with a day name before it on another day; and the sentence holds everything.</summary>
     [Fact]
     public void The_time_and_the_sentence()

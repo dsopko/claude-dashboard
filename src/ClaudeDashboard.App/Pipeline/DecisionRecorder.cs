@@ -404,6 +404,11 @@ public sealed class DecisionRecorder : IDecisionSink, IDecisionLog
     }
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// A group's sound records the group and its members by id, as a played or a dropped one does (T1.73, issue
+    /// #108), so the Activity window can name the group and a click can go to its heading. A session's held-back
+    /// sound keeps <c>kind=… sound=…</c>. Identifiers only.
+    /// </remarks>
     public void SoundSuppressed(
         SoundDecisionKind kind,
         SessionId session,
@@ -415,7 +420,9 @@ public sealed class DecisionRecorder : IDecisionSink, IDecisionLog
             session.IsEmpty ? null : session.Value,
             DecisionKind.NoticeSuppressed,
             Reason: reason.ToString(),
-            Detail: $"kind={kind} sound={sound}"));
+            Detail: kind is SoundDecisionKind.GroupNotice or SoundDecisionKind.GroupNudge
+                ? $"kind={kind} sound={sound} group={group.Value} members={MembersOf(group)}"
+                : $"kind={kind} sound={sound}"));
 
     // ---- Rows born on other threads -----------------------------------------------------------
 
