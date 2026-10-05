@@ -1537,6 +1537,8 @@ this work started from, that flake appears there too, once in thirty-one runs, a
 in isolation. **It is a whole-suite concurrency effect that predates this task**, and it is filed
 separately rather than re-run away.
 
+**Named at T1.78 (issue #40):** each store's close called `SqliteConnection.ClearAllPools()`, which clears every connection pool in the test process. `Microsoft.Data.Sqlite` 10.0.0 then disposes each connection it takes to be leaked, and a connection that another store is just opening looks leaked for a moment. That store lost its new connection (`ObjectDisposedException` on `SQLitePCL.sqlite3`) and made no tables, so the foreign reader found no `events` table. A close now clears its own pool only, and `StoreCloseTests.A_close_leaves_the_connections_to_other_files_open` holds that.
+
 ## 6 · Was the harness capable of producing the other outcome?
 
 A green run proves nothing unless a red one was reachable. Five defects were planted, each taken

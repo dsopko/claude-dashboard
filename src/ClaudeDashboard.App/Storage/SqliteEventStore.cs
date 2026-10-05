@@ -812,14 +812,21 @@ public sealed class SqliteEventStore : IEventStore, IDisposable
 
             _disposed = true;
 
-            _connection?.Dispose();
-            _connection = null;
-
             // Microsoft.Data.Sqlite pools connections, so disposing one does not release the file
             // handle — measured at T1.17, where a File.Delete straight after a using block failed
             // with "used by another process". A resident app that never released the handle would
             // hold dashboard.db open against a backup or a copy for the life of the process.
-            SqliteConnection.ClearAllPools();
+            //
+            // This store's own pool only (T1.78, issue #40; the operator's ruling). ClearAllPools cleared
+            // every pool in the process, and the library then disposes a connection that another thread
+            // has just opened, for a moment: a store opening its file then lost its new connection and
+            // made no tables. One dashboard has one store; the tests run many in one process.
+            if (_connection is not null)
+            {
+                CloseForReal(_connection);
+            }
+
+            _connection = null;
         }
     }
 
@@ -991,8 +998,8 @@ public sealed class SqliteEventStore : IEventStore, IDisposable
     /// the next open gets the same one back, in the mode it was opened with. <c>ClearPool</c> first marks the
     /// connection's pool, so the close that follows closes the file handle. Every place that gives up a connection
     /// after a failure uses this: the <c>catch</c> in <see cref="Connect"/>, <see cref="OpenOne"/>,
-    /// <see cref="OpenWritable"/> and <see cref="Unavailable"/>. <see cref="Dispose"/> keeps
-    /// <c>ClearAllPools</c> (T1.17).
+    /// <see cref="OpenWritable"/>, <see cref="Unavailable"/> and, since T1.78, <see cref="Dispose"/>, which
+    /// released the file with <c>ClearAllPools</c> until then (T1.17).
     /// </remarks>
     private static void CloseForReal(SqliteConnection connection)
     {

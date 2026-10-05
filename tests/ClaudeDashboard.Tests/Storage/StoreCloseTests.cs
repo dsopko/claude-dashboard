@@ -1,4 +1,5 @@
 using System.IO;
+using Microsoft.Data.Sqlite;
 using ClaudeDashboard.App.Storage;
 using ClaudeDashboard.Core.Events;
 using ClaudeDashboard.Tests.Fakes;
@@ -190,5 +191,57 @@ public sealed class StoreCloseTests : IDisposable
         Assert.Throws<ObjectDisposedException>(() => store.CountDecisions());
         Assert.Throws<ObjectDisposedException>(() => store.ReadEvents());
         Assert.False(File.Exists(path));
+    }
+
+    // ---- (c) A close reaches only this store's own connections (T1.78, issue #40) -------------
+
+    /// <summary>
+    /// A store's close leaves every other file's connections alone: a pooled connection to another file still
+    /// holds that file after the close.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>Why it matters.</strong> Until T1.78 the close called <c>SqliteConnection.ClearAllPools()</c>, which
+    /// clears every pool in the process. <c>Microsoft.Data.Sqlite</c> 10.0.0 then disposes each connection it
+    /// takes to be "leaked": in use, with no owner. A connection that another thread is opening is in use, with
+    /// no owner yet, for a moment (<c>Activate</c> sets the first before the second, with no lock against the
+    /// clear). A store opening its file at that moment lost its new connection
+    /// (<c>ObjectDisposedException</c> on <c>SQLitePCL.sqlite3</c>) and made no tables, or lost a row. In the test
+    /// process, where many stores open and close at once, that was issue #40 and its family of random failures.
+    /// </para>
+    /// <para>
+    /// <strong>What this test can see.</strong> The race lasts two field writes and cannot be held open by a seam.
+    /// What the test can see is the reach: a clear of every pool also closes an idle pooled connection to another
+    /// file, so that file can be deleted. After a close that reaches only its own pool, the file is still held.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void A_close_leaves_the_connections_to_other_files_open()
+    {
+        var other = Path.Combine(_folder, "other.db");
+
+        // Opened and closed with pooling on: the pool keeps its handle, so the file stays held.
+        var pooled = new SqliteConnection($"Data Source={other}");
+
+        try
+        {
+            pooled.Open();
+            pooled.Close();
+
+            using (var store = new SqliteEventStore(Db(), Serilog.Core.Logger.None))
+            {
+                Assert.True(store.Append(TestEvents.Hook("""{"before":1}""")));
+            }
+
+            // The store's own file is free again (T1.17), and the other file is still held by its pool.
+            File.Delete(Db());
+            Assert.Throws<IOException>(() => File.Delete(other));
+        }
+        finally
+        {
+            // Its own pool only, as the store does now.
+            SqliteConnection.ClearPool(pooled);
+            pooled.Dispose();
+        }
     }
 }
