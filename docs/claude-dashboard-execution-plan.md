@@ -1294,6 +1294,25 @@ The work in GitHub milestone 3, "Observability 1": issues #3, #14, #67, #71, #72
 - **Guardrails:** no product code. No change to the port rules of T1.57. Tests use scratch folders.
 - **Done 2026-10-05:** PR #121, merged as `11757b7`, `5d630d2`, `df1f587` (one fix cycle). Port 0 was not possible for an `AppHost` host without a product change (a pin of 0 means "unset", and the host derives a port in the dashboard's own range), so `TestPorts` retries: it chooses a port, builds the host with it, starts it only if the host's own probe found the port free, and chooses again if the port was taken, up to five times. Hosts with their own Kestrel listen on port 0. `TestPorts.Unbound()` keeps the old way only where nothing listens on the port. **The review found:** a host that lost its port left its log file open, so a test could not clean up after a retry; fixed, with a test. 50 runs of the classes that start a host, side by side, passed. **Seen in the runs, older than this task, not reproduced:** `EventArchiveWriterTests.The_writer_says_that_it_ran_and_what_it_did` once, `ActivityLinkTests.A_click_on_a_line_brings_the_main_window_up_and_opens_its_row_in_view` once, and `PortSelectionTests.The_derivation_does_not_use_a_per_process_hash` once (its second assertion compares with a hash that is random in each process, and matches by chance about once in 1,000 runs). Taken to the operator.
 
+**On 2026-10-05, at the operator's word:** #120 closed. The three failures above filed: #122 (the writer's start-up test) and #123 (the Activity click test) wait for the next failure with its whole output saved; #124 (the port test's chance match) is fixed now, with #40, added to milestone 5.
+
+**T1.78 — Two tests that fail at random: a chance match, and the foreign reader**
+- **Goal:** two known random failures stop. Test code only, unless the cause of #40 is in the product. For issues #124 and #40.
+- **Depends:** T1.14 (the hook-to-row test), T1.21 (the derived port), T1.74 (the store's connection handling)
+- **Realizes:** #124 and #40 as written. Director's rulings:
+  - **#124:** remove the second check of `PortSelectionTests.The_derivation_does_not_use_a_per_process_hash`; keep the exact SHA-256 check.
+  - **#40: find the cause before the fix, and show it.** `HookToDatabaseTests.A_posted_hook_becomes_a_row_carrying_the_body_it_arrived_with` fails about once in 30 full runs: the test's `ForeignSqliteReader` opens the file and cannot prepare its `SELECT`. The issue names three possible causes (the schema made late on the writer's thread; an unfinished hand-over at the store's close; the reader's open), and the T1.69 and T1.75 reviews named a fourth: the reader has no busy timeout, so its prepare fails while another connection holds the lock of a commit. Save every run's whole output, with SQLite's own message and code. Reproduce it (for example, many full runs, or a probe that holds a lock at the moment the reader prepares), and name the cause with that evidence.
+  - **The fix follows the cause.** A test that owns the hand-over it depends on, or a busy timeout or short retry in the reader for a busy error only, are acceptable. A wider fixed wait is not.
+  - **If the cause is in the product** (for example, the store's close does not leave the file readable at once), send QUESTION before a product change.
+  - **Correct the record:** state the cause in a comment on #40, and correct T1.14's acceptance record (`phase1-acceptance.md`, §5's hook-to-row evidence) if it describes the mechanism that was at fault.
+- **Deliverables:** the change to `PortSelectionTests`; the cause of #40 and its fix; the comment on #40.
+- **Acceptance:**
+  - #124: the port test has only the exact check.
+  - #40: the cause is named, with the saved output or the probe that shows it. A test, or a plant, shows that the fix closes it: with the fix removed, the failure can be made to happen.
+  - 50 runs of the Storage tests and the classes that start a host, run together, each saved: no failure. Three full runs, each saved: name any failure.
+  - Both suite counts; build clean, 0 warnings.
+- **Guardrails:** test code only, unless the operator agrees to a product change. No wider fixed waits. Tests use scratch folders.
+
 ---
 
 ## Part 4 — Phases 2–7 task outlines
