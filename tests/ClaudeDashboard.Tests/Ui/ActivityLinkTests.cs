@@ -281,17 +281,29 @@ public sealed class ActivityLinkTests(StaHarness harness)
     /// <strong>A group's sound</strong>: in Grouped view the click scrolls to the group's heading; in Flat view,
     /// where no group has a heading, it only brings the window to the front, and the hover says why.
     /// </summary>
+    /// <remarks>A held-back and a dropped group sound go there too, as a played one does (T1.73, issue #108).</remarks>
     [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public void A_groups_sound_scrolls_to_its_heading_when_the_group_is_there(bool grouped)
+    [InlineData(true, DecisionKind.GroupNoticePlayed)]
+    [InlineData(false, DecisionKind.GroupNoticePlayed)]
+    [InlineData(true, DecisionKind.NoticeSuppressed)]
+    [InlineData(false, DecisionKind.NoticeSuppressed)]
+    [InlineData(true, DecisionKind.SoundDropped)]
+    [InlineData(false, DecisionKind.SoundDropped)]
+    public void A_groups_sound_scrolls_to_its_heading_when_the_group_is_there(bool grouped, DecisionKind kind)
     {
         WithBoth(
             Many,
             both =>
             {
                 var key = GroupKeys.ForWorkspace(Workspace(19));
-                both.Log.Decided([new Decision(At, null, DecisionKind.GroupNoticePlayed, Reason: "notice", Detail: $"group={key.Value} members=s-19")]);
+                var (reason, detail) = kind switch
+                {
+                    DecisionKind.GroupNoticePlayed => ("notice", $"group={key.Value} members=s-19"),
+                    DecisionKind.NoticeSuppressed => ("AlreadyAnnounced", $"kind=GroupNotice sound=finished group={key.Value} members=s-19"),
+                    _ => ("NoOutput", $"kind=GroupNotice sound=finished group={key.Value} members=s-19"),
+                };
+
+                both.Log.Decided([new Decision(At, null, kind, Reason: reason, Detail: detail)]);
                 both.Dispatcher.Pump();
                 var line = both.Log.Lines[0];
                 Assert.Equal(key, line.Line.Group);

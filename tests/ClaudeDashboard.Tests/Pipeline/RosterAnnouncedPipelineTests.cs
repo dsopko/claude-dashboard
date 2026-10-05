@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using ClaudeDashboard.App.Configuration;
 using ClaudeDashboard.App.Pipeline;
 using ClaudeDashboard.App.Storage;
+using ClaudeDashboard.App.Ui;
 using ClaudeDashboard.Core;
 using ClaudeDashboard.Core.Events;
 using ClaudeDashboard.Core.Ports;
@@ -37,6 +38,8 @@ public sealed class RosterAnnouncedPipelineTests : IAsyncLifetime
     private readonly RecordingSoundPlayer _player = new();
     private readonly ConcurrentQueue<SoundMarkedEventArgs> _marks = new();
     private readonly List<Decision> _decisions = [];
+    private readonly QueueingDispatcher _ui = new();
+    private ActivityLog _activity = null!;
     private RosterStore _rosters = null!;
     private EventConsumer _consumer = null!;
 
@@ -83,6 +86,37 @@ public sealed class RosterAnnouncedPipelineTests : IAsyncLifetime
 
         await Task.Delay(100);
         Assert.Empty(Rows(DecisionKind.GroupNoticePlayed));
+    }
+
+    /// <summary>
+    /// <strong>The silent settle's line names the group</strong> (T1.73, issue #108): a roster made from two announced
+    /// sessions writes a held-back group sound with the group and its members, and the Activity window reads "no
+    /// sound", with the roster's name and "announced before".
+    /// </summary>
+    [Fact]
+    public async Task The_silent_settle_line_names_the_group()
+    {
+        await Start(RosterBook.Empty);
+
+        Publish(Prompt("s-1", "Coder", "p-1", At));
+        Publish(Prompt("s-2", "Reviewer", "p-2", At));
+        Publish(Finished("s-1", "p-1", At.AddSeconds(60)));
+        Publish(Finished("s-2", "p-2", At.AddSeconds(120)));
+        Assert.True(await Until(() => Finishes() == 2), Seen());
+
+        _clock.Now = At.AddMinutes(3);
+        _rosters.Replace(Orchestration);
+        Assert.True(await Until(() => GroupSilences() == 1), Seen());
+
+        var held = Assert.Single(Rows(DecisionKind.NoticeSuppressed), row => row.SessionId is null);
+        Assert.Equal("kind=GroupNotice sound=finished group=roster:orchestration members=s-1,s-2", held.Detail);
+
+        Assert.True(await Until(() => { _ui.Pump(); return _activity.Lines.Any(line => line.Line.Group is not null); }), Seen());
+        var line = Assert.Single(_activity.Lines, candidate => candidate.Line.Group is not null);
+        Assert.Equal("no sound", line.What);
+        Assert.Equal("orchestration", line.Name);
+        Assert.Equal("finished, announced before", line.Detail);
+        Assert.Equal(GroupKeys.ForRoster("orchestration"), line.Line.Group);
     }
 
     /// <summary>
@@ -278,6 +312,10 @@ public sealed class RosterAnnouncedPipelineTests : IAsyncLifetime
         _rosters = new RosterStore(_pipeline.Sink, book, _clock);
 
         var recorder = new DecisionRecorder(_registry, _rosters, _archive, Logger.None);
+
+        // The Activity window's log, told by the recorder as AppHost wires it (T1.70).
+        _activity = new ActivityLog(_ui, _clock);
+        recorder.Decided = _activity.Decided;
         var engine = new SoundPolicyEngine(_player, _clock, _guard, new SoundPolicyOptions(), recorder);
         engine.SoundMarked += (_, e) => _marks.Enqueue(e);
 
@@ -324,7 +362,9 @@ public sealed class RosterAnnouncedPipelineTests : IAsyncLifetime
         Rows(DecisionKind.NoticeSuppressed).Count(row =>
             row.SessionId is null
             && row.Reason == nameof(SuppressionReason.AlreadyAnnounced)
-            && row.Detail == $"kind={SoundDecisionKind.GroupNotice} sound={SoundId.Finished}");
+            // Since T1.73 the detail goes on with the group and its members.
+            && row.Detail is { } detail
+            && detail.StartsWith($"kind={SoundDecisionKind.GroupNotice} sound={SoundId.Finished} group=", StringComparison.Ordinal));
 
     /// <summary>How many "finished" sounds the player queued, notices and reminders alike.</summary>
     private int Finishes() => _player.PlayedOf(SoundId.Finished).Count;

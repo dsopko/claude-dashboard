@@ -140,6 +140,42 @@ public sealed class DecisionRecorderUnitTests
         Assert.Equal("kind=Nudge sound=permission rung=2 waitedMinutes=17", dropped.Detail);
     }
 
+    /// <summary>
+    /// <strong>A held-back group sound names the group and its members by id</strong>, as a played and a dropped one
+    /// do (T1.73, issue #108), for each reason a group's sound is held back. A session's held-back sound keeps the
+    /// detail it had.
+    /// </summary>
+    [Theory]
+    [InlineData(SuppressionReason.GroupMuted, SoundDecisionKind.GroupNotice)]
+    [InlineData(SuppressionReason.AllMuted, SoundDecisionKind.GroupNudge)]
+    [InlineData(SuppressionReason.MonitoringPaused, SoundDecisionKind.GroupNotice)]
+    [InlineData(SuppressionReason.AlreadyAnnounced, SoundDecisionKind.GroupNotice)]
+    public void A_held_back_group_sound_names_the_group_and_its_members(SuppressionReason reason, SoundDecisionKind kind)
+    {
+        Apply("s-b");
+        Apply("s-a");
+
+        var group = _registry.Sessions[new SessionId("s-a")].WorkspaceGroup;
+
+        _recorder.BeginTick(FakeClock.DefaultStart);
+        ((IDecisionSink)_recorder).SoundSuppressed(kind, default, group, SoundId.Finished, reason);
+        ((IDecisionSink)_recorder).SoundSuppressed(SoundDecisionKind.Notice, new SessionId("s-a"), group, SoundId.Finished, reason);
+        _recorder.Complete();
+
+        Assert.True(_archive.Reader.TryRead(out var record));
+        Assert.Equal(2, record.Decisions.Count);
+
+        var held = record.Decisions[0];
+        Assert.Equal(DecisionKind.NoticeSuppressed, held.Kind);
+        Assert.Null(held.SessionId);
+        Assert.Equal(reason.ToString(), held.Reason);
+        Assert.Equal($"kind={kind} sound=finished group={group.Value} members=s-a,s-b", held.Detail);
+
+        var own = record.Decisions[1];
+        Assert.Equal("s-a", own.SessionId);
+        Assert.Equal("kind=Notice sound=finished", own.Detail);
+    }
+
     /// <summary>A dropped group sound names the group and its members by id, as the played row does.</summary>
     [Fact]
     public void A_dropped_group_sound_names_the_group_and_its_members()

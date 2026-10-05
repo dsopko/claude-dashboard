@@ -283,7 +283,8 @@ public static class ActivityWords
             : StateWords(row.ToState);
 
     /// <summary>
-    /// The session's name; its short id when it has none; a group's name for a group's sound; or empty.
+    /// The session's name; its short id when it has none; a group's name for a group's sound, whether it played, was
+    /// held back or was dropped; or empty.
     /// </summary>
     private static string NameOf(DecisionKind kind, Decision row)
     {
@@ -297,7 +298,8 @@ public static class ActivityWords
             return row.SessionId.Length <= ShortIdLength ? row.SessionId : row.SessionId[..ShortIdLength];
         }
 
-        return kind == DecisionKind.GroupNoticePlayed && GroupOf(row.Detail) is { } group ? GroupName(group) : string.Empty;
+        // A group's sound, played, held back or dropped: the group's name from the detail (T1.73, issue #108).
+        return IsSound(kind) && GroupOf(row.Detail) is { } group ? GroupName(group) : string.Empty;
     }
 
     /// <summary>A group's name, by the main window's heading rule: the roster's name, or the folder's.</summary>
