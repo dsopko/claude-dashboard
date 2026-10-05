@@ -309,6 +309,25 @@ public sealed class SqliteEventStore : IEventStore, IDisposable
     internal Action? InsideTransaction { get; set; }
 
     /// <summary>
+    /// The waits before each further open of a new connection that SQLite opened read-only (T1.74, issue #109):
+    /// four more opens within 1.0 s, the operator's "a few times within about one second", and under the 1.5 s
+    /// that SQLite itself waits for a file another program holds.
+    /// </summary>
+    internal static readonly TimeSpan[] ReadOnlyWaits =
+    [
+        TimeSpan.FromMilliseconds(100),
+        TimeSpan.FromMilliseconds(200),
+        TimeSpan.FromMilliseconds(300),
+        TimeSpan.FromMilliseconds(400),
+    ];
+
+    /// <summary>
+    /// A test seam: the wait before a further open of a read-only connection, on the writer's thread under the
+    /// store's lock. A blocking sleep in the product; a test replaces it, so no test sleeps (T1.74).
+    /// </summary>
+    internal Action<TimeSpan> Pause { get; set; } = Thread.Sleep;
+
+    /// <summary>
     /// A test seam: runs inside the conversion's transaction, just before the commit (T1.62). A test
     /// throws here to make the conversion fail and roll back.
     /// </summary>
@@ -835,16 +854,10 @@ public sealed class SqliteEventStore : IEventStore, IDisposable
             return _connection;
         }
 
-        var connection = new SqliteConnection(new SqliteConnectionStringBuilder
-        {
-            DataSource = _path,
-            Mode = SqliteOpenMode.ReadWriteCreate,
-        }.ToString());
+        var connection = OpenWritable();
 
         try
         {
-            connection.Open();
-
             using (var schema = connection.CreateCommand())
             {
                 schema.CommandText = Schema;
@@ -872,8 +885,8 @@ public sealed class SqliteEventStore : IEventStore, IDisposable
         }
         catch
         {
-            // Not kept: the next attempt opens afresh, after T1.54's minute.
-            connection.Dispose();
+            // Not kept, and closed for real: the next attempt opens afresh, after T1.54's minute (T1.74).
+            CloseForReal(connection);
             throw;
         }
 
@@ -894,6 +907,114 @@ public sealed class SqliteEventStore : IEventStore, IDisposable
         }
 
         return connection;
+    }
+
+    /// <summary>
+    /// Opens a new connection that can write, with a short second try when SQLite opens it read-only (T1.74,
+    /// issue #109).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>Why it can be read-only, with no error.</strong> When SQLite cannot open the file for writing at
+    /// that moment, it opens it read-only: the file is marked read-only, or another program reads it and lets
+    /// others only read (PowerShell's <c>Get-FileHash</c>, .NET's <c>File.OpenRead</c>). The connection keeps that
+    /// mode for as long as it lives, and the first write then fails with SQLite's code 8.
+    /// </para>
+    /// <para>
+    /// <strong>So the check comes first,</strong> before the schema steps: <c>sqlite3_db_readonly</c>, SQLite's
+    /// own answer. A read-only connection is closed for real and opened again after each of
+    /// <see cref="ReadOnlyWaits"/>: a program that reads the file for a moment then costs nothing. SQLite waits
+    /// about that long for a file that is held, but not in this case, so the store does the wait itself. Still
+    /// read-only after the last open: the store throws SQLite's code 8, and T1.54's failure path goes on as
+    /// before (the notice, the retry each minute, the lost count).
+    /// </para>
+    /// <para>
+    /// <strong>Each further open is a new connection</strong> only because the one before it was closed for real
+    /// (<see cref="CloseForReal"/>): a plain close returns it to the pool, and the next open gets the same
+    /// read-only connection back.
+    /// </para>
+    /// </remarks>
+    private SqliteConnection OpenWritable()
+    {
+        var connection = OpenOne();
+        var more = 0;
+
+        while (IsReadOnly(connection))
+        {
+            CloseForReal(connection);
+
+            if (more == ReadOnlyWaits.Length)
+            {
+                throw new SqliteException(
+                    "The database was opened read-only: SQLite could not open it for writing after " +
+                    (more + 1).ToString(System.Globalization.CultureInfo.InvariantCulture) + " opens within " +
+                    ReadOnlyWaits.Sum(wait => wait.TotalSeconds).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) +
+                    " s. The file may be marked read-only, or another program may hold it.",
+                    SqliteReadOnly);
+            }
+
+            Pause(ReadOnlyWaits[more]);
+            more++;
+            connection = OpenOne();
+        }
+
+        if (more > 0)
+        {
+            // Only when it happened: a normal open writes no line.
+            _logger.Information(
+                "{DatabaseFile} was opened read-only, and could be written after {MoreOpens} more opens.",
+                _path,
+                more);
+        }
+
+        return connection;
+    }
+
+    /// <summary>SQLite's result code for a write to a read-only database (<c>SQLITE_READONLY</c>).</summary>
+    private const int SqliteReadOnly = 8;
+
+    /// <summary>One new connection, opened; closed for real if the open throws.</summary>
+    private SqliteConnection OpenOne()
+    {
+        var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+        {
+            DataSource = _path,
+            Mode = SqliteOpenMode.ReadWriteCreate,
+        }.ToString());
+
+        try
+        {
+            connection.Open();
+        }
+        catch
+        {
+            CloseForReal(connection);
+            throw;
+        }
+
+        return connection;
+    }
+
+    /// <summary>Whether SQLite opened this connection's main database read-only: 1 from <c>sqlite3_db_readonly</c>.</summary>
+    private static bool IsReadOnly(SqliteConnection connection) =>
+        SQLitePCL.raw.sqlite3_db_readonly(connection.Handle, "main") == 1;
+
+    /// <summary>
+    /// Closes a connection that failed, for real, so that it is never used again (T1.74, issue #109; the operator's
+    /// ruling: pooling stays on, and a failed connection is closed for real).
+    /// </summary>
+    /// <remarks>
+    /// <c>Microsoft.Data.Sqlite</c> pools connections, and a plain close returns the real connection to the pool:
+    /// the next open gets the same one back, in the mode it was opened with. <c>ClearPool</c> first marks the
+    /// connection's pool, so the close that follows closes the file handle. Every place that gives up a connection
+    /// after a failure uses this: the <c>catch</c> in <see cref="Connect"/>, <see cref="OpenOne"/>,
+    /// <see cref="OpenWritable"/> and <see cref="Unavailable"/>. <see cref="Dispose"/> keeps
+    /// <c>ClearAllPools</c> (T1.17).
+    /// </remarks>
+    private static void CloseForReal(SqliteConnection connection)
+    {
+        SqliteConnection.ClearPool(connection);
+        connection.Dispose();
     }
 
     /// <summary>
@@ -1156,7 +1277,13 @@ public sealed class SqliteEventStore : IEventStore, IDisposable
         LostCount++;
         Volatile.Write(ref _available, Down);
 
-        _connection?.Dispose();
+        // Closed for real (T1.74): a plain close would hand this connection back at the next attempt, and a
+        // connection that SQLite opened read-only stays read-only.
+        if (_connection is not null)
+        {
+            CloseForReal(_connection);
+        }
+
         _connection = null;
 
         if (!first)
