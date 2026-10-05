@@ -14,21 +14,6 @@ namespace ClaudeDashboard.App.Storage;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <strong>This file holds the operator's words, and the log is not meant to.</strong> The
-/// reasoning is on <see cref="PayloadJson"/>: the log is diagnostic and leaves the machine, this
-/// file is the product's own store and does not. Everything here follows from that one asymmetry —
-/// the body goes into a bound parameter and never into a message template.
-/// </para>
-/// <para>
-/// <strong>Stated as an intent rather than a guarantee, deliberately.</strong> Nothing in this
-/// class puts the body in a log line, and its tests hold that. But the intent is enforced by
-/// construction only for the raw body: the same words live unprotected on a further eleven
-/// properties spanning the wire DTO, the domain events, the Registry's <c>Exchange</c> and the
-/// row the screen binds to. <c>UnprotectedTextInventory</c> holds that set exactly;
-/// <see cref="PayloadJson"/>'s remarks carry the reasoning and the filed follow-up. A sentence
-/// here promising more than that would be the same mistake in a second file.
-/// </para>
-/// <para>
 /// <strong>Where it sits, and the permissions it has.</strong>
 /// <c>%LOCALAPPDATA%\ClaudeDashboard\dashboard.db</c>, beside <c>settings.json</c> and
 /// <c>logs\</c>, moved by <c>CLAUDE_DASHBOARD_HOME</c> like everything else under that root.
@@ -134,7 +119,7 @@ public sealed class SqliteEventStore : IEventStore, IDisposable
         -- here: AddNameColumns adds them, to a new file and to an old one alike, so there is one path.
         -- One row per decision the dashboard made, or deliberately did not make (T1.37,
         -- issue #48). event_id is the causing row in events, or NULL for a tick. reason and
-        -- detail carry enums and identifiers only, never operator text (T1.24). Created by the
+        -- detail carry enums and identifiers (T1.24); the name and path have their own columns. Created by the
         -- same schema step as events, so an existing database gains it on the next start.
         CREATE TABLE IF NOT EXISTS decisions (
             id          INTEGER PRIMARY KEY,
@@ -150,8 +135,8 @@ public sealed class SqliteEventStore : IEventStore, IDisposable
 
         -- One row per start of the dashboard (T1.60, issue #78). stopped_at stays NULL until a
         -- clean stop, so a kill or a crash shows as a start with no stop. Times are UTC and end
-        -- in Z from the first row. port is NULL when ingress could not bind. No operator text:
-        -- data_root is the one path, and it is the dashboard's own folder.
+        -- in Z from the first row. port is NULL when ingress could not bind. data_root is the one
+        -- path, and it is the dashboard's own folder.
         CREATE TABLE IF NOT EXISTS runs (
             id          INTEGER PRIMARY KEY,
             started_at  TEXT    NOT NULL,
@@ -394,17 +379,15 @@ public sealed class SqliteEventStore : IEventStore, IDisposable
                 command.Parameters.AddWithValue("$ts", Utc(inboundEvent.Timestamp));
                 command.Parameters.AddWithValue("$event_type", inboundEvent.HookEventName);
 
-                // THE ONE PLACE THE OPERATOR'S WORDS ARE READ. A bound parameter, never string
-                // concatenation and never a message template — see PayloadJson. A SqliteException's
-                // message names the error and the schema, never a parameter value; that was probed at
-                // T1.17 with the body as the failing parameter, and is why a failure here can be
-                // logged at all.
+                // The hook body, as a bound parameter, never string concatenation: text is data. A
+                // SqliteException's message names the error and the schema, not a parameter value (probed
+                // at T1.17).
                 command.Parameters.AddWithValue("$payload_json", inboundEvent.Payload.Reveal());
 
                 command.Parameters.AddWithValue("$cwd", inboundEvent.Cwd);
 
                 // The session's name as the Registry holds it after this event (T1.69): its own column,
-                // and a bound parameter like the payload. Never in a log line.
+                // and a bound parameter like the payload.
                 command.Parameters.AddWithValue("$session_title", (object?)record.EventSessionTitle ?? DBNull.Value);
 
                 command.ExecuteNonQuery();
@@ -701,7 +684,7 @@ public sealed class SqliteEventStore : IEventStore, IDisposable
     /// <param name="SessionId">The session.</param>
     /// <param name="Ts">The event's timestamp, ISO-8601.</param>
     /// <param name="EventType">The hook event name.</param>
-    /// <param name="Payload">The verbatim payload, in its unprintable wrapper: operator text.</param>
+    /// <param name="Payload">The verbatim payload.</param>
     /// <param name="Cwd">The working directory.</param>
     public sealed record ArchivedEvent(
         long Id,

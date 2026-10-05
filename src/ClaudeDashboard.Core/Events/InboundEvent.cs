@@ -87,9 +87,8 @@ public abstract record InboundEvent
     /// the latched title. See <see cref="SessionRegistry"/> for the latch.
     /// </para>
     /// <para>
-    /// <strong>It can carry the operator's words.</strong> A session the operator did not name
-    /// gets a title written by a background model call summarising their first prompt, so this is
-    /// not an identifier and is never logged. See <c>UnprotectedTextInventory</c>.
+    /// <strong>Prose, not an identifier.</strong> A session the operator did not name gets a title written by a
+    /// background model call summarising their first prompt.
     /// </para>
     /// </remarks>
     public string? SessionTitle { get; init; }
@@ -106,20 +105,8 @@ public abstract record InboundEvent
     /// lossy record stored under the name <c>payload_json</c> is worse than no record.
     /// </para>
     /// <para>
-    /// It is a <see cref="Events.PayloadJson"/> rather than a <c>string</c> so that <em>this
-    /// field</em> cannot reach a log file by being mentioned in a message template. That type's
-    /// remarks carry the whole argument, including why the database may hold this text when the
-    /// log is not meant to.
-    /// </para>
-    /// <para>
-    /// <strong>The protection stops at this property.</strong> Sibling fields on the derived
-    /// records hold the same words as plain strings, and a record's generated <c>ToString</c>
-    /// prints every one of them, so <c>logger.Warning("Declined {Event}", e)</c> leaks the prompt
-    /// while this property stays redacted. Measured at T1.17. Those siblings are not the whole of
-    /// it either — the same text is unprotected in four layers of the product, and
-    /// <c>UnprotectedTextInventory</c> is the only place that set is stated, because stating it
-    /// twice is how it goes stale. Wrapping them is filed separately; until it lands,
-    /// <strong>do not read this property's safety as the event's</strong>.
+    /// A <see cref="Events.PayloadJson"/>: the body as one value, apart from the mapped fields beside it. It prints its
+    /// text (T1.76).
     /// </para>
     /// </remarks>
     public PayloadJson Payload { get; init; }

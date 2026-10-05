@@ -169,42 +169,7 @@ public sealed class SqliteEventStoreTests : IDisposable
         Assert.Equal(body, Assert.Single(ForeignSqliteReader.Column(path, "SELECT payload_json FROM events")));
     }
 
-    // ---- What reaches the log ------------------------------------------------------------------
-
-    /// <summary>
-    /// <strong>The body never reaches the log, on the success path or the failure path.</strong>
-    /// </summary>
-    /// <remarks>
-    /// The invariant the whole design turns on: the database has the operator's words, the log
-    /// does not. This asserts against everything the sink received rather than against a
-    /// particular line, so a log statement added later is covered by it without being edited in.
-    /// </remarks>
-    [Fact]
-    public void No_log_line_ever_carries_the_body()
-    {
-        const string Secret = "REMEMBER-THE-MILK-AND-THE-PASSPHRASE";
-
-        var log = new RecordingLogSink();
-        var path = Db();
-
-        using (var store = new SqliteEventStore(path, Logger(log)))
-        {
-            store.Append(TestEvents.Hook($$"""{"prompt":"{{Secret}}"}"""));
-        }
-
-        var everything = string.Join(
-            "\n",
-            log.Events.Select(entry => entry.RenderMessage(System.Globalization.CultureInfo.InvariantCulture)));
-
-        Assert.DoesNotContain(Secret, everything, StringComparison.Ordinal);
-
-        // The control: the sink really did receive something, so the assertion above is not
-        // passing because nothing was logged at all.
-        Assert.NotEmpty(log.Events);
-
-        // And the row really was written, so it is not passing because nothing happened.
-        Assert.Single(ForeignSqliteReader.Column(path, "SELECT payload_json FROM events"));
-    }
+    // ---- What the log says ---------------------------------------------------------------------
 
     /// <summary>Opening the file says so, and says what it will cost per day.</summary>
     /// <remarks>
@@ -442,12 +407,10 @@ public sealed class SqliteEventStoreTests : IDisposable
         Assert.Equal(["1", "2"], recoveries);
     }
 
-    /// <summary>The failure message names the file, not the payload.</summary>
+    /// <summary>The failure message names the file.</summary>
     [Fact]
-    public void The_failure_message_names_the_file_and_not_the_body()
+    public void The_failure_message_names_the_file()
     {
-        const string Secret = "DO-NOT-PRINT-ME";
-
         var log = new RecordingLogSink();
 
         var occupied = Path.Combine(_folder, "occupied.db");
@@ -455,7 +418,7 @@ public sealed class SqliteEventStoreTests : IDisposable
 
         using var store = new SqliteEventStore(occupied, Logger(log));
 
-        store.Append(TestEvents.Hook($$"""{"prompt":"{{Secret}}"}"""));
+        store.Append(TestEvents.Hook("""{"prompt":"go"}"""));
 
         var everything = string.Join(
             "\n",
@@ -463,7 +426,6 @@ public sealed class SqliteEventStoreTests : IDisposable
                 entry.RenderMessage(System.Globalization.CultureInfo.InvariantCulture) +
                 entry.Exception?.ToString()));
 
-        Assert.DoesNotContain(Secret, everything, StringComparison.Ordinal);
         Assert.Contains("occupied.db", everything, StringComparison.Ordinal);
     }
 

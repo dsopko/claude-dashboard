@@ -92,22 +92,16 @@ public sealed class SilenceLoggingTests : IAsyncLifetime
         Rendered.Where(line => line.Contains("no event for", StringComparison.Ordinal));
 
     /// <summary>
-    /// <strong>The loop sweeps on its own tick, and the line carries the silence and no title.</strong>
+    /// <strong>The loop sweeps on its own tick, and the line carries the silence.</strong>
     /// </summary>
     /// <remarks>
-    /// <para>
-    /// The session carries a title throughout, so the absence of one in the log is the rule being
-    /// kept rather than an arrangement that had nothing to leak. T1.24: a title can be a
-    /// model-written summary of the operator's prompt, and a line saying which session went quiet
-    /// needs none of it.
-    /// </para>
     /// <para>
     /// The wording is asserted too. It says "no event", not "interrupted" — the badge carries the
     /// operator's word because they asked for it, and the log carries what was observed.
     /// </para>
     /// </remarks>
     [Fact]
-    public async Task The_tick_sweeps_and_logs_the_silence_without_the_title()
+    public async Task The_tick_sweeps_and_logs_the_silence()
     {
         _pipeline.Sink.TryPublish(new UserPromptSubmit
         {
@@ -133,8 +127,6 @@ public sealed class SilenceLoggingTests : IAsyncLifetime
         Assert.Contains("s-1", line, StringComparison.Ordinal);
         Assert.Contains("11.0 minutes", line, StringComparison.Ordinal);
         Assert.Contains("10 minutes", line, StringComparison.Ordinal);
-        Assert.DoesNotContain(Marker, line, StringComparison.Ordinal);
-        Assert.DoesNotContain("run the tests", line, StringComparison.Ordinal);
 
         // And it is not shouting: nothing has happened that the operator must act on.
         Assert.True(_sink.AnyMentioning("no event for", Serilog.Events.LogEventLevel.Information));

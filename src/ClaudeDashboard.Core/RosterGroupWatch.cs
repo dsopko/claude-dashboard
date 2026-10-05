@@ -41,9 +41,7 @@ public readonly record struct RosterGroupChange(GroupKey Group, RosterGroupEvent
 /// </para>
 /// <para>
 /// <strong>It reports rather than logs.</strong> Core does not log, and the mis-mark is the one
-/// observation here that has to reach a file. Returning it lets the host write it with the roster's
-/// own name and without the members' — which matters, because a member name is a session title and
-/// a title can carry the operator's words (T1.24).
+/// observation here that has to reach a file. Returning it lets the host write it, with the roster's own name.
 /// </para>
 /// <para>
 /// <strong>Single-threaded, like the Registry and the sound engine.</strong> The event consumer

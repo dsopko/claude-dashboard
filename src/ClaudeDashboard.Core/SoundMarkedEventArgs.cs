@@ -14,7 +14,7 @@ namespace ClaudeDashboard.Core;
 /// interface, gets the same row from the same rule.
 /// </para>
 /// <para>
-/// Identifiers and an instant only. Never a title, a prompt or a path.
+/// Identifiers and an instant.
 /// </para>
 /// </remarks>
 /// <param name="session">The session whose row shows the sign.</param>

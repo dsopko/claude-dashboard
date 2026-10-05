@@ -7,16 +7,9 @@ using ClaudeDashboard.Tests.Fakes;
 namespace ClaudeDashboard.Tests.Domain;
 
 /// <summary>
-/// The <c>/state</c> report reveals no title and no task description to a log, and still answers
-/// with both (T1.46).
+/// <see cref="OperatorText"/>: a title or a task description in the <c>/state</c> report (T1.46). The endpoint writes
+/// the text, and since T1.76 (issue #118) a log line that names it shows the text too.
 /// </summary>
-/// <remarks>
-/// Measured through a real Serilog pipeline with a marker in it, the way
-/// <c>UnprotectedTextInventory</c>'s entries were — not by comparing <see cref="OperatorText.ToString"/>
-/// with our own expectation, which would still pass on the day Serilog rendered it differently.
-/// Both routes: a plain <c>{Report}</c>, which calls the record's generated <c>ToString</c>, and
-/// <c>{@Report}</c>, which reflects over public properties.
-/// </remarks>
 public sealed class OperatorTextTests
 {
     private const string TitleMarker = "TITLE-MARKER-c41e";
@@ -24,30 +17,26 @@ public sealed class OperatorTextTests
 
     private static readonly DateTimeOffset At = FakeClock.DefaultStart;
 
+    /// <summary>
+    /// <strong>A log line shows the title and the description</strong> (T1.76, issue #118): plainly, destructured,
+    /// and for one entry or one task.
+    /// </summary>
     [Fact]
-    public void Serilog_renders_neither_the_title_nor_the_description_of_a_whole_report()
+    public void A_log_line_shows_the_title_and_the_description()
     {
         var sink = new RecordingLogSink();
         using var logger = new Serilog.LoggerConfiguration().MinimumLevel.Verbose().WriteTo.Sink(sink).CreateLogger();
 
         var report = Report();
 
-        logger.Information("The report, plainly: {Report}", report);
         logger.Information("The report, destructured: {@Report}", report);
         logger.Information("One entry, destructured: {@Entry}", report.Sessions[0]);
-        logger.Information("One task, plainly: {Task}", report.Sessions[0].WaitingOn[0]);
         logger.Information("The title alone: {Title} {@Title}", report.Sessions[0].Title, report.Sessions[0].Title);
+        logger.Information("One task, plainly: {Description}", report.Sessions[0].WaitingOn[0].Description);
 
-        foreach (var message in sink.Messages)
-        {
-            Assert.DoesNotContain(TitleMarker, message, StringComparison.Ordinal);
-            Assert.DoesNotContain(DescriptionMarker, message, StringComparison.Ordinal);
-        }
-
-        // The control: every line arrived, and the destructured ones really reached inside the
-        // report — the session id is there. A plain {Report} prints the list by its type name.
-        Assert.Equal(5, sink.Messages.Count);
-        Assert.Equal(2, sink.Containing("s-state-1"));
+        Assert.Equal(4, sink.Messages.Count);
+        Assert.Equal(3, sink.Containing(TitleMarker));
+        Assert.Equal(3, sink.Containing(DescriptionMarker));
     }
 
     [Fact]
@@ -60,10 +49,11 @@ public sealed class OperatorTextTests
     }
 
     [Fact]
-    public void ToString_gives_a_size_and_never_the_text()
+    public void ToString_gives_the_text()
     {
-        Assert.Equal("<text: 17 chars>", new OperatorText(TitleMarker).ToString());
-        Assert.Equal("<text: none>", default(OperatorText).ToString());
+        Assert.Equal(TitleMarker, new OperatorText(TitleMarker).ToString());
+        Assert.Equal(TitleMarker, new OperatorText(TitleMarker).Text);
+        Assert.Equal(string.Empty, default(OperatorText).ToString());
     }
 
     [Fact]

@@ -17,8 +17,8 @@ namespace ClaudeDashboard.App.Ingress;
 /// louder. It is a fact to read when the board looks too quiet.
 /// </para>
 /// <para>
-/// <strong>No text from a post is kept here.</strong> A refused post is not trusted, and an accepted
-/// one carries the operator's words. This holds instants, counts, and the self-test's own value.
+/// <strong>No text from a post is kept here.</strong> A refused post is not trusted, and nothing here needs the
+/// text of an accepted one. This holds instants, counts, and the self-test's own value.
 /// </para>
 /// </remarks>
 public sealed class HookHealth

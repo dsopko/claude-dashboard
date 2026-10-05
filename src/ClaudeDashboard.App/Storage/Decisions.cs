@@ -170,10 +170,9 @@ public enum TaskTypeReason
 /// </summary>
 /// <remarks>
 /// <para>
-/// <strong>Identifiers and enums only — never a title, prompt, payload or message body
-/// (T1.24).</strong> <see cref="Reason"/> is an enum name or an identifier;
-/// <see cref="Detail"/> is <c>key=value</c> identifiers — a device id, a group key, a rung, a
-/// count of minutes. The inventory guard covers both.
+/// <strong>What the fields hold:</strong> <see cref="Reason"/> is an enum name or an identifier;
+/// <see cref="Detail"/> is <c>key=value</c> identifiers — a device id, a group key, a rung, a count of minutes.
+/// The session's name and path have their own columns (T1.69).
 /// </para>
 /// <para>
 /// The row's <c>event_id</c> is not here: the decision cannot know it, because the archive
@@ -186,8 +185,8 @@ public enum TaskTypeReason
 /// <param name="Kind">What kind of decision.</param>
 /// <param name="FromState">The state left, where the kind moves one.</param>
 /// <param name="ToState">The state entered, where the kind moves one.</param>
-/// <param name="Reason">An enum name or identifier saying why. Never operator text.</param>
-/// <param name="Detail">Identifier pairs. Never operator text.</param>
+/// <param name="Reason">An enum name or identifier saying why.</param>
+/// <param name="Detail">Identifier pairs.</param>
 public sealed record Decision(
     DateTimeOffset Ts,
     string? SessionId,
@@ -204,8 +203,8 @@ public sealed record Decision(
     /// </summary>
     /// <remarks>
     /// Stamped by the recorder on the consumer thread, after the event is applied: the Registry's
-    /// name, or the event's for a session the Registry does not hold. A title can be a model-written
-    /// summary of the operator's prompt, so it goes to its own column and never into a log line.
+    /// name, or the event's for a session the Registry does not hold. Its own column, so <see cref="Reason"/>
+    /// and <see cref="Detail"/> keep their identifiers.
     /// </remarks>
     public string? SessionTitle { get; init; }
 

@@ -32,9 +32,9 @@ namespace ClaudeDashboard.App.Pipeline;
 /// borrow the scope's event id. Neither hand-off blocks.
 /// </para>
 /// <para>
-/// <strong>Identifiers and enums only, throughout (T1.24).</strong> Never a title, prompt,
-/// payload or message body. The one text that comes near — the exception in
-/// <see cref="ApplyFailed"/> — is recorded as its TYPE name alone.
+/// <strong>What a row holds:</strong> enums and identifiers in <c>reason</c> and <c>detail</c>, and the session's
+/// name and path in their own columns (T1.69). The exception in <see cref="ApplyFailed"/> is recorded as its type
+/// name.
 /// </para>
 /// </remarks>
 /// <summary>
@@ -376,7 +376,7 @@ public sealed class DecisionRecorder : IDecisionSink, IDecisionLog
     /// <remarks>
     /// The detail holds what the played row would have held, so a reader can ask the same question
     /// of either: the kind and the sound, then the rung for a nudge, or the group and its member
-    /// ids for a group sound. Identifiers only.
+    /// ids for a group sound.
     /// </remarks>
     public void SoundDropped(
         SoundDecisionKind kind,
@@ -407,7 +407,7 @@ public sealed class DecisionRecorder : IDecisionSink, IDecisionLog
     /// <remarks>
     /// A group's sound records the group and its members by id, as a played or a dropped one does (T1.73, issue
     /// #108), so the Activity window can name the group and a click can go to its heading. A session's held-back
-    /// sound keeps <c>kind=… sound=…</c>. Identifiers only.
+    /// sound keeps <c>kind=… sound=…</c>.
     /// </remarks>
     public void SoundSuppressed(
         SoundDecisionKind kind,
@@ -454,11 +454,13 @@ public sealed class DecisionRecorder : IDecisionSink, IDecisionLog
 
         // The same row at Debug, so an operator chasing a sound can tail the log with
         // logging.minimumLevel=Debug and read what the table records: the log file follows that
-        // setting (T1.52, issue #68). Identifiers only.
+        // setting (T1.52, issue #68). With the session's name (T1.76, issue #118), by the rule that
+        // stamps the row, so a reader can tell which session a line is about.
         _logger.Debug(
-            "Decision {Kind} session={SessionId} {FromState}->{ToState} reason={Reason} detail={Detail}",
+            "Decision {Kind} session={SessionId} name={SessionTitle} {FromState}->{ToState} reason={Reason} detail={Detail}",
             decision.Kind,
             decision.SessionId ?? "(none)",
+            Stamped(decision, _current).SessionTitle ?? "-",
             decision.FromState ?? "-",
             decision.ToState ?? "-",
             decision.Reason ?? "-",
@@ -499,8 +501,8 @@ public sealed class DecisionRecorder : IDecisionSink, IDecisionLog
     /// hourly summary).
     /// </para>
     /// <para>
-    /// The name goes to its own column only, never into <see cref="Decision.Reason"/>,
-    /// <see cref="Decision.Detail"/> or a log line (T1.24 as T1.69 changed it).
+    /// The name goes to its own column; <see cref="Decision.Reason"/> and <see cref="Decision.Detail"/> keep
+    /// enums and identifiers. The Debug line of each row shows it too (T1.76).
     /// </para>
     /// </remarks>
     private Decision Stamped(Decision decision, InboundEvent? scopeEvent)

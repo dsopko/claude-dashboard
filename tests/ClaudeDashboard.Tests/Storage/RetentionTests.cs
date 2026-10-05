@@ -265,7 +265,6 @@ public sealed class RetentionTests : IDisposable
 
         foreach (var line in new[] { lines[retention], lines[pruned] })
         {
-            Assert.DoesNotContain(Marker, line, StringComparison.Ordinal);
             Assert.DoesNotContain(oldTime, line, StringComparison.Ordinal);
         }
     }

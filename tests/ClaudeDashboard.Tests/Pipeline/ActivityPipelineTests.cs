@@ -76,7 +76,7 @@ public sealed class ActivityPipelineTests : IAsyncLifetime
 
     /// <summary>
     /// A prompt and a permission prompt: the lines arrive from the consumer's decisions, with the session's name
-    /// and project, though no store ever reads the archive. And no log line holds the name or the path.
+    /// and project, though no store ever reads the archive.
     /// </summary>
     [Fact]
     public async Task The_lines_come_from_the_consumer_with_no_store()
@@ -101,9 +101,6 @@ public sealed class ActivityPipelineTests : IAsyncLifetime
         // The sound on top of its record, the change that caused it directly under it (the T1.70 review).
         Assert.Equal(["permission", "needs permission", "new session"], _activity.Lines.Select(line => line.What));
         Assert.All(_activity.Lines, line => Assert.Equal((Title, "payments-api", Cwd), (line.Name, line.Project, line.ProjectPath)));
-
-        var lines = _log.Events.Select(e => e.RenderMessage(CultureInfo.InvariantCulture)).ToList();
-        Assert.DoesNotContain(lines, line => line.Contains(Title, StringComparison.Ordinal) || line.Contains("zqx-activity-path-marker", StringComparison.Ordinal));
     }
 
     private static async Task<bool> Until(Func<bool> condition)

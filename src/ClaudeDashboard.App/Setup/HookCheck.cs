@@ -58,9 +58,8 @@ public readonly record struct HookPresence(
 /// turns each finding here into a registration or into a notice on screen.
 /// </para>
 /// <para>
-/// <strong>It logs what it found, never the file's contents.</strong> Claude Code's settings are
-/// the operator's, and T1.24's rule stands. The one value out of the file that reaches a log line
-/// is the folder of a same-named plugin from another data folder.
+/// <strong>It logs what it found, not the file's contents.</strong> The one value out of the file that reaches a
+/// log line is the folder of a same-named plugin from another data folder.
 /// </para>
 /// </remarks>
 public sealed class HookCheck

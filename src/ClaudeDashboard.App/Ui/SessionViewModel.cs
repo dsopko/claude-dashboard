@@ -593,7 +593,7 @@ public sealed partial class SessionViewModel : DashboardRow
     /// or empty when it is not Waiting (T1.41).
     /// </summary>
     /// <remarks>
-    /// Agent-written text, rendered as data and never logged. The first listed, because the line
+    /// Agent-written text, rendered as data. The first listed, because the line
     /// has room for one; the expanded row lists them all.
     /// </remarks>
     public string WaitingSummary => IsWaiting && _session.WaitingOn.Count > 0

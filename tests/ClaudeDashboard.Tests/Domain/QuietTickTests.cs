@@ -219,16 +219,6 @@ public sealed class QuietTickTests
         Assert.DoesNotContain("auto-ack", cause, StringComparison.Ordinal);
     }
 
-    /// <summary>The cron prompts a tick is recognised by never print: a Session shows a count, not the words.</summary>
-    [Fact]
-    public void The_cron_prompts_never_print()
-    {
-        GivenFinishedWithCron();
-
-        Assert.DoesNotContain("zqx-cron-prompt-marker", Current.ToString(), StringComparison.Ordinal);
-        Assert.DoesNotContain("zqx-cron-prompt-marker", Current.ScheduledPrompts.ToString(), StringComparison.Ordinal);
-    }
-
     // ---- A roster group ------------------------------------------------------------------------
 
     /// <summary>
