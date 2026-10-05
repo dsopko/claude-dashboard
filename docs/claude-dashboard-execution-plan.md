@@ -1130,6 +1130,42 @@ The work in GitHub milestone 3, "Observability 1": issues #3, #14, #67, #71, #72
 
 **Milestone 1F, third pass, closed 2026-10-04:** every planned issue in GitHub milestone 5 has a merged change: T1.67 (#99), T1.68 (#102), T1.69 (#98), T1.70 and T1.71 (#97), and #23 with T1.71. `main` builds with 0 warnings, and both suites pass, 2242 of 2242. **Found during the milestone and taken to the operator, not built:** a `dashboard.db` that is read-only at start never recovers until a restart (T1.54, the pooled handle); forming a roster over finished sessions plays "finished" again for the group (T1.26); a suppressed group sound's Activity line has no name or project. **Before an installed copy takes T1.68:** `history.retentionDays` is no longer used, and the history follows Claude Code's `cleanupPeriodDays` (30 days when the key is absent). A copy set to keep everything no longer does, unless `cleanupPeriodDays` is set high in Claude Code's settings.
 
+**Milestone 1F, third pass, opened again 2026-10-04:** the operator added two of the found defects to GitHub milestone 5 after its planned work closed: #107 (a roster made from finished sessions plays "finished" again) and #108 (a group's "no sound" line in the Activity window has no name). **Order:** T1.72 is #107, because the operator ruled on it first. T1.73 is kept for #108; its block is written when T1.72 is merged. The read-only `dashboard.db` defect is still not filed.
+
+**T1.72 — A roster group's "finished" plays only when it has something new to announce**
+- **Goal:** making a roster from sessions that have already finished, and already played their sound, plays no new sound. The group's "finished" plays only when at least one finished member was not announced yet. For issue #107.
+- **Depends:** T1.26 (the roster group's own sound), T1.44 (a settle that comes back unchanged is not announced again), T1.67 (the consumer names the settling member from the groups as they stand, `RosterSettle.SettledBy`), T1.55 (a held-back or dropped sound still counts: the engine goes on as if it had played)
+- **Realizes:** the operator's ruling of 2026-10-04 on #107: "Creating a roster of already finished sessions that have played a sound should not create a new sound. If you add a working session to a roster, then when that session ends the roster would play a sound." And: "create it like it is already acknowledged." Director's rulings, which map that ruling to the sound engine:
+  - **The engine remembers, for each finished session, whether its finish was already announced.** It is one more fact on the engine's own record of the session, for the entry it holds (the state and the instant the session entered it).
+    - Announced: the engine made the session's own "finished" notice for that entry. That is so when the notice played, when a mute or a pause held it back, and when the player dropped it (T1.55: the engine goes on as if the sound had played).
+    - Not announced: the notice was given to the session's roster group (`GroupDone`), and the group has not announced yet.
+    - When a group's settle is announced (played, held back by a mute or a pause, or dropped), every member that is Unread at that moment counts as announced.
+    - A new entry (the session works again and finishes again) starts with the fact decided again. An entry that T1.44 restores keeps the fact it had.
+  - **A group that settles is silent when every Unread member is already announced.** If one or more Unread members are not announced, the group plays "finished" once, as today. An Unread member that the engine holds no record of counts as not announced: when in doubt, the sound plays.
+  - **The members come from the consumer**, read from the groups as they stand at the settle, the way `SettledBy` is (T1.67). Never from the engine's own copy of each session's group: a roster edit does not change that copy, and this defect exists because of such an edit.
+  - **A silent settle is recorded** the way T1.44 records its own: `NoticeSuppressed`, with the reason `AlreadyAnnounced`, for the group's notice. The decisions record and the Activity window then say why nothing played. The group is held as settled, so a later unsettle and settle behave as today.
+  - **A silent settle starts no reminder for the group.** Why: each session that announced its own finish keeps its own reminder (one soft reminder after `UnreadNudgeAfter`), and a roster edit does not touch it. Making a roster then adds no sound and removes none. Accepted limit: a roster renamed before its group's reminder plays loses that one reminder, because the reminder belongs to the old group's key.
+  - **No speaker sign (T1.67) for a silent settle:** no sound played.
+  - **What follows from the rule, and stays:** removing the working member from a roster whose other members finished inside it plays "finished" once. Their finish was never announced, because the roster held the sound. The operator can change this.
+- **Deliverables:**
+  - The fact on the engine's record, set and carried as above. The rule stays in Core, and the engine still holds no roster book.
+  - `OnRosterGroupSettled` learns the group's Unread members from the consumer's settle pass (a Core helper beside `RosterSettle.SettledBy` is acceptable).
+  - The silent settle: no sound, no reminder, the record above.
+  - **Documents, in the same change:** TS §IV.5, where the group's sound is described; Impl Part 7 (the group's notice and its reminder), Impl §2.4 and §2.5 where the settle and the engine's events are listed, Impl §8.3 if it lists the reasons, Impl §5.7 if the Activity window's words for this line change; the event flow, where the settle pass runs; Core and App, for the rule in Core. One row each in TS Appendix D and Impl Appendix C.
+- **Acceptance** (each through the real `EventConsumer`, `RosterStore`, `RosterGroupWatch` and engine, wired as `AppHost` wires them, with no settle called by hand, as in `SoundSignPipelineTests`):
+  - Two sessions finish with no roster, and each plays "finished". A roster is made from them: no third sound, one `NoticeSuppressed` row with `AlreadyAnnounced` for the group, and no row gets a new speaker sign. Five minutes later the group plays no reminder, and each session's own reminder plays at its own time.
+  - A roster of one finished (announced) session and one working session: when the working one finishes, the group plays "finished" once, and the group's reminder runs as today.
+  - A roster that exists before its members finish plays one "finished" for the group (unchanged).
+  - A roster renamed after its group announced: no sound.
+  - A roster made inside the settle window of a member's own finish (under a fake clock): no second sound.
+  - A finished session whose name changes to a roster member's name: no sound for the group.
+  - A session whose own "finished" was held back by a mute, then put in a roster: no sound.
+  - Removing the working member from a roster whose other members finished inside it: "finished" plays once.
+  - The T1.44 tests pass unchanged: a quiet tick does not announce a settle again, and it does not lose the group's reminder.
+  - Plants: (a) the fact not set when a session's own notice is made, and the made-from-finished test fails; (b) the group's settle no longer marks its members, and the rename test fails; (c) the members taken from the engine's own copy of the groups, and a test fails (choose the test that sees it, and print the members before the verdict leans on the plant).
+  - Both suite counts; build clean, 0 warnings.
+- **Guardrails:** no change to a session's own sounds, to the settle window, to the mis-mark rule, to the order of rows or to the tray light. The Registry is not written. No lock, no timer and no thread is added. Nothing new in the database: the reason `AlreadyAnnounced` exists. Tests use scratch folders and a scratch Claude Code path.
+
 ---
 
 ## Part 4 — Phases 2–7 task outlines
