@@ -1200,6 +1200,29 @@ The work in GitHub milestone 3, "Observability 1": issues #3, #14, #67, #71, #72
 - **Guardrails:** pooling stays on (the operator's ruling). No change to the retry minute, the notice and its text, the lost count, the store's lock, the schema steps, the prune or `Dispose`. No new thread and no new timer. The consumer, the UI and the request threads never wait on the store. Tests use scratch folders, never the operator's data folder.
 - **Done 2026-10-04:** PR #111, merged as `fade0f5`, `619db1f` (no fix cycle). `CloseForReal` (`ClearPool`, then `Dispose`) is used in `Connect`'s catch, after a failed open, between the opens of the second try and after its last one, and in `Unavailable`. `Dispose` does not change. The second try waits 100, 200, 300 and 400 ms, through a seam. **The review measured the real case:** a separate process ran `Get-FileHash` on the file in a loop while 300 stores each opened it and wrote once. 39 writes were lost on the base and none with this change; 30 opens met a read-only connection and wrote after one or two more opens. The T1.69 read-only probe now recovers at the minute. **The coder's rulings, accepted:** the new tests run alone, because each store's `Dispose` empties every pool in the process, and a test running beside them made a plain close look like a real one (the first plant runs passed for that reason; the product has one store); a failed open also closes for real; the exception's message names no path. **One failure, not found again:** the coder saw one failure in 60 runs of the Storage tests and did not save its output. The review's 60 saved runs were clean, and neither older flake appeared. **Found by the review, older than this task:** `RecordingSoundPlayer`, a test fake, keeps a plain list that a test reads while the consumer adds to it, so `RosterAnnouncedPipelineTests` (T1.72) failed once in five full runs with "Collection was modified". Taken to the operator. **Nit, not fixed:** no test holds the hard close in `Unavailable` (a plain `Dispose` there fails no test); a write that fails on an open connection, then a rename of the file, would hold it. Not verified: an installed dashboard with a real backup or indexing tool.
 
+**#112 and #113 added to GitHub milestone 5 on 2026-10-04, at the operator's word** ("file two issues fix them next"). They are the two items that T1.74's review found. **Order:** T1.75 (#112 and #113, one task), then T1.73 (#108). The operator gave #108 to this director, after the fixes.
+
+**T1.75 — A sound recorder that is safe across threads, and a test of the real close after a failed write**
+- **Goal:** the suite stops failing at random because of a test helper, and a test holds the real close in `Unavailable`. Test code only. For issues #112 and #113.
+- **Depends:** T1.74 (`CloseForReal`, and the store's tests that run alone), T1.72 (`RosterAnnouncedPipelineTests`), T1.54 (a write that fails on an open connection)
+- **Realizes:** #112 and #113 as written. Director's rulings:
+  - **One task and one pull request.** Both are small, both change test code only, and they touch different files.
+  - **No product code changes.** If a product change looks necessary, send QUESTION first.
+  - **#112:** `RecordingSoundPlayer` takes a lock in `Play` and `Clear`. Each reader (`Played`, `Last`, `Gains`, `PlayedOf`) takes a copy under the same lock and answers from it. The shapes that the members return do not change; `Gains` stays a plain list (see its remark). `Played` now returns a copy and not the live list: find any test that keeps `Played` and expects it to grow, and change that test.
+  - **The same defect in other fakes:** search the test fakes for a plain collection that the consumer thread adds to while a test thread polls it. Fix each one the same way, and list each one in the report.
+  - **#113:** the new test runs in the collection that runs alone (T1.74), because another class's `Dispose` empties every pool in the process and would make a plain close look like a real one. The test's own second connection uses `Pooling=False`, so that it holds no handle.
+- **Deliverables:**
+  - The lock in `RecordingSoundPlayer`, and in any fake of the same shape.
+  - A test for each fake that is changed: one thread plays (or adds) many times while another reads every member in a loop.
+  - The test of #113: a store opens a scratch database and writes once; a write then fails on the open connection (drop `events` through a second connection, as `SqliteEventStoreTests.cs:420` does); straight after the failed write, the database file can be renamed.
+  - **Documents:** none, unless a document describes a changed fake.
+- **Acceptance:**
+  - The thread test of #112 passes. **Plant (a):** the lock removed, and the thread test fails. A race may not fail every time: make the test fail without the lock in at least 9 of 10 runs, and report the rate.
+  - `RosterAnnouncedPipelineTests`, `SoundSignPipelineTests`, `EventConsumerTests` and `SoundCommandPipelineTests`: 50 runs, each saved to a file, with no failure.
+  - The test of #113 passes. **Plant (b):** a plain `Dispose` in place of `CloseForReal` in `Unavailable`, and the test fails.
+  - Both suite counts; build clean, 0 warnings. Three full runs, each saved to a file: name any failure.
+- **Guardrails:** no product code. Tests use scratch folders, never the operator's data folder.
+
 ---
 
 ## Part 4 — Phases 2–7 task outlines
