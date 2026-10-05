@@ -351,12 +351,11 @@ public sealed class StateEndpointTests
         public static async Task<StateHost> Start(string token)
         {
             var root = Path.Combine(Path.GetTempPath(), "claude-dashboard-tests", Guid.NewGuid().ToString("N"));
-            var port = AppHostTests.FreePort();
             var paths = new DashboardPaths(root);
 
             var builder = WebApplication.CreateSlimBuilder();
             builder.Logging.ClearProviders();
-            builder.WebHost.ConfigureKestrel(kestrel => kestrel.ListenLocalhost(port));
+            builder.WebHost.ConfigureKestrel(kestrel => kestrel.Listen(System.Net.IPAddress.Loopback, 0));
 
             var clock = new FakeClock();
             var guard = new SingleWriterGuard();
@@ -385,6 +384,9 @@ public sealed class StateEndpointTests
 
             app.MapIngress();
             await app.StartAsync();
+
+            // The port Windows chose as Kestrel listened, so nothing could take it first (T1.77, issue #120).
+            var port = new Uri(app.Urls.Single()).Port;
 
             return new StateHost(root, app, new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}") });
         }

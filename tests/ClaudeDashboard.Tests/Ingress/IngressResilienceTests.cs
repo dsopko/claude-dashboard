@@ -53,11 +53,9 @@ public sealed class IngressResilienceTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        var port = FreePort();
-
         var builder = WebApplication.CreateSlimBuilder();
         builder.Logging.ClearProviders();
-        builder.WebHost.ConfigureKestrel(kestrel => kestrel.ListenLocalhost(port));
+        builder.WebHost.ConfigureKestrel(kestrel => kestrel.Listen(IPAddress.Loopback, 0));
 
         builder.Services.AddSingleton<Serilog.ILogger>(Logger.None);
         builder.Services.AddSingleton<IClock>(new FakeClock());
@@ -69,6 +67,9 @@ public sealed class IngressResilienceTests : IAsyncLifetime
         _app.MapIngress(onShow: () => throw new InvalidOperationException("deliberate show failure"));
 
         await _app.StartAsync();
+
+        // The port Windows chose as Kestrel listened, so nothing could take it first (T1.77, issue #120).
+        var port = new Uri(_app.Urls.Single()).Port;
         _client = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}") };
     }
 
@@ -81,15 +82,6 @@ public sealed class IngressResilienceTests : IAsyncLifetime
             await _app.StopAsync();
             await _app.DisposeAsync();
         }
-    }
-
-    private static int FreePort()
-    {
-        using var probe = new TcpListener(IPAddress.Loopback, 0);
-        probe.Start();
-        var port = ((IPEndPoint)probe.LocalEndpoint).Port;
-        probe.Stop();
-        return port;
     }
 
     private static HttpRequestMessage Hook(string json)

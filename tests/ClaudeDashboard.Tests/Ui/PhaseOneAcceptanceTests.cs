@@ -96,10 +96,8 @@ public sealed class PhaseOneAcceptanceTests(StaHarness harness) : IDisposable
     [Fact]
     public void A_phase_of_traffic_produces_the_states_bands_and_tray_light_the_operator_should_see()
     {
-        var port = ClaudeDashboard.Tests.Hosting.AppHostTests.FreePort();
         var paths = new DashboardPaths(_root);
         Directory.CreateDirectory(_root);
-        new SettingsStore(paths).Save(new DashboardSettings { Port = port });
 
         Observed observed;
 
@@ -111,14 +109,18 @@ public sealed class PhaseOneAcceptanceTests(StaHarness harness) : IDisposable
         // two-minute hang, on the first version of this test.
         var built = _harness.Invoke(() =>
         {
-            var host = AppHost.Build(paths, claude: new ClaudeCodePaths(Path.Combine(paths.Root, "claude-config")));
-            host.Start();
+            // A port the host keeps: a taken one is chosen again (T1.77, issue #120).
+            var (host, port) = ClaudeDashboard.Tests.Hosting.TestPorts.Start(chosen =>
+            {
+                new SettingsStore(paths).Save(new DashboardSettings { Port = chosen });
+                return AppHost.Build(paths, claude: new ClaudeCodePaths(Path.Combine(paths.Root, "claude-config")));
+            });
 
             _ = host.Services.GetRequiredService<SessionProjection>();
             var tray = host.Services.GetRequiredService<TrayIcon>();
             var window = host.Services.GetRequiredService<MainWindow>();
 
-            return (Host: host, Tray: tray, Window: window);
+            return (Host: host, Port: port, Tray: tray, Window: window);
         });
 
         try
@@ -126,7 +128,7 @@ public sealed class PhaseOneAcceptanceTests(StaHarness harness) : IDisposable
             var registry = built.Host.Services.GetRequiredService<SessionRegistry>();
             var consumer = built.Host.Services.GetRequiredService<ClaudeDashboard.App.Pipeline.EventConsumer>();
 
-            using var client = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}") };
+            using var client = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{built.Port}") };
             client.DefaultRequestHeaders.Add(ClaudeDashboard.App.Ingress.IngressToken.HeaderName, built.Host.Services.GetRequiredService<ClaudeDashboard.App.Ingress.IngressToken>().Reveal());
 
             var posted = 0;
@@ -260,25 +262,27 @@ public sealed class PhaseOneAcceptanceTests(StaHarness harness) : IDisposable
     [Fact]
     public void Both_acknowledgment_tiers_clear_an_unread_session()
     {
-        var port = ClaudeDashboard.Tests.Hosting.AppHostTests.FreePort();
         var paths = new DashboardPaths(_root);
         Directory.CreateDirectory(_root);
-        new SettingsStore(paths).Save(new DashboardSettings { Port = port });
 
         var built = _harness.Invoke(() =>
         {
-            var host = AppHost.Build(paths, claude: new ClaudeCodePaths(Path.Combine(paths.Root, "claude-config")));
-            host.Start();
+            // A port the host keeps: a taken one is chosen again (T1.77, issue #120).
+            var (host, port) = ClaudeDashboard.Tests.Hosting.TestPorts.Start(chosen =>
+            {
+                new SettingsStore(paths).Save(new DashboardSettings { Port = chosen });
+                return AppHost.Build(paths, claude: new ClaudeCodePaths(Path.Combine(paths.Root, "claude-config")));
+            });
             _ = host.Services.GetRequiredService<SessionProjection>();
             var window = host.Services.GetRequiredService<MainWindow>();
-            return (Host: host, Window: window);
+            return (Host: host, Port: port, Window: window);
         });
 
         try
         {
             var consumer = built.Host.Services.GetRequiredService<ClaudeDashboard.App.Pipeline.EventConsumer>();
             var registry = built.Host.Services.GetRequiredService<SessionRegistry>();
-            using var client = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}") };
+            using var client = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{built.Port}") };
             client.DefaultRequestHeaders.Add(ClaudeDashboard.App.Ingress.IngressToken.HeaderName, built.Host.Services.GetRequiredService<ClaudeDashboard.App.Ingress.IngressToken>().Reveal());
             var posted = 0;
 

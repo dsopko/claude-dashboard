@@ -56,24 +56,26 @@ public sealed class HistoryNoticeAcceptanceTests(StaHarness harness) : IDisposab
     [Fact]
     public void A_database_that_cannot_be_written_shows_the_notice_and_the_dashboard_goes_on()
     {
-        var port = ClaudeDashboard.Tests.Hosting.AppHostTests.FreePort();
         var paths = new DashboardPaths(_root);
         Directory.CreateDirectory(_root);
-        new SettingsStore(paths).Save(new DashboardSettings { Port = port });
 
         // A folder where the file must be: the store's open fails, with no ACL games.
         Directory.CreateDirectory(paths.DatabaseFile);
 
         var built = _harness.Invoke(() =>
         {
-            var host = AppHost.Build(paths, claude: new ClaudeCodePaths(Path.Combine(paths.Root, "claude-config")));
-            host.Start();
+            // A port the host keeps: a taken one is chosen again (T1.77, issue #120).
+            var (host, port) = ClaudeDashboard.Tests.Hosting.TestPorts.Start(chosen =>
+            {
+                new SettingsStore(paths).Save(new DashboardSettings { Port = chosen });
+                return AppHost.Build(paths, claude: new ClaudeCodePaths(Path.Combine(paths.Root, "claude-config")));
+            });
 
             _ = host.Services.GetRequiredService<SessionProjection>();
             var tray = host.Services.GetRequiredService<TrayIcon>();
             var window = host.Services.GetRequiredService<MainWindow>();
 
-            return (Host: host, Tray: tray, Window: window);
+            return (Host: host, Port: port, Tray: tray, Window: window);
         });
 
         try
@@ -83,7 +85,7 @@ public sealed class HistoryNoticeAcceptanceTests(StaHarness harness) : IDisposab
             var player = (NAudioSoundPlayer)built.Host.Services.GetRequiredService<ISoundPlayer>();
             var handedBefore = player.QueuedCount + player.DegradedCount;
 
-            using var client = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}") };
+            using var client = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{built.Port}") };
             client.DefaultRequestHeaders.Add(
                 ClaudeDashboard.App.Ingress.IngressToken.HeaderName,
                 built.Host.Services.GetRequiredService<ClaudeDashboard.App.Ingress.IngressToken>().Reveal());

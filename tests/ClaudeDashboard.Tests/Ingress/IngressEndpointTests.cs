@@ -52,14 +52,15 @@ public sealed class IngressEndpointTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        _port = FreePort();
         var paths = new DashboardPaths(_root);
-        new SettingsStore(paths).Save(new DashboardSettings { Port = _port });
 
         _sink = new RecordingEventSink();
         _app = BuildIngress(paths, _sink, new IngressToken(Token), () => Interlocked.Increment(ref _shown));
 
         await _app.StartAsync();
+
+        // The port Windows chose as Kestrel listened, so nothing could take it first (T1.77, issue #120).
+        _port = new Uri(_app.Urls.Single()).Port;
         _client = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_port}") };
     }
 
@@ -96,8 +97,7 @@ public sealed class IngressEndpointTests : IAsyncLifetime
     {
         var builder = WebApplication.CreateSlimBuilder();
         builder.Logging.ClearProviders();
-        builder.WebHost.ConfigureKestrel(kestrel =>
-            kestrel.ListenLocalhost(new SettingsStore(paths).Load().Settings.Port ?? DashboardSettings.IngressPortBase));
+        builder.WebHost.ConfigureKestrel(kestrel => kestrel.Listen(IPAddress.Loopback, 0));
 
         builder.Services.AddSingleton<Serilog.ILogger>(Logger.None);
         builder.Services.AddSingleton(paths);
@@ -109,15 +109,6 @@ public sealed class IngressEndpointTests : IAsyncLifetime
         var app = builder.Build();
         app.MapIngress(onShow);
         return app;
-    }
-
-    private static int FreePort()
-    {
-        using var probe = new TcpListener(IPAddress.Loopback, 0);
-        probe.Start();
-        var port = ((IPEndPoint)probe.LocalEndpoint).Port;
-        probe.Stop();
-        return port;
     }
 
     private static HttpRequestMessage Hook(string json, string? token = Token)

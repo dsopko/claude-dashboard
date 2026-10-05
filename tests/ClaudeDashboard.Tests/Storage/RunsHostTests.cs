@@ -42,11 +42,20 @@ public sealed class RunsHostTests : IDisposable
         }
     }
 
-    private WebApplication Host(out int port, bool ingressAvailable = true)
+    /// <summary>A started host on a port it keeps: a taken one is chosen again (T1.77, issue #120).</summary>
+    private async Task<(WebApplication App, int Port)> Started()
     {
-        port = ClaudeDashboard.Tests.Hosting.AppHostTests.FreePort();
-        new SettingsStore(_paths).Save(new DashboardSettings { Port = port });
+        var (app, port, _) = await ClaudeDashboard.Tests.Hosting.TestPorts.StartAsync(chosen =>
+        {
+            new SettingsStore(_paths).Save(new DashboardSettings { Port = chosen });
+            return Build(ingressAvailable: true);
+        });
 
+        return (app, port);
+    }
+
+    private WebApplication Build(bool ingressAvailable)
+    {
         // A scratch folder for Claude Code's settings, never the operator's ~/.claude (T1.68). It has no
         // settings file, so the history keeps everything: these tests are about runs, not the prune.
         return AppHost.Build(_paths, ingressAvailable: ingressAvailable, claude: new ClaudeCodePaths(Path.Combine(_root, "claude-config")));
@@ -63,11 +72,13 @@ public sealed class RunsHostTests : IDisposable
 
         for (var i = 0; i < 2; i++)
         {
-            await using var app = Host(out var port);
+            var (app, port) = await Started();
             ports.Add(port);
 
-            await app.StartAsync();
-            await app.StopAsync();
+            await using (app)
+            {
+                await app.StopAsync();
+            }
         }
 
         var rows = ForeignSqliteReader.Query(_paths.DatabaseFile, Rows);
@@ -91,10 +102,10 @@ public sealed class RunsHostTests : IDisposable
     [Fact]
     public async Task A_host_disposed_without_a_stop_leaves_the_stop_empty()
     {
-        await using (var app = Host(out _))
-        {
-            await app.StartAsync();
+        var (started, _) = await Started();
 
+        await using (var app = started)
+        {
             // The row is written on the writer's loop. Wait for it, so the dispose meets a written
             // row and the test is about the stop, not about whether the start won a race.
             var store = app.Services.GetRequiredService<SqliteEventStore>();
@@ -111,7 +122,11 @@ public sealed class RunsHostTests : IDisposable
     [Fact]
     public async Task A_start_that_could_not_bind_has_no_port()
     {
-        await using (var app = Host(out _, ingressAvailable: false))
+        // A host that cannot bind listens on a port that Windows chooses as it listens (T1.8), never on the pin, so a
+        // pin that nothing listened on a moment ago is enough.
+        new SettingsStore(_paths).Save(new DashboardSettings { Port = ClaudeDashboard.Tests.Hosting.TestPorts.Unbound() });
+
+        await using (var app = Build(ingressAvailable: false))
         {
             await app.StartAsync();
             await app.StopAsync();
@@ -138,9 +153,10 @@ public sealed class RunsHostTests : IDisposable
 
         // Keeps everything: the old rows are from 2026-09-01, older than 30 days, and the scratch Claude
         // Code folder has no settings file, so nothing is deleted (T1.68).
-        await using (var app = Host(out _))
+        var (started, _) = await Started();
+
+        await using (var app = started)
         {
-            await app.StartAsync();
             await app.StopAsync();
         }
 

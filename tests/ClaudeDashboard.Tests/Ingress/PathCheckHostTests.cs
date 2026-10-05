@@ -41,14 +41,15 @@ public sealed class PathCheckHostTests : IAsyncLifetime, IDisposable
 
     public async Task InitializeAsync()
     {
-        var port = ClaudeDashboard.Tests.Hosting.AppHostTests.FreePort();
         _paths = new DashboardPaths(_root);
-        new SettingsStore(_paths).Save(new DashboardSettings { Port = port });
 
-        _app = AppHost.Build(_paths, claude: new ClaudeCodePaths(Path.Combine(_paths.Root, "claude-config")));
+        // A port the host keeps: a taken one is chosen again (T1.77, issue #120).
+        (_app, var port, _) = await ClaudeDashboard.Tests.Hosting.TestPorts.StartAsync(chosen =>
+        {
+            new SettingsStore(_paths).Save(new DashboardSettings { Port = chosen });
+            return AppHost.Build(_paths, claude: new ClaudeCodePaths(Path.Combine(_paths.Root, "claude-config")));
+        });
         _logger = _app.Services.GetService<Serilog.ILogger>() as IDisposable;
-
-        await _app.StartAsync();
 
         // Program's order: the script, then the announcement, then the self-test.
         Assert.True(HookScript.EnsureWritten(_paths, Serilog.Core.Logger.None));
