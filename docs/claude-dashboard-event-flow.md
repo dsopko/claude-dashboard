@@ -327,7 +327,7 @@ The tick is not an event. It causes changes that no hook causes:
 
 - **The silence sweep.** A Working session that sent no event for 10 minutes becomes Interrupted. Claude Code sends nothing when the operator stops a turn, so silence is the only signal.
 - **Nudges.** The sound engine plays a nudge that is due.
-- **Roster groups.** A group settles 1.5 seconds after its last member stops, and the group plays one notice.
+- **Roster groups.** A group settles 1.5 seconds after its last member stops, and the group plays one notice. The settle pass (`EventConsumer.ObserveRosterGroups`) reads the groups as they stand and hands the engine the member that settled the group and the group's Unread members. When each of those members already announced its finish, the settle is silent and recorded as already announced (T1.72): a roster made, renamed or joined after its members sounded adds no sound.
 - **The counts.** The health snapshot for `/state`, and once an hour an Information line and an `HourlySummary` decision row with the counts since the previous summary (T1.65).
 
 ---
