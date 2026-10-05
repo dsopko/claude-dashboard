@@ -93,7 +93,7 @@ Core is the C# form of TS Part IV. No behaviour here is new.
 
 - **`Group`** — the sessions that share a key. It gives `WorstState`, `Order` (which severity order applies) and `LastActivity`. A session carries the *key*; the `Group` is derived from all sessions.
 - **`InboundEvent`** — the internal event. A closed hierarchy of records: the eight hook events (`SessionStart`, `UserPromptSubmit`, `Notification`, `Stop`, `StopFailure`, `SessionEnd`, `CwdChanged`, `PostToolBatch`) and three internal events (`Ack`, `SoundCommand`, `RostersChanged`). Each has `SessionId`, `Timestamp`, `Cwd`, `PromptId`, `TranscriptPath`, `SessionTitle` and `Payload`.
-- **`PayloadJson`** — the raw hook body. It has no public string property, its `ToString()` gives a size only, and `Reveal()` is the one way to the text. Only the archive's insert calls `Reveal()`.
+- **`PayloadJson`** — the raw hook body, as one value. It prints its text (T1.76): `ToString()` and the property `Text` give it, and `Reveal()` gives the same value. The archive's insert reads it to store it, and `--replay` (`ReplaySwitch`) reads it back from the database.
 
 ### 2.2 SessionRegistry and the state machine
 
@@ -1274,4 +1274,4 @@ The text above says what is true now. This list says when each part changed.
 | 2026-10-04 | A failed database connection is closed for real (`ClearPool`, then dispose), and a new connection that SQLite opened read-only is opened again after 100, 200, 300 and 400 ms before the store gives up, so the retry each minute writes again once the cause is gone, and a file held for a moment costs nothing (§8.3) | T1.74; issue #109 |
 | 2026-10-04 | A roster group's settle is silent when each Unread member already announced its finish: the engine keeps the fact with each entry, the settle pass hands it the members from the groups as they stand (`RosterSettle.UnreadMembers`), and the silent settle records `AlreadyAnnounced`, starts no group reminder and marks no row (§2.4, §2.5, Part 7, §8.3) | T1.72; issue #107 |
 | 2026-10-04 | A held-back group sound records the group and its members (`group=… members=…`), as a played or a dropped one does; the Activity window names the group on a held-back and a dropped group line, and a click on either goes to the group's heading (§5.7, §8.3) | T1.73; issue #108 |
-| 2026-10-05 | The log file may hold any text: the rule that kept titles, names, prompts and answers out of it goes (the operator's ruling); `PayloadJson` and `OperatorText` print their text; a decision's Debug line names the session; the token is still never logged (§3.4, §3.5, §5.7, §8.3, §8.4) | T1.76; issue #118 |
+| 2026-10-05 | The log file may hold any text: the rule that kept titles, names, prompts and answers out of it goes (the operator's ruling); `PayloadJson` and `OperatorText` print their text; a decision's Debug line names the session; the token is still never logged (§2.1, §3.4, §3.5, §5.7, §8.3, §8.4) | T1.76; issue #118 |
