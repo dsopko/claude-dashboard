@@ -218,4 +218,20 @@ public static class RosterSettle
 
         return found ?? default;
     }
+    /// <summary>
+    /// The members of <paramref name="group"/> that are <see cref="SessionState.Unread"/>, as the group stands
+    /// (T1.72, issue #107): the members whose finish the group's settle would announce.
+    /// </summary>
+    /// <remarks>
+    /// Read from the group as it stands, beside <see cref="SettledBy"/> and for the same reason: the sound
+    /// engine's own copy of a session's group changes only when the session does, so after a roster edit it
+    /// still holds the old group. The engine asks whether each of these finishes was already announced.
+    /// </remarks>
+    /// <exception cref="ArgumentNullException"><paramref name="group"/> is null.</exception>
+    public static IReadOnlyList<SessionId> UnreadMembers(Group group)
+    {
+        ArgumentNullException.ThrowIfNull(group);
+
+        return [.. group.Members.Where(member => member.State == SessionState.Unread).Select(member => member.Id)];
+    }
 }

@@ -222,6 +222,8 @@ public sealed class SoundPolicyEngine : ISoundModeReader
             _replaced.Remove(session.Id);
         }
 
+        var ownNotice = NoticeFor(session.State) is not null && !IsGroupDone(session.State, effectiveGroup);
+
         var tracked = new Tracked
         {
             State = session.State,
@@ -229,11 +231,16 @@ public sealed class SoundPolicyEngine : ISoundModeReader
             Group = effectiveGroup,
             Step = 0,
             NextNudgeAt = FirstNudgeAt(session, effectiveGroup),
+
+            // T1.72: the session's own notice is made below, whatever becomes of it (played, held back by a
+            // mute or a pause, or dropped), so this entry's finish is announced. A notice given to the roster
+            // group instead is not, until the group announces.
+            Announced = ownNotice,
         };
 
         _tracked[session.Id] = tracked;
 
-        if (NoticeFor(session.State) is { } sound && !IsGroupDone(session.State, effectiveGroup))
+        if (ownNotice && NoticeFor(session.State) is { } sound)
         {
             Play(session.Id, tracked.Group, sound, _options.NoticeGain, TimeSpan.Zero,
                 SoundDecisionKind.Notice, rung: 0, waited: TimeSpan.Zero);
@@ -285,12 +292,20 @@ public sealed class SoundPolicyEngine : ISoundModeReader
     /// The member whose change settled the group (<see cref="RosterSettle.SettledBy"/>), whose row the
     /// group's notice and its reminder mark (T1.67). Empty when the caller does not say: no row is marked.
     /// </param>
+    /// <param name="unreadMembers">
+    /// The group's Unread members as it stands (<see cref="RosterSettle.UnreadMembers"/>), read by the settle
+    /// pass (T1.72, issue #107). <strong>The settle is silent when every one of them already announced its
+    /// finish:</strong> a roster made from sessions that finished and played their sound has nothing new to say.
+    /// Null or empty when the caller does not say, and then the group plays, as before: when in doubt, the sound
+    /// plays.
+    /// </param>
     /// <exception cref="ArgumentException"><paramref name="group"/> names no group.</exception>
     public void OnRosterGroupSettled(
         GroupKey group,
         DateTimeOffset settledAt,
         DateTimeOffset? quietSince = null,
-        SessionId settledBy = default)
+        SessionId settledBy = default,
+        IReadOnlyCollection<SessionId>? unreadMembers = null)
     {
         if (group.IsEmpty)
         {
@@ -315,6 +330,24 @@ public sealed class SoundPolicyEngine : ISoundModeReader
             return;
         }
 
+        // NOTHING NEW TO ANNOUNCE (T1.72, issue #107). Every Unread member already announced its own finish:
+        // a roster made, renamed or joined after the sounds were made. Held as settled, so a later unsettle and
+        // settle behave as before; no reminder, because each member keeps its own; no sound, so no speaker sign.
+        // Recorded as T1.44 records its own, so the decisions record says why nothing played.
+        if (AllAnnounced(unreadMembers))
+        {
+            _groups[group] = new TrackedGroup
+            {
+                NextNudgeAt = null,
+                QuietSince = quietSince,
+                SettledBy = settledBy,
+            };
+
+            _sink.SoundSuppressed(
+                SoundDecisionKind.GroupNotice, default, group, SoundId.Finished, SuppressionReason.AlreadyAnnounced);
+            return;
+        }
+
         _groups[group] = new TrackedGroup
         {
             NextNudgeAt = _options.UnreadNudgeAfter is { } after ? settledAt + after : null,
@@ -324,6 +357,50 @@ public sealed class SoundPolicyEngine : ISoundModeReader
 
         Play(GroupNotice, group, SoundId.Finished, _options.NoticeGain, TimeSpan.Zero,
             SoundDecisionKind.GroupNotice, rung: 0, waited: TimeSpan.Zero);
+
+        // The group announced, whatever became of the sound: every member Unread now has had its finish told.
+        MarkAnnounced(unreadMembers);
+    }
+
+    /// <summary>
+    /// Whether every one of the group's Unread members already announced its finish (T1.72). False for no
+    /// members, and for a member this engine holds no Unread record of: when in doubt, the sound plays.
+    /// </summary>
+    private bool AllAnnounced(IReadOnlyCollection<SessionId>? unreadMembers)
+    {
+        if (unreadMembers is not { Count: > 0 })
+        {
+            return false;
+        }
+
+        foreach (var member in unreadMembers)
+        {
+            if (!_tracked.TryGetValue(member, out var tracked)
+                || tracked.State != SessionState.Unread
+                || !tracked.Announced)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>Marks the finish of each Unread member as announced, by the group's settle (T1.72).</summary>
+    private void MarkAnnounced(IReadOnlyCollection<SessionId>? unreadMembers)
+    {
+        if (unreadMembers is null)
+        {
+            return;
+        }
+
+        foreach (var member in unreadMembers)
+        {
+            if (_tracked.TryGetValue(member, out var tracked) && tracked.State == SessionState.Unread)
+            {
+                tracked.Announced = true;
+            }
+        }
     }
 
     /// <summary>
@@ -808,5 +885,12 @@ public sealed class SoundPolicyEngine : ISoundModeReader
         public required int Step { get; set; }
 
         public required DateTimeOffset? NextNudgeAt { get; set; }
+
+        /// <summary>
+        /// Whether this entry's notice was made (T1.72, issue #107): by the session itself (played, held back
+        /// or dropped), or by its roster group's settle. A roster group's settle is silent when every Unread
+        /// member's entry says so. Kept with the entry, so a T1.44 restore keeps it.
+        /// </summary>
+        public bool Announced { get; set; }
     }
 }

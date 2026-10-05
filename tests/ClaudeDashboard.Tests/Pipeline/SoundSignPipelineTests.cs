@@ -50,12 +50,14 @@ public sealed class SoundSignPipelineTests : IAsyncLifetime
     }
 
     /// <summary>
-    /// <strong>A roster formed over two finished sessions:</strong> each finish played its own notice
-    /// and marked its own row. The edit forms the group, which settles at once and plays its notice,
-    /// and the sign goes on the member that finished last.
+    /// <strong>A roster formed over two finished sessions</strong> marks no row: each finish played its own
+    /// notice and marked its own row, and the group that the edit forms has nothing new to announce, so it
+    /// plays nothing and marks nothing (T1.72, issue #107, the operator's ruling). This test asserted a third
+    /// sound and a mark on the member that finished last before that ruling; the mark rule itself is held by
+    /// the two tests below, where the group does play.
     /// </summary>
     [Fact]
-    public async Task A_roster_formed_over_finished_sessions_marks_the_member_that_finished_last()
+    public async Task A_roster_formed_over_finished_sessions_marks_no_row()
     {
         await Start(RosterBook.Empty);
 
@@ -70,13 +72,11 @@ public sealed class SoundSignPipelineTests : IAsyncLifetime
         _clock.Now = At.AddMinutes(5);
         _rosters.Replace(Orchestration);
 
-        Assert.True(await Until(() => _consumer.SettledCount == 1 && _marks.Count == 3), Seen());
+        Assert.True(await Until(() => _consumer.SettledCount == 1), Seen());
+        await Task.Delay(100);
 
-        var groupMark = _marks.Last();
-        Assert.Equal(new SessionId("s-2"), groupMark.Session);
-        Assert.Equal(SoundId.Finished, groupMark.Sound);
-        Assert.Equal(At.AddMinutes(5), groupMark.At);
-        Assert.Equal(3, _player.PlayedOf(SoundId.Finished).Count);
+        Assert.Equal(2, _marks.Count);
+        Assert.Equal(2, _player.PlayedOf(SoundId.Finished).Count);
     }
 
     /// <summary>

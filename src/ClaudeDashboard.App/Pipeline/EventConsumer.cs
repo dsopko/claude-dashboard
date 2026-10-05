@@ -656,14 +656,16 @@ public sealed class EventConsumer : BackgroundService
                     // brought back by a quiet tick is recognised and not announced again (T1.44).
                     // And with the member whose change settled it, read here from the groups as they
                     // stand, so a roster just formed marks the right row (T1.67 review): the engine's
-                    // own copy of a session's group changes only when the session does.
+                    // own copy of a session's group changes only when the session does. The Unread members too,
+                    // from the same groups, so a roster made from finished sessions is silent (T1.72).
                     var settled = groups.First(group => group.Key == change.Group);
 
                     _sound.OnRosterGroupSettled(
                         change.Group,
                         now,
                         RosterSettle.QuietSince(settled),
-                        RosterSettle.SettledBy(settled));
+                        RosterSettle.SettledBy(settled),
+                        RosterSettle.UnreadMembers(settled));
                     SettledCount++;
                     break;
                 }
