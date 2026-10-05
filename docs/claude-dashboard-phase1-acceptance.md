@@ -809,6 +809,8 @@ on `SessionStart`, which stopped being true here.
 
 ### Never logged, proven two ways
 
+*Superseded on 2026-10-05: the operator ruled that the log file may hold any text (T1.76, issue #118), and these tests and the inventory were removed. Kept as the record of what Phase 1 proved.*
+
 `SessionTitleLoggingTests` drives a real ingest with a marker title on every event, deliberately
 walking the two paths that *do* write lines — the Debug decline and the uncorrelated-completion
 Warning — and asserts no emitted line contains the marker, with a control asserting those lines
@@ -997,6 +999,8 @@ would use is the non-atomic one (issue #7). The corrected shape reaches the file
 operator edits a roster.
 
 ### The inventory cannot see a roster's members, and a test closes the gap instead
+
+*Superseded on 2026-10-05: the inventory and the rule it held were removed (T1.76, issue #118). Kept as the record of what Phase 1 found.*
 
 `UnprotectedTextInventory` scans **public instance `string` properties**, so a *collection* of
 strings is invisible to it. A roster's members are session titles — operator text by T1.24's
