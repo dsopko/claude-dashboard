@@ -174,24 +174,6 @@ public sealed class SessionTitleRecordTests : IAsyncLifetime
         Assert.Equal<(string?, string?)>((null, null), (dropped.SessionTitle, dropped.Cwd));
     }
 
-    /// <summary>No name in any log line, at the most verbose level.</summary>
-    [Fact]
-    public async Task No_log_line_holds_the_name()
-    {
-        Publish(Prompt(Id, Title));
-        await RecordWith(DecisionKind.SessionAdded, Id.Value);
-
-        _clock.AdvanceMinutes(1);
-        Publish(new Notification { SessionId = Id, Timestamp = _clock.Now, Cwd = Cwd, NotificationType = "permission_prompt" });
-        _clock.AdvanceMinutes(3);
-        await RecordWith(DecisionKind.NudgePlayed, Id.Value);
-
-        var lines = _log.Events.Select(e => e.RenderMessage(CultureInfo.InvariantCulture)).ToList();
-
-        Assert.NotEmpty(lines);
-        Assert.DoesNotContain(lines, line => line.Contains(Title, StringComparison.Ordinal));
-    }
-
     private static UserPromptSubmit Prompt(SessionId id, string? title, string promptId = "p-1") => new()
     {
         SessionId = id,

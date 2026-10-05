@@ -283,8 +283,7 @@ public sealed partial class TrayViewModel : ObservableObject, IUiTickTarget, IDi
 
         // The decisions record (T1.37, issue #48): the tray light changing is a decision, and it
         // is made here, on the dispatcher — so it rides the recorder's cross-thread queue and
-        // lands with event_id NULL. The driving session is the first at the worst state, an id
-        // and never a title.
+        // lands with event_id NULL. The driving session is the first at the worst state, by its id.
         if (next != Colour)
         {
             _decisions?.External(new Storage.Decision(

@@ -193,9 +193,8 @@ public sealed record Session
     /// event that finished it. The latch rule lives in <see cref="SessionRegistry"/>.
     /// </para>
     /// <para>
-    /// <strong>Verbatim, and it can carry the operator's words.</strong> A session the operator
-    /// did not name gets a title written by a background model call summarising their first
-    /// prompt, so this is prose rather than an identifier: rendered and escaped, never logged and
+    /// <strong>Verbatim.</strong> A session the operator did not name gets a title written by a background model
+    /// call summarising their first prompt, so this is prose rather than an identifier: rendered and escaped, and
     /// never interpreted (TS §II.5). Folding and truncation for display are the view model's, and
     /// this value is untouched by them.
     /// </para>

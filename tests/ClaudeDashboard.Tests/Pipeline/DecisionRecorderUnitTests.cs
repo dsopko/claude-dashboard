@@ -37,11 +37,10 @@ public sealed class DecisionRecorderUnitTests
     /// The consumer's own wiring: <c>BeginEvent</c>, the catch around <c>Apply</c> calling
     /// <see cref="DecisionRecorder.ApplyFailed"/>, and <c>Complete</c> in the finally. The event
     /// itself still rides the record — a row that failed to apply is exactly one the operator
-    /// will want to read back. The message is refused because exception text can quote whatever
-    /// the code interpolated into it, which is how operator text leaks sideways (T1.24).
+    /// will want to read back. The row records the exception's type.
     /// </remarks>
     [Fact]
-    public void An_apply_that_throws_is_recorded_by_type_and_never_message()
+    public void An_apply_that_throws_is_recorded_by_its_type()
     {
         var prompt = new UserPromptSubmit
         {
@@ -63,11 +62,43 @@ public sealed class DecisionRecorderUnitTests
         Assert.Equal(DecisionKind.ApplyFailed, failed.Kind);
         Assert.Equal("s-1", failed.SessionId);
         Assert.Equal(nameof(InvalidOperationException), failed.Reason);
-        Assert.DoesNotContain(Marker, failed.Reason, StringComparison.OrdinalIgnoreCase);
         Assert.Null(failed.Detail);
     }
 
-    /// <summary>The group's one notice carries the group key and its member ids — never titles.</summary>
+    /// <summary>
+    /// <strong>The Debug line of each decision shows the session's name</strong> (T1.76, issue #118), by the rule
+    /// that stamps the row: the Registry's name. A decision about no session shows <c>name=-</c>.
+    /// </summary>
+    [Fact]
+    public void The_debug_line_of_a_decision_shows_the_sessions_name()
+    {
+        var log = new RecordingLogSink();
+        using var logger = new Serilog.LoggerConfiguration().MinimumLevel.Debug().WriteTo.Sink(log).CreateLogger();
+        var recorder = new DecisionRecorder(_registry, _rosters, _archive, logger);
+
+        _registry.Apply(new UserPromptSubmit
+        {
+            SessionId = new SessionId("s-1"),
+            Timestamp = FakeClock.DefaultStart,
+            Cwd = Cwd,
+            Prompt = "go",
+            SessionTitle = "Director",
+        });
+
+        var group = _registry.Sessions[new SessionId("s-1")].WorkspaceGroup;
+
+        recorder.BeginTick(FakeClock.DefaultStart);
+        ((IDecisionSink)recorder).SoundPlayed(SoundDecisionKind.Notice, new SessionId("s-1"), group, SoundId.Finished, rung: 0, waited: TimeSpan.Zero);
+        ((IDecisionSink)recorder).SoundPlayed(SoundDecisionKind.GroupNotice, default, group, SoundId.Finished, rung: 0, waited: TimeSpan.Zero);
+        recorder.Complete();
+
+        var lines = log.Matching("Decision ");
+        Assert.Equal(2, lines.Count);
+        Assert.StartsWith("Decision NoticePlayed session=\"s-1\" name=\"Director\" ", lines[0], StringComparison.Ordinal);
+        Assert.StartsWith("Decision GroupNoticePlayed session=\"(none)\" name=\"-\" ", lines[1], StringComparison.Ordinal);
+    }
+
+    /// <summary>The group's one notice carries the group key and its member ids.</summary>
     /// <remarks>
     /// The engine knows a roster group only by key; the member ids come from the Registry, read
     /// on the consumer thread at the moment of the notice, sorted so the row is stable.

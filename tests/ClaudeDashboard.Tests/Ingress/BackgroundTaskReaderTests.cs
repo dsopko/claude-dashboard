@@ -115,7 +115,7 @@ public sealed class BackgroundTaskReaderTests
 
     /// <summary>
     /// <strong>The command is never taken.</strong> Nothing the mapper produces carries it: not
-    /// the tasks, not the Stop, not anything a record prints.
+    /// the tasks, and not the Stop apart from its raw body.
     /// </summary>
     [Fact]
     public void The_command_is_never_read_into_the_domain()
@@ -127,10 +127,9 @@ public sealed class BackgroundTaskReaderTests
         Assert.Single(stop.BackgroundTasks);
         Assert.DoesNotContain(PlantedCommand, stop.BackgroundTasks[0].ToString(), StringComparison.Ordinal);
 
-        // Everything the record prints except the raw body, which the archive keeps verbatim by
-        // design (T1.17) and which PayloadJson refuses to print.
+        // Everything the record prints except the raw body, which the archive keeps verbatim by design (T1.17):
+        // the body holds the command as it arrived, and since T1.76 it prints.
         Assert.DoesNotContain(PlantedCommand, (stop with { Payload = default }).ToString(), StringComparison.Ordinal);
-        Assert.DoesNotContain(PlantedCommand, stop.ToString(), StringComparison.Ordinal);
     }
 
     private static Stop StopWith(string list) =>

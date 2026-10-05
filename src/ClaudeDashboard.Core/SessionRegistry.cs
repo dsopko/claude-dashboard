@@ -755,7 +755,7 @@ public sealed class SessionRegistry(SingleWriterGuard guard)
         }
 
         // A tick of the session's own scheduled job that says it found nothing puts the row back
-        // as it was before the tick (T1.44, issue #56). Compared as data, exactly, never logged.
+        // as it was before the tick (T1.44, issue #56). Compared as data, exactly.
         if (QuietTicks.IsQuiet(current, stop) && current.PreTick is { } pre)
         {
             return Transitioned.To(Reverted(current, pre, stop));

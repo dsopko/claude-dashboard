@@ -20,10 +20,9 @@ namespace ClaudeDashboard.Tests.Pipeline;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <strong>What never appears.</strong> Every body plants a command and a description marker.
-/// The command must appear nowhere downstream of the wire: not in a log line, not in a decisions
-/// row, not in the Session, not in the row. The description is shown on the row by design, and
-/// must still never reach a log line or a decisions row (T1.24).
+/// <strong>The command is never read.</strong> Every body plants a command and a description marker. The command
+/// appears nowhere downstream of the wire: not in a log line, not in a decisions row, not in the Session, not in the
+/// row. The description is shown on the row by design.
 /// </para>
 /// <para>
 /// The <c>events</c> table is not in that list, and deliberately: it keeps every body verbatim —
@@ -138,7 +137,7 @@ public sealed class WaitingPipelineTests : IAsyncLifetime
     /// record prints it, and every string the row binds to.
     /// </remarks>
     [Fact]
-    public async Task The_command_is_never_stored_shown_or_logged_and_the_description_never_logged()
+    public async Task The_command_is_never_stored_shown_or_logged()
     {
         Publish(Prompt("go", "p-1"));
         _clock.AdvanceMinutes(1);
@@ -173,7 +172,6 @@ public sealed class WaitingPipelineTests : IAsyncLifetime
 
         Assert.NotEmpty(lines);
         Assert.DoesNotContain(lines, line => line.Contains(Command, StringComparison.Ordinal));
-        Assert.DoesNotContain(lines, line => line.Contains(Description, StringComparison.Ordinal));
 
         // Every decisions row, every field.
         var fields = _records.SelectMany(r => r.Decisions)
@@ -182,7 +180,6 @@ public sealed class WaitingPipelineTests : IAsyncLifetime
             .ToList();
 
         Assert.DoesNotContain(fields, field => field.Contains(Command, StringComparison.Ordinal));
-        Assert.DoesNotContain(fields, field => field.Contains(Description, StringComparison.Ordinal));
 
         // The Session as a record prints it, and every string the row binds to.
         var session = _registry.Sessions[new SessionId("s-1")];

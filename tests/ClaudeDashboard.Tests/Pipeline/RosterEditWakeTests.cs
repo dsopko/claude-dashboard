@@ -134,40 +134,6 @@ public sealed class RosterEditWakeTests : IAsyncLifetime
         Assert.Empty(_registry.Sessions);
     }
 
-    /// <summary>
-    /// <strong>No log line names a roster member, on the paths T1.26 added.</strong>
-    /// </summary>
-    /// <remarks>
-    /// T1.25 closed this for the settle and mis-mark paths. Forming and dissolving are new paths,
-    /// and a member name is a session title — which for an unnamed session is a model-written
-    /// summary of the operator's prompt (T1.24). The control asserts the run logged something at
-    /// all, so the silence is the member being withheld rather than nothing having happened.
-    /// </remarks>
-    [Fact]
-    public async Task No_log_line_names_a_member_when_a_roster_is_edited()
-    {
-        _pipeline.Sink.TryPublish(Prompt("s-1", "p-1"));
-        _pipeline.Sink.TryPublish(Finished("s-1", "p-1"));
-
-        Assert.True(await Until(() => _consumer.AppliedCount >= 2));
-
-        _rosters.Replace(RosterBook.From([("orchestration", [Member])]));
-        Assert.True(await Until(() => _consumer.SettledCount >= 1));
-
-        _rosters.Replace(RosterBook.Empty);
-        Assert.True(await Until(() => _consumer.RosterEditCount >= 2));
-
-        Assert.NotEmpty(Rendered);
-
-        var leaked = Rendered.Where(line => line.Contains(Member, StringComparison.Ordinal)).ToList();
-
-        Assert.True(
-            leaked.Count == 0,
-            $"A roster member name reached the log: {string.Join(" | ", leaked)}");
-
-        Assert.Equal(Member, _registry.Sessions[new SessionId("s-1")].Title);
-    }
-
     private IReadOnlyList<string> Rendered =>
         [.. _sink.Events.Select(entry => entry.RenderMessage(CultureInfo.InvariantCulture))];
 

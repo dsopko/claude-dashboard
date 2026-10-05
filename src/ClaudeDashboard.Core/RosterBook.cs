@@ -7,10 +7,8 @@ namespace ClaudeDashboard.Core;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <strong>The members are session titles, and a title can carry the operator's words.</strong> A
-/// session nobody named gets a title written by a background model call summarising their first
-/// prompt (T1.24). So a roster is logged by its <see cref="Name"/> and never by its
-/// <see cref="Members"/>.
+/// <strong>The members are session titles.</strong> A session nobody named gets a title written by a background
+/// model call summarising their first prompt (T1.24), so a member name is prose, not an identifier.
 /// </para>
 /// <para>
 /// The name is the operator's own label, typed to name a group. It is never derived from a prompt

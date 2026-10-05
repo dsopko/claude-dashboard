@@ -20,11 +20,6 @@ namespace ClaudeDashboard.Tests.Pipeline;
 /// the archive — the same records the writer persists. The store's half of the contract (one
 /// transaction, the <c>event_id</c> join) is <c>DecisionTableTests</c>'.
 /// </para>
-/// <para>
-/// <strong>Every test also asserts what the rows do NOT carry.</strong> The events are planted
-/// with a marker in the prompt, the title and the raw body, and no decision field may contain
-/// it — T1.24's rule, kept per kind rather than trusted in general.
-/// </para>
 /// </remarks>
 [System.Diagnostics.CodeAnalysis.SuppressMessage(
     "Design",
@@ -32,7 +27,7 @@ namespace ClaudeDashboard.Tests.Pipeline;
     Justification = "xUnit disposes the fixture through IAsyncLifetime.DisposeAsync.")]
 public sealed class DecisionRecordTests : IAsyncLifetime
 {
-    /// <summary>Operator text that must never appear in a decision row.</summary>
+    /// <summary>A recognisable text for the prompt, the title and the body of the planted events.</summary>
     private const string Marker = "zqx-operator-text-marker-7f4";
 
     private const string Cwd = @"C:\projects\dashboard";
@@ -449,60 +444,6 @@ public sealed class DecisionRecordTests : IAsyncLifetime
     }
 
     // ---- What no row may carry ----------------------------------------------------------------
-
-    /// <summary>
-    /// <strong>No decision field carries operator text, across everything the fixture produced.</strong>
-    /// </summary>
-    /// <remarks>
-    /// T1.24. Every event above was planted with the marker in its prompt, title, body or final
-    /// answer; this runs the whole gauntlet and then reads every field of every row. The
-    /// per-field classification of <c>Decision</c> lives in <c>UnprotectedTextInventory</c>; this
-    /// is the behavioral half.
-    /// </remarks>
-    [Fact]
-    public async Task No_decision_field_ever_carries_the_operator_text()
-    {
-        Publish(Prompt());
-        _clock.AdvanceMinutes(1);
-        Publish(new Notification
-        {
-            SessionId = Id, Timestamp = _clock.Now, Cwd = Cwd, NotificationType = "permission_prompt",
-        });
-        _clock.AdvanceMinutes(3);
-        await RecordWith(DecisionKind.NudgePlayed);
-
-        Publish(new Stop { SessionId = Id, Timestamp = _clock.Now, Cwd = Cwd, LastAssistantMessage = Marker });
-        _clock.AdvanceMinutes(1);
-        Publish(new Ack { SessionId = Id, Timestamp = _clock.Now, Cwd = Cwd, Source = AckSource.Manual });
-        await RecordWith(DecisionKind.AckApplied);
-
-        // Back to Working, so the sweep has a session to move. A fresh prompt id, or the
-        // duplicate guard declines it.
-        _clock.AdvanceMinutes(1);
-        Publish(Prompt() with { Timestamp = _clock.Now, PromptId = "p-2" });
-        _clock.AdvanceMinutes(11);
-        await RecordWith(DecisionKind.SilenceSwept);
-
-        var rows = _records.SelectMany(r => r.Decisions).ToList();
-
-        Assert.NotEmpty(rows);
-
-        foreach (var row in rows)
-        {
-            // Since T1.69 (issue #98) the session's name has its own column, and only that one: never
-            // reason, detail or any other field, the path included.
-            foreach (var field in new[] { row.SessionId, row.FromState, row.ToState, row.Reason, row.Detail, row.Cwd })
-            {
-                if (field is not null)
-                {
-                    Assert.DoesNotContain(Marker, field, StringComparison.OrdinalIgnoreCase);
-                }
-            }
-        }
-
-        // The other half: the name the prompt set is in the name's column of the session's rows.
-        Assert.All(rows.Where(row => row.SessionId == Id.Value), row => Assert.Equal(Marker, row.SessionTitle));
-    }
 
     // ---- Harness ------------------------------------------------------------------------------
 

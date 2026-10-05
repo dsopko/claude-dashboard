@@ -64,8 +64,8 @@ public sealed class RosterSettingsTests
     /// <remarks>
     /// The hand-written <c>Equals</c> is what makes the round trip work, and a hand-written
     /// comparison is exactly the kind that silently omits the next member somebody adds. This
-    /// asserts the set it has to cover, in the same idiom <c>UnprotectedTextInventory</c> uses: add
-    /// a property and this fails until you have said whether equality should see it.
+    /// asserts the set it has to cover: add a property and this fails until you have said whether
+    /// equality should see it.
     /// </remarks>
     [Fact]
     public void Every_settings_property_is_covered_by_equality()
@@ -103,16 +103,13 @@ public sealed class RosterSettingsTests
     }
 
     /// <summary>
-    /// <strong>A hand edit holding a name in two rosters is corrected, and the correction never
-    /// names the member.</strong>
+    /// <strong>A hand edit holding a name in two rosters is corrected.</strong>
     /// </summary>
     /// <remarks>
-    /// Rule 4 is an invariant of the store and a file is not the store. The message says how many
-    /// names were kept rather than which, because a member name is a session title and a title can
-    /// carry the operator's words.
+    /// Rule 4 is an invariant of the store and a file is not the store. The message says how many names were kept.
     /// </remarks>
     [Fact]
-    public void A_name_in_two_rosters_is_corrected_without_naming_it()
+    public void A_name_in_two_rosters_is_corrected()
     {
         const string Secret = "zqx-member-name";
 
@@ -131,7 +128,6 @@ public sealed class RosterSettingsTests
         var correction = Assert.Single(corrections);
 
         Assert.Contains("docs", correction, StringComparison.Ordinal);
-        Assert.DoesNotContain(Secret, correction, StringComparison.Ordinal);
     }
 
     /// <summary>A roster with no members in the file does not become an empty roster in the store.</summary>

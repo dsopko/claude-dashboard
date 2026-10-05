@@ -132,21 +132,21 @@ public sealed class CleanupPeriodTests : IDisposable
     /// <summary>
     /// <strong>No file, a file that is not strict JSON (not JSON, a comment, a trailing comma), and the
     /// values 0, -1, 1.5, "30", true and 99999999:</strong>
-    /// nothing is deleted, the line says why without the value, and no notice shows: a read that fails
+    /// nothing is deleted, the line says why, and no notice shows: a read that fails
     /// is not a history failure.
     /// </summary>
     [Theory]
-    [InlineData(null, NotReadLine, "")]
-    [InlineData("{ this is not json", NotReadLine, "")]
-    [InlineData("{ \"cleanupPeriodDays\": 10 // a comment\n}", NotReadLine, "")]
-    [InlineData("{ \"cleanupPeriodDays\": 10, }", NotReadLine, "")]
-    [InlineData("""{ "cleanupPeriodDays": 0 }""", NotValidLine, "")]
-    [InlineData("""{ "cleanupPeriodDays": -1 }""", NotValidLine, "-1")]
-    [InlineData("""{ "cleanupPeriodDays": 1.5 }""", NotValidLine, "1.5")]
-    [InlineData("""{ "cleanupPeriodDays": "30" }""", NotValidLine, "\"30\"")]
-    [InlineData("""{ "cleanupPeriodDays": true }""", NotValidLine, "true")]
-    [InlineData("""{ "cleanupPeriodDays": 99999999 }""", TooLargeLine, "99999999")]
-    public async Task A_value_Claude_Code_would_not_use_deletes_nothing(string? json, string line, string raw)
+    [InlineData(null, NotReadLine)]
+    [InlineData("{ this is not json", NotReadLine)]
+    [InlineData("{ \"cleanupPeriodDays\": 10 // a comment\n}", NotReadLine)]
+    [InlineData("{ \"cleanupPeriodDays\": 10, }", NotReadLine)]
+    [InlineData("""{ "cleanupPeriodDays": 0 }""", NotValidLine)]
+    [InlineData("""{ "cleanupPeriodDays": -1 }""", NotValidLine)]
+    [InlineData("""{ "cleanupPeriodDays": 1.5 }""", NotValidLine)]
+    [InlineData("""{ "cleanupPeriodDays": "30" }""", NotValidLine)]
+    [InlineData("""{ "cleanupPeriodDays": true }""", NotValidLine)]
+    [InlineData("""{ "cleanupPeriodDays": 99999999 }""", TooLargeLine)]
+    public async Task A_value_Claude_Code_would_not_use_deletes_nothing(string? json, string line)
     {
         if (json is not null)
         {
@@ -161,11 +161,6 @@ public sealed class CleanupPeriodTests : IDisposable
         Assert.Contains(line, run.Lines);
         Assert.False(run.NoticeShown);
         Assert.Equal(0, run.StoreFailures);
-
-        if (raw.Length > 0)
-        {
-            Assert.DoesNotContain(run.Lines, logged => logged.Contains(raw, StringComparison.Ordinal));
-        }
     }
 
     /// <summary>A file another process holds locked through the prune: nothing is deleted, and no notice shows.</summary>

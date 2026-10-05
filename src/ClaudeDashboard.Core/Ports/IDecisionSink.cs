@@ -65,7 +65,7 @@ public enum SuppressionReason
 /// </para>
 /// <para>
 /// <strong>Identifiers and enums only</strong> — a session id, a group key, a sound id, a rung,
-/// a duration. Never a title, prompt, payload or message body (T1.24).
+/// a duration.
 /// </para>
 /// </remarks>
 public interface IDecisionSink

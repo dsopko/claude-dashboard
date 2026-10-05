@@ -166,14 +166,7 @@ public sealed class EventArchive
             return;
         }
 
-        // TWO NAMED FIELDS, NEVER THE EVENT. A diagnostic line must not carry the operator's
-        // words, and {HookEventName} and {SessionId} are the whole of what this needs.
-        //
-        // Do not "improve" this to {Event} or {@Event}. PayloadJson would redact the raw body, but
-        // both formatting routes print the plain-string properties beside it — a record's generated
-        // ToString for {Event}, reflection over public properties for {@Event} — and the operator's
-        // prompt is one of those. Measured at T1.17; UnprotectedTextInventory holds the full set.
-        // NAMING THE FIELDS IS WHAT MAKES THIS LINE SAFE; THE WRAPPER IS NOT.
+        // The hook's name and the session are all this line needs.
         _logger.Debug(
             "The event archive is full; discarded {HookEventName} for session {SessionId} unwritten.",
             dropped.HookEventName,

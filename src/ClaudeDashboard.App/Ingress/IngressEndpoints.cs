@@ -124,8 +124,8 @@ public static class IngressEndpoints
     /// explains why and how.
     /// </para>
     /// <para>
-    /// <strong>The body is never logged.</strong> It carries titles and task descriptions. The
-    /// lines here name the count and nothing else.
+    /// <strong>The lines here name the count.</strong> The body carries titles and task descriptions, which the
+    /// response needs and the lines do not.
     /// </para>
     /// </remarks>
     private static IResult HandleState(HttpContext context)

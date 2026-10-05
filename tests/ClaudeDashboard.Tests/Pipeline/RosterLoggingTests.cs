@@ -12,22 +12,13 @@ using Serilog.Core;
 namespace ClaudeDashboard.Tests.Pipeline;
 
 /// <summary>
-/// A roster is logged by its own name and never by its membership, and a group settles through the
-/// real pipeline (T1.25, issue #16).
+/// A roster group settles through the real pipeline, and its mis-mark is logged by the roster's own name
+/// (T1.25, issue #16).
 /// </summary>
 /// <remarks>
 /// <para>
-/// <strong>A member name is a session title, and a title can carry the operator's words.</strong>
-/// A session nobody named gets a title written by a background model call summarising their first
-/// prompt (T1.24), so the never-log rule follows it into a roster. The roster's own name is the
-/// operator's label and is deliberately logged, which is what lets the mis-mark warning say
-/// anything useful at all.
-/// </para>
-/// <para>
-/// <strong>This test is the guard, not <c>UnprotectedTextInventory</c>.</strong> That inventory
-/// scans public instance <em>string</em> properties, so a collection of strings is invisible to it
-/// — a real hole, filed separately. What closes the actual exposure is this: drive the paths that
-/// log and assert the member never appears.
+/// <strong>The mis-mark warning names the roster.</strong> The roster's own name is the operator's label, and it
+/// is what lets the warning say anything useful at all.
 /// </para>
 /// </remarks>
 [System.Diagnostics.CodeAnalysis.SuppressMessage(
@@ -36,7 +27,7 @@ namespace ClaudeDashboard.Tests.Pipeline;
     Justification = "xUnit disposes the fixture through IAsyncLifetime.DisposeAsync.")]
 public sealed class RosterLoggingTests : IAsyncLifetime
 {
-    /// <summary>A member name unique enough that a hit is this and not a coincidence.</summary>
+    /// <summary>The member's name, which puts its session in the roster.</summary>
     private const string Member = "zqx-roster-member-marker-4b1";
 
     private const string RosterName = "orchestration";
@@ -99,7 +90,7 @@ public sealed class RosterLoggingTests : IAsyncLifetime
     }
 
     /// <summary>
-    /// <strong>A roster group settles through the real pipeline, and the log never names a member.</strong>
+    /// <strong>A roster group settles through the real pipeline, and a mis-mark is logged with the roster's name.</strong>
     /// </summary>
     /// <remarks>
     /// <para>
@@ -108,12 +99,11 @@ public sealed class RosterLoggingTests : IAsyncLifetime
     /// a running pipeline would only add a wait.
     /// </para>
     /// <para>
-    /// The mis-mark path is walked too, because it is the one line in the feature that mentions a
-    /// group at all and therefore the one most likely to grow a member name later.
+    /// The mis-mark path is walked too: it is the one line in the feature that mentions a group.
     /// </para>
     /// </remarks>
     [Fact]
-    public async Task A_group_settles_and_mis_marks_without_the_log_naming_a_member()
+    public async Task A_group_settles_and_a_mis_mark_is_logged_with_the_roster_name()
     {
         // Every event is stamped at the fake clock's own instant. An event stamped in that
         // clock's future would leave the group permanently mid-settle, because the settle is
@@ -129,19 +119,8 @@ public sealed class RosterLoggingTests : IAsyncLifetime
 
         Assert.True(await Until(() => _consumer.MisMarkedCount >= 1));
 
-        // The control: the mis-mark line was really written, so the silence below is the member
-        // being withheld rather than nothing having been logged.
         Assert.Contains(Rendered, line => line.Contains("settle window is too short", StringComparison.Ordinal));
         Assert.Contains(Rendered, line => line.Contains(RosterName, StringComparison.Ordinal));
-
-        var leaked = Rendered.Where(line => line.Contains(Member, StringComparison.Ordinal)).ToList();
-
-        Assert.True(
-            leaked.Count == 0,
-            $"A roster member name reached the log: {string.Join(" | ", leaked)}");
-
-        // …and the session really was in the roster, so the arrangement was not silently ungrouped.
-        Assert.Equal(Member, _registry.Sessions[new SessionId("s-1")].Title);
     }
 
     /// <summary>

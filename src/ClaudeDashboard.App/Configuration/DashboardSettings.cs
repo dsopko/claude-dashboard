@@ -294,8 +294,8 @@ public sealed record LoggingSettings
     /// <para>
     /// <strong>What Debug costs.</strong> One line per decision, and a second for each event the
     /// Registry declined — so at most two lines for each row of the <c>decisions</c> table — plus
-    /// one for each <c>/state</c> request. Every Debug line carries identifiers only, never a
-    /// prompt, an answer or a title. The file's size limit and retention bound the rest.
+    /// one for each <c>/state</c> request. A decision's Debug line carries its identifiers and the session's name
+    /// (T1.76). The file's size limit and retention bound the rest.
     /// </para>
     /// </remarks>
     [JsonPropertyName("minimumLevel")]

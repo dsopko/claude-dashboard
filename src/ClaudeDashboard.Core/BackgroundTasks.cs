@@ -36,7 +36,7 @@ public enum BackgroundTaskKind
 /// <remarks>
 /// <strong>Only the id, the kind and the description.</strong> The payload's <c>command</c> is
 /// never read into this type: it can carry prompts or secrets (T1.24), and nothing here needs it.
-/// The description is agent-written text — data, rendered and never executed, never logged.
+/// The description is agent-written text — data, rendered and never executed.
 /// </remarks>
 /// <param name="Id">Claude Code's task id, stable across the Stops that list it.</param>
 /// <param name="Kind">Which allowed kind it is.</param>

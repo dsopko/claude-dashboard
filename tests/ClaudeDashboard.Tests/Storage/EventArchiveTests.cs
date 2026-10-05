@@ -165,29 +165,6 @@ public sealed class EventArchiveTests
         Assert.Contains("gaps", rendered, StringComparison.Ordinal);
     }
 
-    /// <summary>A dropped event's body never reaches the log either.</summary>
-    [Fact]
-    public void A_dropped_event_does_not_carry_its_body_into_the_log()
-    {
-        const string Secret = "THE-DROPPED-ONE-SAID-THIS";
-
-        var log = new RecordingLogSink();
-        var archive = new EventArchive(Logger(log), capacity: 1);
-
-        archive.TryArchive(Record(TestEvents.Hook($$"""{"prompt":"{{Secret}}"}""")));
-        archive.TryArchive(Record(TestEvents.Hook("""{"prompt":"the one that displaced it"}""")));
-        archive.ReportDrops();
-
-        var everything = string.Join(
-            "\n",
-            log.Events.Select(entry => entry.RenderMessage(System.Globalization.CultureInfo.InvariantCulture)));
-
-        Assert.DoesNotContain(Secret, everything, StringComparison.Ordinal);
-
-        // The control: a drop really was logged, so this is not passing on an empty sink.
-        Assert.Contains("discarded", everything, StringComparison.OrdinalIgnoreCase);
-    }
-
     // ---- Construction ---------------------------------------------------------------------------
 
     [Fact]

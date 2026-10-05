@@ -23,7 +23,7 @@ namespace ClaudeDashboard.Core;
 /// operator: a Resurface is terminal text with no tool call.
 /// </para>
 /// <para>
-/// The reply is compared as data, never interpreted, and never logged. Measured on the operator's
+/// The reply is compared as data, and never interpreted. Measured on the operator's
 /// archive (2026-09-27): no real reply had leading or trailing whitespace, and the one-word replies
 /// ended in punctuation — so "WATCHDOG-QUIET." is not quiet, and the guide says so.
 /// </para>
