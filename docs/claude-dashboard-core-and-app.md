@@ -67,7 +67,7 @@ Core is 45 files and about 6,500 lines. Most of the lines are comments that give
 | Groups | `GroupKeys`, `GroupResolver`, `Group` | The key comes from the directory, or from a roster. `Effective` decides which | TS §IV.3 |
 | Rosters | `RosterBook`, `Roster` | A name is in one roster at most. An empty roster does not exist | Issue #16 |
 | The settle window | `RosterSettle`, `RosterGroupWatch` | A roster group reads finished only after 1.5 s of quiet | TS §IV.3 |
-| Sound policy | `SoundPolicyEngine`, `SoundPolicyOptions` | Notices on state entry. Nudges at 2, 5, 10 minutes. Mute and pause | TS §IV.5 |
+| Sound policy | `SoundPolicyEngine`, `SoundPolicyOptions` | Notices on state entry. Nudges at 2, 5, 10 minutes. Mute and pause. A roster group's settle plays only when a finished member was not announced yet; the members come from the caller (`RosterSettle.UnreadMembers`), so the engine still holds no roster book (T1.72) | TS §IV.5 |
 | The roll-up | `StatusSummary` | The worst state, and a count for each kind | Impl §5.2 |
 | The one-writer check | `SingleWriterGuard` | Throws if two threads are in the Registry or the sound engine at one time | Impl §2.2 |
 
