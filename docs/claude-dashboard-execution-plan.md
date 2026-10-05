@@ -1244,6 +1244,7 @@ The work in GitHub milestone 3, "Observability 1": issues #3, #14, #67, #71, #72
   - **Plants:** (a) the group left out of the held-back record, and the record test fails; (b) the group named only for a played sound, as today, and the window test fails; (c) the click not wired for a held-back line, and the click test fails.
   - Both suite counts; build clean, 0 warnings.
 - **Guardrails:** no change to which sounds play or when, to a session's lines, to the database's columns or to the Activity window's source. No title in a log line. Tests use scratch folders.
+- **Done 2026-10-04:** PR #115, merged as `8f213a4`, `9c1a7a9` (no fix cycle). The click needed no code change: a line with no session already took its group from the detail (T1.71). The review's probe through the real pipeline: a group settles and plays, "mute all" goes through the channel, and six minutes later the group's reminder is held back; its row records the group, and its line reads "no sound", the group's name and "finished, all sound is muted". **The review on `group=`:** it holds the roster's own label ("Group" or "Group N" by default, or the operator's name for it), as played and dropped group sounds already did; this change does not widen it. **Nit, not fixed:** the general T1.24 guard test never makes a held-back group sound; this change's exact-format tests catch a title in `members=`. Five full runs in the review were clean: neither #40 nor the port race appeared. Not verified: a real roster in the window with real sound and a real mute.
 
 ---
 
