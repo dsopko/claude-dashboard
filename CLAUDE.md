@@ -30,7 +30,7 @@ Every session follows these (full list: Execution Plan Part 1):
 - **Domain invariants:** state transitions are idempotent and timestamp-guarded; the Registry has exactly one writer and no locks. A click never changes the Registry directly: an Ack, a mute and a pause are events in the same channel as the hooks.
 - **Pure-observer ingress:** hook endpoints return `200` empty and never a decision field — the dashboard can never block or alter a Claude turn.
 - **Text is data:** hook and message text is stored and rendered, never executed.
-- **Never log the operator's words:** no title, prompt, answer, payload, task description or task command in a log line (Impl §3.4).
+- **The log file may hold any text:** a title, a name, a prompt or an answer may appear in a log line; the same text is in `dashboard.db` beside it (the operator's ruling, 2026-10-05). **Never log the token:** it is a credential (Impl §3.4).
 - **Never write Claude Code's settings:** the dashboard reads `~/.claude/settings.json` and never writes it. It connects through its plugin only (Impl §9.3, §9.4).
 - **Degrade, never crash:** an adapter that fails — sound, storage, virtual desktop, and later UI Automation and WinEvent — downgrades a feature rather than throwing.
 - **Never run elevated. No secrets in committed files.** Every Core behavior ships with xUnit tests.

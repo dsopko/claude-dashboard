@@ -1246,6 +1246,36 @@ The work in GitHub milestone 3, "Observability 1": issues #3, #14, #67, #71, #72
 - **Guardrails:** no change to which sounds play or when, to a session's lines, to the database's columns or to the Activity window's source. No title in a log line. Tests use scratch folders.
 - **Done 2026-10-04:** PR #115, merged as `8f213a4`, `9c1a7a9` (no fix cycle). The click needed no code change: a line with no session already took its group from the detail (T1.71). The review's probe through the real pipeline: a group settles and plays, "mute all" goes through the channel, and six minutes later the group's reminder is held back; its row records the group, and its line reads "no sound", the group's name and "finished, all sound is muted". **The review on `group=`:** it holds the roster's own label ("Group" or "Group N" by default, or the operator's name for it), as played and dropped group sounds already did; this change does not widen it. **Nit, not fixed:** the general T1.24 guard test never makes a held-back group sound; this change's exact-format tests catch a title in `members=`. Five full runs in the review were clean: neither #40 nor the port race appeared. Not verified: a real roster in the window with real sound and a real mute.
 
+**GitHub milestone 5 closed its nine issues on 2026-10-05**, and 0.0.22 was released from `a68231b`. **#118 added on 2026-10-05, at the operator's word:** the rule that kept the operator's text out of the log file goes.
+
+**T1.76 — The log file may hold any text**
+- **Goal:** the project no longer keeps names, titles, prompts or answers out of the log file. The rule leaves the documents, the tests that only hold it go, and the two types that hide text stop hiding it. For issue #118.
+- **Depends:** T1.24 (the rule and its inventory), T1.52 (the Debug line for each decision), T1.69 (the name in its own column, and the guard that kept it out of the other fields), T1.48 (the token, which stays out of the log)
+- **Realizes:** the operator's ruling of 2026-10-05: "log everything, don't censor anything. If someone sets a log flag and starts writing to disk, that's fine." The reason: `dashboard.db` stores the same text in plain form, in the same folder as the log file, and Claude Code keeps it on the same disk, so the rule protected nothing. Director's rulings:
+  - **The token stays out of the log.** It is a credential, not the operator's text. `TokenHandoverTests.The_token_and_the_retired_value_appear_in_no_log_line` stays as it is.
+  - **A test goes only if the rule is all that it holds.** A test that also holds a behaviour keeps that part: for example, a test that a roster edit writes one line keeps the count and loses the check that no member is named. Report each test removed and each test changed, with the reason, so that the review can check that no behaviour lost its test.
+  - **`PayloadJson` and `OperatorText` stay as types** (removing them is a large change for no gain), and they stop hiding: `ToString` gives the text, and a structured log gives the text. Their other duties stay (JSON conversion, equality). Remove the remarks and tests that exist to keep them hidden.
+  - **The Debug line of each decision** (`DecisionRecorder`) gains the session's name. No other line gains text in this task.
+  - **At the default level, the log does not change.** No existing line prints a whole event or session today; confirm it, and report any line whose text changes because `ToString` changed.
+  - **The database does not change.** `reason` and `detail` keep their present content; they are simply no longer guarded.
+  - **CLAUDE.md is the director's to change, at the operator's word:** its working agreement on logging is changed in the same commit as this block. The coder does not edit CLAUDE.md.
+- **Deliverables:**
+  - The tests of the rule removed or reduced: `UnprotectedTextInventory`, and each test that checks that no log line or decision field holds a title, a name, a prompt, a body or a member (`SessionTitleLoggingTests`, `RosterLoggingTests`, `RosterEditWakeTests`, `SilenceLoggingTests`, `DeclineLoggingTests`, `DecisionRecordTests`, `SessionTitleRecordTests`, `SqliteEventStoreTests`, `PayloadJsonTests`, and any other that a search finds).
+  - `PayloadJson` and `OperatorText` print their text.
+  - The session's name in the Debug decision line.
+  - Code comments that state the rule ("identifiers only", "never a title") are corrected where they are now false.
+  - **Documents, in the same change:** Impl §3.4 (the bullet is rewritten: what may be logged, and that the token may not), §8.3 and §8.4 where they call a field or a line "identifiers only" because of the rule, §5.7 if it says so; TS §IV (line "never executed and never logged": "never executed" stays); the event flow and Core and App where they state the rule; `docs/quiet-scheduled-jobs.md` and the README if they do. One row each in TS Appendix D and Impl Appendix C. Section numbers stay.
+- **Acceptance:**
+  - A search of `docs/`, the README and the source for the rule's words ("never logged", "never log", "identifiers only", "operator text", "operator's words") finds no statement of the rule. Report the search and what is left, with the reason for each.
+  - A log line that prints a `PayloadJson` or an `OperatorText` shows the text (a test).
+  - At the Debug level, the decision line shows the session's name (a test).
+  - At the default level, the same run writes the same lines before and after (a test, or a comparison of two logs of one scripted run; say which).
+  - The token test passes unchanged.
+  - The count of tests before and after, with the list of the tests removed.
+  - **Plants:** (a) `PayloadJson.ToString` hides the text again, and its test fails; (b) the name left out of the Debug line, and its test fails.
+  - Both suite counts; build clean, 0 warnings.
+- **Guardrails:** no new line at the default level. No change to what the database stores, to `/state`, or to any state, order or sound rule. The token is never logged. Text is still data: stored and shown, never executed. Tests use scratch folders.
+
 ---
 
 ## Part 4 — Phases 2–7 task outlines
