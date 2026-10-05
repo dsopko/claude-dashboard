@@ -70,4 +70,4 @@ This is the safe direction. A missed sentinel costs one extra beep, which is how
 
 To read the database while the dashboard runs, copy `dashboard.db` and its `-wal` file and query the copy.
 
-The dashboard compares the reply as data and never records it: neither the reply nor the job's prompt appears in the decisions record or the log.
+The dashboard compares the reply as data. The decisions record holds what it decided, a quiet tick, and not the reply or the job's prompt.

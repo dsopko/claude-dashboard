@@ -418,7 +418,7 @@ A proposal, like section 6: nothing here is ruled for a second screen yet. Each 
 3. **No request thread reads the Registry.** A request reads a published snapshot.
 4. **Nothing is optimistic.** A row goes grey when the Registry says it is acknowledged, not at the click. The same for mute and pause.
 5. **Text is data.** In a browser this has a sharp meaning: a prompt, an answer, a title and a task description go into the page as text nodes (`textContent`), never as markup (`innerHTML`). The text comes from a model and from files that the model read.
-6. **No prompt, answer, title, task description or task command in a log.** This includes the web server's request log and the browser's console. A task's `command` is never read at all.
+6. **No token in a log,** the web server's request log and the browser's console included: it is a credential. Other text may be logged (the operator's ruling of 2026-10-05, T1.76). A task's `command` is never read at all.
 7. **An absence of activity never makes a row louder.** It may make it quieter.
 8. **Unread is never summarised away.** No collapse rule may hide a finished, unseen session.
 9. **Red blinks, working breathes, nothing else moves.** Honour the reduced-motion setting: `prefers-reduced-motion` is the same Windows switch that `MotionPolicy` reads.
@@ -455,7 +455,7 @@ Code paths are under `src/ClaudeDashboard.`. Test paths are under `tests/ClaudeD
 | The tray colour and sentence | Impl §5.2 | `App/Ui/TrayVisuals.cs`, `TrayTooltip.cs` | `Ui/TrayVisualsTests.cs`, `TrayTooltipTests.cs` |
 | Colours, sizes, the two animations | [Mockups](claude-dashboard-mockups.html) (visuals only, never ordering) | `App/Ui/RowTemplates.xaml` | |
 | The "not connected" notices | Impl §9.4 | `App/Setup/HookNotice.cs`, `StartupHookInstall.cs` | `Setup/HookNoticeTests.cs`, `StartupHookInstallTests.cs` |
-| What must never be logged | Impl §3.4 | `Core/Events/PayloadJson.cs`, `App/Ingress/OperatorText.cs` | `Domain/UnprotectedTextInventory.cs`, `PayloadJsonTests.cs`, `OperatorTextTests.cs` |
+| What must never be logged: the token | Impl §3.4 | `App/Ingress/IngressToken.cs` | `Hosting/TokenHandoverTests.cs` |
 | What each project may reference | Impl §1.2 | The `.csproj` files | `Architecture/DependencyRuleTests.cs` |
 | What the host composes, and in which sequence | Impl §3.1, Part 4 | `App/Hosting/AppHost.cs`, `App/Program.cs` | `Hosting/AppHostTests.cs`, `ServiceCompositionTests.cs`, `StateHostTests.cs` |
 | What Phase 7 was planned to be | Design §10; TS §I.4, §IV.8; Impl §1.2, Part 11; Execution Plan T7.1 to T7.3 | `src/ClaudeDashboard.Remote/` (empty) | |

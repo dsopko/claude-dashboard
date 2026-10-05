@@ -265,7 +265,7 @@ Each hook that the dashboard registers only observes. `/hook` answers `200` with
 - **Loopback only.**
 - **A token, always** (T1.48). At each start the dashboard makes 32 random bytes and writes them as 43 characters of base64url. It holds the token in memory and writes it as line 2 of `listening.txt`, below the port, in one write-then-rename step. `post-status.cmd` reads it at each event and sends it as the header `X-Dashboard-Token`. Thus no Claude Code session holds a copy, and a restart of the dashboard cuts no session off. The token is never in the environment, in a committed file or in a log. The variable `CLAUDE_DASHBOARD_TOKEN`, which held it before, is ignored; the dashboard says so one time in its log.
 - **All event text is data.** WPF shows a string as text. No path evaluates it.
-- **Text that the operator wrote, or that a model wrote for the operator, is never logged:** a title, a prompt, an answer, a payload, a task description, a task command. Since T1.69 (issue #98) the session's name is stored in `dashboard.db`, in a column of its own (§8.3); it is still never in a log line. `PayloadJson` and `OperatorText` make this hold by construction for the body and for `/state`. `tests/.../Domain/UnprotectedTextInventory.cs` lists each property where the same words are still a plain string.
+- **The log file may hold any text** (the operator's ruling of 2026-10-05; T1.76, issue #118): a title, a name, a prompt, an answer or a task description may appear in a log line. Why: `dashboard.db` holds the same text in plain form, in the same folder as the log file, and Claude Code keeps it on the same disk, so keeping it out of the log protected nothing. `PayloadJson` and `OperatorText` print their text: `ToString`, and a destructured `{@…}`. No line at the default level prints such text today; the Debug line of each decision names the session (§8.4). **The token is never logged** (above): it is a credential, not the operator's text.
 
 ### 3.5 The `/state` contract
 
@@ -314,7 +314,7 @@ Each hook that the dashboard registers only observes. `/hook` answers `200` with
 - **A null `nextNudgeAt` has two meanings** (issue #58): no nudge is due, or the session is a finished member of a roster group and the group owns the notice. The report cannot tell them apart.
 - **`waitingOn` is usually empty unless `state` is `Waiting`.** It is also not empty for a session that waits on a background agent while that agent's permission prompt, question or error shows on the parent.
 - **The report never carries a prompt, an answer or a task's command.**
-- **`title` and `description` are operator text.** A caller must not log them.
+- **`title` and `description` are free text:** a title can be a model's summary of the session's first prompt, and a description is what the agent said the task is.
 - **Before the first event,** the report has `sessionCount` 0, all bands 0, `tray.worst` `Ended`, `tray.light` `Grey` and no sessions.
 - **The report does not change with time alone.** It is built when a session changes and when a nudge fires. It holds instants, not ages. `health` is the exception: it is read at each request, because it is written on request threads.
 - **Not in the report:** the mute and pause modes, the rosters, the settle window's state of a group, the notice, and the row's clock anchor.
@@ -718,7 +718,7 @@ The states: `NeedsPermission` needs permission · `NeedsQuestion` asks a questio
 - **The filter stays while the window is hidden.** Opened again from the tray or the toolbar, the window shows the bar and the filtered list. Why: the bar says what the list shows, and one click on **Show all** clears it, while a filter that went away on its own would lose what the operator asked for.
 - **Connected once,** in `Program`, when both windows exist: `ActivityLinks.Connect`. Guards in `Ui/ActivityLinkTests.cs` hold that call, and that no row and no line has a right-click menu.
 
-**No title, prompt or path in a log line.** The log, the words and the view model log nothing. The recorder logs only the type of an exception if the hand-off throws.
+**The window writes no log line.** The log, the words and the view model log nothing. The recorder logs only the type of an exception if the hand-off throws.
 
 
 ---
@@ -923,7 +923,7 @@ An event that the Registry declined is in the table too. A `SoundCommand` and a 
 | `session_title` | TEXT or NULL | The session's name when the row was written (T1.69). NULL for a decision about no session, and for rows written before T1.69 |
 | `cwd` | TEXT or NULL | The session's full path when the row was written (T1.69). NULL as `session_title` is |
 
-**`reason` and `detail` hold identifiers only.** Never a title, a prompt, an answer or the text of an exception. **The session's name is in `session_title` and in no other column** (T1.24, as T1.69 changed it: a decision row holds ids, fixed words, and the name in its own column). `DecisionRecordTests` holds both halves, and `UnprotectedTextInventory` lists the field.
+**What `reason` and `detail` hold:** an enum name or fixed words, and `key=value` identifiers (a sound, a rung, a group key and its member ids, a count). An exception is recorded by its type. **The session's name and path have their own columns,** `session_title` and `cwd` (T1.69). This says what the fields hold; since T1.76 (issue #118) no rule keeps other text out of them.
 
 **The kinds:**
 
@@ -969,7 +969,7 @@ An event that the Registry declined is in the table too. A `SoundCommand` and a 
 - **The stop** is set after the archive's drain and before the store closes, so every record that the run queued is written first.
 - A row that the disk refuses is lost and counted like any record (`LostCount`), and not retried: a late row would say the wrong time.
 - **Times are UTC from the first row,** in the one form above. `events` and `decisions` have the same form since T1.62.
-- **No operator text.** The data folder is the one path.
+- **The data folder is the one path** in the table.
 
 **The indexes** (T1.63, issue #79), so that a query by session, by time or by kind reads only the rows it needs:
 
@@ -1003,7 +1003,7 @@ Serilog, to `logs\dashboard-<date>.log`. One file for each day, 14 files kept, 1
 - **The timings' lines** (T1.66, Part 4), the only lines the measurement writes: one Warning when a timing first crosses its limit (`The queueWait was 2001ms, over its limit of 1000ms. …`) and one Information line when no value has been over it for a minute, checked on the tick (`The queueWait is back under its limit of 1000ms: no value over it for 1 minute.`); beside each hourly summary, one line with the hour's figures (`Hourly timings, from … to …: queueWait n=… avg=… worst=…; …`), which then start again; and once at the end of the start, `Started in <n> ms: settings=…ms port=…ms build=…ms start=…ms script=…ms announce=…ms plugin=…ms startWithWindows=…ms window=…ms`. `/state` gives the figures since the start.
 - **The stop line** gives the same counts in the same form, since the start: `Event consumer stopped. Since the start: applied=… …`. Since T1.66 it ends with the run's worst cases: `Worst: queueWait=… tickLateness=… applyTime=… archiveBacklog=… uiHop=… hookRoundTrip=…`. The `runs` row gets no column for them (the director's ruling of 2026-10-04). No `HourlySummary` row at a stop: the consumer has drained, so a decision written then has no scope to leave in.
 - **Counts that must stay at zero** already have their line or their notice, and T1.65 adds none: a shed or lost event warns once per episode (Part 4), an uncorrelated `Stop` warns each time, a refused post warns each time and shows its notice (§9.4), and a store failure shows its notice and writes its recovery line (§8.3). A record the archive channel drops is a `Debug` line, and its count is written at the stop and now in each hourly line.
-- **The file keeps the level that `logging.minimumLevel` sets**, Information by default. At `Debug` the file also keeps the decision record, one line for each decision, and one line for each event the Registry declined. Every `Debug` line holds identifiers only. The file sink had a fixed Information floor of its own until T1.52 (issue #68), so `Debug` did not reach the file. The `decisions` table is still the record to query.
+- **The file keeps the level that `logging.minimumLevel` sets**, Information by default. At `Debug` the file also keeps the decision record, one line for each decision, and one line for each event the Registry declined. A decision's line holds what its row holds, and the session's name (T1.76, issue #118): `Decision NoticePlayed session=… name=Director …`, or `name=-` for a decision about no session. The file sink had a fixed Information floor of its own until T1.52 (issue #68), so `Debug` did not reach the file. The `decisions` table is still the record to query.
 
 ### 8.5 Environment variables
 
@@ -1274,3 +1274,4 @@ The text above says what is true now. This list says when each part changed.
 | 2026-10-04 | A failed database connection is closed for real (`ClearPool`, then dispose), and a new connection that SQLite opened read-only is opened again after 100, 200, 300 and 400 ms before the store gives up, so the retry each minute writes again once the cause is gone, and a file held for a moment costs nothing (§8.3) | T1.74; issue #109 |
 | 2026-10-04 | A roster group's settle is silent when each Unread member already announced its finish: the engine keeps the fact with each entry, the settle pass hands it the members from the groups as they stand (`RosterSettle.UnreadMembers`), and the silent settle records `AlreadyAnnounced`, starts no group reminder and marks no row (§2.4, §2.5, Part 7, §8.3) | T1.72; issue #107 |
 | 2026-10-04 | A held-back group sound records the group and its members (`group=… members=…`), as a played or a dropped one does; the Activity window names the group on a held-back and a dropped group line, and a click on either goes to the group's heading (§5.7, §8.3) | T1.73; issue #108 |
+| 2026-10-05 | The log file may hold any text: the rule that kept titles, names, prompts and answers out of it goes (the operator's ruling); `PayloadJson` and `OperatorText` print their text; a decision's Debug line names the session; the token is still never logged (§3.4, §3.5, §5.7, §8.3, §8.4) | T1.76; issue #118 |

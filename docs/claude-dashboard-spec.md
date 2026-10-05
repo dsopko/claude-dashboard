@@ -459,7 +459,7 @@ Phase 1 is at the bottom of each ladder and works alone.
 ### IV.8 Threat surface summary
 
 - The endpoint listens on loopback only. A token is necessary, always.
-- Event text is display data. It is never executed and never logged.
+- Event text is display data. It is never executed. The log file may hold it, as the event log does (the operator's ruling of 2026-10-05); the token is never logged.
 - No elevation.
 - The dashboard never writes Claude Code's settings.
 - Remote access (Phase 7) is a separate authenticated surface on the Registry. It is never the raw endpoint opened to the network.
@@ -569,5 +569,6 @@ The text above says what is true now. This list says when each rule changed, for
 | 2026-10-04 | The event log keeps as many days as Claude Code's `cleanupPeriodDays` (30 when the key is absent), read at each prune; a file that cannot be read, or a value Claude Code would not use, deletes nothing. The log's own setting is no longer used (§IV.6) | T1.68; issue #102 |
 | 2026-10-04 | The event log and the decision record store the session's name, and decisions its full path, as they were when the row was written (§IV.6) | T1.69; issue #98 |
 | 2026-10-04 | The Activity window shows the decisions since the start in plain words, from memory, never from the event log (§IV.6) | T1.70; issue #97 |
+| 2026-10-05 | Event text may appear in the log file; it is still never executed, and the token is never logged (§IV). Before, event text was never logged | T1.76; issue #118 |
 | 2026-10-04 | The event log's retry uses a new connection each time, and a file held for a moment at the open is opened again a few times within a second (§IV.7). Before, each retry could get the same connection back, which could not write, until a restart | T1.74; issue #109 |
 | 2026-10-04 | A roster group plays only when it has something new to announce: a settle in which every finished member already announced is silent, with no nudge, and recorded as announced before (§IV.5) | T1.72; issue #107 |

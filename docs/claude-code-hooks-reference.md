@@ -103,7 +103,7 @@ Eight of thirty-three. This is the whole integration surface.
 - **`session_crons`** — an array of the scheduled wake-ups the session has set. Empty on most `Stop`s; 292 entries across 3 sessions, first seen 2026-09-03. Each entry is an object:
   - `id` (string).
   - `schedule` (string) — when it fires.
-  - `prompt` (string) — the prompt it will wake the session with. **Prompt text:** the dashboard reads it only to compare it (T1.44): it is held in memory for that and is never logged or shown. The raw payload, like every payload, is archived verbatim.
+  - `prompt` (string) — the prompt it will wake the session with. **Prompt text:** the dashboard reads it only to compare it (T1.44): it is held in memory for that and is never shown. The raw payload, like every payload, is archived verbatim.
   - `recurring` (boolean).
 
   #52 files it under case 4 (a cron that wakes the agent, then a false "finished"), not the Waiting state. T1.44 (issue #56) is that rule, below.
