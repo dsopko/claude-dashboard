@@ -207,7 +207,7 @@ Ingress does not touch the Registry.
 
 - **An allow-list decides.** The mapper accepts the 8 names and refuses all others. The internal events `Ack`, `SoundCommand` and `RostersChanged` cannot come from the wire. Thus a post cannot forge an acknowledgment.
 - **The mapper stamps the time.** A hook payload has no timestamp. The mapper takes the time from the clock when the post arrives. Thus the sequence of events is the sequence of arrival.
-- **The raw body travels with the event.** It is in `PayloadJson`, a type that cannot be printed. Only the archive's insert reads it.
+- **The raw body travels with the event.** It is in `PayloadJson`, which keeps it as one value and prints it (T1.76). The archive's insert reads it to store it.
 
 The mapper reads these fields and no others:
 
