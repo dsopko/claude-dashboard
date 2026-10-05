@@ -11,8 +11,8 @@ namespace ClaudeDashboard.App.Ingress;
 /// <para>
 /// <strong>What an entry looks like</strong>, measured on the operator's archive: <c>{ id,
 /// schedule, prompt, recurring }</c>. Only <c>prompt</c> is taken, because a tick is recognised by
-/// its prompt exactly equalling one of these. The prompt is prompt text: it is kept only to be
-/// compared, inside <see cref="ScheduledPrompts"/>, which prints none of it.
+/// its prompt exactly equalling one of these. It is kept to be compared, inside
+/// <see cref="ScheduledPrompts"/>.
 /// </para>
 /// <para>
 /// <strong>Degrade, never crash.</strong> Anything that is not an array of objects reads as no

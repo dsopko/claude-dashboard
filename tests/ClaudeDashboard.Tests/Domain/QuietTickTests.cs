@@ -219,6 +219,27 @@ public sealed class QuietTickTests
         Assert.DoesNotContain("auto-ack", cause, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// <strong>The scheduled prompts print their text</strong> (T1.76, issue #118): <c>ToString</c> gives the count and
+    /// the prompts in ordinal order, and a log line shows them plainly and destructured.
+    /// </summary>
+    [Fact]
+    public void The_scheduled_prompts_print_their_text()
+    {
+        var prompts = ScheduledPrompts.Of(["resurface anything overdue", "check the coder"]);
+
+        Assert.Equal("2 scheduled prompt(s): check the coder | resurface anything overdue", prompts.ToString());
+        Assert.Equal(["check the coder", "resurface anything overdue"], prompts.Prompts);
+        Assert.Equal("0 scheduled prompt(s)", ScheduledPrompts.None.ToString());
+
+        var sink = new RecordingLogSink();
+        using var logger = new Serilog.LoggerConfiguration().MinimumLevel.Verbose().WriteTo.Sink(sink).CreateLogger();
+        logger.Information("Plainly: {Prompts}", prompts);
+        logger.Information("Destructured: {@Prompts}", prompts);
+
+        Assert.Equal(2, sink.Containing("check the coder"));
+    }
+
     // ---- A roster group ------------------------------------------------------------------------
 
     /// <summary>

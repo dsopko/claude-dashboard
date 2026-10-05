@@ -73,10 +73,9 @@ public static class QuietTicks
 /// The prompts of a session's scheduled jobs, as its latest <c>Stop</c> listed them (T1.44).
 /// </summary>
 /// <remarks>
-/// Prompt text, so it is kept only to be compared — ordinal, exact — and never printed: this type
-/// exposes no string, and its <see cref="ToString"/> says how many there are and nothing more, so a
-/// <see cref="Session"/> that carries it prints no cron's words. Value equality, so a Session still
-/// compares by value.
+/// Compared ordinal and exact. It prints its prompts (T1.76, issue #118; the operator's ruling: "don't censor
+/// anything"): <see cref="ToString"/> gives the count and the prompts, and <see cref="Prompts"/> gives them to a
+/// destructured <c>{@…}</c>. Value equality, so a Session still compares by value.
 /// </remarks>
 public sealed class ScheduledPrompts : IEquatable<ScheduledPrompts>
 {
@@ -89,6 +88,9 @@ public sealed class ScheduledPrompts : IEquatable<ScheduledPrompts>
 
     /// <summary>How many there are.</summary>
     public int Count => _prompts.Count;
+
+    /// <summary>The prompts, in ordinal order, so that a print is the same for the same set.</summary>
+    public IReadOnlyList<string> Prompts => [.. _prompts.Order(StringComparer.Ordinal)];
 
     /// <summary>The set a Stop listed.</summary>
     /// <exception cref="ArgumentNullException"><paramref name="prompts"/> is null.</exception>
@@ -114,8 +116,9 @@ public sealed class ScheduledPrompts : IEquatable<ScheduledPrompts>
     /// <inheritdoc/>
     public override int GetHashCode() => _prompts.Count;
 
-    /// <summary>How many, and never what they say.</summary>
-    public override string ToString() => $"{Count} scheduled prompt(s)";
+    /// <summary>How many, and what they say: <c>2 scheduled prompt(s): check the coder | resurface</c>.</summary>
+    public override string ToString() =>
+        Count == 0 ? "0 scheduled prompt(s)" : $"{Count} scheduled prompt(s): {string.Join(" | ", Prompts)}";
 }
 
 /// <summary>

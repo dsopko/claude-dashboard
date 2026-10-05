@@ -120,8 +120,23 @@ public sealed class TokenHandoverTests : IDisposable
     /// of theirs.
     /// </remarks>
     [Fact]
-    public async Task The_token_and_the_retired_value_appear_in_no_log_line()
+    public async Task The_token_and_the_retired_value_appear_in_no_log_line() => await NoTokenInTheLog(minimumLevel: null);
+
+    /// <summary>
+    /// <strong>The same at the Debug level</strong> (the T1.76 review): with <c>logging.minimumLevel</c> at Debug the log
+    /// holds Debug lines, and still neither the token nor the retired value.
+    /// </summary>
+    [Fact]
+    public async Task The_token_and_the_retired_value_appear_in_no_log_line_at_the_debug_level() => await NoTokenInTheLog(minimumLevel: "Debug");
+
+    private async Task NoTokenInTheLog(string? minimumLevel)
     {
+        if (minimumLevel is not null)
+        {
+            // The same port the fixture saved, and the level.
+            new SettingsStore(_paths).Save(new DashboardSettings { Port = _port, Logging = new LoggingSettings { MinimumLevel = minimumLevel } });
+        }
+
         const string RetiredValue = "RETIRED-VALUE-MARKER-6f2c";
         var previous = Environment.GetEnvironmentVariable(IngressToken.RetiredEnvironmentVariable);
         WebApplication host;
@@ -168,6 +183,12 @@ public sealed class TokenHandoverTests : IDisposable
         Assert.Equal(1, Occurrences(log, $"{IngressToken.RetiredEnvironmentVariable} is set and is ignored"));
         Assert.DoesNotContain(RetiredValue, log, StringComparison.Ordinal);
         Assert.DoesNotContain(token, log, StringComparison.Ordinal);
+
+        if (minimumLevel is not null)
+        {
+            // The control: the level took effect, so the absence above holds at Debug.
+            Assert.Contains("[DBG]", log, StringComparison.Ordinal);
+        }
     }
 
     // ---- The host, started the way Program starts it -----------------------------------------------
