@@ -61,7 +61,8 @@ public sealed class TestPortsTests : IDisposable
 
     /// <summary>
     /// <strong>The new way keeps a port:</strong> the first port is taken after the choice, before the host is built or
-    /// after it, so it chooses again, and the host answers on the port it returns.
+    /// after it, so it chooses again, and the host answers on the port it returns. The host that lost its port leaves
+    /// no log file open.
     /// </summary>
     [Theory]
     [InlineData(false)]
@@ -94,7 +95,14 @@ public sealed class TestPortsTests : IDisposable
             Assert.Contains("\"status\":\"ok\"", body, StringComparison.Ordinal);
 
             await host.StopAsync();
+
+            // The kept host's logger, as every class that reads its log closes it: the container does not.
+            (host.Services.GetService<Serilog.ILogger>() as IDisposable)?.Dispose();
         }
+
+        // The host that lost its port wrote to the same log; TestPorts closed its logger, so the folder can go (the
+        // T1.77 review).
+        Directory.Delete(new DashboardPaths(_root).LogFolder, recursive: true);
     }
 
     /// <summary>A stranger takes the port, as another test that chose it would.</summary>
