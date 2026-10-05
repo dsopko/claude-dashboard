@@ -1222,6 +1222,28 @@ The work in GitHub milestone 3, "Observability 1": issues #3, #14, #67, #71, #72
   - The test of #113 passes. **Plant (b):** a plain `Dispose` in place of `CloseForReal` in `Unavailable`, and the test fails.
   - Both suite counts; build clean, 0 warnings. Three full runs, each saved to a file: name any failure.
 - **Guardrails:** no product code. Tests use scratch folders, never the operator's data folder.
+- **Done 2026-10-04:** PR #114, merged as `6107b42`, `159b0be` (no fix cycle). Only `RecordingSoundPlayer` needed the lock; the review confirmed that no other fake with a plain collection is added to on one thread and read on another. Plant (a), no lock: the thread test failed 10 of 10 runs. T1.74's plant d, a plain `Dispose` in `Unavailable`, now fails the new test, the only failure in the Storage tests (it failed none at T1.74). The four pipeline classes passed 50 runs (the coder) and 30 runs (the review). **Not worth an issue (the review):** `FakeClock` and `RecordingUiTick` hold a `DateTimeOffset` that one thread writes and another reads; each of its two fields is atomic on x64 and the shared clocks keep one offset, so a read sees the old value or the new one. **Seen in the review's full runs, older than this task:** #40 once (the foreign reader's prepare fails while a commit holds its exclusive lock; a busy timeout in `ForeignSqliteReader` would likely end it), and once a port race with no issue (`AppHostTests.FreePort()` releases a free port before the host binds it, and a test running beside it can take it). Taken to the operator.
+
+**T1.73 — A group's "no sound" line says which group**
+- **Goal:** in the Activity window, every line about a roster group's sound names the group, whether the sound played, was held back or was dropped, and a click on the line goes to the group's heading. For issue #108.
+- **Depends:** T1.70 (the Activity window and its words), T1.71 (a click on a line; a group's sound goes to its heading), T1.72 (a silent settle records a held-back group sound, `AlreadyAnnounced`), T1.55 (a dropped sound), T1.37 (the decisions record)
+- **Realizes:** #108 as written. Director's rulings:
+  - **What is recorded:** `DecisionRecorder.SoundSuppressed` writes, for a group's sound (`GroupNotice`, `GroupNudge`), the same detail that `SoundDropped` writes for one: `kind=… sound=… group=… members=…`. A session's held-back sound keeps its detail as it is today (`kind=… sound=…`). Why: this adds no new kind of text to the database; a played and a dropped group sound already record the group in this form.
+  - **The name on the line:** `ActivityWords` names the group from the detail for `NoticeSuppressed` and `SoundDropped` too, not only for `GroupNoticePlayed`, by the same rule (`GroupName`). A group line has no project, as a played group line has none today.
+  - **The click:** a held-back or a dropped group line goes to the group's heading when the group is in the main window, as a played one does (T1.71). When it is not, the hover says "This group is not in the window.", as today.
+  - **The case the operator sees most:** after T1.72, a roster made from sessions that were already announced records a held-back group sound (`AlreadyAnnounced`). Its line must now read as a "no sound" line with the group's name and the reason "announced before".
+- **Deliverables:**
+  - The group in the held-back record.
+  - The group's name on held-back and dropped group lines, and the click to the heading.
+  - **Documents, in the same change:** Impl §8.3 (the detail of `NoticeSuppressed` for a group's sound) and §5.7 (the name on a group line, and the click). One row in Impl Appendix C.
+- **Acceptance:**
+  - A group's sound held back for each reason (the group muted, all sound muted, monitoring paused, announced before) records `group=` and `members=` with the group's key and its members' ids. A session's held-back sound records the same detail as before.
+  - Through the real pipeline: a roster made from two sessions that were already announced writes a held-back group sound that names the group, and the Activity line reads "no sound", with the group's name and "announced before".
+  - The Activity window names the group on a held-back and on a dropped group line, as on a played one. A click on either goes to the group's heading in a realized main window, with `BindingErrorWatch` clean. When the group is not in the window, the hover says so.
+  - The guard of T1.24 and T1.69 still passes: no title, prompt or payload in `reason` or `detail`.
+  - **Plants:** (a) the group left out of the held-back record, and the record test fails; (b) the group named only for a played sound, as today, and the window test fails; (c) the click not wired for a held-back line, and the click test fails.
+  - Both suite counts; build clean, 0 warnings.
+- **Guardrails:** no change to which sounds play or when, to a session's lines, to the database's columns or to the Activity window's source. No title in a log line. Tests use scratch folders.
 
 ---
 
