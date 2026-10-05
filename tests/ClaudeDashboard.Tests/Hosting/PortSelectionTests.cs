@@ -83,10 +83,10 @@ public sealed class PortSelectionTests
         var digest = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(Sid));
         var offset = ((uint)digest[0] << 24) | ((uint)digest[1] << 16) | ((uint)digest[2] << 8) | digest[3];
 
+        // The exact SHA-256 value is the whole check: a port from the framework's per-process hash would not equal
+        // it. A second check that the port differs from that hash's value failed by chance about one run in 1,000
+        // (the two met at 52888), and is gone (T1.78, issue #124).
         Assert.Equal(Base + (int)(offset % 1000u), PortSelection.Derive(Sid, Base));
-
-        // And it is not the framework's hash, which is what a careless implementation reaches for.
-        Assert.NotEqual(Base + Math.Abs(Sid.GetHashCode(StringComparison.Ordinal) % 1000), PortSelection.Derive(Sid, Base));
     }
 
     /// <summary>Two users get two ports, which is the point of deriving at all.</summary>
