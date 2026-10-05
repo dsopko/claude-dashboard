@@ -1277,6 +1277,22 @@ The work in GitHub milestone 3, "Observability 1": issues #3, #14, #67, #71, #72
 - **Guardrails:** no new line at the default level. No change to what the database stores, to `/state`, or to any state, order or sound rule. The token is never logged. Text is still data: stored and shown, never executed. Tests use scratch folders.
 - **Done 2026-10-05:** PR #119, merged as `8dd11fc`, `6e54ae2`, `0991174`, `2ca0dc9` (one fix cycle, in the documents). 17 tests that held only the rule went, about 16 lost the rule's assertion and kept their behaviour, and four were added: 2264 tests, from 2277. `PayloadJson`, `OperatorText` and `ScheduledPrompts` print their text. The Debug line of a decision shows the session's name. **The default level did not change:** two logs of one scripted run, on the base and on the branch, held the same lines; and the review's search found no line that prints an event, a session or one of those types. **The review found:** three statements that still said that the raw body cannot be printed (Impl §2.1, the event flow, one comment), now corrected; and one Debug line that had lost its only test, now tested. **The token:** a new test holds it out of the log at the Debug level too; the review's plant, a Debug line that printed the header, failed that test and passed the default-level one. **The coder's rulings, accepted:** a `Text` property beside `Reveal()`; the name read when the decision is added; the checks that a refused post's body and a task's command are not stored stay, because they are not the log rule; the Phase 1 acceptance record is marked superseded, not rewritten. Not verified: a real run of the app at the Debug level. **For the operator:** #11 and #25 are no longer defects.
 
+**#118 closed, and #11 and #25 closed as not planned, on 2026-10-05, at the operator's word. #120 added on 2026-10-05, at the operator's word** ("File the port problem and fix it").
+
+**T1.77 — A test copy of the dashboard keeps the port that it chose**
+- **Goal:** the tests that start a real copy of the dashboard stop failing at random because another test took their port first. Test code only. For issue #120.
+- **Depends:** T1.46 (the `/state` tests that start a host), T1.57 (the port choice at start), T1.65 (`HealthStateHostTests`)
+- **Realizes:** #120 as written. Director's rulings:
+  - **Test code only.** If a product change looks necessary (for example, a way for a test to read the port that the host bound), send QUESTION first.
+  - **The way to choose:** prefer a port that the host takes at the moment it listens (port 0, then read back the bound port). Where a test needs the number before the start, retry on a new port when the start fails because the port is taken. A helper that lets a port go and starts on it later is not acceptable, except where a test needs a port that nothing listens on (then say why).
+  - **Each of the 19 callers of `FreePort()`** moves to the new way, or keeps it with a reason in the report.
+- **Deliverables:** the new way to choose a port; the callers moved; `FreePort()` removed if no caller keeps it.
+- **Acceptance:**
+  - The tests that start a host pass in 50 runs side by side (the classes that call the helper, run together), each run saved to a file.
+  - **Plant:** a test helper that takes the chosen port first, between the choice and the start, as another test would; the test that used the old way fails, and the new way passes. If such a plant cannot be built, say why and choose another that shows the race is closed.
+  - Both suite counts; build clean, 0 warnings. Three full runs, each saved: name any failure.
+- **Guardrails:** no product code. No change to the port rules of T1.57. Tests use scratch folders.
+
 ---
 
 ## Part 4 — Phases 2–7 task outlines
