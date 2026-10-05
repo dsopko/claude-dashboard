@@ -24,8 +24,6 @@ public sealed class NameColumnsTests : IDisposable
 
     public void Dispose()
     {
-        SqliteConnection.ClearAllPools();
-
         try
         {
             Directory.Delete(_folder, recursive: true);

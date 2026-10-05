@@ -91,9 +91,13 @@ public sealed class ForeignSqliteReaderTests : IDisposable
         }
 
         var failure = Assert.Throws<ForeignReadFailed>(
-            () => ForeignSqliteReader.Column(path, "SELECT nothing FROM absent_table"));
+            () => ForeignSqliteReader.Column(path, "SELECT marker FROM absent_table"));
 
-        Assert.Contains("does not have the shape", failure.Message, StringComparison.Ordinal);
+        // SQLite's own words, with its code (T1.78): a missing table is "no such table", result 1. The query said
+        // "SELECT nothing" until T1.78, and "nothing" is an SQLite keyword: it failed as a syntax error, not as a
+        // missing table.
+        Assert.Contains("sqlite result 1", failure.Message, StringComparison.Ordinal);
+        Assert.Contains("no such table: absent_table", failure.Message, StringComparison.Ordinal);
     }
 
     /// <summary>

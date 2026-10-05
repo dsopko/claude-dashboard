@@ -64,6 +64,12 @@ internal static class ForeignSqliteReader
     [DllImport(Dll, EntryPoint = "sqlite3_close", CallingConvention = CallingConvention.Cdecl)]
     private static extern int Close(IntPtr db);
 
+    [DllImport(Dll, EntryPoint = "sqlite3_extended_errcode", CallingConvention = CallingConvention.Cdecl)]
+    private static extern int ExtendedErrorCode(IntPtr db);
+
+    [DllImport(Dll, EntryPoint = "sqlite3_errmsg", CallingConvention = CallingConvention.Cdecl)]
+    private static extern IntPtr ErrorMessage(IntPtr db);
+
     [DllImport(Dll, EntryPoint = "sqlite3_libversion", CallingConvention = CallingConvention.Cdecl)]
     private static extern IntPtr LibVersion();
 
@@ -92,11 +98,14 @@ internal static class ForeignSqliteReader
 
         try
         {
-            if (Prepare(db, Utf8(sql), -1, out var statement, IntPtr.Zero) != SqliteOk)
+            var prepared = Prepare(db, Utf8(sql), -1, out var statement, IntPtr.Zero);
+
+            if (prepared != SqliteOk)
             {
+                // SQLite's own code and message (T1.78, issue #40): "no such table" and "database is locked" fail
+                // here alike, and only these tell them apart.
                 throw new ForeignReadFailed(
-                    $"The foreign reader opened '{path}' but could not prepare \"{sql}\". " +
-                    "The file is a database; it does not have the shape this query expects.");
+                    $"The foreign reader opened '{path}' but could not prepare \"{sql}\": {Said(db, prepared)}.");
             }
 
             try
@@ -134,6 +143,10 @@ internal static class ForeignSqliteReader
         [.. Query(path, sql).Select(row => row[0])];
 
     private static byte[] Utf8(string value) => Encoding.UTF8.GetBytes(value + "\0");
+
+    /// <summary>What SQLite said: the result code, the extended code and the message.</summary>
+    private static string Said(IntPtr db, int result) =>
+        $"sqlite result {result}, extended {ExtendedErrorCode(db)}, \"{Marshal.PtrToStringUTF8(ErrorMessage(db))}\"";
 }
 
 /// <summary>The foreign reader could not answer. Not an empty answer — no answer.</summary>
