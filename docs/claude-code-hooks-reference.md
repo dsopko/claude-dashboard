@@ -78,7 +78,7 @@ Eight of thirty-three. This is the whole integration surface.
 **Blocking:** no — exit code and stderr ignored.
 
 > **Dashboard:** `permission_prompt` → **NeedsPermission** [verified]. `agent_needs_input` → **NeedsQuestion**. `idle_prompt` → **nothing** (issue #1 — it was mapped to NeedsQuestion and turned every finished session red). `agent_completed` → nothing.
-> **We knew four of twelve matcher values.** The other eight parse as `Unknown` and change no state, which is safe — but it was safe by luck rather than by knowledge. `quota_auto_resume_*` in particular describes a session waiting on a quota reset, which is arguably an operator-relevant state the dashboard has no way to show.
+> **We knew four of twelve matcher values.** The other eight parse as `Unknown` and change no state, which is safe — but it was safe by luck rather than by knowledge. Since T1.79 the log file names each new one once (issue #9). `quota_auto_resume_*` in particular describes a session waiting on a quota reset, which is arguably an operator-relevant state the dashboard has no way to show.
 > **The documented text field is `notification_text`. The wire sends `message` [wire].** The dashboard reads neither. It is the human-readable message — plausibly the best thing to put on a Needs-You row, since it is what Claude is actually saying. 1,481 archived events.
 
 ### ✅ `Stop`
@@ -312,7 +312,7 @@ Until September 2026 these three were open, because `SessionStart` and `SessionE
 
 ### Matcher lists the dashboard knows in part
 
-`Notification`: the dashboard knows **four of twelve** types by name. `StopFailure`: **four of ten**. An unknown value changes no state. That is safe, and it is not the same as known: `quota_auto_resume_*` describes a session that waits for a quota reset, which the dashboard cannot show. An unknown `Notification` type writes no log line (issue #9).
+`Notification`: the dashboard knows **four of twelve** types by name. `StopFailure`: **four of ten**. An unknown value changes no state. That is safe, and it is not the same as known: `quota_auto_resume_*` describes a session that waits for a quota reset, which the dashboard cannot show. Since T1.79 (issue #9) the log file says once, at the normal level, when an unknown value arrives, and the `EventDeclined` row records the type as `type=…`. Until then an unknown `Notification` type wrote no log line.
 
 ### Fields on the wire that could improve a row, and are not read
 
