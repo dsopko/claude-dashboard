@@ -35,16 +35,19 @@ public static class BackgroundTaskReader
 {
     private const string Running = "running";
 
-    /// <summary>The running tasks of an allowed kind, and how many running tasks had an unrecognised type.</summary>
-    public static (IReadOnlyList<BackgroundTask> Allowed, int Unrecognised) Read(JsonElement? list)
+    /// <summary>
+    /// The running tasks of an allowed kind, and the raw type of each running task with an unrecognised type (an empty
+    /// string for an entry with no type; T1.79).
+    /// </summary>
+    public static (IReadOnlyList<BackgroundTask> Allowed, IReadOnlyList<string> Unrecognised) Read(JsonElement? list)
     {
         if (list is not { ValueKind: JsonValueKind.Array } tasks)
         {
-            return ([], 0);
+            return ([], []);
         }
 
         var allowed = new List<BackgroundTask>();
-        var unrecognised = 0;
+        var unrecognised = new List<string>();
 
         foreach (var entry in tasks.EnumerateArray())
         {
@@ -55,7 +58,9 @@ public static class BackgroundTaskReader
                 continue;
             }
 
-            switch (Text(entry, "type"))
+            var type = Text(entry, "type");
+
+            switch (type)
             {
                 case "shell":
                     allowed.Add(new BackgroundTask(id, BackgroundTaskKind.Shell, Text(entry, "description") ?? string.Empty));
@@ -71,7 +76,7 @@ public static class BackgroundTaskReader
                     break;
 
                 default:
-                    unrecognised++;
+                    unrecognised.Add(type ?? string.Empty);
                     break;
             }
         }

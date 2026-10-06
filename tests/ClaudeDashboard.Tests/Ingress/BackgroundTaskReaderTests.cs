@@ -66,6 +66,10 @@ public sealed class BackgroundTaskReaderTests
 
         Assert.Equal(["b1"], stop.BackgroundTasks.Select(task => task.Id).ToArray());
         Assert.Equal(2, stop.UnrecognisedBackgroundTasks);
+
+        // And each one's raw type, as sent, for the log file's once-per-value line (T1.79, issue #9): an entry with no
+        // type is an empty string.
+        Assert.Equal(["cron", ""], stop.UnrecognisedBackgroundTaskTypes);
     }
 
     /// <summary>Only running entries count; an entry without an id is skipped.</summary>

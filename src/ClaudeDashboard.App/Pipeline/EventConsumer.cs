@@ -57,6 +57,7 @@ public sealed class EventConsumer : BackgroundService
     private readonly IClock _clock;
     private readonly SingleWriterGuard _guard;
     private readonly ILogger _logger;
+    private readonly UnknownValueLog _unknownValues;
     private readonly TimeSpan _tickInterval;
     private readonly IUiTick _uiTick;
     private readonly TimeSpan _silenceThreshold;
@@ -121,6 +122,7 @@ public sealed class EventConsumer : BackgroundService
         _clock = clock;
         _guard = guard;
         _logger = logger;
+        _unknownValues = new UnknownValueLog(logger);
         _tickInterval = tickInterval ?? DefaultTickInterval;
         _silenceThreshold = silenceThreshold ?? SilenceWatch.DefaultThreshold;
         _uiTick = uiTick;
@@ -419,6 +421,9 @@ public sealed class EventConsumer : BackgroundService
 
                     _recorder.RecordOutcome(inboundEvent, before, outcome, after);
 
+                    // A value this build does not know: one Information line, the first time (T1.79, issue #9).
+                    _unknownValues.Note(inboundEvent);
+
                     Report(inboundEvent, outcome);
                 }
                 finally
@@ -499,22 +504,35 @@ public sealed class EventConsumer : BackgroundService
     /// </remarks>
     private void Report(InboundEvent inboundEvent, ApplyOutcome outcome)
     {
+        // Every event the Registry applies or declines, at Debug (T1.79, issue #9): its name, its session, its type
+        // field as Claude Code sent it, and the outcome. At Debug the log file then reads as a trace of the events,
+        // close to the database; at the normal level it writes nothing for a routine event.
+        var type = EventValues.TypeOf(inboundEvent) is { } raw ? EventValues.Shown(raw) : "-";
+
+        // Each line before its count, so a reader that waits for the count finds the line.
         if (outcome.Changed())
         {
+            _logger.Debug(
+                "Event {HookEventName:l} session={SessionId} type={Type} applied",
+                inboundEvent.HookEventName,
+                inboundEvent.SessionId.Value,
+                type);
+
             AppliedCount++;
             return;
         }
+
+        _logger.Debug(
+            "Event {HookEventName:l} session={SessionId} type={Type} declined reason={Outcome}",
+            inboundEvent.HookEventName,
+            inboundEvent.SessionId.Value,
+            type,
+            outcome);
 
         DeclinedCount++;
 
         if (outcome != ApplyOutcome.Uncorrelated)
         {
-            _logger.Debug(
-                "The Registry declined {HookEventName} for session {SessionId}: {Outcome}.",
-                inboundEvent.HookEventName,
-                inboundEvent.SessionId.Value,
-                outcome);
-
             return;
         }
 

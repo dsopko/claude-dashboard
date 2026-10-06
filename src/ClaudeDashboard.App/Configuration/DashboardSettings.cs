@@ -292,9 +292,9 @@ public sealed record LoggingSettings
     /// unrecognised falls back to Information rather than to silence or to a flood.
     /// </para>
     /// <para>
-    /// <strong>What Debug costs.</strong> One line per decision, and a second for each event the
-    /// Registry declined — so at most two lines for each row of the <c>decisions</c> table — plus
-    /// one for each <c>/state</c> request. A decision's Debug line carries its identifiers and the session's name
+    /// <strong>What Debug costs.</strong> One line per decision, and one for each event the Registry
+    /// applies or declines, with its type (T1.79) — so about two lines for each row of the <c>decisions</c>
+    /// table — plus one for each <c>/state</c> request. A decision's Debug line carries its identifiers and the session's name
     /// (T1.76). The file's size limit and retention bound the rest.
     /// </para>
     /// </remarks>

@@ -190,7 +190,10 @@ public sealed class DeclineLoggingTests : IAsyncLifetime
             "The routine declines were not logged at all; they should be visible at Debug.");
     }
 
-    /// <summary>An applied event is not a decline and says nothing.</summary>
+    /// <summary>
+    /// An applied event is not a decline. At Debug it writes one line that says it was applied (T1.79, issue #9), and
+    /// nothing at a higher level.
+    /// </summary>
     [Fact]
     public async Task An_applied_event_logs_no_decline()
     {
@@ -199,7 +202,9 @@ public sealed class DeclineLoggingTests : IAsyncLifetime
         Assert.True(await Until(() => _consumer.AppliedCount == 1));
 
         Assert.Empty(_sink.AtLevel(LogEventLevel.Warning));
-        Assert.Empty(_sink.AtLevel(LogEventLevel.Debug));
+        var line = Assert.Single(_sink.AtLevel(LogEventLevel.Debug)).RenderMessage(System.Globalization.CultureInfo.InvariantCulture);
+        Assert.EndsWith(" applied", line, StringComparison.Ordinal);
+        Assert.DoesNotContain("declined", line, StringComparison.Ordinal);
         Assert.Equal(0, _consumer.DeclinedCount);
     }
 

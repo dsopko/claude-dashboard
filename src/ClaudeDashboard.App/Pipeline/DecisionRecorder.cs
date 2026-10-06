@@ -209,7 +209,10 @@ public sealed class DecisionRecorder : IDecisionSink, IDecisionLog
                 id,
                 inboundEvent is Ack ? DecisionKind.AckDeclined : DecisionKind.EventDeclined,
                 FromState: before?.State.ToString(),
-                Reason: outcome.ToString()));
+                Reason: outcome.ToString(),
+                // The type field as Claude Code sent it (T1.79, issue #9), so the record says which notification was
+                // ignored without a look at the event.
+                Detail: EventValues.TypeOf(inboundEvent) is { } type ? "type=" + EventValues.Shown(type) : null));
 
             return;
         }
