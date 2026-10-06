@@ -1315,6 +1315,29 @@ The work in GitHub milestone 3, "Observability 1": issues #3, #14, #67, #71, #72
 - **Guardrails:** test code only, unless the operator agrees to a product change. No wider fixed waits. Tests use scratch folders.
 - **Done 2026-10-05:** PR #125, merged as `4032234`, `e9f8212`, `6b1aeeb` (no fix cycle). **The cause of #40:** a store's `Dispose` called `SqliteConnection.ClearAllPools()` (T1.17), which empties every pool in the process. In `Microsoft.Data.Sqlite` 10.0.0, `Clear` ends with `ReclaimLeakedConnections`, which treats a connection as leaked when it is active and has no owner; `Activate` marks it active before it sets the owner, with no lock against `Clear`. So another store's connection could be destroyed while it opened, and that store lost its tables or its rows (`ObjectDisposedException` on `SQLitePCL.sqlite3`, caught as a write failure). **The operator approved one product change (2026-10-05):** `Dispose` now closes its own connection for real (`CloseForReal`, its own pool only); the file is still released at quit. The race plant (stores that write while another thread makes and closes stores): writes lost in 7 of 9 runs before the change, none in 9 after; the review's own probe agreed (1 lost in 2,807 stores before, 0 in 2,611 after). The test helper `ForeignSqliteReader` now reports SQLite's own code and message; its missing-table test had failed on a syntax error, not on a missing table. #124: the chance check removed. **The review agrees** that #122's database sighting very likely had the same cause. Not verified: the test named in #40 did not itself fail in the runs; its neighbour and three other store tests did, with this cause.
 
+**On 2026-10-05, at the operator's word:** #124, #40 and #122 closed (#122 with the likely cause of T1.78); #123 waits for its next failure; 0.0.24 released from `c553241`. **On 2026-10-06:** #9 rewritten with the operator's design for the log file.
+
+**T1.79 — The log file says when an unknown value arrives, and traces each event at the Debug level**
+- **Goal:** an event with a value that this build does not know is no longer received without a word in the log file. At the normal level the log file shows what is unusual; at the Debug level it traces every event with its details, close to what the database holds. For issue #9.
+- **Depends:** T1.53 (the raw error kind), T1.52 (the log file follows `logging.minimumLevel`), T1.76 (the log file may hold any text), T1.37 (the decisions record)
+- **Realizes:** #9 as rewritten on 2026-10-06, and the operator's design: "the database captures all the information; update the log to function more like the database". Director's rulings, from that design:
+  - **The database is the full record; the log file is not a copy of it.** At the normal level, the log file holds what someone should notice, never routine events. At the Debug level, it holds every event.
+  - **Normal level:** the first time a value parses to "unknown", one Information line names the event, the field and the value, and says that it changed nothing. One line for each field and value for the life of the process. The fields: the Notification type, the SessionStart source, the StopFailure error kind and the SessionEnd reason (the four lists in `Matchers.cs` with an `Unknown` value); find any other field read into a fixed list in the same way. A known value that is ignored on purpose (`idle_prompt`, `agent_completed`) writes nothing at the normal level.
+  - **Debug level:** one line for each event that the consumer applies or declines: the event's name, the session, its type field where it has one, and the outcome (applied, or declined and the reason). The decision lines of T1.52 stay as they are.
+  - **The database:** the `EventDeclined` row's `detail` gets the raw type (`type=<value>`) for an event that has a type field.
+  - **The raw value** is written as Claude Code sent it (#118), cut to a sensible length, so a broken or hostile payload cannot write a huge line.
+- **Deliverables:** the once-per-value Information line; the per-event Debug line; the type in the `EventDeclined` detail. **Documents, in the same change:** Impl §8.4 (the log file: the new Information line and the per-event Debug line), §8.3 (the `EventDeclined` detail), §9.1 (what happens to an unknown value); the hooks reference, where it says the dashboard knows four of twelve types. One row in Impl Appendix C.
+- **Acceptance:**
+  - Two notifications of the same unknown type write one Information line, not two; a second unknown type writes its own line. The same for an unknown start source, error kind and end reason.
+  - An `idle_prompt` writes no Information line.
+  - At the Debug level, each event writes one line with its name, session, type and outcome, applied or declined.
+  - The `EventDeclined` row for an unknown notification has `type=<value>` in its detail.
+  - At the normal level, a run with only known values writes the same lines as before (a test, or two logs of one scripted run).
+  - A value of 10,000 characters is cut in the line.
+  - **Plants:** (a) the "once" memory removed, and the two-arrivals test fails; (b) the type left out of the decline detail, and its test fails.
+  - Both suite counts; build clean, 0 warnings.
+- **Guardrails:** no change to what any event does to a session, to the sound or to the screen. No line for each event at the normal level. The token is never logged. Tests use scratch folders.
+
 ---
 
 ## Part 4 — Phases 2–7 task outlines
