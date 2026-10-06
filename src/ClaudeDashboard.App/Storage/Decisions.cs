@@ -24,7 +24,10 @@ public enum DecisionKind
     /// <summary>A state transition; <c>from_state</c> and <c>to_state</c> carry it.</summary>
     StateMoved = 3,
 
-    /// <summary>The Registry declined the event; <c>reason</c> carries the <see cref="ApplyOutcome"/>.</summary>
+    /// <summary>
+    /// The Registry declined the event; <c>reason</c> carries the <see cref="ApplyOutcome"/>, and <c>detail</c> the event's
+    /// type field as sent (<c>type=…</c>) when it has one (T1.79, issue #9).
+    /// </summary>
     EventDeclined = 4,
 
     /// <summary>A <c>CwdChanged</c> moved the session between workspace groups.</summary>

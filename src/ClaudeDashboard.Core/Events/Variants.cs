@@ -193,7 +193,20 @@ public sealed record Stop : InboundEvent
     /// </summary>
     public int UnrecognisedBackgroundTasks { get; init; }
 
+    /// <summary>
+    /// The raw <c>type</c> of each running task that <see cref="UnrecognisedBackgroundTasks"/> counts, as Claude Code
+    /// sent it, or an empty string for an entry with no type (T1.79, issue #9). The log file names each new one once.
+    /// </summary>
+    /// <exception cref="ArgumentNullException">Set to null.</exception>
+    public IReadOnlyList<string> UnrecognisedBackgroundTaskTypes
+    {
+        get => _unrecognisedBackgroundTaskTypes;
+        init => _unrecognisedBackgroundTaskTypes = value ?? throw new ArgumentNullException(nameof(value));
+    }
+
     private readonly IReadOnlyList<BackgroundTask> _backgroundTasks = [];
+
+    private readonly IReadOnlyList<string> _unrecognisedBackgroundTaskTypes = [];
 
     /// <summary>
     /// The prompts of the session's scheduled jobs, from the payload's <c>session_crons</c>
