@@ -22,8 +22,10 @@ namespace ClaudeDashboard.App.Pipeline;
 /// </para>
 /// <para>
 /// <strong>The text is the value as Claude Code sent it</strong> (T1.76, issue #118), with two limits, so that a
-/// broken or hostile payload cannot write a huge line or a false one: a control character is written as an escape
-/// (<c>\n</c>, <c>\u0007</c>), so one value stays on one line; and the text is cut after
+/// broken or hostile payload cannot write a huge line or a false one: a control character, a line or paragraph
+/// separator and a format character (such as a right-to-left override) are written as an escape (<c>\n</c>,
+/// <c>\u0007</c>, <c>\u2028</c>, <c>\u202e</c>), so one value stays on one line and reads in its own order; and the
+/// text is cut after
 /// <see cref="MaxLength"/> characters, with an ellipsis.
 /// </para>
 /// </remarks>
@@ -82,8 +84,9 @@ public static class EventValues
     }
 
     /// <summary>
-    /// The value as it is written: <see cref="None"/> when it is missing or empty; otherwise each control character
-    /// escaped, and the text cut after <see cref="MaxLength"/> characters with an ellipsis.
+    /// The value as it is written: <see cref="None"/> when it is missing or empty; otherwise each character that
+    /// <see cref="Escaped"/> names written as an escape, and the text cut after <see cref="MaxLength"/> characters with
+    /// an ellipsis.
     /// </summary>
     public static string Shown(string? raw)
     {
@@ -115,7 +118,7 @@ public static class EventValues
                     break;
 
                 default:
-                    if (char.IsControl(c))
+                    if (Escaped(c))
                     {
                         text.Append("\\u").Append(((int)c).ToString("x4", CultureInfo.InvariantCulture));
                     }
@@ -138,6 +141,20 @@ public static class EventValues
 
         return text.ToString(0, length) + "…";
     }
+
+    /// <summary>
+    /// Whether a character is written as <c>\uXXXX</c>: a control character, a line or paragraph separator, or a
+    /// format character.
+    /// </summary>
+    /// <remarks>
+    /// <c>char.IsControl</c> alone left U+2028 (line separator), U+2029 (paragraph separator) and U+202E (right-to-left
+    /// override) raw, and some viewers show them as a line break or as reversed text (the T1.79 review). A format
+    /// character changes how the text around it shows, not what it says, so the escape names it instead of letting it
+    /// act.
+    /// </remarks>
+    private static bool Escaped(char c) =>
+        char.IsControl(c)
+        || CharUnicodeInfo.GetUnicodeCategory(c) is UnicodeCategory.LineSeparator or UnicodeCategory.ParagraphSeparator or UnicodeCategory.Format;
 }
 
 /// <summary>A field that an event read into a fixed list, by its name on the wire.</summary>
