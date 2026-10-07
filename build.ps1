@@ -25,9 +25,10 @@
     ignores. The script never deletes a saved run.
 
     The run ends with one verdict line, which names that folder:
-      GREEN: exit 0, no abort, Total N, expected N. Saved in <folder>
-      NOT GREEN: <each check that failed, with the numbers>. Saved in <folder>
-    The script exits with 0 only for GREEN.
+      GREEN: exit 0, no abort, Total N, expected N, skipped S. Saved in <folder>
+      NOT GREEN: <each check that failed, with the numbers>; skipped S. Saved in <folder>
+    The script exits with 0 only for GREEN. A skipped test is listed and counted in Total, so
+    the line shows the skipped count, summed from the summary lines, and never fails on it.
 
     Never run this elevated: the app is developed and run at normal integrity (Impl 6.5).
 
@@ -160,23 +161,25 @@ function Get-ListedCount {
     return $count
 }
 
-# The sum of Total over each assembly's summary line, or $null when there is no summary line.
+# The sums of Total and of Skipped over each assembly's summary line. Total is $null when there is no summary line.
 function Get-ReportedTotal {
     param([Parameter(Mandatory)] [string] $Path)
 
     $total = $null
+    $skipped = 0
 
     foreach ($line in Get-Content -LiteralPath $Path -Encoding UTF8) {
-        if ($line -match '^\s*(Passed|Failed)!\s+-\s+Failed:\s+\d+,\s+Passed:\s+\d+,\s+Skipped:\s+\d+,\s+Total:\s+(\d+)') {
+        if ($line -match '^\s*(Passed|Failed)!\s+-\s+Failed:\s+\d+,\s+Passed:\s+\d+,\s+Skipped:\s+(\d+),\s+Total:\s+(\d+)') {
             if ($null -eq $total) {
                 $total = 0
             }
 
-            $total += [int] $Matches[2]
+            $skipped += [int] $Matches[2]
+            $total += [int] $Matches[3]
         }
     }
 
-    return $total
+    return [pscustomobject] @{ Total = $total; Skipped = $skipped }
 }
 
 function Get-ShownPath {
@@ -236,7 +239,9 @@ $testExit = Invoke-Logged -Path $consoleFile -Arguments @(
 )
 
 $aborted = [bool] (Select-String -LiteralPath $consoleFile -SimpleMatch -Pattern $AbortLine -Quiet)
-$total = Get-ReportedTotal -Path $consoleFile
+$reported = Get-ReportedTotal -Path $consoleFile
+$total = $reported.Total
+$skipped = $reported.Skipped
 
 $failures = @()
 
@@ -258,8 +263,13 @@ elseif ($total -ne $expected) {
 Write-Host ''
 
 if ($failures.Count -eq 0) {
-    Write-Host "GREEN: exit 0, no abort, Total $total, expected $expected. Saved in $shown" -ForegroundColor Green
+    Write-Host "GREEN: exit 0, no abort, Total $total, expected $expected, skipped $skipped. Saved in $shown" -ForegroundColor Green
     exit 0
+}
+
+# A skip is shown, never failed on. With no summary line there is no count to show.
+if ($null -ne $total) {
+    $failures += "skipped $skipped"
 }
 
 Write-Host ("NOT GREEN: {0}. Saved in {1}" -f ($failures -join '; '), $shown) -ForegroundColor Red
