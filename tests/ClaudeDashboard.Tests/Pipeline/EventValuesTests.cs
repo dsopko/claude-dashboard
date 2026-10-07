@@ -40,6 +40,19 @@ public sealed class EventValuesTests
         Assert.Equal(new string('a', EventValues.MaxLength - 1) + "…", shown);
     }
 
+    /// <summary>
+    /// A line separator, a paragraph separator and a right-to-left override are escaped too: <c>char.IsControl</c>
+    /// does not cover them, and some viewers show them as a line break or as reversed text (the T1.79 review).
+    /// </summary>
+    [Theory]
+    [InlineData(0x2028, "\\u2028")]
+    [InlineData(0x2029, "\\u2029")]
+    [InlineData(0x202E, "\\u202e")]
+    public void A_separator_or_a_format_character_is_escaped(int codePoint, string escape)
+    {
+        Assert.Equal("a" + escape + "b", EventValues.Shown("a" + (char)codePoint + "b"));
+    }
+
     /// <summary>The type field of each event that has one, as sent; none for the others.</summary>
     [Fact]
     public void The_type_field_is_the_raw_value_of_the_events_that_have_one()
