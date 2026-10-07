@@ -64,7 +64,7 @@ These hold for every task. The director should include them (or a link to them) 
 - **Where a third-party library does work on its own threads, green is not evidence — launch it.** *(Standing exception, added 2026-08-24 from T1.13.)* The manual bar elsewhere is "what cannot be observed in-process without ending or hanging the run, not what is merely awkward". This is a third thing: a region in-process testing **cannot observe at all**. H.NotifyIcon converts its icon on a thread-pool continuation, so three separate startup crashes — each killing the process before a window appeared — left **818 tests green**, because the throw never reached the test thread and the icon simply never appeared. Not a forgotten test; no test could have been written. Any task adopting a component that does work on threads it owns must actually run the app, and say so.
   - Two corollaries from the same incident, both cheaper than the debugging they replace. **Read the library's own metadata before the second attempt, not the third** — the three crashes were not three bugs but *one wrong belief surviving two corrections*, because each fix changed the input while keeping the belief. And **a live run only exercises the paths it happens to take**: the icon cache was safe against reuse-after-dispose, but the running app went grey → blue → amber → red and never back, so the cycling case was proved by a written probe, not by use.
 - Small, single-purpose commits, one per task.
-- **A test run is green only when all three hold** *(added 2026-10-05 from issue #12)*: `dotnet test` exits with code 0; its output has no line "The active test run was aborted"; and the `Total` is the count expected before the run (the last known count, plus the tests added, less the tests removed). `Passed!` with `Failed: 0` is not enough. If the test host crashes, `dotnet test` still prints `Passed!` for the tests that reported before the crash, and `Total` counts only those (measured 2026-10-05: a crash after 7 of 8 tests printed `Passed! … Total: 7`, and the exit code was 1). Every report of a run gives the exit code, the total and the expected total.
+- **A test run is green only when all three hold** *(added 2026-10-05 from issue #12)*: `dotnet test` exits with code 0; its output has no line "The active test run was aborted"; and the `Total` is the count expected before the run (the last known count, plus the tests added, less the tests removed). `Passed!` with `Failed: 0` is not enough. If the test host crashes, `dotnet test` still prints `Passed!` for the tests that reported before the crash, and `Total` counts only those (measured 2026-10-05: a crash after 7 of 8 tests printed `Passed! … Total: 7`, and the exit code was 1). Every report of a run gives the exit code, the total and the expected total. **`build.ps1` applies the rule** (T1.80): before the run it takes the expected count from the test host's own list (`dotnet test --list-tests`, one line for each theory case, as `Total` counts them); after the run it checks the three things and prints one verdict line, `GREEN: exit 0, no abort, Total N, expected N. Saved in <folder>` or `NOT GREEN: <each check that failed, with the numbers>. Saved in <folder>`, and exits with 0 only for `GREEN`. The folder is `artifacts/test-runs/<date-time>-<configuration>/`, which git ignores: it holds the list (`list.txt`), the whole console output (`console.txt`, written as the run goes, so a crash leaves it) and the results file (`test-results.trx`). The script never deletes a saved run. `-ExpectedTotal` replaces the list's count, with the list kept as a check, for a suite whose list cannot count as `Total` does. A run by hand is read by the same three checks.
 
 **Definition of Done (global):** builds clean; named tests green (by the rule above); acceptance criteria met; no cross-layer leakage (verified by the dependency rule); logs on the new paths.
 
@@ -1479,6 +1479,7 @@ Status: DONE | BLOCKED | QUESTION
 Summary: <what was built, 1–3 sentences>
 Commit/Files: <commit ref + changed files, so the director and reviewer can find it in the repo>
 Tests: <named tests> → <n passed / n failed>
+Runs: <build.ps1's verdict line for Debug, then for Release, each with its folder>
 Assumptions: <any assumption made because the spec left a gap>
 Deviations: <anything done differently from the task block, and why> | none
 Problem: <only if BLOCKED/QUESTION — the exact blocker or question>
@@ -1501,7 +1502,7 @@ Findings:
   - Plan adherence: <pass | issue>
   - Spec compliance: <pass | issue, with TS/Impl §>
   - Working agreements: <pass | issue>
-  - Tests: <pass | issue>
+  - Tests: <pass | issue>; build.ps1's verdict line for each configuration
   - Code quality: <pass | notes>
 Required changes: <numbered, specific, each tied to a criterion or spec § — only if CHANGES_REQUESTED>
 Escalate because: <the spec conflict / ambiguity / cross-task design concern — only if ESCALATE>
@@ -1533,7 +1534,7 @@ You are the **Coder** on the Claude Dashboard project. You implement **one task 
 
 **Working agreements** (Part 1): Core free of WPF/Win32/ASP.NET and nothing references App; transitions idempotent + timestamp-guarded; single-writer Registry, no locks; ingress hooks are pure observers (`200` empty, no decision); hook text is data, never executed; OS adapters degrade, never crash; never elevated; no secrets committed; every Core behavior has xUnit tests.
 
-**Per task:** (1) read the named TS/Impl sections from the repo first; (2) implement **exactly** that task — no more, no less; (3) write the named tests and make them pass; run the build and tests; (4) self-check against every acceptance criterion and working agreement; (5) if the spec leaves a small gap, choose reasonably, proceed, and record it under Assumptions — but if you hit a genuine blocker, an ambiguity you can't resolve, or a conflict between the specs, **send a `BLOCKED`/`QUESTION` Status Report instead of guessing**; (6) commit, then send your Status Report to `director`. Do not start another task on your own.
+**Per task:** (1) read the named TS/Impl sections from the repo first; (2) implement **exactly** that task — no more, no less; (3) write the named tests and make them pass; run `build.ps1 -Configuration Debug` and `build.ps1 -Configuration Release`, and give each verdict line and its folder in the Status Report (Part 1: a run is green only by that line); (4) self-check against every acceptance criterion and working agreement; (5) if the spec leaves a small gap, choose reasonably, proceed, and record it under Assumptions — but if you hit a genuine blocker, an ambiguity you can't resolve, or a conflict between the specs, **send a `BLOCKED`/`QUESTION` Status Report instead of guessing**; (6) commit, then send your Status Report to `director`. Do not start another task on your own.
 
 ### B.2 — Director  · session name `director`
 
@@ -1563,7 +1564,7 @@ You are the **Reviewer**. You perform a **combined review**: code quality *and* 
 1. **Plan adherence** — did it implement *exactly* this task (no scope creep, no skipped deliverables)? Dependencies respected? **Each acceptance criterion** met and covered by a test?
 2. **Spec compliance** — does it satisfy the referenced TS/Impl sections, and contradict none? Cite the section for any issue.
 3. **Working agreements** (Part 1) — Core free of WPF/Win32/ASP.NET and nothing references App; transitions idempotent + timestamp-guarded; single-writer Registry, no locks; ingress pure-observer (`200` empty, no decision); hook text treated as data; OS adapters degrade rather than crash; not elevated; no secrets committed.
-4. **Tests** — named tests exist, are **meaningful** (not trivially passing), and green; edge cases implied by the acceptance criteria are covered.
+4. **Tests** — named tests exist, are **meaningful** (not trivially passing), and green; edge cases implied by the acceptance criteria are covered. Green means `GREEN` from `build.ps1 -Configuration <c>`, run by you for Debug and Release: give each verdict line and its folder in the Verdict (Part 1).
 5. **Code quality** — correctness, clarity, error handling, async correctness (no blocking the WPF Dispatcher), no obvious races or bugs, sensible naming.
 
 **Verdict.** Send the Verdict format (B.0). `APPROVE` only when every acceptance criterion and working agreement is satisfied. Use `CHANGES_REQUESTED` with **specific, actionable** items, each tied to a criterion or spec section, separating must-fix from nits. Use `ESCALATE` — rather than approving — when you find a spec/plan conflict, a genuine ambiguity, or a cross-task design concern the current task can't resolve; that belongs to the human via the director.
