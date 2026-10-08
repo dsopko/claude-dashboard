@@ -13,6 +13,7 @@
 # Keep these LF.
 *.sh   text eol=lf
 *.cs   text eol=lf diff=csharp
+*.ts   text eol=lf
 *.xaml text eol=lf
 *.md   text eol=lf
 *.json text eol=lf
