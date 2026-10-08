@@ -69,6 +69,22 @@ $port, $token = Get-Content "$env:LOCALAPPDATA\ClaudeDashboard\listening.txt"
 Invoke-RestMethod "http://127.0.0.1:$port/state" -Headers @{ 'X-Dashboard-Token' = $token }
 ```
 
+## The usage mod (in development)
+
+`mods/usage/` holds a Claude Code mod that sends the plan's usage (the 5-hour and the weekly percentage) to the dashboard at the end of each turn. It is not yet in the plugin that the dashboard writes, and the dashboard does not yet receive its posts. The [Usage Mod Development Guide](docs/claude-dashboard-usage-mod-guide.md) says what it does and why, and the [Usage Mod Execution Plan](docs/claude-dashboard-usage-mod-execution-plan.md) is its build plan. You need Claude Code 2.1.287 or later; no Node.js and no build step. Type each command in the repository's root folder:
+
+```text
+claude plugin validate --strict mods/usage
+claude plugin test mods/usage
+claude --plugin-dir mods/usage
+```
+
+- **`validate`** checks what Claude Code reads from the mod. It must end with `Validation passed`, and list one event, `hooks: session.measure`, and four calls: `$.clock.after`, `$.fs.read`, `$.http.fetch` and `$.session.id`. A mod can reach a file or the network only through those calls.
+- **`test`** runs the mod's 28 tests. The last lines must read `28 pass` and `0 fail`. It needs no session, no sign-in and no network.
+- **`--plugin-dir`** starts a session with the mod loaded. This development copy reads `.mod-lab/listening.txt` in the folder that the session starts in, not the dashboard's `listening.txt`, so with no listener of your own it sends nothing. At the first load Claude Code writes `mods/usage/.claude-plugin/types/` with a `.gitignore` of its own, so git shows no new file.
+
+`build.ps1` runs `validate` and `test` after the build and before the .NET tests, and its verdict line names the result: `mod 28 pass`, or why not. A machine with no `claude` on the path, or with mods turned off, is not green.
+
 ## Documents
 
 Everything lives in [`docs/`](docs/). Read in this order:
@@ -130,6 +146,8 @@ claude-dashboard/
 │           └── SKILL.md          # loadable guide to the director/coder/reviewer workflow
 ├── build/
 │   └── package.ps1               # publish and pack: Setup.exe, portable zip, update packages
+├── mods/
+│   └── usage/                    # the usage mod and its 28 tests; not a .NET project
 ├── src/
 │   ├── ClaudeDashboard.Core/     # the domain: state machine, attention ordering, grouping, sound policy
 │   ├── ClaudeDashboard.App/      # the Windows host: WPF panel, tray, ingress, event loop, storage, adapters
