@@ -40,6 +40,12 @@ namespace ClaudeDashboard.App.Ingress;
 /// <strong>Degrade, never crash.</strong> Both handlers run inside the consumer's apply and tick.
 /// A failure here keeps the last good report and is logged; it never reaches the consumer.
 /// </para>
+/// <para>
+/// <strong>A roster's settle changes the report with no session change</strong> (T1.83, issue #130). The bands
+/// count a roster group once, at its roll-up, and the roll-up moves from Working to Unread when the settle window
+/// runs out, which no event marks. So the consumer calls <see cref="Restate"/> after each settle pass: at the settle
+/// deadline (its settle wake), and after each drain, which is also how a roster edit arrives.
+/// </para>
 /// </remarks>
 public sealed class StateBoard : IDisposable
 {
@@ -47,6 +53,7 @@ public sealed class StateBoard : IDisposable
     private readonly SoundPolicyEngine _sound;
     private readonly IClock _clock;
     private readonly ILogger _logger;
+    private readonly Configuration.RosterStore _rosters;
 
     /// <summary>The consumer thread's own copy. Only ever touched on that thread.</summary>
     private readonly Dictionary<SessionId, Session> _sessions = [];
@@ -55,18 +62,33 @@ public sealed class StateBoard : IDisposable
     private bool _disposed;
 
     /// <summary>Starts keeping the report for <paramref name="registry"/>.</summary>
+    /// <param name="registry">The Registry whose changes it hears.</param>
+    /// <param name="sound">The sound engine, for the nudge schedule.</param>
+    /// <param name="clock">The instant each report is built at.</param>
+    /// <param name="logger">Where a failure to build a report is logged.</param>
+    /// <param name="rosters">
+    /// The rosters (T1.83): a roster group counts once in the bands. Required, because the container builds this
+    /// board, and an optional registered collaborator could go missing without a failure.
+    /// </param>
     /// <exception cref="ArgumentNullException">Any argument is null.</exception>
-    public StateBoard(SessionRegistry registry, SoundPolicyEngine sound, IClock clock, ILogger logger)
+    public StateBoard(
+        SessionRegistry registry,
+        SoundPolicyEngine sound,
+        IClock clock,
+        ILogger logger,
+        Configuration.RosterStore rosters)
     {
         ArgumentNullException.ThrowIfNull(registry);
         ArgumentNullException.ThrowIfNull(sound);
         ArgumentNullException.ThrowIfNull(clock);
         ArgumentNullException.ThrowIfNull(logger);
+        ArgumentNullException.ThrowIfNull(rosters);
 
         _registry = registry;
         _sound = sound;
         _clock = clock;
         _logger = logger;
+        _rosters = rosters;
         _current = StateReport.Empty(clock.Now);
 
         _registry.SessionChanged += OnSessionChanged;
@@ -99,11 +121,17 @@ public sealed class StateBoard : IDisposable
     /// <summary>Runs on the consumer thread, inside the tick.</summary>
     private void OnNudgeScheduleAdvanced(object? sender, EventArgs e) => Publish();
 
+    /// <summary>
+    /// Builds the report again at the clock's instant, with no session change: a roster's settle (T1.83). Called on the
+    /// consumer thread, after each settle pass.
+    /// </summary>
+    public void Restate() => Publish();
+
     private void Publish()
     {
         try
         {
-            Volatile.Write(ref _current, StateReport.Of(_sessions.Values, _sound.NextNudgeAt, _clock.Now));
+            Volatile.Write(ref _current, StateReport.Of(_sessions.Values, _sound.NextNudgeAt, _clock.Now, _rosters.Book));
         }
         catch (Exception ex)
         {

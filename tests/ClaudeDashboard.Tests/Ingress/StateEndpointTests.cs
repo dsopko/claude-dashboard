@@ -372,7 +372,8 @@ public sealed class StateEndpointTests
                 sp.GetRequiredService<SessionRegistry>(),
                 sp.GetRequiredService<SoundPolicyEngine>(),
                 clock,
-                Logger.None));
+                Logger.None,
+                new ClaudeDashboard.App.Configuration.RosterStore(new RecordingEventSink())));
 
             var app = builder.Build();
 

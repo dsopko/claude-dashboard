@@ -47,15 +47,19 @@ public sealed record StateReport(
     /// <strong>The band rule is asked, never restated.</strong> Each band comes from
     /// <see cref="AttentionOrder.BandOf"/>, the tray from <see cref="StatusSummary.Of"/> and
     /// <see cref="TrayVisuals.ColourOf"/>, and the order from <see cref="AttentionEngine.Order"/> —
-    /// the same calls the window and the tray make.
+    /// the same calls the window and the tray make. The bands and the tray light are taken over
+    /// <see cref="CountedStates.Of"/>, so a roster group counts once, at its roll-up, as in the window and the tray
+    /// (T1.83, issue #130); the session count and each session's entry are the sessions themselves.
     /// </remarks>
     /// <param name="sessions">Immutable session snapshots.</param>
     /// <param name="nextNudgeAt">The sound engine's schedule, read on the consumer thread.</param>
     /// <param name="at">When this is published.</param>
+    /// <param name="rosters">The rosters; none when null, so every session counts on its own.</param>
     public static StateReport Of(
         IReadOnlyCollection<Session> sessions,
         Func<SessionId, DateTimeOffset?> nextNudgeAt,
-        DateTimeOffset at)
+        DateTimeOffset at,
+        RosterBook? rosters = null)
     {
         ArgumentNullException.ThrowIfNull(sessions);
         ArgumentNullException.ThrowIfNull(nextNudgeAt);
@@ -64,12 +68,14 @@ public sealed record StateReport(
             .OrderByDescending(band => band)
             .ToDictionary(band => band, _ => 0);
 
-        foreach (var session in sessions)
+        var counted = CountedStates.Of(sessions, rosters ?? RosterBook.Empty, at);
+
+        foreach (var entry in counted)
         {
-            bands[AttentionOrder.BandOf(session.State)]++;
+            bands[AttentionOrder.BandOf(entry.State)]++;
         }
 
-        var worst = StatusSummary.Of(sessions).Worst;
+        var worst = StatusSummary.OfCounted(counted).Worst;
 
         return new StateReport(
             at,

@@ -73,6 +73,9 @@ public sealed class EventConsumer : BackgroundService
     // passes it, by factory; a test that is not about it may omit it.
     private readonly HealthBoard? _health;
 
+    /// <summary>The /state report, built again after each settle pass (T1.83); none in a test that is not about it.</summary>
+    private readonly Ingress.StateBoard? _state;
+
     /// <summary>Creates the consumer.</summary>
     /// <param name="uiTick">
     /// Where the tick is echoed for the UI's age and staleness display (T1.11) and the tray's
@@ -99,7 +102,8 @@ public sealed class EventConsumer : BackgroundService
         TimeSpan? tickInterval = null,
         RosterGroupWatch? watch = null,
         TimeSpan? silenceThreshold = null,
-        HealthBoard? health = null)
+        HealthBoard? health = null,
+        Ingress.StateBoard? state = null)
     {
         ArgumentNullException.ThrowIfNull(pipeline);
         ArgumentNullException.ThrowIfNull(registry);
@@ -127,6 +131,7 @@ public sealed class EventConsumer : BackgroundService
         _silenceThreshold = silenceThreshold ?? SilenceWatch.DefaultThreshold;
         _uiTick = uiTick;
         _health = health;
+        _state = state;
     }
 
     /// <summary>How many sessions the silence sweep has moved. Diagnostic only.</summary>
@@ -319,7 +324,9 @@ public sealed class EventConsumer : BackgroundService
             // ruling of 2026-09-30). The label still reads the engine's real state, which this Apply
             // has just set; nothing on the UI side changes optimistically. The echo only posts a
             // refresh to the dispatcher: no nudge, sweep or settle runs, and the tick keeps its time.
-            if (inboundEvent is SoundCommand)
+            // A roster edit is the same kind of change for the tray (T1.83, issue #130): it changes which sessions
+            // count as one, with no session change, and the tray has no other way to hear of it.
+            if (inboundEvent is SoundCommand or RostersChanged)
             {
                 EchoToUi(_clock.Now);
             }
@@ -598,6 +605,11 @@ public sealed class EventConsumer : BackgroundService
         {
             _logger.Error(ex, "Observing roster groups failed. The pipeline continues.");
         }
+
+        // A roster's roll-up can change here with no session change (T1.83, issue #130): at the settle deadline it moves
+        // from Working to Unread, and a roster edit regroups. /state's bands count the roll-up, so it is built again.
+        // StateBoard keeps its last report on a failure, so this cannot stop the pipeline.
+        _state?.Restate();
     }
     /// <summary>
     /// The shortest time this loop may sleep for: until the next ordinary tick, or until a roster

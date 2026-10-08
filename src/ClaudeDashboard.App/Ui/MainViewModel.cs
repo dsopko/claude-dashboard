@@ -991,14 +991,24 @@ public sealed partial class MainViewModel : ObservableObject, IUiTickTarget, ISo
 
     /// <summary>The counts strip (Design Document §9).</summary>
     /// <remarks>
+    /// <para>
     /// Derived on every refresh rather than maintained incrementally. Incremental counts are a
     /// cache of something already in hand, and a cache that can disagree with the collection
-    /// beside it is worse than a loop over fifteen items. They count sessions, not rows, so a
+    /// beside it is worse than a loop over fifteen items. They count states, not rows, so a
     /// collapsed group still reports what is inside it.
+    /// </para>
+    /// <para>
+    /// <strong>A roster counts once</strong> (T1.83, issue #130): the need-you, unread and working counts are taken
+    /// over <see cref="CountedStates.Of"/>, at the instant the window last ticked, so a working orchestration reads
+    /// <c>1 working</c>, as its heading does, and not <c>2 unread · 1 working</c>. The rosters are resolved here even
+    /// in the flat view: a roster exists whichever way the window is drawn, so the two views show the same numbers.
+    /// Every band count reads the list, as <c>/state</c>'s bands do; only the session total counts sessions.
+    /// </para>
     /// </remarks>
     private void RecountBands(List<Session> sessions)
     {
-        var byBand = sessions.CountBy(session => AttentionOrder.BandOf(session.State))
+        var byBand = CountedStates.Of(sessions, _rosters.Book, _now)
+            .CountBy(entry => AttentionOrder.BandOf(entry.State))
             .ToDictionary(pair => pair.Key, pair => pair.Value);
 
         SessionCount = sessions.Count;
