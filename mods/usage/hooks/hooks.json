@@ -1,0 +1,4 @@
+{
+  "description": "Development copy: the usage reporter alone.",
+  "modules": ["./register.ts"]
+}

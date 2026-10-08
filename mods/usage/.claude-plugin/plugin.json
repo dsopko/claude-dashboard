@@ -1,0 +1,6 @@
+{
+  "name": "dashboard-usage-dev",
+  "version": "0.0.0",
+  "description": "Development copy of Claude Dashboard's usage reporter. Loaded with --plugin-dir and by `claude plugin test`. Never installed.",
+  "author": { "name": "David Sopko" }
+}
