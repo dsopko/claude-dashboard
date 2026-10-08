@@ -1381,6 +1381,21 @@ The work in GitHub milestone 3, "Observability 1": issues #3, #14, #67, #71, #72
 - **Guardrails:** `Prompt` itself is unchanged (the open row shows the whole prompt). No change to the title's bounds. No change to the row's layout.
 - **Done 2026-10-08:** PR #128, merged as `0dd57f6`, `87d2bac`, `37be26c` (one fix cycle, documents only). `ClusterText.Shorten(text, maxClusters, maxCharacters)` is the title's former cut with the bounds as parameters; the title keeps 40 and 160, the prompt gets 140 and 560. The ceiling is checked before a cluster is taken, so the cut is always at a boundary. Plant (a), the old cut: 10 failures, the thumbs-up case drawn as `aaa�…`. Plant (b), the ceiling removed: the new ceiling test and the title's bounded-title test fail, which shows the shared cut. The review's probe of a realized window, base against head: the prompt block never grows past its 48 px, the row never past 82 px, and the age stays in place; only the emoji row changes, to three lines like any long prompt. **The review found** two stale lines in Core and App (the prompt "at 140 characters", and the old defect named as current), now corrected. GREEN in both configurations, Total 2301 (2286 + 15). Not verified: a fractional display scale; a real Claude Code prompt with emoji. **Seen by the review, not this task:** six tracked files vanished from its review worktree under the temp folder (restored from git); a temp-folder cleanup is the likely cause.
 
+**T1.82 — The two settle numbers are pinned by a test**
+- **Goal:** a test fails when `RosterSettle.DefaultWindow` is not 1.5 s or `RosterSettle.DefaultMisMarkWindow` is not 5 s. Today every test uses the first by name, so a change to the value moves the test with it and nothing fails; no test uses the second at all. T1.25's zero-window plant was recorded as caught, and it was not. For issue #34.
+- **Depends:** T1.25 (`RosterSettle`), T1.30 (the pattern: `SilenceSweepTests.The_shipped_threshold_is_ten_minutes`)
+- **Realizes:** #34 as written. Director's rulings:
+  - **One test per number, at its shipped value,** in the shape of `The_shipped_threshold_is_ten_minutes`: `The_shipped_settle_window_is_one_and_a_half_seconds` asserts `DefaultWindow` equals 1.5 s; `The_shipped_mis_mark_window_is_five_seconds` asserts `DefaultMisMarkWindow` equals 5 s. They go in the test class that owns `RosterSettle.StateOf`'s tests; the report names it.
+  - **Each test's remark says why the value is what it is,** in one or two sentences taken from `RosterSettle`'s own remarks (the operator's starting value, which they chose over a longer one; the mis-mark window is the instrument that says whether the first holds, so it is much wider).
+  - **`EventConsumer.DefaultTickInterval` stays pinned by bounds.** One sentence in `The_default_tick_is_fine_enough_for_the_shortest_nudge_interval`'s comment records that this is deliberate: a tick interval is a bound on lateness, not a tuned value, so any value inside the bounds is right. Its assertions do not change.
+  - **The sweep is a report, not a change:** list every tuned default in `Core` (a `public static readonly TimeSpan` or a numeric default with a remark that calls it a guess or a chosen value), and for each say which test pins its value, or that it is pinned by bounds and why. No further tests from the sweep in this task; the director decides from the report.
+- **Deliverables:** the two tests; the one sentence in the tick test; the sweep in the report; the plant results below in the report.
+- **Acceptance:**
+  - Both tests pass at the shipped values.
+  - **Plants:** (a) `DefaultWindow` set to zero: the settle-window pin fails; the report lists every other failing test, with the count (#34 expects none, which is the point). (b) `DefaultMisMarkWindow` set to zero: the mis-mark pin fails, same report. Both plants reverted, with `git diff --stat` empty for `src` before the green runs.
+  - `build.ps1` GREEN for Debug and Release, with the verdict lines; expected Total 2303 (2301 + 2).
+- **Guardrails:** no change under `src`. The values do not change. No test that uses `DefaultWindow` by name is rewritten: those tests check behaviour relative to the window, which is right; the two new tests check the value, which is the missing piece.
+
 ---
 
 ## Part 4 — Phases 2–7 task outlines
