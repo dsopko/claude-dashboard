@@ -306,6 +306,8 @@ public sealed class EventConsumerTests : IAsyncLifetime
     public void The_default_tick_is_fine_enough_for_the_shortest_nudge_interval()
     {
         // TS §IV.5's first rung is two minutes; the tick bounds how late a nudge can be.
+        // Bounds, not a value, on purpose (T1.82, issue #34): a tick interval is a bound on lateness, not a tuned
+        // value, so any value inside these bounds is right, unlike RosterSettle's two windows, which are pinned.
         Assert.True(EventConsumer.DefaultTickInterval < TimeSpan.FromMinutes(2) / 4);
         Assert.True(EventConsumer.DefaultTickInterval >= TimeSpan.FromSeconds(5));
     }
