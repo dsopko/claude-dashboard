@@ -68,7 +68,7 @@ Core is 45 files and about 6,500 lines. Most of the lines are comments that give
 | Rosters | `RosterBook`, `Roster` | A name is in one roster at most. An empty roster does not exist | Issue #16 |
 | The settle window | `RosterSettle`, `RosterGroupWatch` | A roster group reads finished only after 1.5 s of quiet | TS §IV.3 |
 | Sound policy | `SoundPolicyEngine`, `SoundPolicyOptions` | Notices on state entry. Nudges at 2, 5, 10 minutes. Mute and pause. A roster group's settle plays only when a finished member was not announced yet; the members come from the caller (`RosterSettle.UnreadMembers`), so the engine still holds no roster book (T1.72) | TS §IV.5 |
-| The roll-up | `StatusSummary` | The worst state, and a count for each kind | Impl §5.2 |
+| The roll-up | `StatusSummary`, over `CountedStates` | The worst state, and a count for each kind, with a roster group counted once, at its roll-up (T1.83, issue #130) | Impl §2.7, §5.2 |
 | The one-writer check | `SingleWriterGuard` | Throws if two threads are in the Registry or the sound engine at one time | Impl §2.2 |
 
 ### 3.2 What Core takes in
@@ -286,7 +286,7 @@ Thus the dashboard process stays the only holder of Core. ClaudeDashWebApp is a 
 | The group's state, with the settle window | `RosterSettle.StateOf(group, now)` | **No** |
 | The band counts | `AttentionOrder.BandOf` | Yes |
 | The tray colour | `TrayVisuals.ColourOf` | Yes |
-| The count for each kind (permissions, errors, questions) | `StatusSummary` | Not sent. A client can count the sessions |
+| The count for each kind (permissions, errors, questions) | `StatusSummary` | Not sent. A client counts what `CountedStates.Of` gives, not the sessions: a roster group counts once (T1.83). `/state`'s `bands` are already counted that way |
 | Muted, paused, and until when | `ISoundModeReader` | **No** |
 | The notice, and an ingress fault | `HookNotice`, `IngressStatus` | **No** |
 | The next nudge | Not shown in the window | Yes |
