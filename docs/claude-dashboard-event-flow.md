@@ -53,7 +53,7 @@ Three properties hold on the full path:
 
 | Item | Location | Written by | When |
 |---|---|---|---|
-| The plugin `claude-dashboard`: three files, with one hook entry for each of 8 events | The data folder, in `plugin\` | The dashboard | At every start, if a file is different from the text in the build |
+| The plugin `claude-dashboard`: five files, with one hook entry for each of 8 events, and the usage mod (section 2.1) | The data folder, in `plugin\` | The dashboard | At every start, if a file is different from the text in the build |
 | The registration of the plugin | Claude Code's own settings | **Claude Code**, when the dashboard runs `claude plugin marketplace add` and `claude plugin install` | At a start that finds the plugin absent, or on `--install-hooks` |
 | `post-status.cmd` | The data folder | The dashboard | At every start, if the file is different from the text in the build |
 | `listening.txt` | The data folder | The dashboard | After the socket is bound and the script is written. Holds the port and the token. Deleted on exit |
@@ -86,6 +86,7 @@ The plugin's file `plugin\hooks\hooks.json` has one entry of this shape for each
 - **`async: true`** runs the hook in the background. A turn does not wait for it.
 - **No port and no URL.** The entry names a script. The script finds the port when it runs. Thus the entry stays correct when the port moves and when the dashboard is closed.
 - **The plugin is a pointer.** It names `post-status.cmd` by its absolute path in the data folder. Claude Code loads the plugin from the data folder in place.
+- **The same file names the usage mod**, `"modules": ["./register.ts"]`, between `description` and `hooks`. The mod is not part of this path: it is a function that Claude Code calls inside its own process at the end of each turn, and it posts the plan's usage to `/usage`, not to `/hook` (Impl §9.5). `/usage` is not built yet, so nothing of it reaches the dashboard, and nothing of it will enter the event channel.
 
 ### 2.2 When the dashboard registers the plugin
 
@@ -431,6 +432,7 @@ Until 2026-10-02 this section listed the places where the other documents disagr
 | Step | File |
 |---|---|
 | The plugin: its files, its registration and its removal | `src/ClaudeDashboard.App/Setup/HookPlugin.cs`, `HookHandlers.cs`, `PluginInstaller.cs`, `ClaudeCli.cs`, `StartupHookInstall.cs`, `HookSwitches.cs` |
+| The usage mod, which the plugin carries | `mods/usage/hooks/register.ts`, embedded in `ClaudeDashboard.App.csproj`; its tests: `mods/usage/tests/register.test.ts` |
 | The read of Claude Code's settings, and the notice | `src/ClaudeDashboard.App/Setup/HookCheck.cs`, `HookNotice.cs`; `src/ClaudeDashboard.App/Configuration/ClaudeCodePaths.cs` |
 | The script | `src/ClaudeDashboard.App/Setup/HookScript.cs` |
 | The port files | `src/ClaudeDashboard.App/Configuration/ListeningFile.cs`, `PortFile.cs`; `src/ClaudeDashboard.App/Hosting/IngressAnnouncement.cs` |

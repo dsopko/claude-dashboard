@@ -5,6 +5,8 @@
 
 **Wire facts brought up to date 2026-10-02**, from the measurement of the operator's archive on 2026-09-29: 21,407 hook events from 2026-08-27 to 2026-09-29. The [event flow](claude-dashboard-event-flow.md) §13 has the full table.
 
+**`session.measure` is not one of the 33.** It is an event of Claude Code's mods API: a plugin's TypeScript module receives it inside Claude Code's process, and the dashboard's usage mod uses it for the plan's usage (Impl §9.5). No settings hook event carries the usage figures: Claude Code's type declarations for 2.1.294 give the input of each of the 33, and none has a usage field ([Usage Mod Development Guide](claude-dashboard-usage-mod-guide.md), "How it works").
+
 This document exists because "I don't know whether there is a hook for that" is not an acceptable answer in a project whose entire input surface *is* the hook contract. Everything below is transcribed from the source page on the date above, not recalled. **It is a snapshot: re-fetch and re-check before relying on it for a new integration.**
 
 **The documentation and the wire disagree in places.** Where they do, the wire is what the dashboard must read. Each such place is marked **[wire]** below, and [Discrepancies](#discrepancies-documentation-versus-what-we-observe) lists them together.

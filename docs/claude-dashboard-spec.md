@@ -100,6 +100,14 @@ Three rules make the script safe:
 - Claude Code needs the URL in an allow-list, in the settings that the dashboard must not write;
 - with the dashboard closed, each event showed a connection error in the session.
 
+**A second transport, for the plan's usage only: a mod** (Impl §9.5). No hook event carries the plan's usage figures. Claude Code gives them to a mod: a function in a plugin that Claude Code calls inside its own process, at the end of each turn. The dashboard's plugin carries one, which posts the figures to the loopback endpoint. It does not bring back the three faults of the HTTP handler:
+
+- **The port is free to move.** The mod reads the port, with the token, from the same file as the script, at each call.
+- **No allow-list.** The mod posts through Claude Code's own call for the network, and no setting was needed for a post to the loopback address.
+- **With the dashboard closed, nothing shows.** With no file the mod opens nothing; with a port that nothing holds, its failure ends in its own `catch`.
+
+It holds the script's three rules too: it reads the file when it runs, it prints nothing, and it never fails a turn, because it hands the event on as it came. It adds one rule of its own: **the post starts from a timer, outside the event,** because a post started inside it holds the end of a `claude -p` run until the dashboard answers. The endpoint that receives it is *not built* (Appendix C).
+
 ### II.2 The events consumed, and what each means
 
 The dashboard registers eight events.
@@ -497,6 +505,7 @@ Phases 2 to 7 are not built.
 |---|---|---|---|
 | Claude Code hook events and payloads | Documented product API | Changes, and is documented. The documentation and the wire disagree in places: see the [hooks reference](claude-code-hooks-reference.md) | A thin mapper that reads a fixed list of fields and tolerates the remainder |
 | Claude Code's plugin commands | Documented product API | Measured on one version | One adapter; a notice on screen when it fails |
+| Claude Code's mods API: the `session.measure` event, and the calls `$.clock`, `$.fs`, `$.http`, `$.session` | Documented product API, **early access**: "this surface may change between releases without notice" | Measured on 2.1.294 (Linux) and 2.1.293 (Windows); a plugin name that starts with `claude-` fails `claude plugin validate` since 2.1.287 (issue #134) | One small file with one event and four calls. `build.ps1` runs `claude plugin validate` and `claude plugin test` on it. A mod that does not load costs the usage reading only |
 | Claude Code's settings file | A file that Claude Code owns | The dashboard reads three keys | Read only, and tolerant: a file that will not parse is "cannot be read" |
 | UI Automation tree and text of the terminal *(later)* | OS API over an application's UI | Depends on the terminal version | An adapter; window-level fallback |
 | Foreground-changed hook *(later)* | OS API | Very stable | — |
@@ -531,6 +540,7 @@ One list for all the documents. Each item is marked *not built* where it appears
 | A restart of the dashboard after a crash | Earlier text of Impl §10.1 | Given up by ruling when the start moved to the `Run` key (Impl §10.1) |
 | "Open terminal" on an open row | Design §9 | The button is in the markup and is hidden until Phase 2 |
 | Navigator, Focus Observer, grouping by desktop, history search, the settings interface (but one checkbox), the remote surface | Part III, Part V | Phases 2 to 7 |
+| The receipt of the plan's usage: `POST /usage`, and `usage` in `/state` | §II.1; Impl §9.5; the usage mod guide | At MOD.2 the plugin carries the mod, which posts; ingress has no `/usage` and answers `404`, and the reading is dropped (MOD.4, MOD.5) |
 
 ## Appendix D — Change history
 
@@ -573,3 +583,4 @@ The text above says what is true now. This list says when each rule changed, for
 | 2026-10-04 | The event log's retry uses a new connection each time, and a file held for a moment at the open is opened again a few times within a second (§IV.7). Before, each retry could get the same connection back, which could not write, until a restart | T1.74; issue #109 |
 | 2026-10-04 | A roster group plays only when it has something new to announce: a settle in which every finished member already announced is silent, with no nudge, and recorded as announced before (§IV.5) | T1.72; issue #107 |
 | 2026-10-08 | The tray light counts a roster group once, by the state its heading shows, so it is blue while an orchestration works (§III.10) | T1.83; issue #130 |
+| 2026-10-08 | A second transport, for the plan's usage only: the plugin carries a mod, which posts the figures to the loopback endpoint from a timer, and brings back none of the HTTP handler's faults (§II.1, Appendix A); its endpoint is not built (Appendix C) | MOD.2; issue #133 |
