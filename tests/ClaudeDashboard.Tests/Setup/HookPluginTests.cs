@@ -3,14 +3,15 @@ using System.Text.Json.Nodes;
 using ClaudeDashboard.App.Configuration;
 using ClaudeDashboard.App.Ingress;
 using ClaudeDashboard.App.Setup;
+using ClaudeDashboard.Tests.Architecture;
 using ClaudeDashboard.Tests.Fakes;
 using Serilog;
 
 namespace ClaudeDashboard.Tests.Setup;
 
 /// <summary>
-/// The plugin's three files, and the two settings keys that say whether Claude Code has it
-/// (issue #30).
+/// The plugin's five files, and the two settings keys that say whether Claude Code has it
+/// (issue #30). Two of the files are the usage mod (issue #133).
 /// </summary>
 /// <remarks>
 /// The files are what Claude Code runs, so a wrong one fails the way a missing hook fails: the
@@ -118,8 +119,30 @@ public sealed class HookPluginTests : IDisposable
         Assert.Equal("claude-dashboard@claude-dashboard", HookPlugin.Id);
     }
 
+    /// <summary>
+    /// <strong>The usage mod is named beside the eight handlers, and the handlers are as they
+    /// were</strong> (issue #133). The key order is the guide's: <c>description</c>, then
+    /// <c>modules</c>, then <c>hooks</c>. The name under <c>modules</c> is the file the plugin
+    /// writes beside <c>hooks.json</c>.
+    /// </summary>
     [Fact]
-    public void Writing_puts_three_files_in_the_data_folder_and_a_second_write_changes_nothing()
+    public void The_hooks_file_names_the_module_beside_the_eight_handlers()
+    {
+        var plugin = (JsonObject)JsonNode.Parse(HookPlugin.HooksText(Interpreter, _paths.HookScriptFile))!;
+
+        Assert.Equal(["description", "modules", "hooks"], plugin.Select(pair => pair.Key));
+        Assert.Equal(["./register.ts"], Assert.IsType<JsonArray>(plugin["modules"]).Select(name => (string?)name));
+        Assert.Equal(8, Assert.IsType<JsonObject>(plugin["hooks"]).Count);
+        Assert.Equal(HookEventNames.Accepted.Count, HookHandlers.CountInSettings(plugin, _paths.HookScriptFile));
+
+        Assert.Equal(
+            Path.GetDirectoryName(HookPlugin.HooksFile(_paths)),
+            Path.GetDirectoryName(HookPlugin.ModuleFile(_paths)));
+        Assert.Equal("register.ts", Path.GetFileName(HookPlugin.ModuleFile(_paths)));
+    }
+
+    [Fact]
+    public void Writing_puts_five_files_in_the_data_folder_and_a_second_write_changes_nothing()
     {
         Assert.False(HookPlugin.Matches(_paths));
 
@@ -129,15 +152,49 @@ public sealed class HookPluginTests : IDisposable
         Assert.StartsWith(_paths.Root, _paths.PluginFolder, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(HookPlugin.MarketplaceText, File.ReadAllText(HookPlugin.MarketplaceFile(_paths)));
         Assert.Equal(HookPlugin.ManifestText, File.ReadAllText(HookPlugin.ManifestFile(_paths)));
+        Assert.Equal(HookPlugin.ModuleText, File.ReadAllText(HookPlugin.ModuleFile(_paths)));
+        Assert.Equal(HookPlugin.ListeningModuleText(_paths), File.ReadAllText(HookPlugin.ListeningModuleFile(_paths)));
         Assert.Equal(
             HookPlugin.HooksText(HookHandlers.Interpreter, _paths.HookScriptFile),
             File.ReadAllText(HookPlugin.HooksFile(_paths)));
+        Assert.Equal(5, Directory.EnumerateFiles(_paths.PluginFolder, "*", SearchOption.AllDirectories).Count());
 
         Assert.True(HookPlugin.EnsureWritten(_paths, _logger));
 
         // One "Wrote" line, not two: the second call found nothing to do.
         Assert.Single(_sink.Matching("Wrote the Claude Code plugin"));
         Assert.Empty(Directory.EnumerateFiles(_paths.PluginFolder, "*.tmp*", SearchOption.AllDirectories));
+    }
+
+    /// <summary>
+    /// <strong>The plugin carries the repository's <c>register.ts</c>, byte for byte</strong>
+    /// (ruling R2): the file that <c>claude plugin validate</c> and <c>claude plugin test</c> check
+    /// is the file a session loads. Read from the repository here, not from the build's resource.
+    /// </summary>
+    [Fact]
+    public void The_module_file_is_the_repositorys_register_ts_byte_for_byte()
+    {
+        var repository = Path.Combine(RepoLayout.Root.FullName, "mods", "usage", "hooks", "register.ts");
+
+        Assert.True(HookPlugin.EnsureWritten(_paths, _logger));
+
+        Assert.Equal(File.ReadAllBytes(repository), File.ReadAllBytes(HookPlugin.ModuleFile(_paths)));
+    }
+
+    /// <summary>
+    /// <strong>A <c>hooks.json</c> that names the module is never on disk before the module
+    /// is.</strong> A folder stands where <c>register.ts</c> goes, so its write fails: the files
+    /// before it are written, and <c>hooks.json</c>, which comes after, is not.
+    /// </summary>
+    [Fact]
+    public void A_hooks_file_that_names_the_module_is_never_written_before_the_module()
+    {
+        Directory.CreateDirectory(HookPlugin.ModuleFile(_paths));
+
+        Assert.False(HookPlugin.EnsureWritten(_paths, _logger));
+
+        Assert.True(File.Exists(HookPlugin.ManifestFile(_paths)));
+        Assert.False(File.Exists(HookPlugin.HooksFile(_paths)));
     }
 
     [Fact]
@@ -150,6 +207,52 @@ public sealed class HookPluginTests : IDisposable
         Assert.True(HookPlugin.EnsureWritten(_paths, _logger));
 
         Assert.True(HookPlugin.Matches(_paths));
+    }
+
+    /// <summary>
+    /// <strong>Each module file is put back</strong>: half a <c>register.ts</c>, one of the faults
+    /// the guide planted, and a <c>listening-file.ts</c> that names a relative path.
+    /// </summary>
+    [Fact]
+    public void A_module_file_that_was_edited_is_put_back()
+    {
+        HookPlugin.EnsureWritten(_paths, _logger);
+        File.WriteAllText(HookPlugin.ModuleFile(_paths), HookPlugin.ModuleText[..(HookPlugin.ModuleText.Length / 2)]);
+        File.WriteAllText(HookPlugin.ListeningModuleFile(_paths), "export const listeningFile = '.mod-lab/listening.txt'\n");
+
+        Assert.False(HookPlugin.Matches(_paths));
+        Assert.True(HookPlugin.EnsureWritten(_paths, _logger));
+
+        Assert.Equal(HookPlugin.ModuleText, File.ReadAllText(HookPlugin.ModuleFile(_paths)));
+        Assert.Equal(HookPlugin.ListeningModuleText(_paths), File.ReadAllText(HookPlugin.ListeningModuleFile(_paths)));
+        Assert.True(HookPlugin.Matches(_paths));
+    }
+
+    /// <summary>
+    /// <strong>The mod finds <c>listening.txt</c> at any data folder's name.</strong> The folder
+    /// here has a space, an apostrophe and a letter outside ASCII. The text after <c>=</c> is a
+    /// JSON string, which is a correct TypeScript string, and it reads back as the same absolute
+    /// path. Every character is ASCII: the rest are escapes.
+    /// </summary>
+    [Fact]
+    public void The_listening_file_module_names_listening_txt_absolutely()
+    {
+        var paths = new DashboardPaths(Path.Combine(_root, $"D{(char)0xE9}j{(char)0xE0} vu's data"));
+        Directory.CreateDirectory(paths.Root);
+
+        Assert.True(HookPlugin.EnsureWritten(paths, _logger));
+        var text = File.ReadAllText(HookPlugin.ListeningModuleFile(paths));
+
+        Assert.Equal(HookPlugin.ListeningModuleText(paths), text);
+        Assert.StartsWith("export const listeningFile = \"", text, StringComparison.Ordinal);
+        Assert.EndsWith("\"\n", text, StringComparison.Ordinal);
+        Assert.All(text, character => Assert.True(character < 128, $"U+{(int)character:X4} is not ASCII."));
+
+        var named = System.Text.Json.JsonSerializer.Deserialize<string>(text[(text.IndexOf('=', StringComparison.Ordinal) + 1)..]);
+
+        Assert.Equal(paths.ListeningFile, named);
+        Assert.True(Path.IsPathFullyQualified(named!));
+        Assert.Contains(" vu's data", named, StringComparison.Ordinal);
     }
 
     // ---- Reading Claude Code's settings ----------------------------------------------------------
