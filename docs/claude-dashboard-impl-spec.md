@@ -523,7 +523,7 @@ Rows are used again and not made again. A refresh changes only what moved, so th
 |---|---|---|
 | LED | The colour of the state (§5.6.6). In selection mode, a check mark takes its place on a chosen row | `RowVisuals.AccentOf` |
 | Title | The session's title, folded to one line and cut to 40 grapheme clusters (160 characters at most), then ` — `. Nothing if there is no title. The tooltip has the full title, only if it was cut | `SessionViewModel.TitleText` |
-| Prompt | The first 140 characters of the prompt, then `…`. Monospace | `PromptSnippet` |
+| Prompt | The prompt cut to 140 grapheme clusters (560 characters at most), then `…`. A cut never falls inside an emoji, a flag or a letter with its accent (T1.81, issue #21): until T1.81 it was the first 140 UTF-16 code units, which could leave half a character. Monospace | `PromptSnippet`, with the title's cut, `ClusterText.Shorten` |
 | Badge | The word for the state (§5.6.6) | `RowVisuals.BadgeOf` |
 | Detail | The kind of error, in `Error` | `Session.ErrorKind` |
 | Speaker sign | A small drawn speaker, for one minute after a sound that played for this session (below) | `SessionViewModel.HasSoundSign`, `SoundSignText` |
@@ -1279,3 +1279,4 @@ The text above says what is true now. This list says when each part changed.
 | 2026-10-05 | The log file may hold any text: the rule that kept titles, names, prompts and answers out of it goes (the operator's ruling); `PayloadJson` and `OperatorText` print their text; a decision's Debug line names the session; the token is still never logged (§2.1, §3.4, §3.5, §5.7, §8.3, §8.4) | T1.76; issue #118 |
 | 2026-10-05 | A store's close clears its own connection pool only, not every pool in the process: a clear of every pool could dispose a connection that another store was opening, and that store then made no tables (§8.3) | T1.78; issue #40 |
 | 2026-10-06 | The log file says once, at Information, when a value this build does not know arrives (a notification type, a start source, an error kind, an end reason, a background task type), and at Debug writes one line for each event the Registry applies or declines, with its type; the `EventDeclined` row records the type as `type=…` (§8.3, §8.4, §9.1) | T1.79; issue #9 |
+| 2026-10-08 | The prompt on a row is cut to 140 grapheme clusters, with a ceiling of 560 characters, by the same method as the title (`ClusterText.Shorten`), so a cut never falls inside an emoji, a flag or a letter with its accent (§5.6.3) | T1.81; issue #21 |
