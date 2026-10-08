@@ -26,8 +26,24 @@ namespace ClaudeDashboard.App.Ui;
 /// </remarks>
 public sealed partial class SessionViewModel : DashboardRow
 {
-    /// <summary>How much of the prompt the collapsed row shows before eliding.</summary>
+    /// <summary>
+    /// How much of the prompt the collapsed row shows before eliding, counted in <strong>grapheme clusters</strong>
+    /// (T1.81, issue #21).
+    /// </summary>
+    /// <remarks>
+    /// Until T1.81 this counted UTF-16 code units, so a cut could fall inside an emoji, a flag or a letter with its
+    /// accent, and the row ended in half a character. <see cref="ClusterText"/> carries the argument.
+    /// </remarks>
     public const int SnippetLength = 140;
+
+    /// <summary>The hard ceiling, in characters, on the prompt text a collapsed row will lay out (T1.81).</summary>
+    /// <remarks>
+    /// Four times <see cref="SnippetLength"/>, the ratio of <see cref="TitleCharacterCeiling"/> to
+    /// <see cref="TitleClusters"/>, and for the same reason: a cluster can hold any number of combining marks, so a
+    /// cluster budget alone does not bound what the row lays out. Real text stays far below it: 140 ZWJ family emoji
+    /// are 1,120 characters, so a long run of them is cut here at 70 families, and an ordinary prompt never is.
+    /// </remarks>
+    public const int SnippetCharacterCeiling = 560;
 
     /// <summary>How much of the session id the expanded row shows (issue #15).</summary>
     /// <remarks>
@@ -55,9 +71,8 @@ public sealed partial class SessionViewModel : DashboardRow
     /// whole, and keeps a combining accent attached to its letter.
     /// </para>
     /// <para>
-    /// This is <em>not</em> what <see cref="SnippetLength"/> does to the prompt, which still cuts
-    /// by character. That is a known defect in the older property, filed separately, and it is
-    /// deliberately not copied here.
+    /// The prompt's snippet has used the same cut since T1.81 (issue #21): <see cref="ClusterText"/>, with its own
+    /// two bounds, <see cref="SnippetLength"/> and <see cref="SnippetCharacterCeiling"/>.
     /// </para>
     /// </remarks>
     public const int TitleClusters = 40;
@@ -386,9 +401,11 @@ public sealed partial class SessionViewModel : DashboardRow
     /// <summary>The submitted prompt, verbatim.</summary>
     public string Prompt => _session.Latest.Prompt;
 
-    /// <summary>The prompt shortened to a row's worth, verbatim as far as it goes.</summary>
-    public string PromptSnippet =>
-        Prompt.Length <= SnippetLength ? Prompt : Prompt[..SnippetLength] + "…";
+    /// <summary>
+    /// The prompt shortened to a row's worth, verbatim as far as it goes: <see cref="SnippetLength"/> clusters and
+    /// <see cref="SnippetCharacterCeiling"/> characters, whichever bites first, then an ellipsis (T1.81, issue #21).
+    /// </summary>
+    public string PromptSnippet => ClusterText.Shorten(Prompt, SnippetLength, SnippetCharacterCeiling).Shown;
 
     /// <summary>Whether this session has a title to show before its prompt.</summary>
     public bool HasTitle => TitleOfRow.Shown.Length > 0;
@@ -544,29 +561,10 @@ public sealed partial class SessionViewModel : DashboardRow
         /// <remarks>
         /// Both bounds land on a cluster boundary, so neither can produce the split glyph the
         /// cluster count exists to avoid. The two constants carry the argument for why there are
-        /// two of them.
+        /// two of them. The cut is <see cref="ClusterText"/>, which the prompt shares (T1.81).
         /// </remarks>
-        private static (string Shown, bool Truncated) Shorten(string folded)
-        {
-            var elements = StringInfo.GetTextElementEnumerator(folded);
-            var clusters = 0;
-            var taken = 0;
-
-            while (elements.MoveNext())
-            {
-                var element = (string)elements.Current;
-
-                if (clusters == TitleClusters || taken + element.Length > TitleCharacterCeiling)
-                {
-                    return (folded[..taken] + "…", true);
-                }
-
-                clusters++;
-                taken += element.Length;
-            }
-
-            return (folded, false);
-        }
+        private static (string Shown, bool Truncated) Shorten(string folded) =>
+            ClusterText.Shorten(folded, TitleClusters, TitleCharacterCeiling);
     }
 
     /// <summary>Claude's answer once known, verbatim, or null (Design Document §9, expanded row).</summary>
