@@ -1359,6 +1359,27 @@ The work in GitHub milestone 3, "Observability 1": issues #3, #14, #67, #71, #72
 - **Guardrails:** no product code; no change to any test. The script never deletes a saved run. Never run elevated.
 - **Done 2026-10-07:** PR #127, merged as `035a511`, `b97619b`, `aeef606` (one addition after the approval). `build.ps1` lists the tests before the run (`--list-tests`, one line per theory case, as `Total` counts), keeps `list.txt`, `console.txt` and `test-results.trx` under `artifacts/test-runs/<date-time>-<configuration>/`, and ends with one verdict line; `-ExpectedTotal` overrides the list with the list as a check, and `-Solution` runs another project through the same checks. On this tree: `GREEN: exit 0, no abort, Total 2286, expected 2286, skipped 0` in Debug and in Release. The crash plant (a throwaway project whose last test calls `Environment.FailFast`), reproduced by the coder and by the review: the abort line, `Passed! … Total: 7`, then `NOT GREEN: exit 1; the run was aborted; Total 7, expected 8`. **Ruled in after the approval:** the skipped count in the line, shown and never failed on, because a skipped test is listed and counted in `Total`. **The review found:** a theory whose data cannot be listed fails safe; a trait filter does not apply, because the script passes no `--filter`; and a test that stops being discovered is missing from both the list and the run, so the reviewer keeps a hand count beside the verdict line. Part 1, B.0, B.1 and B.3 now name the script's verdict as what a report gives. Not verified: PowerShell 7 (not installed here); more than one test project.
 
+**On 2026-10-08, at the operator's word:** #9 and #12 closed; the next task is #21.
+
+**T1.81 — The prompt on a row is cut between characters, never inside one**
+- **Goal:** the first part of the prompt that a row shows ends on a whole character. Today it is cut at 140 UTF-16 code units, which can split an emoji, a flag or a letter from its accent, so the row ends in a broken character or loses an accent. For issue #21.
+- **Depends:** T1.23 (the row's prompt snippet), T1.24 (`TitleText.Shorten`, which cuts the title by grapheme clusters with a character ceiling)
+- **Realizes:** #21 as written. Director's rulings:
+  - **Cut like the title.** `PromptSnippet` cuts by grapheme clusters (`StringInfo`, as `TitleText.Shorten` does), with two bounds: 140 clusters, and a character ceiling so that a cluster budget cannot let a very long string through (the title uses 40 clusters and 160 characters; the prompt gets 140 clusters and a ceiling with the same ratio, 560 characters, or a reasoned other value). Whichever bound bites first ends the snippet, and the ellipsis follows.
+  - **One rule for both.** Share the cut with `TitleText.Shorten` (one method with the two bounds as parameters), so the title and the prompt cannot drift apart again. The title's behaviour does not change.
+  - **A well-formed result is asserted:** a test checks that the snippet round-trips through UTF-8 unchanged and enumerates to no U+FFFD, for each case in the issue's table (a surrogate pair, a family sequence, a flag, a letter with a combining mark).
+  - **Impl §5.6.3's row** for the prompt ("the first 140 characters") says clusters and the ceiling, as the title's row does.
+  - **The rendered row:** the issue says the drawn row was never looked at. A realized-window test with a prompt that ends in an emoji at the boundary shows the whole emoji and `BindingErrorWatch` clean.
+- **Deliverables:** the shared cut; `PromptSnippet` on it; the tests; Impl §5.6.3 and one row in Appendix C; the stale remark in `SessionViewModel` that calls this "a known defect in the older property" goes.
+- **Acceptance:**
+  - 139 ASCII characters then `👍`: the snippet ends with the whole `👍` (no cut, because 140 clusters fit), and 140 ASCII characters then `👍` ends with `…` and no lone surrogate. The same for `👨‍👩‍👧`, `🇬🇧` and `e` + combining acute at the boundary: whole or absent, never half.
+  - A prompt of 140 clusters each of one letter and 50 combining marks is cut by the character ceiling, with an ellipsis.
+  - The title's existing tests pass unchanged.
+  - A realized row shows the whole emoji at the boundary.
+  - **Plants:** (a) the cut back to `Prompt[..SnippetLength]`, and the surrogate test fails; (b) the character ceiling removed, and the ceiling test fails.
+  - `build.ps1` GREEN for Debug and Release, with the verdict lines.
+- **Guardrails:** `Prompt` itself is unchanged (the open row shows the whole prompt). No change to the title's bounds. No change to the row's layout.
+
 ---
 
 ## Part 4 — Phases 2–7 task outlines
