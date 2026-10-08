@@ -1272,6 +1272,30 @@ public sealed class MainWindowTests(StaHarness harness, Xunit.Abstractions.ITest
     }
 
     /// <summary>
+    /// <strong>The drawn row shows a whole emoji at the snippet's boundary</strong> (T1.81, issue #21).
+    /// </summary>
+    /// <remarks>
+    /// The issue says the drawn row was never looked at. The prompt is 139 ASCII characters, a family emoji (eight
+    /// code units, one cluster) and more text, so the cut falls right after the emoji. The realized row's line is the
+    /// whole emoji then the ellipsis, with no lone surrogate; <c>WithWindow</c> holds <c>BindingErrorWatch</c> clean.
+    /// </remarks>
+    [Fact]
+    public void A_row_shows_a_whole_emoji_at_the_snippets_boundary()
+    {
+        const string Id = "emoji";
+        var family = PromptSnippetTests.Cluster("family");
+        var head = new string('a', SessionViewModel.SnippetLength - 1) + family;
+
+        var texts = WithWindow(
+            registry => registry.Working(Id, At, prompt: head + " and the rest of the prompt"),
+            (window, _) => VisibleTexts(window, Id));
+
+        var line = Assert.Single(texts, text => text.StartsWith("aaa", StringComparison.Ordinal));
+        Assert.Equal(head + "…", line);
+        Assert.Equal(line, System.Text.Encoding.UTF8.GetString(System.Text.Encoding.UTF8.GetBytes(line)));
+    }
+
+    /// <summary>
     /// <strong>A title latched from a declined event still repaints the row.</strong>
     /// </summary>
     /// <remarks>
