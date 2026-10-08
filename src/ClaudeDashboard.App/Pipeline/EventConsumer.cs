@@ -201,8 +201,26 @@ public sealed class EventConsumer : BackgroundService
         // WHY the timer was armed, recorded when it is armed. Deciding it afterwards by comparing
         // the clock would be wrong the moment the clock is a test's: a held clock never reaches
         // the tick deadline, so every wake would be read as a settle and the tick would never run.
-        var waitingForSettle = SettleIsSooner(nextTick);
-        var ticked = Task.Delay(WaitFor(_clock.Now, nextTick, _settleDue), stoppingToken);
+        // armedFor is the clock instant the armed wait ends at: the settle deadline or the tick.
+        var waitingForSettle = false;
+        var armedFor = nextTick;
+        CancellationTokenSource? armed = null;
+        Task ticked = Task.CompletedTask;
+
+        // The loop's one wait, armed to the settle deadline when one is sooner than the tick, else to the tick. The
+        // wait it replaces is cancelled, so it frees its timer and can never wake the loop as a stray tick; the loop
+        // also never awaits it again, because only the newest wait is in the WhenAny below (#131).
+        void Arm()
+        {
+            waitingForSettle = SettleIsSooner(nextTick);
+            armedFor = waitingForSettle ? _settleDue!.Value : nextTick;
+            armed?.Cancel();
+            armed?.Dispose();
+            armed = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+            ticked = Task.Delay(WaitFor(_clock.Now, nextTick, _settleDue), armed.Token);
+        }
+
+        Arm();
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -232,10 +250,17 @@ public sealed class EventConsumer : BackgroundService
 
                 readable = _pipeline.Reader.WaitToReadAsync(stoppingToken).AsTask();
 
-                if (ticked.IsCompleted)
+                // Re-armed when the armed wait has ended, or when this drain made a settle due sooner than the
+                // instant the armed wait ends at (#131). Until #131 only the first: an event that started a roster's
+                // settle window left the wait aimed at the next tick, so the settle was seen up to a tick (15 s) after
+                // its 1.5 s deadline. The first condition was there for the held-clock reason above: re-arming on
+                // every event recomputes the wait from now, and with a held clock that is the full interval each time,
+                // so a steady stream of events would push the tick back without end. The second keeps that true: it
+                // compares clock instants, not waits, and it replaces a wait only with one that ends sooner, so the
+                // tick's own deadline (nextTick) never moves, and a settle wake is still recorded as one when armed.
+                if (ticked.IsCompleted || _settleDue is { } due && due < armedFor)
                 {
-                    waitingForSettle = SettleIsSooner(nextTick);
-                    ticked = Task.Delay(WaitFor(_clock.Now, nextTick, _settleDue), stoppingToken);
+                    Arm();
                 }
             }
             else
@@ -264,10 +289,11 @@ public sealed class EventConsumer : BackgroundService
                     nextTick = woke + _tickInterval;
                 }
 
-                waitingForSettle = SettleIsSooner(nextTick);
-                ticked = Task.Delay(WaitFor(_clock.Now, nextTick, _settleDue), stoppingToken);
+                Arm();
             }
         }
+
+        armed?.Dispose();
 
         // Nothing else will offer events, so the writer may drain and stop. Doing this here rather
         // than leaving it to shutdown ordering means the last events of a run are written whether
