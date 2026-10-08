@@ -183,13 +183,19 @@ public sealed class HookPluginTests : IDisposable
 
     /// <summary>
     /// <strong>A <c>hooks.json</c> that names the module is never on disk before the module
-    /// is.</strong> A folder stands where <c>register.ts</c> goes, so its write fails: the files
-    /// before it are written, and <c>hooks.json</c>, which comes after, is not.
+    /// is</strong>, for each of the module's two files. A folder stands where the file under test
+    /// goes, so its write fails: the files before it are written, and <c>hooks.json</c>, which
+    /// comes after both, is not.
     /// </summary>
-    [Fact]
-    public void A_hooks_file_that_names_the_module_is_never_written_before_the_module()
+    [Theory]
+    [InlineData("register.ts")]
+    [InlineData("listening-file.ts")]
+    public void A_hooks_file_that_names_the_module_is_never_written_before_the_module(string moduleFile)
     {
-        Directory.CreateDirectory(HookPlugin.ModuleFile(_paths));
+        var blocked = Path.Combine(Path.GetDirectoryName(HookPlugin.HooksFile(_paths))!, moduleFile);
+        Assert.Contains(blocked, new[] { HookPlugin.ModuleFile(_paths), HookPlugin.ListeningModuleFile(_paths) });
+
+        Directory.CreateDirectory(blocked);
 
         Assert.False(HookPlugin.EnsureWritten(_paths, _logger));
 
