@@ -50,6 +50,7 @@ public sealed partial class TrayViewModel : ObservableObject, IUiTickTarget, IDi
     private readonly NoticeBoard _notices;
     private readonly Ingress.HookHealth? _health;
     private readonly bool _ownsNotices;
+    private readonly Configuration.RosterStore? _rosters;
 
     private DateTimeOffset _now;
     private bool _disposed;
@@ -96,6 +97,10 @@ public sealed partial class TrayViewModel : ObservableObject, IUiTickTarget, IDi
     /// always, in the product. The host passes it; a test that is not about it may omit it, and its
     /// tooltip then has no such item.
     /// </param>
+    /// <param name="rosters">
+    /// The rosters (T1.83, issue #130): a roster group counts once in the light and the tooltip, at its roll-up. The
+    /// host passes it; a tray given none counts every session on its own.
+    /// </param>
     /// <exception cref="ArgumentNullException">Any argument is null.</exception>
     public TrayViewModel(
         SessionProjection projection,
@@ -106,7 +111,8 @@ public sealed partial class TrayViewModel : ObservableObject, IUiTickTarget, IDi
         ILogger logger,
         Pipeline.IDecisionLog? decisions = null,
         NoticeBoard? notices = null,
-        Ingress.HookHealth? health = null)
+        Ingress.HookHealth? health = null,
+        Configuration.RosterStore? rosters = null)
     {
         ArgumentNullException.ThrowIfNull(projection);
         ArgumentNullException.ThrowIfNull(modes);
@@ -121,6 +127,7 @@ public sealed partial class TrayViewModel : ObservableObject, IUiTickTarget, IDi
         _clock = clock;
         _logger = logger;
         _decisions = decisions;
+        _rosters = rosters;
         _health = health;
         // The ingress fault reaches the tooltip through the board and nowhere else (T1.57): the host's
         // board has it as its first source. A tray given no board makes one that holds it, so a fault
@@ -271,7 +278,11 @@ public sealed partial class TrayViewModel : ObservableObject, IUiTickTarget, IDi
     /// <summary>Recomputes the glyph and the tooltip from the sessions and the modes.</summary>
     private void Refresh()
     {
-        var summary = StatusSummary.Of(_projection.Sessions);
+        // A roster counts once, at its roll-up, read at this tick's instant (T1.83, issue #130). The settle deadline
+        // reaches this method as a tick: the consumer's settle wake echoes its tick to the UI at the deadline, which
+        // posts Tick here, and the roster then reads Unread.
+        var counted = CountedStates.Of(_projection.Sessions, _rosters?.Book ?? RosterBook.Empty, _now);
+        var summary = StatusSummary.OfCounted(counted);
         var paused = _modes.IsMonitoringPaused;
         var mutedUntil = _modes.AllMutedUntil;
 
@@ -283,12 +294,15 @@ public sealed partial class TrayViewModel : ObservableObject, IUiTickTarget, IDi
 
         // The decisions record (T1.37, issue #48): the tray light changing is a decision, and it
         // is made here, on the dispatcher — so it rides the recorder's cross-thread queue and
-        // lands with event_id NULL. The driving session is the first at the worst state, by its id.
+        // lands with event_id NULL. The driving session is the first counted entry at the worst state: a session in no
+        // roster is itself, and a rolled-up roster stands for the member whose state it shows (the working member while
+        // it works). When the roster reads Working from the settle window alone, no member is Working, and it stands for
+        // the member whose finish started the window (CountedStates.Of).
         if (next != Colour)
         {
             _decisions?.External(new Storage.Decision(
                 _now,
-                _projection.Sessions.FirstOrDefault(session => session.State == summary.Worst)?.Id.Value,
+                counted.Where(entry => entry.State == summary.Worst).Select(entry => (string?)entry.Session.Value).FirstOrDefault(),
                 Storage.DecisionKind.TrayLightChanged,
                 FromState: Colour.ToString(),
                 ToState: next.ToString(),

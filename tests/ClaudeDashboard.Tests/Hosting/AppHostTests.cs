@@ -1090,6 +1090,35 @@ public sealed class AppHostTests : IDisposable
     }
 
     /// <summary>
+    /// <strong>The host's tray counts with the host's rosters, and its consumer builds /state again after each
+    /// settle</strong> (T1.83, issue #130).
+    /// </summary>
+    /// <remarks>
+    /// Both are passed by factory, as optional arguments, so the container's own check for optional collaborators
+    /// does not see them, and a lost argument would leave the tray counting each member and /state a settle behind
+    /// with every other test green. So the wiring is asserted here, by reference: the one store, the one board.
+    /// </remarks>
+    [Fact]
+    public void The_host_tray_and_consumer_carry_the_rosters_and_the_state_board()
+    {
+        using var host = Build();
+
+        var rosters = host.Services.GetRequiredService<RosterStore>();
+        var board = host.Services.GetRequiredService<ClaudeDashboard.App.Ingress.StateBoard>();
+        var tray = host.Services.GetRequiredService<TrayViewModel>();
+        var consumer = host.Services.GetRequiredService<ClaudeDashboard.App.Pipeline.EventConsumer>();
+
+        Assert.True(Holds(tray, rosters), "The host's tray does not hold the host's roster store.");
+        Assert.True(Holds(consumer, board), "The host's consumer does not hold the host's state board.");
+    }
+
+    /// <summary>Whether one of <paramref name="owner"/>'s own instance fields is <paramref name="value"/>.</summary>
+    private static bool Holds(object owner, object value) =>
+        owner.GetType()
+            .GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+            .Any(field => ReferenceEquals(field.GetValue(owner), value));
+
+    /// <summary>
     /// The host gives its tray the one hook notice it registers (the ruling of 2026-10-01), so a
     /// notice a start shows reaches the tray and, through it, the window.
     /// </summary>

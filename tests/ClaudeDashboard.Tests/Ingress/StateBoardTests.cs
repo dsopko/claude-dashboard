@@ -32,12 +32,13 @@ public sealed class StateBoardTests : IDisposable
     private readonly RegistryHarness _harness = new();
     private readonly SoundPolicyEngine _sound;
     private readonly StateBoard _board;
+    private readonly ClaudeDashboard.App.Configuration.RosterStore _rosters = new(new RecordingEventSink());
 
     public StateBoardTests()
     {
         _sound = new SoundPolicyEngine(new RecordingSoundPlayer(), _clock, new SingleWriterGuard(), new SoundPolicyOptions());
         _harness.Registry.SessionChanged += (_, e) => _sound.OnSessionChanged(e.Session, e.Session.WorkspaceGroup);
-        _board = new StateBoard(_harness.Registry, _sound, _clock, Logger.None);
+        _board = new StateBoard(_harness.Registry, _sound, _clock, Logger.None, _rosters);
     }
 
     public void Dispose()
@@ -219,6 +220,67 @@ public sealed class StateBoardTests : IDisposable
 
         Assert.Equal(SessionState.Working, Assert.Single(read.Sessions).State);
         Assert.Equal(2, _board.Current.SessionCount);
+    }
+
+    /// <summary>
+    /// <strong>A roster counts once in the bands</strong> (T1.83, issue #130): one member working and two finished is
+    /// <c>bands.working</c> 1 and <c>bands.unread</c> 0, and the light is Working. The session count and the entries
+    /// are still the three sessions.
+    /// </summary>
+    [Fact]
+    public void A_working_roster_counts_once_in_the_bands()
+    {
+        _rosters.Replace(ClaudeDashboard.Core.RosterBook.From([("orchestration", ["Director", "Coder", "Reviewer"])]));
+        Orchestrate();
+
+        var report = _board.Current;
+
+        Assert.Equal(1, report.Bands[AttentionBand.Working]);
+        Assert.Equal(0, report.Bands[AttentionBand.Unread]);
+        Assert.Equal(SessionState.Working, report.Tray.Worst);
+        Assert.Equal(3, report.SessionCount);
+        Assert.Equal(3, report.Sessions.Count);
+        Assert.Equal(2, report.Sessions.Count(entry => entry.State == SessionState.Unread));
+    }
+
+    /// <summary>
+    /// The last member stops: inside the settle window the bands still read Working, and the report built again at
+    /// the deadline (<see cref="StateBoard.Restate"/>, which the consumer calls after its settle pass) reads
+    /// <c>bands.unread</c> 1.
+    /// </summary>
+    [Fact]
+    public void At_the_settle_deadline_the_report_reads_one_unread()
+    {
+        _rosters.Replace(ClaudeDashboard.Core.RosterBook.From([("orchestration", ["Director", "Coder", "Reviewer"])]));
+        var reviewer = Orchestrate();
+        _clock.Now = T0.AddMinutes(4);
+        _harness.Finished("s-3", T0.AddMinutes(4), reviewer, cwd: @"C:\reviewer", title: "Reviewer");
+
+        Assert.Equal(1, _board.Current.Bands[AttentionBand.Working]);
+
+        _clock.Now = T0.AddMinutes(4) + RosterSettle.DefaultWindow;
+        _board.Restate();
+
+        var report = _board.Current;
+        Assert.Equal(1, report.Bands[AttentionBand.Unread]);
+        Assert.Equal(0, report.Bands[AttentionBand.Working]);
+        Assert.Equal(SessionState.Unread, report.Tray.Worst);
+        Assert.Equal(3, report.SessionCount);
+    }
+
+    /// <summary>The issue's orchestration: Director and Coder finished, Reviewer working. Returns Reviewer's prompt id.</summary>
+    private string Orchestrate()
+    {
+        _clock.Now = T0;
+        var director = _harness.Working("s-1", T0, cwd: @"C:\director", title: "Director");
+        _clock.Now = T0.AddMinutes(1);
+        _harness.Finished("s-1", T0.AddMinutes(1), director, cwd: @"C:\director", title: "Director");
+        var coder = _harness.Working("s-2", T0.AddMinutes(1), cwd: @"C:\coder", title: "Coder");
+        _clock.Now = T0.AddMinutes(2);
+        _harness.Finished("s-2", T0.AddMinutes(2), coder, cwd: @"C:\coder", title: "Coder");
+        var reviewer = _harness.Working("s-3", T0.AddMinutes(2), cwd: @"C:\reviewer", title: "Reviewer");
+        _clock.Now = T0.AddMinutes(3);
+        return reviewer;
     }
 
     private SessionStateEntry Entry(string id) => Assert.Single(_board.Current.Sessions, entry => entry.Id == id);
