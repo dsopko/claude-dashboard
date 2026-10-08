@@ -177,9 +177,11 @@ public sealed class RosterGroupingTests
     /// </summary>
     /// <remarks>
     /// The operator's starting value, not a measured one: they rejected a longer window as a worse guess, because a
-    /// delay long enough to be safe is long enough for the operator to have looked away. The other tests here use
-    /// <see cref="RosterSettle.DefaultWindow"/> by name, so a change to the value moved them with it and nothing
-    /// failed; this test is the one that disagrees.
+    /// delay long enough to be safe is long enough for the operator to have looked away. Most tests here use
+    /// <see cref="RosterSettle.DefaultWindow"/> by name and follow its value. Two hold it by literal times:
+    /// <c>A_quiet_roster_group_reads_finished_only_after_the_settle_window</c> (still working at 1.4 s) and
+    /// <c>The_window_runs_from_the_last_member_to_stop</c> (finished 1.5 s after the last stop). Between them they
+    /// allow any value above 1.4 s and at most 1.5 s. This test pins the number itself, beside the reason for it.
     /// </remarks>
     [Fact]
     public void The_shipped_settle_window_is_one_and_a_half_seconds() =>
@@ -191,7 +193,8 @@ public sealed class RosterGroupingTests
     /// <remarks>
     /// Deliberately much wider than the settle window: it is not a second settle window but the instrument that decides
     /// whether the first one holds, so it has to be wide enough to catch a hand-off that the settle window missed by a
-    /// margin. Until T1.82 no test used it at all.
+    /// margin. No other test names it; two <c>RosterGroupWatchTests</c> reach it through the constructor's default and
+    /// fail when it is zero, but a wider window (10 s) failed only this test.
     /// </remarks>
     [Fact]
     public void The_shipped_mis_mark_window_is_five_seconds() =>
