@@ -172,6 +172,32 @@ public sealed class RosterGroupingTests
     // ---- The settle window --------------------------------------------------------------------
 
     /// <summary>
+    /// <strong>The shipped settle window is one and a half seconds, and the number itself is pinned</strong>
+    /// (T1.82, issue #34).
+    /// </summary>
+    /// <remarks>
+    /// The operator's starting value, not a measured one: they rejected a longer window as a worse guess, because a
+    /// delay long enough to be safe is long enough for the operator to have looked away. The other tests here use
+    /// <see cref="RosterSettle.DefaultWindow"/> by name, so a change to the value moved them with it and nothing
+    /// failed; this test is the one that disagrees.
+    /// </remarks>
+    [Fact]
+    public void The_shipped_settle_window_is_one_and_a_half_seconds() =>
+        Assert.Equal(TimeSpan.FromSeconds(1.5), RosterSettle.DefaultWindow);
+
+    /// <summary>
+    /// <strong>The shipped mis-mark window is five seconds, and the number itself is pinned</strong> (T1.82, issue #34).
+    /// </summary>
+    /// <remarks>
+    /// Deliberately much wider than the settle window: it is not a second settle window but the instrument that decides
+    /// whether the first one holds, so it has to be wide enough to catch a hand-off that the settle window missed by a
+    /// margin. Until T1.82 no test used it at all.
+    /// </remarks>
+    [Fact]
+    public void The_shipped_mis_mark_window_is_five_seconds() =>
+        Assert.Equal(TimeSpan.FromSeconds(5), RosterSettle.DefaultMisMarkWindow);
+
+    /// <summary>
     /// <strong>All members quiet ⇒ Finished after 1.5 seconds, and not a moment before.</strong>
     /// </summary>
     /// <remarks>
