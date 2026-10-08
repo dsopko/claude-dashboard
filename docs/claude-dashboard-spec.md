@@ -238,7 +238,7 @@ Built today: the dashboard pins its own window to all desktops through the undoc
 
 ### III.10 Tray presence and audio
 
-- **The tray light** is a status icon that always shows. Its colour is the worst state of all sessions, in five colours (§IV.3 gives the order): red for a permission, amber for an error or a question, green for unread, blue for working, grey for quiet. It has no digits and it does not move. The counts are in its tooltip. A click shows the window.
+- **The tray light** is a status icon that always shows. Its colour is the worst state of all sessions, with a roster group counted once, by the state its heading shows (Impl §2.7; T1.83, issue #130), in five colours (§IV.3 gives the order): red for a permission, amber for an error or a question, green for unread, blue for working, grey for quiet. It has no digits and it does not move. The counts are in its tooltip. A click shows the window.
 - **Audio** plays notices and nudges. The schedule does not depend on the platform (§IV.5). Only the playback does.
 
 ### III.11 Housekeeping
@@ -572,3 +572,4 @@ The text above says what is true now. This list says when each rule changed, for
 | 2026-10-05 | Event text may appear in the log file; it is still never executed, and the token is never logged (§IV). Before, event text was never logged | T1.76; issue #118 |
 | 2026-10-04 | The event log's retry uses a new connection each time, and a file held for a moment at the open is opened again a few times within a second (§IV.7). Before, each retry could get the same connection back, which could not write, until a restart | T1.74; issue #109 |
 | 2026-10-04 | A roster group plays only when it has something new to announce: a settle in which every finished member already announced is silent, with no nudge, and recorded as announced before (§IV.5) | T1.72; issue #107 |
+| 2026-10-08 | The tray light counts a roster group once, by the state its heading shows, so it is blue while an orchestration works (§III.10) | T1.83; issue #130 |
