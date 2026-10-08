@@ -178,7 +178,7 @@ A second interface needs none of these. The dashboard process keeps them.
 | The row colour | `RowVisuals.AccentOf` | Red for permission and question. Amber for error. Green, blue, grey |
 | The motion | `MotionPolicy.Wanted` | Red blinks. Working breathes. Nothing else moves. Waiting does not move |
 | The title on a row | `SessionViewModel.TitleText` | One line, 40 grapheme clusters, 160 characters at most, then "…" |
-| The prompt on a row | `SessionViewModel.PromptSnippet` | 140 characters, then "…" |
+| The prompt on a row | `SessionViewModel.PromptSnippet` | 140 grapheme clusters (560 characters at most), then "…" |
 | The session id | `SessionViewModel.ShortId` | 8 characters on the row. The copy is the full id |
 | The answer's label | `SessionViewModel.AnswerLabel` | "CLAUDE SAID SO FAR" while Waiting. "CLAUDE ANSWERED" otherwise |
 | The "Waiting on" lines | `SessionViewModel.WaitingOnLines`, `WaitingSummary` | One line for each task: description, "background command" or "subagent", age |
@@ -303,7 +303,7 @@ Assume that the web app gets a wider read model and command endpoints, and that 
 |---|---|---|
 | **Rules about meaning.** A wrong copy shows a false fact | Which rows collapse, and that Unread never does. The row's clock. Which rows and groups show an Ack. Which state orders a group. The tray colour. That a session with no title cannot join a roster | A finished session is hidden. A row says "0 s ago" after an Ack. An Ack is missing in the 1.5 seconds of the settle window. A question burns red in the roll-up |
 | **Rules about words.** A wrong copy reads differently | Badges, band names, age phrases, the counts sentence, the tray sentence, the labels | "9 min" on one screen and "9m" on the other. Not a false fact, but the two screens stop looking like one product |
-| **Rules about cutting text.** A wrong copy can break a character | The title at 40 clusters, the prompt at 140, the id at 8 | A split emoji. JavaScript and .NET count string length the same way (UTF-16), so a copy by length carries the same defect that `PromptSnippet` has |
+| **Rules about cutting text.** A wrong copy can break a character | The title at 40 clusters, the prompt at 140 clusters, the id at 8 | A split emoji. JavaScript and .NET count string length the same way (UTF-16), so a copy that cuts by length would split an emoji, as `PromptSnippet` did until T1.81. In C# the title and the prompt both cut by grapheme clusters (`ClusterText.Shorten`), and a copy must do the same |
 
 The first class is the one to move. Each rule in it was the subject of a ruling or an issue, and each is held by tests that only run against the C# copy.
 

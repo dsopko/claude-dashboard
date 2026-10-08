@@ -418,7 +418,7 @@ public sealed partial class SessionViewModel : DashboardRow
     /// A session with no title gives an empty string here and an empty
     /// <see cref="TitlePrefix"/>, so the row renders exactly as it did before issue #18 — no
     /// separator, no empty prefix, and the prompt keeps every one of its
-    /// <see cref="SnippetLength"/> characters, because the title sits outside that budget.
+    /// <see cref="SnippetLength"/> clusters, because the title sits outside that budget.
     /// </remarks>
     public string TitleDisplay => TitleOfRow.Shown;
 
