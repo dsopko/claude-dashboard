@@ -262,6 +262,17 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!--
+      The usage mod (Usage Mod Execution Plan, MOD.2, ruling R2). Linked, not copied: the file
+      in mods\usage\hooks is the one that claude plugin validate and claude plugin test check,
+      so the repository holds one copy of the text, and the plugin carries that copy. Embedded,
+      not beside the exe: HookPlugin writes it into the plugin folder, as it writes hooks.json,
+      and nothing reads it from the install folder. A missing file stops the build.
+    -->
+    <EmbeddedResource Include="..\..\mods\usage\hooks\register.ts" Link="Setup\register.ts" LogicalName="ClaudeDashboard.App.Setup.register.ts" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <PackageReference Include="H.NotifyIcon.Wpf" Version="2.4.1" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.0" />
