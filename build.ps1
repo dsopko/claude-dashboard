@@ -24,11 +24,23 @@
     (test-results.trx), in artifacts/test-runs/<date-time>-<configuration>/, which git
     ignores. The script never deletes a saved run.
 
+    The usage mod's tests run after the build and before the .NET tests (Usage Mod Execution
+    Plan, ruling R4): claude plugin validate --strict mods/usage, then claude plugin test
+    mods/usage, with their output in mod-validate.txt and mod-test.txt in the same folder.
+    They pass when validate exits with 0, and the test command exits with 0 and ends with
+    "N pass" and "0 fail". Each other result is NOT GREEN, with its reason: no claude on the
+    path, mods are turned off, validate failed, or M fail. A machine with no Claude Code, or
+    with mods turned off, is NOT GREEN too: a green verdict says that everything was verified.
+    The mod's count never joins Total: its tests are not .NET tests, so dotnet test does not
+    list them, and Total and the expected count are both the .NET host's own counts.
+
     The run ends with one verdict line, which names that folder:
-      GREEN: exit 0, no abort, Total N, expected N, skipped S. Saved in <folder>
-      NOT GREEN: <each check that failed, with the numbers>; skipped S. Saved in <folder>
+      GREEN: exit 0, no abort, Total N, expected N, skipped S, mod M pass. Saved in <folder>
+      NOT GREEN: <each check that failed, with the numbers>; <the counts>. Saved in <folder>
     The script exits with 0 only for GREEN. A skipped test is listed and counted in Total, so
     the line shows the skipped count, summed from the summary lines, and never fails on it.
+    A NOT GREEN line still shows Total, the skipped count and the mod's count when they were
+    read, so a failure of one part does not hide the result of the other.
 
     Never run this elevated: the app is developed and run at normal integrity (Impl 6.5).
 
@@ -36,7 +48,7 @@
     Debug (default) or Release.
 
 .PARAMETER NoTest
-    Build only; skip the test run and the verdict.
+    Build only; skip the mod's tests, the test run and the verdict.
 
 .PARAMETER ExpectedTotal
     The expected count, in place of the list's count. The list is still taken, as a check,
@@ -87,13 +99,16 @@ function Invoke-Step {
     }
 }
 
-# Runs dotnet with the arguments, shows each line as it comes (unless -Quiet), and writes it to the file at once.
-# Returns the exit code. Standard error is read with standard output, as text.
+# Runs the command (dotnet by default) with the arguments, shows each line as it comes (unless -Quiet), and
+# writes it to the file at once. Returns the exit code. Standard error is read with standard output, as text.
+# -Utf8 reads the command's output as UTF-8, whatever the console's code page: claude writes marks outside ASCII.
 function Invoke-Logged {
     param(
         [Parameter(Mandatory)] [string[]] $Arguments,
         [Parameter(Mandatory)] [string] $Path,
-        [switch] $Quiet
+        [string] $Command = 'dotnet',
+        [switch] $Quiet,
+        [switch] $Utf8
     )
 
     $writer = New-Object System.IO.StreamWriter($Path, $false, (New-Object System.Text.UTF8Encoding($false)))
@@ -102,9 +117,14 @@ function Invoke-Logged {
     # Windows PowerShell turns a line on standard error into an error record; 'Stop' would end the run.
     $saved = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
+    $savedEncoding = [Console]::OutputEncoding
 
     try {
-        & dotnet @Arguments 2>&1 | ForEach-Object {
+        if ($Utf8) {
+            [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
+        }
+
+        & $Command @Arguments 2>&1 | ForEach-Object {
             $line = "$_"
             $writer.WriteLine($line)
 
@@ -117,6 +137,7 @@ function Invoke-Logged {
     }
     finally {
         $ErrorActionPreference = $saved
+        [Console]::OutputEncoding = $savedEncoding
         $writer.Dispose()
     }
 }
@@ -192,6 +213,76 @@ function Get-ShownPath {
     return $Path
 }
 
+# The last count of the form "  N pass" or "  N fail" in the mod test's output, or $null when there is none.
+function Get-ModCount {
+    param(
+        [Parameter(Mandatory)] [string] $Path,
+        [Parameter(Mandatory)] [string] $Word
+    )
+
+    $count = $null
+
+    foreach ($line in Get-Content -LiteralPath $Path -Encoding UTF8) {
+        if ($line -match "^\s*(\d+) $Word\s*$") {
+            $count = [int] $Matches[1]
+        }
+    }
+
+    return $count
+}
+
+# Validates and tests the usage mod (ruling R4). Passed is true only for "mod N pass"; Text is that, or the reason.
+function Invoke-ModTests {
+    param([Parameter(Mandatory)] [string] $Folder)
+
+    $mod = Join-Path $root (Join-Path 'mods' 'usage')
+
+    if (-not (Get-Command 'claude' -CommandType Application, ExternalScript -ErrorAction SilentlyContinue)) {
+        Write-Host ''
+        Write-Host '==> mod: no claude on the path, so the mod is not tested' -ForegroundColor Yellow
+        return [pscustomobject] @{ Passed = $false; Text = 'mod not run: no claude on the path' }
+    }
+
+    $validateFile = Join-Path $Folder 'mod-validate.txt'
+    $testFile = Join-Path $Folder 'mod-test.txt'
+
+    Write-Host ''
+    Write-Host "==> mod validate, to $(Get-ShownPath $validateFile)" -ForegroundColor Cyan
+    $validateExit = Invoke-Logged -Utf8 -Command 'claude' -Path $validateFile -Arguments @(
+        'plugin', 'validate', '--strict', $mod
+    )
+
+    Write-Host ''
+    Write-Host "==> mod test, to $(Get-ShownPath $testFile)" -ForegroundColor Cyan
+    $testExit = Invoke-Logged -Utf8 -Command 'claude' -Path $testFile -Arguments @('plugin', 'test', $mod)
+
+    # The words Claude Code uses when a setting, or Anthropic, stops every mod on the machine.
+    $turnedOff = [bool] (Select-String -LiteralPath $validateFile, $testFile -SimpleMatch -Pattern 'hooks modules are turned off' -Quiet)
+    $pass = Get-ModCount -Path $testFile -Word 'pass'
+    $fail = Get-ModCount -Path $testFile -Word 'fail'
+
+    if ($turnedOff) {
+        $text = 'mod not run: mods are turned off'
+    }
+    elseif ($validateExit -ne 0) {
+        $text = "mod validate failed (exit $validateExit)"
+    }
+    elseif ($null -ne $fail -and $fail -gt 0) {
+        $text = "mod $fail fail"
+    }
+    elseif ($testExit -ne 0 -or $null -eq $fail -or $null -eq $pass -or $pass -eq 0) {
+        # No test failed, and still no pass to report: the exit code and what was read say why.
+        $shownPass = if ($null -eq $pass) { 'no pass count' } else { "$pass pass" }
+        $shownFail = if ($null -eq $fail) { 'no fail count' } else { "$fail fail" }
+        $text = "mod test exit $testExit, $shownPass, $shownFail"
+    }
+    else {
+        return [pscustomobject] @{ Passed = $true; Text = "mod $pass pass" }
+    }
+
+    return [pscustomobject] @{ Passed = $false; Text = $text }
+}
+
 Invoke-Step -Name 'restore' -Arguments @('restore', $Solution)
 Invoke-Step -Name "build ($Configuration)" -Arguments @(
     'build', $Solution, '--configuration', $Configuration, '--no-restore'
@@ -207,6 +298,8 @@ $folder = New-RunFolder
 $shown = Get-ShownPath $folder
 $listFile = Join-Path $folder 'list.txt'
 $consoleFile = Join-Path $folder 'console.txt'
+
+$modResult = Invoke-ModTests -Folder $folder
 
 Write-Host ''
 Write-Host "==> list tests ($Configuration), to $shown" -ForegroundColor Cyan
@@ -224,7 +317,7 @@ if ($PSBoundParameters.ContainsKey('ExpectedTotal')) {
 }
 elseif ($listExit -ne 0 -or $listed -eq 0) {
     Write-Host ''
-    Write-Host "NOT GREEN: the test list gave no expected count (exit $listExit, $listed tests listed). Saved in $shown" -ForegroundColor Red
+    Write-Host "NOT GREEN: the test list gave no expected count (exit $listExit, $listed tests listed); $($modResult.Text). Saved in $shown" -ForegroundColor Red
     exit 1
 }
 else {
@@ -260,17 +353,33 @@ elseif ($total -ne $expected) {
     $failures += "Total $total, expected $expected"
 }
 
+if (-not $modResult.Passed) {
+    $failures += $modResult.Text
+}
+
 Write-Host ''
 
 if ($failures.Count -eq 0) {
-    Write-Host "GREEN: exit 0, no abort, Total $total, expected $expected, skipped $skipped. Saved in $shown" -ForegroundColor Green
+    Write-Host "GREEN: exit 0, no abort, Total $total, expected $expected, skipped $skipped, $($modResult.Text). Saved in $shown" -ForegroundColor Green
     exit 0
 }
 
-# A skip is shown, never failed on. With no summary line there is no count to show.
+# The counts that were read, after the checks that failed: a failure of the mod does not hide the .NET run's
+# Total, and a failure of the .NET run does not hide the mod's count. A skip is shown, never failed on.
+# With no summary line there is no count to show.
+$counts = @()
+
 if ($null -ne $total) {
-    $failures += "skipped $skipped"
+    if ($total -eq $expected) {
+        $counts += "Total $total, expected $expected"
+    }
+
+    $counts += "skipped $skipped"
 }
 
-Write-Host ("NOT GREEN: {0}. Saved in {1}" -f ($failures -join '; '), $shown) -ForegroundColor Red
+if ($modResult.Passed) {
+    $counts += $modResult.Text
+}
+
+Write-Host ("NOT GREEN: {0}. Saved in {1}" -f (($failures + $counts) -join '; '), $shown) -ForegroundColor Red
 exit 1
