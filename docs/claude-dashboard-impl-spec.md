@@ -803,7 +803,7 @@ Location: **`%LOCALAPPDATA%\ClaudeDashboard\`**. The variable `CLAUDE_DASHBOARD_
 | `port.txt` | The dashboard | After a bind. Never deleted | The port that this user last bound. An *input* to the next start and to a second instance |
 | `listening.txt` | The dashboard | After a bind and after the script is written. Deleted at exit | Line 1: the port. Line 2: the token. Its presence means "a dashboard listens now" |
 | `post-status.cmd` | The dashboard | At each start, if it is different from the text in the build | The hook script (§9.2). An edit by hand is undone at the next start |
-| `plugin\` | The dashboard | At each start, if different | The Claude Code plugin: `.claude-plugin\marketplace.json`, `.claude-plugin\plugin.json`, `hooks\hooks.json` (§9.4) |
+| `plugin\` | The dashboard | At each start, if different | The Claude Code plugin, five files: `.claude-plugin\marketplace.json`, `.claude-plugin\plugin.json`, the usage mod's `hooks\register.ts` and `hooks\listening-file.ts` (§9.5), then `hooks\hooks.json` (§9.4). The two module files are written first, so a `hooks.json` that names the module is never on disk before the module is. Claude Code adds `.claude-plugin\types\` and `tsconfig.json` beside them when it loads the mod (measured with `--plugin-dir`); the dashboard neither writes nor compares them, so they cause no rewrite |
 | `sounds\` | The operator | — | Optional. A `.wav` here with the name of a shipped sound replaces it. The dashboard does not create the folder |
 
 `port.txt` and `listening.txt` hold the same number and are two different facts. One file cannot carry both.
@@ -1056,6 +1056,7 @@ This is what the plugin's `hooks\hooks.json` holds.
 
 ```json
 {
+  "modules": ["./register.ts"],
   "hooks": {
     "SessionStart": [
       { "hooks": [ { "type": "command",
@@ -1072,6 +1073,7 @@ One entry of that form for each of the eight events.
 - **`command` with `args`**, so that no shell runs. On Windows the default shell differs from machine to machine. Both paths are absolute, because nothing expands a variable in this form.
 - **`async: true`**, so that the hook never delays a turn.
 - **No allow-list and no `headers`.** The script reads the token from `listening.txt`.
+- **`modules` names the usage mod** (§9.5), between `description` and `hooks`. One file holds both keys, and both run side by side. A Claude Code that does not read `modules` (2.1.241, in the guide's lab) still runs the handlers, so the dashboard checks no version before it writes the file. The handlers do not change with it.
 
 **What `post-status.cmd` does:**
 
@@ -1113,7 +1115,7 @@ The read is defensive:
 **Where the plugin cannot be registered, the dashboard works round nothing. It tells the operator, on screen, what is wrong and what to do.**
 
 - **The plugin is in the data folder**, at `plugin\`. Never in the install folder: Claude Code loads a plugin from a folder **in place**, and the install folder is replaced at each update.
-- **The plugin is a pointer.** `hooks.json` names `post-status.cmd` by its absolute path. `${CLAUDE_PLUGIN_ROOT}` is not used.
+- **The plugin is a pointer, and it carries the usage mod.** `hooks.json` names `post-status.cmd` by its absolute path. `${CLAUDE_PLUGIN_ROOT}` is not used. The mod is two files beside `hooks.json` (§9.5), written at each start with the other three when one differs from the build's text (`HookPlugin.EnsureWritten`). The start does not change for it: it asks nothing more of `claude`, and the plugin's version stays `1.0.0`, because a plugin that loads in place is not pinned by its version.
 - **Claude Code registers it.** The dashboard runs `claude plugin marketplace add <folder>` and `claude plugin install claude-dashboard@claude-dashboard`, with the input closed and a time limit. It then reads the settings again to see the result.
 - **`--install-hooks` registers the plugin and `--remove-hooks` removes it.** Neither does anything else. Each runs before the single-instance gate, so each works while the dashboard runs.
 
@@ -1154,6 +1156,57 @@ Measured on Claude Code 2.1.286 (2026-09-30 and 2026-10-01): both install comman
 - `listening.txt` is deleted at four points: the usual quit, a Windows logoff, a fault that stops the process, and the `finally` block of `Main`.
 - **Nothing is announced unless ingress is bound.** Hook payloads carry the operator's prompts.
 - **Residual:** a hard stop leaves `listening.txt` with the last port. Until the next start, the script posts there. If a different program took the port, it receives the prompts. The next start writes the file again, with a new token.
+
+### 9.5 The usage mod
+
+**The plugin carries a mod that sends the plan's usage to the dashboard** (issue #133). No hook event carries the usage figures (the [hooks reference](claude-code-hooks-reference.md)), and the status line, which has them, is a setting the dashboard must not write (§9.3). The [Usage Mod Development Guide](claude-dashboard-usage-mod-guide.md) is the full account, with every measurement.
+
+**What a mod is.** A TypeScript file that a plugin's `hooks.json` names under `modules` (§9.2). Claude Code loads it, with no Node.js and no build step, and calls its `register` function, which names the events it wants. From then on Claude Code calls the mod's function inside its own process when one of those events happens. A mod can reach a file or the network only through the calls that Claude Code hands it.
+
+**The two files** (`HookPlugin`):
+
+- **`hooks\register.ts` is `mods/usage/hooks/register.ts` of the repository,** embedded in the App assembly as a linked resource and read one time with its line ends made LF (`HookPlugin.ModuleText`). The repository holds one copy of the text, the one that `claude plugin validate` and `claude plugin test` check, and `build.ps1` runs both (ruling R2, R4). A test holds the written file equal to the repository's, byte for byte.
+- **`hooks\listening-file.ts` holds one constant:** the absolute path of this data folder's `listening.txt`, as a JSON string (`HookPlugin.ListeningModuleText`). A JSON string is a correct TypeScript string: each backslash is doubled, and each character outside ASCII, and the apostrophe, is an escape. Absolute, for the reason the script's path is (§9.4).
+
+**What it sends, and when:**
+
+- Claude Code raises `session.measure` at the end of each turn of the main conversation, and when a plan limit moves a whole point in the middle of one. It does not raise it when nothing changed. The event carries the plan's limits (`rateLimits`: `kind` `five_hour` or `seven_day`, `percentUsed`, `resetsAt`), and also `context`, `cost` and `changed`.
+- At each call the mod reads `listening.txt`. With no file it opens nothing. It holds the port and the token to the rules of `post-status.cmd` (§9.2), and uses neither otherwise.
+- It posts the event, unchanged, with `sessionId` added, to `http://127.0.0.1:<port>/usage`, with `X-Dashboard-Token`. It never reads the answer.
+- **It only observes.** It hands the event on as it came, never throws, prints nothing and shows nothing. A failure of any kind ends in its `catch`.
+- **The dashboard does not receive the posts yet.** `/usage` is *not built* (TS Appendix C): until it is, ingress answers `404`, and the mod drops the reading as it drops any answer.
+
+**The post starts from a timer, and that is not a preference.** The hook starts the post with `$.clock.after(0, …)`, so it runs outside the event. A post started inside the hook holds the end of a `claude -p` run until the dashboard answers, awaited or not. Wall time of one `claude -p` run, one run for each cell:
+
+| How the post starts | Dashboard answers at once | Answers after 5 s | Accepts, never answers |
+|---|---|---|---|
+| Inside the hook, awaited | 2.5 s | 6.8 s | 32.2 s |
+| Inside the hook, not awaited | 2.1 s | 7.1 s | 31.7 s |
+| From a 0 ms timer | 1.9 s | 2.2 s | 3.1 s |
+
+With no `listening.txt` the same run took 2.0 s. A slow hook does not slow the turn: what it holds is the end of the process. The cost of one call: 16 to 38 ms at a session's first call and 3 to 6 ms after that; no process is started. Accepted limit: the post starts a few milliseconds after the event, so a `claude -p` run can end before the last reading is sent.
+
+**What turns it off, with no word on screen:**
+
+| Cause | What stops |
+|---|---|
+| `disableAllHooks` in the operator's own settings | The mod, and every hook with it |
+| A session started with `--safe-mode` | Every installed plugin |
+| A session started with `--bare` | The mod |
+| An organization's `allowManagedModsOnly` | The mod. The command hooks keep running |
+| An organization's `allowManagedHooksOnly` | The mod and the command hooks |
+| An organization that turns off web fetching | The post. The mod loads, and drops each reading |
+| Anthropic turning installed mods off remotely | The mod |
+| A WSL session in the Desktop app | Every plugin |
+| A Claude Code before 2.1.287, the documented minimum | The mod may not load (2.1.241 did not; 2.1.286 did). The command hooks run |
+
+**A broken mod costs the usage reading and nothing more.** With `register.ts` missing, `listening-file.ts` missing, or half a `register.ts`, the session ran as usual and the command hooks fired; the debug log named the fault. For the dashboard a mod that is off looks the same as a quiet day.
+
+**The plugin's name.** `claude plugin validate` fails the name `claude-dashboard` since Claude Code 2.1.287: names that start with `claude-` are reserved. Install and load still work. The rename is issue #134 (ruling R1). On the folder that `HookPlugin` writes, `validate` lists `hooks: session.measure` and the calls `$.clock.after`, `$.fs.read`, `$.http.fetch` and `$.session.id`, and reports the name error once for each manifest, and nothing else.
+
+**The mods API is early access.** Claude Code's type declarations say that "this surface may change between releases without notice" (TS Appendix A).
+
+Measured on 2026-10-08 against Claude Code 2.1.294 on Linux, in the guide's lab: the timer table, the cost, the broken-mod faults, the minimum versions, and the causes marked measured in the guide. Measured on 2026-10-08 against Claude Code 2.1.293 on Windows (MOD.1, MOD.2): `validate` and the 28 tests on `mods/usage`; a `claude -p` run that loaded the mod from `mods/usage`; and a `claude -p` run that loaded it from a folder that `HookPlugin.EnsureWritten` wrote for a data folder with a space, an apostrophe and letters outside ASCII in its name, where the mod read `listening.txt` at that exact path, and the command hooks ran beside it. Not measured: an interactive session, and the installed plugin on Windows (MOD.6).
 
 ---
 
@@ -1283,3 +1336,4 @@ The text above says what is true now. This list says when each part changed.
 | 2026-10-08 | The prompt on a row is cut to 140 grapheme clusters, with a ceiling of 560 characters, by the same method as the title (`ClusterText.Shorten`), so a cut never falls inside an emoji, a flag or a letter with its accent (§5.6.3) | T1.81; issue #21 |
 | 2026-10-08 | A roster group counts once, at its roll-up, in the counts strip, the tray light and tooltip, and `/state`'s bands: `CountedStates.Of`, counted by `StatusSummary.Of(sessions, rosters, now)`, `MainViewModel.RecountBands` and `StateReport.Of`; the session total still counts sessions (§2.7, §3.5, §5.2, §5.6) | T1.83; issue #130 |
 | 2026-10-08 | The consumer wakes at a roster's settle deadline, not at the next tick: a settle that becomes due sooner than the armed wait arms the wait again (§5.6.9) | T1.83; issue #131 |
+| 2026-10-08 | The plugin carries the usage mod: `hooks\register.ts` (the repository's `mods/usage/hooks/register.ts`, embedded) and `hooks\listening-file.ts`, written before `hooks.json`, which names the module under `modules` beside the eight handlers; `/usage` is not built (§8.1, §9.2, §9.4, §9.5) | MOD.2; issue #133 |
