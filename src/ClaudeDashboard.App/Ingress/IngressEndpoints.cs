@@ -348,28 +348,36 @@ public static class IngressEndpoints
 
             // A post with no reading in it is still heard: the mod's path works.
             var readings = UsageReader.Read(body, now);
-            var held = board.Heard(readings, now);
+            var post = board.Accept(readings, now);
 
-            // GUARDED, AND BUILT FROM WHAT THE BOARD KEPT, NOT FROM WHAT THE POST SENT. The reader bounds the number
-            // of entries but not a kind's length, so a line built from its list carried a 10,024-character kind with
-            // a line break and a forged second line into the log file, while the board kept nothing (the MOD.4
-            // review). A kind the board kept has passed Core's bounds: at most eight kinds, each at most 64
-            // characters. Each is then shown escaped (EventValues.Shown), because 64 characters can still hold a line
-            // break. So the line is under 2,000 characters for any post. Cutting each kind of the post to 64 would
-            // also bound it, but would name readings that changed nothing. The guard spares the string work for every
-            // post when Debug is off.
+            // BUILT FROM WHAT THE BOARD ANSWERED, NOT FROM WHAT THE POST SENT. The reader bounds the number of entries
+            // but not a kind's length, so a line built from its list carried a 10,024-character kind with a line
+            // break and a forged second line into the log file (the MOD.4 review). UsageLogText names a kind only
+            // when the readings could hold it, escaped, and says why each reading was or was not kept, in Core's
+            // words (MOD.8, ruling R15). Its remark gives the bound on each line.
+            //
+            // AT INFORMATION ONLY WHEN THE PICTURE CHANGES: a kind appears or goes missing against the post before,
+            // or a reading is not kept. A post that only moves a percentage, which is every post of a working day,
+            // writes nothing there. The guard spares the string work when Debug is off.
+            var changes = UsageLogText.ChangesOf(post);
+
+            if (changes is not null)
+            {
+                logger.Information(
+                    "A /usage post from {SessionId:l} carries {Kinds:l}.{Changes:l}",
+                    UsageLogText.SessionOf(readings),
+                    UsageLogText.KindsOf(post),
+                    changes);
+            }
+
             if (logger.IsEnabled(LogEventLevel.Debug))
             {
-                var kept = held.Windows
-                    .Where(window => readings.Any(reading => ReferenceEquals(reading, window)))
-                    .Select(window => $"{EventValues.Shown(window.Kind)} {window.PercentUsed.ToString(System.Globalization.CultureInfo.InvariantCulture)}%")
-                    .ToList();
-
                 logger.Debug(
-                    "Heard a /usage post with {ReadingCount} readings; the board kept {KeptCount}: {Readings:l}",
+                    "Heard a /usage post from {SessionId:l} with {ReadingCount} readings; the board kept {KeptCount}: {Readings:l}",
+                    UsageLogText.SessionOf(readings),
                     readings.Count,
-                    kept.Count,
-                    kept.Count == 0 ? "(none)" : string.Join(", ", kept));
+                    post.Outcomes.Count(outcome => outcome.Refusal is null),
+                    UsageLogText.ReadingsOf(post));
             }
         }
         catch (OperationCanceledException)

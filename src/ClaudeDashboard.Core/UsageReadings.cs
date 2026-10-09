@@ -72,30 +72,20 @@ public sealed record UsageReadings
     /// <see cref="MaxKindLength"/>, or a percentage that is negative or not a number. So does a new
     /// kind when <see cref="MaxKinds"/> are held.
     /// </para>
+    /// <para>
+    /// <strong>The rule is <see cref="RefusalOf"/></strong>: this changes nothing exactly when it answers a reason,
+    /// so what the log file says about a reading and what was done with it cannot disagree (MOD.8, ruling R15).
+    /// </para>
     /// </remarks>
     /// <exception cref="ArgumentNullException"><paramref name="reading"/> is null.</exception>
     public UsageReadings With(UsageWindow reading)
     {
-        ArgumentNullException.ThrowIfNull(reading);
-
-        if (reading.Kind is not { Length: > 0 and <= MaxKindLength }
-            || !double.IsFinite(reading.PercentUsed)
-            || reading.PercentUsed < 0)
+        if (RefusalOf(reading) is not null)
         {
             return this;
         }
 
-        var held = Windows.FirstOrDefault(window => string.Equals(window.Kind, reading.Kind, StringComparison.Ordinal));
-
-        if (held is { ResetsAt: { } heldReset } && reading.ResetsAt is { } readReset && readReset < heldReset)
-        {
-            return this;
-        }
-
-        if (held is null && Windows.Count >= MaxKinds)
-        {
-            return this;
-        }
+        var held = HeldOf(reading.Kind);
 
         return this with
         {
@@ -110,6 +100,46 @@ public sealed record UsageReadings
     }
 
     /// <summary>
+    /// Why <see cref="With"/> would change nothing for <paramref name="reading"/>, or null when it would keep it
+    /// (MOD.8, ruling R15). The checks are made in this order, so a reading with no kind is never judged by its
+    /// percentage.
+    /// </summary>
+    /// <exception cref="ArgumentNullException"><paramref name="reading"/> is null.</exception>
+    public UsageRefusal? RefusalOf(UsageWindow reading)
+    {
+        ArgumentNullException.ThrowIfNull(reading);
+
+        if (string.IsNullOrEmpty(reading.Kind))
+        {
+            return UsageRefusal.NoKind;
+        }
+
+        if (reading.Kind.Length > MaxKindLength)
+        {
+            return UsageRefusal.KindTooLong;
+        }
+
+        if (!double.IsFinite(reading.PercentUsed) || reading.PercentUsed < 0)
+        {
+            return UsageRefusal.NotAPercentage;
+        }
+
+        var held = HeldOf(reading.Kind);
+
+        if (held is { ResetsAt: { } heldReset } && reading.ResetsAt is { } readReset && readReset < heldReset)
+        {
+            return UsageRefusal.OlderWindow;
+        }
+
+        if (held is null && Windows.Count >= MaxKinds)
+        {
+            return UsageRefusal.TooManyKinds;
+        }
+
+        return null;
+    }
+
+    /// <summary>
     /// What stands at <paramref name="now"/>: a limit whose reset time has passed is left out,
     /// because its percentage is no longer true. A limit with no reset time stays.
     /// </summary>
@@ -120,4 +150,52 @@ public sealed record UsageReadings
 
     private static bool Open(UsageWindow window, DateTimeOffset now) =>
         window.ResetsAt is not { } reset || reset > now;
+
+    private UsageWindow? HeldOf(string kind) =>
+        Windows.FirstOrDefault(window => string.Equals(window.Kind, kind, StringComparison.Ordinal));
+}
+
+/// <summary>Why <see cref="UsageReadings.With"/> changed nothing for a reading (MOD.8, ruling R15).</summary>
+public enum UsageRefusal
+{
+    /// <summary>The reading has no kind.</summary>
+    NoKind = 1,
+
+    /// <summary>The kind is longer than <see cref="UsageReadings.MaxKindLength"/>.</summary>
+    KindTooLong,
+
+    /// <summary>The percentage is negative or not a number.</summary>
+    NotAPercentage,
+
+    /// <summary>The reading's reset time is earlier than the held reading's: it was made in a window that ended.</summary>
+    OlderWindow,
+
+    /// <summary>A new kind, while <see cref="UsageReadings.MaxKinds"/> are held.</summary>
+    TooManyKinds,
+}
+
+/// <summary>The words for a <see cref="UsageRefusal"/>, so every interface and the log file say the same.</summary>
+public static class UsageRefusals
+{
+    /// <summary>
+    /// The reason as a clause that follows the reading it is about: "five_hour 2% with reset …, which is older than
+    /// the window held".
+    /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="refusal"/> is not a defined value.</exception>
+    public static string Clause(UsageRefusal refusal) => refusal switch
+    {
+        UsageRefusal.NoKind => "which has no kind",
+        UsageRefusal.KindTooLong => $"whose kind is longer than {UsageReadings.MaxKindLength} characters",
+        UsageRefusal.NotAPercentage => "whose percentage is negative or not a number",
+        UsageRefusal.OlderWindow => "which is older than the window held",
+        UsageRefusal.TooManyKinds => $"a new kind while {UsageReadings.MaxKinds} are held",
+        _ => throw new ArgumentOutOfRangeException(nameof(refusal), refusal, null),
+    };
+
+    /// <summary>
+    /// Whether a reading refused for <paramref name="refusal"/> may be named by its kind: false when the kind is
+    /// absent or too long, so a line never holds a kind the readings would not hold.
+    /// </summary>
+    public static bool NamesItsKind(UsageRefusal? refusal) =>
+        refusal is not (UsageRefusal.NoKind or UsageRefusal.KindTooLong);
 }
