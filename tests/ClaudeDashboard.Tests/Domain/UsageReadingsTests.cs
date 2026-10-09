@@ -106,6 +106,33 @@ public sealed class UsageReadingsTests
         Assert.Same(next, Assert.Single(readings.Windows));
     }
 
+    /// <summary>
+    /// <strong>A newer reading with no reset time replaces one that had a reset time</strong>, and stays when the held
+    /// one's reset time passes.
+    /// </summary>
+    /// <remarks>
+    /// The director's ruling of 2026-10-08 on a case the guide is silent on: the newest reading of a kind replaces the
+    /// one held, as the guide's first row says, because the older-window row needs an earlier reset time, and here
+    /// there is none to compare. The newest reading is the truth Claude Code last gave, and refusing it for a missing
+    /// reset time would throw away real data to guard against a rarer case. That rarer case is then accepted: a late
+    /// reading of an older window replaces the held one, because nothing is left to compare it with.
+    /// </remarks>
+    [Fact]
+    public void A_newer_reading_with_no_reset_time_replaces_one_that_had_a_reset_time()
+    {
+        var held = UsageReadings.Empty.With(Reading(FiveHour, 40, FiveHourReset));
+        var newer = Reading(FiveHour, 42, resetsAt: null, Heard.AddMinutes(5));
+
+        var readings = held.With(newer);
+
+        Assert.Same(newer, Assert.Single(readings.Windows));
+        Assert.Same(newer, Assert.Single(readings.At(FiveHourReset.AddHours(1)).Windows));
+
+        var late = Reading(FiveHour, 96, FiveHourReset.AddHours(-5), Heard.AddMinutes(6));
+
+        Assert.Same(late, Assert.Single(readings.With(late).Windows));
+    }
+
     /// <summary>A post that carries one kind leaves the held reading of each other kind as it was.</summary>
     [Fact]
     public void A_kind_that_a_post_does_not_carry_is_left_alone()
