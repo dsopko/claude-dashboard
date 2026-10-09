@@ -29,13 +29,20 @@ namespace ClaudeDashboard.App.Ingress;
 /// self-test. Added when a request is served, not when the consumer publishes, because it is
 /// written on request threads. #76 adds to it.
 /// </param>
+/// <param name="Usage">
+/// The plan's limits, as the usage mod last posted them (MOD.5, issue #133), or null before the first post. Added
+/// when a request is served, as <paramref name="Health"/> is, because <c>/usage</c> writes it on request threads: a
+/// post after the consumer's last publication is still in the answer. A limit whose reset time has passed is not in
+/// it.
+/// </param>
 public sealed record StateReport(
     DateTimeOffset PublishedAt,
     int SessionCount,
     IReadOnlyDictionary<AttentionBand, int> Bands,
     TrayRollUp Tray,
     IReadOnlyList<SessionStateEntry> Sessions,
-    HealthEntry? Health = null)
+    HealthEntry? Health = null,
+    UsageEntry? Usage = null)
 {
     /// <summary>What <c>/state</c> answers before the consumer has published anything.</summary>
     public static StateReport Empty(DateTimeOffset at) => Of([], _ => null, at);

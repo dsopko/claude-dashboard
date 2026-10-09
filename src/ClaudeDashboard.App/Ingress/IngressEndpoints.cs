@@ -157,6 +157,14 @@ public static class IngressEndpoints
             ? board.Current with { Health = health.Report().With((services.GetService(typeof(Pipeline.HealthBoard)) as Pipeline.HealthBoard)?.Current) }
             : board.Current;
 
+        // The plan's limits, read now (MOD.5, issue #133): /usage writes them on request threads, as /hook writes
+        // health, so a post after the consumer's last publication is in the answer. The board drops a limit whose
+        // reset time has passed at this instant.
+        if (services.GetService(typeof(UsageBoard)) is UsageBoard usage)
+        {
+            report = report with { Usage = usage.Report(Now(services)) };
+        }
+
         logger.Debug("Served /state with {SessionCount} sessions.", report.SessionCount);
 
         return Results.Json(report, StateOptions);
