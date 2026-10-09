@@ -474,7 +474,7 @@ Phase 1 is at the bottom of each ladder and works alone.
 
 ### IV.9 The state report
 
-A local caller can ask what the Registry believes now. The answer is one entry for each session (state, band, group, directory, title, times, kind of error, the background work it waits on, the time of its next nudge), then a count for each band, and the tray light. Since MOD.5 (issue #133) it also gives the plan's usage, the newest reading of each limit that has not reset, as the usage mod last posted it, or nothing before the first post. Since MOD.7 the window shows the same figures in its caption, beside the counts (Impl §5.6.1).
+A local caller can ask what the Registry believes now. The answer is one entry for each session (state, band, group, directory, title, times, kind of error, the background work it waits on, the time of its next nudge), then a count for each band, and the tray light. Since MOD.5 (issue #133) it also gives the plan's usage, the newest reading of each limit that has not reset, as the usage mod last posted it, or nothing before the first post. Since MOD.7 the window shows the same readings in its caption, beside the counts (Impl §5.6.1). Since MOD.8 it shows each as the share remaining, and a limit that has reset as fresh (100%) until the next reading, where this report leaves that limit out: the report keeps the figures as Claude Code sent them.
 
 - It is read-only. It changes no session and no setting.
 - It needs the token.
@@ -540,6 +540,7 @@ One list for all the documents. Each item is marked *not built* where it appears
 | The reconciliation sweep | §III.6 | Not built |
 | A restart of the dashboard after a crash | Earlier text of Impl §10.1 | Given up by ruling when the start moved to the `Run` key (Impl §10.1) |
 | "Open terminal" on an open row | Design §9 | The button is in the markup and is hidden until Phase 2 |
+| A line in the Activity window when a usage slot turns fresh (ruling R15) | Impl §5.6.1; Usage Mod Execution Plan, MOD.8 | The window's lines come only from the consumer's decisions; a usage reading makes none. Issue #143 keeps the item |
 | Navigator, Focus Observer, grouping by desktop, history search, the settings interface (but one checkbox), the remote surface | Part III, Part V | Phases 2 to 7 |
 
 ## Appendix D — Change history
@@ -587,3 +588,4 @@ The text above says what is true now. This list says when each rule changed, for
 | 2026-10-08 | The endpoint for the plan's usage is built: it keeps the newest reading of each limit, outside the world model of sessions; `/state` does not show it yet (§II.1, Appendix C) | MOD.4; issue #133 |
 | 2026-10-08 | The state report gives the plan's usage, read at the request, and says that the figure can be behind and is of one account (§II.1, §IV.9); the not-built row for it leaves Appendix C | MOD.5; issue #133 |
 | 2026-10-09 | The window shows the plan's usage in its caption, as the state report gives it (§IV.9) | MOD.7; issue #133 |
+| 2026-10-09 | The window shows the plan's usage as the share remaining, and a limit that has reset as fresh until the next reading; the state report does not change (§IV.9). The Activity line for a fresh slot is not built (Appendix C) | MOD.8; issues #143, #144, #145 |
