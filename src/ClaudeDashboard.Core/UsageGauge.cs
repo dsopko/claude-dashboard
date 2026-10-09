@@ -41,6 +41,16 @@ public enum UsageLevel
 /// <strong>Information, and still no alarm.</strong> A level changes a colour. It plays no sound, shows no
 /// notice and changes no state.
 /// </para>
+/// <para>
+/// <strong>The figure shown is the share remaining; the colour is judged by the share used</strong> (MOD.8, ruling
+/// R13). So "40% remaining" is amber, as "60% used" was, and nothing that was green turns amber.
+/// </para>
+/// <para>
+/// <strong>A slot is live or fresh</strong> (ruling R14). Its newest reading is live until its reset time; at and
+/// after it, the slot is fresh, 100% remaining and green, until a newer reading replaces it. A kind never reported
+/// has no slot. <see cref="UsageReadings.At"/>, which leaves a passed limit out, is <c>/state</c>'s view and not this
+/// one.
+/// </para>
 /// </remarks>
 public static class UsageGauge
 {
@@ -90,14 +100,33 @@ public static class UsageGauge
     }
 
     /// <summary>
-    /// The figure the window shows: <paramref name="percentUsed"/> rounded to a whole number, half away from
+    /// The used figure, which the colour is judged by: <paramref name="percentUsed"/> rounded to a whole number, half away from
     /// zero, so 49.5 is 50.
     /// </summary>
     public static double FigureOf(double percentUsed) => Math.Round(percentUsed, MidpointRounding.AwayFromZero);
 
     /// <summary>
+    /// The share remaining the window shows (ruling R13): <c>100</c> less the used figure rounded as
+    /// <see cref="FigureOf"/> rounds it, so 40.4 used is 60 and 49.5 used is 50. A used figure above 100 is 0: a
+    /// negative share is not a share.
+    /// </summary>
+    public static double RemainingOf(double percentUsed) => Math.Clamp(100 - FigureOf(percentUsed), 0, 100);
+
+    /// <summary>
+    /// Whether <paramref name="window"/> is fresh at <paramref name="now"/>: its reset time is at or before
+    /// <paramref name="now"/> (ruling R14). A reading with no reset time is never fresh.
+    /// </summary>
+    /// <exception cref="ArgumentNullException"><paramref name="window"/> is null.</exception>
+    public static bool IsFresh(UsageWindow window, DateTimeOffset now)
+    {
+        ArgumentNullException.ThrowIfNull(window);
+
+        return window.ResetsAt is { } reset && reset <= now;
+    }
+
+    /// <summary>
     /// The level of <paramref name="percentUsed"/>, judged by its whole-number figure (<see cref="FigureOf"/>):
-    /// the colour then agrees with the number beside it.
+    /// the colour then changes where the figure shown changes: 50% remaining is amber, 51% green, 10% amber, 9% red.
     /// </summary>
     public static UsageLevel LevelOf(double percentUsed)
     {
@@ -109,12 +138,13 @@ public static class UsageGauge
     }
 
     /// <summary>
-    /// The reading in each slot, in the slots' order; a slot with no reading is absent.
+    /// The reading in each slot at <paramref name="now"/>, in the slots' order, each live or fresh; a slot whose kind
+    /// was never reported is absent.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <strong>Give it <see cref="UsageReadings.At"/>, not the held readings,</strong> so a limit past its reset
-    /// time leaves its slot empty: its percentage is no longer true.
+    /// <strong>Give it the held readings, not <see cref="UsageReadings.At"/>:</strong> a limit past its reset time is
+    /// a fresh slot here (ruling R14), and <c>At</c> would leave it out.
     /// </para>
     /// <para>
     /// Two kinds that both contain the Fable text give the first in the order of their names, which is the
@@ -122,7 +152,7 @@ public static class UsageGauge
     /// </para>
     /// </remarks>
     /// <exception cref="ArgumentNullException"><paramref name="readings"/> is null.</exception>
-    public static IReadOnlyList<(UsageSlot Slot, UsageWindow Window)> Slots(UsageReadings readings)
+    public static IReadOnlyList<UsageSlotReading> Slots(UsageReadings readings, DateTimeOffset now)
     {
         ArgumentNullException.ThrowIfNull(readings);
 
@@ -136,6 +166,22 @@ public static class UsageGauge
             }
         }
 
-        return [.. bySlot.Select(pair => (pair.Key, pair.Value))];
+        return [.. bySlot.Select(pair => new UsageSlotReading(pair.Key, pair.Value, IsFresh(pair.Value, now)))];
     }
+}
+
+/// <summary>
+/// What one slot shows at an instant (MOD.8, rulings R13 and R14): its newest reading, and whether its reset time has
+/// passed.
+/// </summary>
+/// <param name="Slot">The slot.</param>
+/// <param name="Window">The slot's newest reading.</param>
+/// <param name="IsFresh">Whether the reading's reset time has passed: the slot then shows 100% remaining, green.</param>
+public sealed record UsageSlotReading(UsageSlot Slot, UsageWindow Window, bool IsFresh)
+{
+    /// <summary>The share remaining shown: 100 when fresh, else <see cref="UsageGauge.RemainingOf"/>.</summary>
+    public double Remaining => IsFresh ? 100 : UsageGauge.RemainingOf(Window.PercentUsed);
+
+    /// <summary>The colour: green when fresh, else <see cref="UsageGauge.LevelOf"/> of the share used.</summary>
+    public UsageLevel Level => IsFresh ? UsageLevel.Green : UsageGauge.LevelOf(Window.PercentUsed);
 }

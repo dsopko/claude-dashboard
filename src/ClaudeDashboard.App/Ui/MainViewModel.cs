@@ -671,29 +671,31 @@ public sealed partial class MainViewModel : ObservableObject, IUiTickTarget, ISo
     /// there is no new event and no new timer, and a post shows at the next tick at the latest.
     /// </para>
     /// <para>
-    /// <strong>At the tick's instant,</strong> through <see cref="UsageReadings.At"/>: a limit past its reset time
-    /// leaves its slot. Before the first tick there is no instant to judge by, so nothing shows.
+    /// <strong>At the tick's instant, by Core's rule</strong> (MOD.8, ruling R14): <see cref="UsageGauge.Slots"/>
+    /// takes the held readings and the instant, and a limit past its reset time is a fresh slot, 100% remaining,
+    /// until a newer reading arrives. <see cref="UsageReadings.At"/>, which would leave it out, is <c>/state</c>'s
+    /// view, not this one. Before the first tick there is no instant to judge by, so nothing shows.
     /// </para>
     /// </remarks>
     private void RestateUsage()
     {
         var slots = _now == DateTimeOffset.MinValue
             ? []
-            : UsageGauge.Slots(_usage.Current.At(_now));
+            : UsageGauge.Slots(_usage.Current, _now);
 
         var shown = 0;
 
         foreach (var pair in (UsageFigure[])[CurrentUsage, WeekUsage, FableUsage])
         {
-            var reading = slots.FirstOrDefault(entry => entry.Slot == pair.Slot).Window;
+            var slot = slots.FirstOrDefault(entry => entry.Slot == pair.Slot);
 
-            if (reading is null)
+            if (slot is null)
             {
                 pair.Hide();
                 continue;
             }
 
-            pair.Show(reading, _now, hasSeparator: shown > 0);
+            pair.Show(slot, _now, hasSeparator: shown > 0);
             shown++;
         }
 

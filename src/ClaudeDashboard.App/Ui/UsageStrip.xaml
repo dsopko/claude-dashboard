@@ -1,6 +1,6 @@
 <!--
-    The plan's usage — "Current 5% · Week 36% · Fable 60%" — as one piece of markup (MOD.7, issue
-    #133). MainWindow places it twice, as it places the counts: in the caption, to the left of the
+    The plan's usage — "Current 95% · Week 64% · Fable 40%", the share remaining — as one piece of
+    markup (MOD.7, issue #133; MOD.8, issue #144). MainWindow places it twice, as it places the counts: in the caption, to the left of the
     counts, and on the row under the caption when the caption has no room for its numbers. Both
     lines are this markup, so the ladder, the colours and the hover text are the same on both.
 
@@ -48,8 +48,9 @@
             </Style>
 
             <!--
-                The figure and its percent sign, in one colour: green below 50, amber from 50 to
-                90, red above 90, by the whole number shown (ruling R10, UsageGauge in Core).
+                The share remaining and its percent sign, in one colour judged by the share used:
+                green below 50 used, amber from 50 to 90, red above 90, by the rounded used figure
+                (rulings R10 and R13, UsageGauge in Core). A fresh slot is 100%, green (R14).
             -->
             <Style x:Key="UsageFigureStyle" TargetType="TextBlock">
                 <Setter Property="Text" Value="{Binding Figure}" />

@@ -277,7 +277,7 @@
                         -->
                         <!--
                             THE USAGE SHARES THE SLOT, AND THE COUNTS DECIDE FIRST (MOD.7, issue #133,
-                            ruling R9). "Current 5% . Week 36% . Fable 60%" stands to the left of the
+                            ruling R9). "Current 95% . Week 64% . Fable 40%" stands to the left of the
                             counts. SummarySlot measures the counts against the whole column, exactly
                             as above, and then the usage against what the counts left: the usage never
                             changes what the counts show, and the choice is still a pure function of the
@@ -296,25 +296,26 @@
                             14 before the slot stays, on whichever strip is leftmost.
 
                             MEASURED AT 100%, with the counts "11 sessions . 3 need you . 5 unread .
-                            8 working" and the figures 5%, 36% and 60%. Each run of
+                            8 working" and the figures 95%, 64% and 40% remaining (MOD.8; 5, 36 and
+                            60 used). Each run of
                             MainWindowTests.The_usage_drops_its_labels_before_its_numbers writes
                             these ranges to its output; the test judges by the room, not by these:
 
-                              two figures    320-499 row, 500-544 numbers, 545-683 row,
-                                             684-757 numbers, 758 and wider labels
-                              three figures  320-532 row, 533-544 numbers, 545-716 row,
-                                             717-821 numbers, 822 and wider labels
+                              two figures    320-506 row, 507-544 numbers, 545-690 row,
+                                             691-764 numbers, 765 and wider labels
+                              three figures  320-539 row, 540-544 numbers, 545-723 row,
+                                             724-828 numbers, 829 and wider labels
 
                             So a 520 window shows two figures as numbers, beside the counts as
                             numbers, and puts three on the row. The labels first stand beside the
-                            counts' full words at 758 with two figures and at 822 with three.
+                            counts' full words at 765 with two figures and at 829 with three.
 
                             THE USAGE CAN LEAVE THE CAPTION AS THE WINDOW WIDENS. That is the
                             ruling's order, not a fault: at 545 the counts take back their words
                             (tier 2 to tier 1, 115 more), and what is left is too little even for
                             the numbers. The usage comes back when the window has grown by the
-                            usage's own width again. The probe at 150% showed the same at 520, 540,
-                            600 and 900.
+                            usage's own width again. The MOD.7 probe at 150%, with MOD.7's figures
+                            (5%, 36%, 60%), showed the same at 520, 540, 600 and 900.
                         -->
                         <ui:SummarySlot x:Name="CaptionSlot"
                                         Grid.Column="2"
