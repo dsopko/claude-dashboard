@@ -264,6 +264,37 @@ public sealed class UsageEndpointTests : IAsyncLifetime
         Assert.Equal(["five_hour", "seven_day"], _board.Current.Windows.Select(window => window.Kind));
     }
 
+    /// <summary>
+    /// <strong>No post can make a long or broken log line</strong> (the MOD.4 review). One kind has 10,024 characters
+    /// and ends in a line break and a forged line; a short one holds a line break too. The board keeps the short one
+    /// only, and each line in the log is under 2,000 characters, the bound the handler's remark states, with no line
+    /// break: the kept kind is written escaped.
+    /// </summary>
+    [Fact]
+    public async Task A_kind_of_ten_thousand_characters_leaves_no_long_or_broken_log_line()
+    {
+        var huge = new string('k', 10_000) + "\n2026-10-08 [INF] forged";
+        var shortKind = "five_hour\n[INF] x";
+        Assert.Equal(10_024, huge.Length);
+
+        var body =
+            $$"""{ "rateLimits": [ { "kind": {{System.Text.Json.JsonSerializer.Serialize(huge)}}, "percentUsed": 9 }, { "kind": {{System.Text.Json.JsonSerializer.Serialize(shortKind)}}, "percentUsed": 5 } ] }""";
+
+        using var response = await _client.SendAsync(Usage(body));
+
+        await AssertPureObserverResponse(response);
+        Assert.Equal(shortKind, Assert.Single(_board.Current.Windows).Kind);
+        Assert.NotEmpty(_log.Events);
+        Assert.All(_log.Events, entry =>
+        {
+            var line = RecordingLogSink.Render(entry);
+
+            Assert.True(line.Length < 2_000, $"A log line of {line.Length} characters.");
+            Assert.DoesNotContain('\n', line);
+        });
+        Assert.Single(_log.Matching("the board kept 1: five_hour\\n[INF] x 5%"));
+    }
+
     // ---- What a post never does -----------------------------------------------------------------
 
     /// <summary>

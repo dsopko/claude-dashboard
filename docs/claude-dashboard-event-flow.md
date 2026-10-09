@@ -331,7 +331,7 @@ The tick is not an event. It causes changes that no hook causes:
 - **Roster groups.** A group settles 1.5 seconds after its last member stops, and the group plays one notice. The settle pass (`EventConsumer.ObserveRosterGroups`) reads the groups as they stand and hands the engine the member that settled the group and the group's Unread members. When each of those members already announced its finish, the settle is silent and recorded as already announced (T1.72): a roster made, renamed or joined after its members sounded adds no sound.
 - **The counts.** The health snapshot for `/state`, and once an hour an Information line and an `HourlySummary` decision row with the counts since the previous summary (T1.65).
 
-**A usage post is not an event, and does not use the channel** (MOD.4, issue #133). `POST /usage` checks the token as `/hook` does, reads the usage mod's figures, and keeps the newest reading of each limit on `UsageBoard`, on the request thread (Impl §3.2). A limit belongs to the account, not to a session, so a reading reaches no Registry, no archive and no sound engine, and makes no row. A refused post is the one exception: it counts as a refusal on `/hook` does, with its `HookRefused` row.
+**A usage post is not an event, and does not use the channel** (MOD.4, issue #133). `POST /usage` checks the token as `/hook` does, reads the usage mod's figures, and keeps the newest reading of each limit on `UsageBoard`, on the request thread (Impl §3.2). A limit belongs to the account, not to a session, so a reading reaches no Registry, no archive and no sound engine, and makes no row. A refused post is the one exception: it counts as a refusal, as one on `/hook` does, with its `HookRefused` row.
 
 ---
 

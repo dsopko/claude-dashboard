@@ -30,8 +30,12 @@ public sealed class UsageBoard
     public UsageReadings Current => Volatile.Read(ref _current);
 
     /// <summary>A usage post was accepted at <paramref name="at"/>, with the readings it carried.</summary>
+    /// <returns>
+    /// The readings as this post left them. A reading of the post that is in it, by reference, is one the rule kept,
+    /// so a caller can name what the post changed without a second read that another post could overtake.
+    /// </returns>
     /// <exception cref="ArgumentNullException"><paramref name="windows"/> is null.</exception>
-    public void Heard(IReadOnlyList<UsageWindow> windows, DateTimeOffset at)
+    public UsageReadings Heard(IReadOnlyList<UsageWindow> windows, DateTimeOffset at)
     {
         ArgumentNullException.ThrowIfNull(windows);
 
@@ -45,6 +49,8 @@ public sealed class UsageBoard
             }
 
             Volatile.Write(ref _current, next);
+
+            return next;
         }
     }
 
