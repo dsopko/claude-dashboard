@@ -199,7 +199,7 @@ public sealed class UsageEndpointTests : IAsyncLifetime
             });
 
         var line = Assert.Single(_log.Events, entry => entry.Level == Serilog.Events.LogEventLevel.Debug);
-        Assert.Contains("five_hour 24%, seven_day 13%", RecordingLogSink.Render(line), StringComparison.Ordinal);
+        Assert.Contains("the board kept 2: five_hour 24% ", RecordingLogSink.Render(line), StringComparison.Ordinal);
         Assert.Equal(0, _log.Containing(Token));
     }
 
@@ -292,8 +292,179 @@ public sealed class UsageEndpointTests : IAsyncLifetime
             Assert.True(line.Length < 2_000, $"A log line of {line.Length} characters.");
             Assert.DoesNotContain('\n', line);
         });
-        Assert.Single(_log.Matching("the board kept 1: five_hour\\n[INF] x 5%"));
+        Assert.Single(_log.Matching(
+            @"the board kept 1: a reading 9% with no reset time, not kept, whose kind is longer than 64 characters; five_hour\n[INF] x 5% with no reset time, kept"));
+        Assert.Single(_log.Matching("Not kept: a reading 9% with no reset time, whose kind is longer than 64 characters."));
     }
+
+    // ---- The lines that explain a post (MOD.8, issue #143, ruling R15) --------------------------
+
+    /// <summary>
+    /// <strong>A post that only moves a percentage writes no Information line</strong> (R15): the first post since
+    /// the start writes one, and nine more with the same kinds and other figures write none. Each writes its Debug
+    /// line.
+    /// </summary>
+    [Fact]
+    public async Task A_post_that_only_moves_a_percentage_writes_no_information_line()
+    {
+        await Post(RealBody);
+
+        Assert.Single(Information(), line => line.Contains("It is the first since the dashboard started.", StringComparison.Ordinal));
+
+        for (var used = 25; used < 34; used++)
+        {
+            _clock.Now += TimeSpan.FromMinutes(1);
+            await Post(Body(("five_hour", used, "2026-10-08T23:10:00Z"), ("seven_day", 13, "2026-10-14T13:00:00Z")));
+        }
+
+        Assert.Single(Information());
+        Assert.Equal(10, _log.Events.Count(entry => entry.Level == Serilog.Events.LogEventLevel.Debug));
+    }
+
+    /// <summary>
+    /// <strong>A post missing a kind the previous post carried writes one Information line</strong> (R15), with the
+    /// session, the kinds carried and the kind that went missing. The post before it may be any session's.
+    /// </summary>
+    [Fact]
+    public async Task A_post_missing_a_kind_the_previous_post_carried_writes_one_information_line()
+    {
+        await Post(RealBody);
+        _log.Clear();
+
+        await Post(Body(("seven_day", 14, "2026-10-14T13:00:00Z")), session: "3d6ad616");
+
+        Assert.Equal(
+            ["A /usage post from 3d6ad616 carries seven_day. The previous post also carried five_hour."],
+            Information());
+    }
+
+    /// <summary><strong>A post with a new kind writes one Information line</strong> (R15), naming the new kind.</summary>
+    [Fact]
+    public async Task A_post_with_a_new_kind_writes_one_information_line()
+    {
+        await Post(RealBody);
+        _log.Clear();
+
+        await Post(Body(
+            ("five_hour", 24, "2026-10-08T23:10:00Z"),
+            ("seven_day", 13, "2026-10-14T13:00:00Z"),
+            ("seven_day_fable", 60, "2026-10-14T13:00:00Z")));
+
+        Assert.Equal(
+            ["A /usage post from ab86443d-84b5-4342-85b4-a13111a93020 carries five_hour, seven_day, seven_day_fable. The previous post did not carry seven_day_fable."],
+            Information());
+    }
+
+    /// <summary>
+    /// <strong>A reading not kept is named with its reason</strong> (R15): its kind, its figure, its reset time in
+    /// UTC and the reason, in Core's words. The Debug line says the same. The board is unchanged.
+    /// </summary>
+    [Fact]
+    public async Task A_reading_not_kept_is_named_with_its_reason()
+    {
+        await Post(RealBody);
+        _log.Clear();
+
+        await Post(Body(("five_hour", 2, "2026-10-08T18:10:00Z"), ("seven_day", 13, "2026-10-14T13:00:00Z")));
+
+        Assert.Equal(
+            ["A /usage post from ab86443d-84b5-4342-85b4-a13111a93020 carries five_hour, seven_day. Not kept: five_hour 2% with reset 2026-10-08T18:10:00Z, which is older than the window held."],
+            Information());
+        Assert.Single(_log.Matching("five_hour 2% with reset 2026-10-08T18:10:00Z, not kept, which is older than the window held; seven_day 13%"));
+        Assert.Equal(24, _board.Current.Windows.Single(window => window.Kind == "five_hour").PercentUsed);
+    }
+
+    /// <summary>
+    /// <strong>The lines never hold the token</strong>: after a good post, a changed one, one with a reading not kept,
+    /// an empty one and a refused one, no message holds it.
+    /// </summary>
+    [Fact]
+    public async Task The_lines_never_hold_the_token()
+    {
+        await Post(RealBody);
+        await Post(Body(("seven_day", 13, "2026-10-14T13:00:00Z")));
+        await Post(Body(("five_hour", 2, "2026-10-08T18:10:00Z"), ("seven_day", -1, null)));
+        await Post("""{ "sessionId": "s-1", "rateLimits": [] }""");
+
+        using (var refused = await _client.SendAsync(Usage(RealBody, token: "wrong")))
+        {
+            Assert.Equal(HttpStatusCode.Unauthorized, refused.StatusCode);
+        }
+
+        Assert.True(Information().Count >= 4, _log.ToString());
+        Assert.Equal(0, _log.Containing(Token));
+        Assert.All(_log.Events, entry => Assert.DoesNotContain(Token, RecordingLogSink.Render(entry), StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// <strong>The Debug line carries each reading in full</strong> (R15): kind, figure, reset time in UTC, and kept;
+    /// a reading with no reset time says so.
+    /// </summary>
+    [Fact]
+    public async Task The_debug_line_carries_the_reset_time()
+    {
+        await Post(Body(("five_hour", 24, "2026-10-08T23:10:00Z"), ("seven_day", 13, null)));
+
+        var line = RecordingLogSink.Render(Assert.Single(_log.Events, entry => entry.Level == Serilog.Events.LogEventLevel.Debug));
+
+        Assert.Equal(
+            "Heard a /usage post from ab86443d-84b5-4342-85b4-a13111a93020 with 2 readings; the board kept 2: "
+                + "five_hour 24% with reset 2026-10-08T23:10:00Z, kept; seven_day 13% with no reset time, kept",
+            line);
+    }
+
+    /// <summary>
+    /// <strong>No post makes a line longer than <c>UsageLogText</c>'s bound</strong>: under 6,000 characters at Debug
+    /// and 16,000 at Information. The worst post: sixteen readings, each a new 64-character kind of control
+    /// characters (each escaped to six), with the longest figure and a reset time, none kept (a negative
+    /// percentage), after a post that carried sixteen other kinds. Each line has no line break.
+    /// </summary>
+    [Fact]
+    public async Task No_post_makes_a_line_longer_than_its_bound()
+    {
+        static string Kind(char first, int index) =>
+            first + index.ToString("D2", System.Globalization.CultureInfo.InvariantCulture) + new string('\u0001', 61);
+
+        static string Worst(char first, double used) =>
+            Body([.. Enumerable.Range(0, UsageReader.MaxEntries).Select(index => (Kind(first, index), used, (string?)"9999-12-31T23:59:59Z"))]);
+
+        await Post(Worst('a', 1));
+        _log.Clear();
+
+        await Post(Worst('b', double.MinValue));
+
+        var debug = RecordingLogSink.Render(Assert.Single(_log.Events, entry => entry.Level == Serilog.Events.LogEventLevel.Debug));
+        var information = Assert.Single(Information());
+
+        Assert.True(debug.Length is > 4_000 and < 6_000, $"The Debug line has {debug.Length} characters.");
+        Assert.True(information.Length is > 10_000 and < 16_000, $"The Information line has {information.Length} characters.");
+        Assert.All(_log.Events, entry => Assert.DoesNotContain('\n', RecordingLogSink.Render(entry)));
+    }
+
+    private async Task Post(string body)
+    {
+        using var response = await _client.SendAsync(Usage(body));
+
+        await AssertPureObserverResponse(response);
+    }
+
+    private Task Post(string body, string session) =>
+        Post(body.Replace("ab86443d-84b5-4342-85b4-a13111a93020", session, StringComparison.Ordinal));
+
+    private List<string> Information() =>
+        [.. _log.Events
+            .Where(entry => entry.Level == Serilog.Events.LogEventLevel.Information)
+            .Select(RecordingLogSink.Render)];
+
+    /// <summary>A post from the guide's session with these readings; a null reset time is left out of the entry.</summary>
+    private static string Body(params (string Kind, double Used, string? ResetsAt)[] readings) =>
+        System.Text.Json.JsonSerializer.Serialize(new
+        {
+            sessionId = "ab86443d-84b5-4342-85b4-a13111a93020",
+            rateLimits = readings.Select(reading => reading.ResetsAt is { } at
+                ? (object)new { kind = reading.Kind, percentUsed = reading.Used, resetsAt = at }
+                : new { kind = reading.Kind, percentUsed = reading.Used }),
+        });
 
     // ---- What a post never does -----------------------------------------------------------------
 

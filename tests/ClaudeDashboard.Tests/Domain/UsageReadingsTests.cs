@@ -25,6 +25,9 @@ public sealed class UsageReadingsTests
     private static readonly DateTimeOffset FiveHourReset = new(2026, 10, 8, 23, 10, 0, TimeSpan.Zero);
     private static readonly DateTimeOffset SevenDayReset = new(2026, 10, 14, 13, 0, 0, TimeSpan.Zero);
 
+    /// <summary>Each case of <see cref="Refused"/>: one reading the rule does not keep, for each reason.</summary>
+    private static readonly string[] RefusedCases = ["older", "no kind", "long kind", "negative", "not a number", "ninth kind"];
+
     // ---- The bounds ------------------------------------------------------------------------------
 
     /// <summary>
@@ -266,6 +269,85 @@ public sealed class UsageReadingsTests
         Assert.Equal(seen, before.Windows);
         Assert.Null(UsageReadings.Empty.LastHeardAt);
         Assert.Empty(UsageReadings.Empty.Windows);
+    }
+
+    // ---- The reason (MOD.8, R15) -----------------------------------------------------------------
+
+    /// <summary>
+    /// <strong>The readings say why <c>With</c> changed nothing</strong> (R15): an older window, no kind, a kind
+    /// too long, a percentage that cannot be true, and a ninth kind, each with its own reason and words. The words go
+    /// in the log file, so each is pinned.
+    /// </summary>
+    [Theory]
+    [InlineData("older", UsageRefusal.OlderWindow, "which is older than the window held")]
+    [InlineData("no kind", UsageRefusal.NoKind, "which has no kind")]
+    [InlineData("long kind", UsageRefusal.KindTooLong, "whose kind is longer than 64 characters")]
+    [InlineData("negative", UsageRefusal.NotAPercentage, "whose percentage is negative or not a number")]
+    [InlineData("not a number", UsageRefusal.NotAPercentage, "whose percentage is negative or not a number")]
+    [InlineData("ninth kind", UsageRefusal.TooManyKinds, "a new kind while 8 are held")]
+    public void With_says_why_it_changed_nothing(string @case, UsageRefusal reason, string words)
+    {
+        var (held, reading) = Refused(@case);
+
+        Assert.Equal(reason, held.RefusalOf(reading));
+        Assert.Same(held, held.With(reading));
+        Assert.Equal(words, UsageRefusals.Clause(reason));
+    }
+
+    /// <summary>
+    /// <strong><c>With</c> and the reason agree</strong>: where the reason is none, <c>With</c> changes the readings
+    /// and holds the reading; where there is one, <c>With</c> answers the same instance. Over every case of the rule,
+    /// kept and refused.
+    /// </summary>
+    [Fact]
+    public void With_and_the_reason_agree()
+    {
+        var full = Enumerable.Range(0, UsageReadings.MaxKinds)
+            .Aggregate(UsageReadings.Empty, (readings, index) => readings.With(Reading($"kind_{index}", 1, SevenDayReset)));
+        var held = UsageReadings.Empty.With(Reading(FiveHour, 24, FiveHourReset));
+
+        (UsageReadings Held, UsageWindow Reading)[] cases =
+        [
+            (held, Reading(FiveHour, 30, FiveHourReset)),
+            (held, Reading(FiveHour, 2, FiveHourReset.AddHours(5))),
+            (held, Reading(FiveHour, 2, null)),
+            (held, Reading(SevenDay, 13, SevenDayReset)),
+            (full, Reading("kind_3", 50, SevenDayReset)),
+            (UsageReadings.Empty, Reading(FiveHour, 0, null)),
+            .. RefusedCases.Select(Refused),
+        ];
+
+        foreach (var (before, reading) in cases)
+        {
+            var after = before.With(reading);
+
+            if (before.RefusalOf(reading) is null)
+            {
+                Assert.NotSame(before, after);
+                Assert.Contains(after.Windows, window => ReferenceEquals(window, reading));
+            }
+            else
+            {
+                Assert.Same(before, after);
+            }
+        }
+    }
+
+    private static (UsageReadings Held, UsageWindow Reading) Refused(string @case)
+    {
+        var held = UsageReadings.Empty.With(Reading(FiveHour, 24, FiveHourReset));
+        var full = Enumerable.Range(0, UsageReadings.MaxKinds)
+            .Aggregate(UsageReadings.Empty, (readings, index) => readings.With(Reading($"kind_{index}", 1, SevenDayReset)));
+
+        return @case switch
+        {
+            "older" => (held, Reading(FiveHour, 2, FiveHourReset.AddHours(-5))),
+            "no kind" => (held, Reading(string.Empty, 2, FiveHourReset)),
+            "long kind" => (held, Reading(new string('k', UsageReadings.MaxKindLength + 1), 2, FiveHourReset)),
+            "negative" => (held, Reading(SevenDay, -1, SevenDayReset)),
+            "not a number" => (held, Reading(SevenDay, double.NaN, SevenDayReset)),
+            _ => (full, Reading(FiveHour, 2, FiveHourReset)),
+        };
     }
 
     private static UsageWindow Reading(
