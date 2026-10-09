@@ -69,7 +69,7 @@ Core is 45 files and about 6,500 lines. Most of the lines are comments that give
 | The settle window | `RosterSettle`, `RosterGroupWatch` | A roster group reads finished only after 1.5 s of quiet | TS §IV.3 |
 | Sound policy | `SoundPolicyEngine`, `SoundPolicyOptions` | Notices on state entry. Nudges at 2, 5, 10 minutes. Mute and pause. A roster group's settle plays only when a finished member was not announced yet; the members come from the caller (`RosterSettle.UnreadMembers`), so the engine still holds no roster book (T1.72) | TS §IV.5 |
 | The roll-up | `StatusSummary`, over `CountedStates` | The worst state, and a count for each kind, with a roster group counted once, at its roll-up (T1.83, issue #130) | Impl §2.7, §5.2 |
-| The plan's limits | `UsageReadings`, `UsageWindow` | The newest reading of each kind wins, also when it shows less. A reading of an older window (an earlier reset time), a ninth kind, or a reading that cannot be true changes nothing. A limit past its reset time is left out when the readings are read, at an instant the caller gives. A reading is information: no threshold, no notice, no sound (MOD.3, issue #133). `POST /usage` feeds it, through `UsageBoard` in App (MOD.4); `/state` does not show it yet | [Usage mod guide](claude-dashboard-usage-mod-guide.md), "The server endpoint" |
+| The plan's limits | `UsageReadings`, `UsageWindow` | The newest reading of each kind wins, also when it shows less. A reading of an older window (an earlier reset time), a ninth kind, or a reading that cannot be true changes nothing. A limit past its reset time is left out when the readings are read, at an instant the caller gives. A reading is information: no threshold, no notice, no sound (MOD.3, issue #133). `POST /usage` feeds it, through `UsageBoard` in App (MOD.4); `/state` shows it as `usage` (MOD.5) | [Usage mod guide](claude-dashboard-usage-mod-guide.md), "The server endpoint" |
 | The one-writer check | `SingleWriterGuard` | Throws if two threads are in the Registry or the sound engine at one time | Impl §2.2 |
 
 ### 3.2 What Core takes in
@@ -291,6 +291,7 @@ Thus the dashboard process stays the only holder of Core. ClaudeDashWebApp is a 
 | Muted, paused, and until when | `ISoundModeReader` | **No** |
 | The notice, and an ingress fault | `HookNotice`, `IngressStatus` | **No** |
 | The next nudge | Not shown in the window | Yes |
+| The plan's usage | Not shown in the window (ruling R7) | Yes, as `usage`, read at the request (MOD.5, issue #133) |
 
 `/state` was built to answer "what does the dashboard believe now?" for a person with a terminal. It does that. It is a diagnostic read model, not an interface read model.
 

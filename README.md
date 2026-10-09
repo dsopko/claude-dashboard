@@ -58,7 +58,7 @@ A scheduled job, such as a watchdog that checks every 30 minutes, can end its tu
 
 ## Asking the dashboard what it believes
 
-`GET http://127.0.0.1:<port>/state` answers with what the dashboard believes now: every session with its state, band, title, waiting tasks and next nudge time, then the band counts and the tray light. It is for tests and diagnosis. It never carries a prompt or an answer. The [Implementation Specification](docs/claude-dashboard-impl-spec.md) §3.5 describes every field.
+`GET http://127.0.0.1:<port>/state` answers with what the dashboard believes now: every session with its state, band, title, waiting tasks and next nudge time, then the band counts and the tray light, and the plan's usage as the usage mod last posted it (`usage`, null before its first post). It is for tests and diagnosis. It never carries a prompt or an answer. The [Implementation Specification](docs/claude-dashboard-impl-spec.md) §3.5 describes every field.
 
 It needs the dashboard's token, in an `X-Dashboard-Token` header; without it, or with a wrong one, `/state` answers `401`. **You set nothing.** The dashboard makes a new token every time it starts and writes it, with the port, to `%LocalAppData%\ClaudeDashboard\listening.txt`: the port on the first line, the token on the second. The file exists only while a dashboard runs. The hook reads the same file at every event, so a Claude Code session keeps reporting through any number of dashboard restarts, and no session or terminal ever needs restarting for the token. Read the token again after each start. The old `CLAUDE_DASHBOARD_TOKEN` variable is no longer used; if it is set, the dashboard says so once in its log and ignores it.
 
@@ -71,7 +71,7 @@ Invoke-RestMethod "http://127.0.0.1:$port/state" -Headers @{ 'X-Dashboard-Token'
 
 ## The usage mod (in development)
 
-`mods/usage/` holds a Claude Code mod that sends the plan's usage (the 5-hour and the weekly percentage) to the dashboard at the end of each turn. The plugin that the dashboard writes carries it, as `hooks\register.ts`, and the dashboard keeps the newest reading of each limit, but nothing shows the readings yet: `/state` has no `usage` member. The [Usage Mod Development Guide](docs/claude-dashboard-usage-mod-guide.md) says what it does and why, and the [Usage Mod Execution Plan](docs/claude-dashboard-usage-mod-execution-plan.md) is its build plan. You need Claude Code 2.1.287 or later; no Node.js and no build step. Type each command in the repository's root folder:
+`mods/usage/` holds a Claude Code mod that sends the plan's usage (the 5-hour and the weekly percentage) to the dashboard at the end of each turn. The plugin that the dashboard writes carries it, as `hooks\register.ts`, and the dashboard keeps the newest reading of each limit and answers it in `/state`, as `usage`. The window and the tray do not show it. The [Usage Mod Development Guide](docs/claude-dashboard-usage-mod-guide.md) says what it does and why, and the [Usage Mod Execution Plan](docs/claude-dashboard-usage-mod-execution-plan.md) is its build plan. You need Claude Code 2.1.287 or later; no Node.js and no build step. Type each command in the repository's root folder:
 
 ```text
 claude plugin validate --strict mods/usage

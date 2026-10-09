@@ -106,7 +106,7 @@ Three rules make the script safe:
 - **No allow-list.** The mod posts through Claude Code's own call for the network, and no setting was needed for a post to the loopback address.
 - **With the dashboard closed, nothing shows.** With no file the mod opens nothing; with a port that nothing holds, its failure ends in its own `catch`.
 
-It holds the script's three rules too: it reads the file when it runs, it prints nothing, and it never fails a turn, because it hands the event on as it came. It adds one rule of its own: **the post starts from a timer, outside the event,** because a post started inside it holds the end of a `claude -p` run until the dashboard answers. The endpoint keeps the newest reading of each limit, outside the world model of sessions: a limit belongs to the account. No caller can read the readings yet (*not built*, Appendix C).
+It holds the script's three rules too: it reads the file when it runs, it prints nothing, and it never fails a turn, because it hands the event on as it came. It adds one rule of its own: **the post starts from a timer, outside the event,** because a post started inside it holds the end of a `claude -p` run until the dashboard answers. The endpoint keeps the newest reading of each limit, outside the world model of sessions: a limit belongs to the account. The state report shows them (§IV.9).
 
 ### II.2 The events consumed, and what each means
 
@@ -474,11 +474,12 @@ Phase 1 is at the bottom of each ladder and works alone.
 
 ### IV.9 The state report
 
-A local caller can ask what the Registry believes now. The answer is one entry for each session (state, band, group, directory, title, times, kind of error, the background work it waits on, the time of its next nudge), then a count for each band, and the tray light.
+A local caller can ask what the Registry believes now. The answer is one entry for each session (state, band, group, directory, title, times, kind of error, the background work it waits on, the time of its next nudge), then a count for each band, and the tray light. Since MOD.5 (issue #133) it also gives the plan's usage, the newest reading of each limit that has not reset, as the usage mod last posted it, or nothing before the first post.
 
 - It is read-only. It changes no session and no setting.
 - It needs the token.
 - **It never carries a prompt or an answer.** It does carry titles and descriptions of background work, by the operator's ruling, so that a caller can tell sessions apart.
+- **The usage figure can be behind the true one,** and it is of one account. A reading arrives only when a session ends a turn, and other apps use the same limits; each reading says when it arrived. The post names no account.
 - It is for tests and diagnosis. It is not a complete read model for a second interface: see [Core and App](claude-dashboard-core-and-app.md) §6.3.
 
 ---
@@ -540,7 +541,6 @@ One list for all the documents. Each item is marked *not built* where it appears
 | A restart of the dashboard after a crash | Earlier text of Impl §10.1 | Given up by ruling when the start moved to the `Run` key (Impl §10.1) |
 | "Open terminal" on an open row | Design §9 | The button is in the markup and is hidden until Phase 2 |
 | Navigator, Focus Observer, grouping by desktop, history search, the settings interface (but one checkbox), the remote surface | Part III, Part V | Phases 2 to 7 |
-| The plan's usage in `/state`: the `usage` object | §II.1; Impl §9.5; the usage mod guide | `POST /usage` keeps the readings on `UsageBoard` (MOD.4, Impl §3.2); `/state` has no `usage` member, so no caller can read them (MOD.5) |
 
 ## Appendix D — Change history
 
@@ -585,3 +585,4 @@ The text above says what is true now. This list says when each rule changed, for
 | 2026-10-08 | The tray light counts a roster group once, by the state its heading shows, so it is blue while an orchestration works (§III.10) | T1.83; issue #130 |
 | 2026-10-08 | A second transport, for the plan's usage only: the plugin carries a mod, which posts the figures to the loopback endpoint from a timer, and brings back none of the HTTP handler's faults (§II.1, Appendix A); its endpoint is not built (Appendix C) | MOD.2; issue #133 |
 | 2026-10-08 | The endpoint for the plan's usage is built: it keeps the newest reading of each limit, outside the world model of sessions; `/state` does not show it yet (§II.1, Appendix C) | MOD.4; issue #133 |
+| 2026-10-08 | The state report gives the plan's usage, read at the request, and says that the figure can be behind and is of one account (§II.1, §IV.9); the not-built row for it leaves Appendix C | MOD.5; issue #133 |
