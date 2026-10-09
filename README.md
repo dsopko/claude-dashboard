@@ -71,7 +71,7 @@ Invoke-RestMethod "http://127.0.0.1:$port/state" -Headers @{ 'X-Dashboard-Token'
 
 ## The usage mod (in development)
 
-`mods/usage/` holds a Claude Code mod that sends the plan's usage (the 5-hour and the weekly percentage) to the dashboard at the end of each turn. The plugin that the dashboard writes carries it, as `hooks\register.ts`, and the dashboard keeps the newest reading of each limit and answers it in `/state`, as `usage`. The window and the tray do not show it. The [Usage Mod Development Guide](docs/claude-dashboard-usage-mod-guide.md) says what it does and why, and the [Usage Mod Execution Plan](docs/claude-dashboard-usage-mod-execution-plan.md) is its build plan. You need Claude Code 2.1.287 or later; no Node.js and no build step. Type each command in the repository's root folder:
+`mods/usage/` holds a Claude Code mod that sends the plan's usage (the 5-hour and the weekly percentage) to the dashboard at the end of each turn. The plugin that the dashboard writes carries it, as `hooks\register.ts`, and the dashboard keeps the newest reading of each limit and answers it in `/state`, as `usage`. The window shows it in its caption, to the left of the counts: `Current 5% · Week 36% · Fable 60%`, in green, amber or red, with the reset time on hover. The tray does not show it. The [Usage Mod Development Guide](docs/claude-dashboard-usage-mod-guide.md) says what it does and why, and the [Usage Mod Execution Plan](docs/claude-dashboard-usage-mod-execution-plan.md) is its build plan. You need Claude Code 2.1.287 or later; no Node.js and no build step. Type each command in the repository's root folder:
 
 ```text
 claude plugin validate --strict mods/usage

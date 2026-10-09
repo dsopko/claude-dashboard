@@ -436,6 +436,7 @@ Until 2026-10-02 this section listed the places where the other documents disagr
 | The plugin: its files, its registration and its removal | `src/ClaudeDashboard.App/Setup/HookPlugin.cs`, `HookHandlers.cs`, `PluginInstaller.cs`, `ClaudeCli.cs`, `StartupHookInstall.cs`, `HookSwitches.cs` |
 | The usage mod, which the plugin carries | `mods/usage/hooks/register.ts`, embedded in `ClaudeDashboard.App.csproj`; its tests: `mods/usage/tests/register.test.ts` |
 | The usage post, the readings it keeps, and `usage` in `/state` | `src/ClaudeDashboard.App/Ingress/IngressEndpoints.cs` (`HandleUsage`, and `HandleState`, which adds `usage` at the request), `UsageReader.cs`, `UsageBoard.cs`, `StateReport.cs`; the rule: `src/ClaudeDashboard.Core/UsageReadings.cs` |
+| The usage in the caption | `src/ClaudeDashboard.App/Ui/MainViewModel.cs` (`RestateUsage`, at each refresh), `UsageFigure.cs`, `UsageStrip.xaml`, `SummarySlot.cs`, `MainWindow.xaml`; the rule: `src/ClaudeDashboard.Core/UsageGauge.cs` |
 | The read of Claude Code's settings, and the notice | `src/ClaudeDashboard.App/Setup/HookCheck.cs`, `HookNotice.cs`; `src/ClaudeDashboard.App/Configuration/ClaudeCodePaths.cs` |
 | The script | `src/ClaudeDashboard.App/Setup/HookScript.cs` |
 | The port files | `src/ClaudeDashboard.App/Configuration/ListeningFile.cs`, `PortFile.cs`; `src/ClaudeDashboard.App/Hosting/IngressAnnouncement.cs` |
