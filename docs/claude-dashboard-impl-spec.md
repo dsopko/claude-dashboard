@@ -244,14 +244,23 @@ The port that is bound goes into `port.txt`, and into `listening.txt` for as lon
 | Endpoint | Purpose | Token | Answers |
 |---|---|---|---|
 | `POST /hook` | Receives one hook event | Necessary | `200` with an empty body, always. `401` for a bad token |
+| `POST /usage` | Receives one measurement of the plan's usage from the usage mod (§9.5) | Necessary | `200` with an empty body, always. `401` for a bad token |
 | `POST /show` | A second start asks the first to show its window | Necessary | `200`, or `401` |
 | `GET /health` | Liveness, and the identity of the instance | **Not checked** | `{"status":"ok","instance":"<gate name>"}` |
 | `GET /state` | What the Registry believes now (§3.5) | Necessary | `200` with JSON, or `401` |
 
 - **`/hook`** reads the body as text, parses it into `HookPayload` (all fields optional), maps it to an `InboundEvent` (§9.1), writes the event to the channel (Part 4), and answers. It does no Registry work.
 - **The self-test's message is taken out before the mapper** (T1.61, issue #74). A body whose `hook_event_name` is `ClaudeDashboardSelfTest` is noted as arrived, by its one-time value in `self_test`, and answered `200` empty. It reaches no mapper, no channel, no Registry and no archive, so it makes no session, no row, no sound and no decision. `HookEventNames.Accepted` does not have it (§9.4).
-- **Every other post with a good token moves "last heard"** (`HookHealth.Heard`, on the request thread), the tooltip's last item (§5.2). The self-test and a refused post do not.
+- **Every other `/hook` post with a good token moves "last heard"** (`HookHealth.Heard`, on the request thread), the tooltip's last item (§5.2). The self-test and a refused post do not.
 - **A refused post** (`401`) is counted (`HookHealth.RefusedCount`, which #76 reads) and is recorded in `HookRefused` decision rows (§8.3), with no event and no session: at most one row a second, with the count (the operator's ruling of 2026-10-04; a flood wrote about 100 MB a minute). The tick writes what a flood left over, so no refusal goes unrecorded while the dashboard runs; at a stop, the refusals counted since the last row (at most one tick, 15 seconds) are not written (T1.62). It is not trusted, so nothing from its body or headers is kept. The Warning for each refused post stays.
+- **`/usage`** (MOD.4, issue #133) reads the body as text and keeps its readings on `UsageBoard`, a singleton written on request threads, as `HookHealth` is. It answers `200` with an empty body on every path after the token check: a good body, a body that is not JSON, a body with no limits, and any exception, which a catch-all takes.
+  - **What it reads** (`UsageReader`): `sessionId` and `rateLimits`, nothing else, so `context`, `cost` and `changed` cannot be stored, shown or logged. The first 16 entries are read. An entry needs a `kind` that is a string and a `percentUsed` that is a number; an entry of another shape is passed over. A `resetsAt` that is not a time reads as none, and a time is kept in UTC. A session id longer than 128 characters reads as none. A body of the wrong shape reads as nothing, and no body can make the read throw.
+  - **What it keeps** is Core's rule (`UsageReadings`, Core and App §3.1): the newest reading of each kind, also when it shows less; nothing for a reading of an older window, a ninth kind, a kind longer than 64 characters, or a percentage that is negative or not a number. A kind is data: it is kept as text and compared with nothing.
+  - **A post with no reading is still heard:** the board keeps the instant of the last accepted post, apart from the readings.
+  - **A refused post counts as one on `/hook` does** (ruling R3): `HookHealth.Refused`, the `HookRefused` row, and the refused notice after three in ten minutes. It is the same fault, with the same remedy.
+  - **An accepted post does not move "last heard"** (ruling R5): that instant says the script's path works (the script, `curl.exe` and the token), and a usage post comes by another path.
+  - **The log:** the same Warning for each refused post as `/hook` writes, and one Debug line for each accepted post, with the kinds and the percentages. Never the token.
+  - **It is not the Registry** (Part 4): no event, no session, no history row but the `HookRefused` row, no sound and no notice comes from a reading. `/state` does not show the readings yet: *not built* (TS Appendix C).
 - **`/health` has no token, and single-instance detection depends on that.** A start asks this endpoint if the dashboard on a port is a copy of itself. The dashboard of a different user has a different token, which the caller cannot hold. The instance value is the name of the single-instance gate (§5.3): a hash of a local path, not a secret.
 
 ### 3.3 The pure-observer property
@@ -259,6 +268,8 @@ The port that is bound goes into `port.txt`, and into `listening.txt` for as lon
 Each hook that the dashboard registers only observes. `/hook` answers `200` with an empty body and **never a decision field**. To Claude Code, that means "success, no decision". The dashboard thus **cannot block, delay or change** a Claude Code turn.
 
 `/hook` answers `200` for a good event, an unknown event, a body that is not JSON, an absent session id, a full channel, and any exception after the token check. A dashboard under load must never push back on the thing that it watches.
+
+`/usage` holds the same property for the usage mod (§9.5): `200` with an empty body and no decision field for a good body, a body that is not JSON, a body with no limits, and any exception after the token check. The mod never reads the answer, and it posts from a timer outside the event, so even a slow answer holds nothing.
 
 ### 3.4 Boundary security
 
@@ -349,6 +360,7 @@ How it crosses threads: `StateBoard` listens to `SessionChanged` and `NudgeSched
  EventArchiveWriter (one thread) ─▶ dashboard.db
 ```
 
+- **A usage post does not enter the channel** (MOD.4, issue #133). `/usage` keeps its readings on `UsageBoard`, on the request thread, under one small lock for the writers and one published reference for the readers, as `HookHealth` holds its values. A limit belongs to the account, not to a session, so a reading makes no event and reaches no Registry, no consumer, no archive and no sound engine. The consumer's one-writer rule is not touched.
 - **The channel sheds only noise** (T1.58, the operator's ruling of 2026-10-03 on issue #3). Until T1.58 it dropped its oldest event when full, and the oldest could be the permission prompt the operator most needed. A write never blocks.
   - **Below 1,024 queued** (`EventPipeline.DefaultCapacity`), every event is written.
   - **At or above 1,024**, a noise event is refused at the door: the newest is shed, not the oldest. Every other event is still written. Nothing already queued is removed, so order is kept.
@@ -1174,7 +1186,7 @@ Measured on Claude Code 2.1.286 (2026-09-30 and 2026-10-01): both install comman
 - At each call the mod reads `listening.txt`. With no file it opens nothing. It holds the port and the token to the rules of `post-status.cmd` (§9.2), and uses neither otherwise.
 - It posts the event, unchanged, with `sessionId` added, to `http://127.0.0.1:<port>/usage`, with `X-Dashboard-Token`. It never reads the answer.
 - **It only observes.** It hands the event on as it came, never throws, prints nothing and shows nothing. A failure of any kind ends in its `catch`.
-- **The dashboard does not receive the posts yet.** `/usage` is *not built* (TS Appendix C): until it is, ingress answers `404`, and the mod drops the reading as it drops any answer.
+- **The dashboard keeps the readings** (MOD.4): `POST /usage` reads them and keeps the newest of each kind on `UsageBoard` (§3.2). `/state` does not show them yet: *not built* (TS Appendix C). Until MOD.4 ingress had no `/usage`, answered `404`, and the mod dropped each reading.
 
 **The post starts from a timer, and that is not a preference.** The hook starts the post with `$.clock.after(0, …)`, so it runs outside the event. A post started inside the hook holds the end of a `claude -p` run until the dashboard answers, awaited or not. Wall time of one `claude -p` run, one run for each cell:
 
@@ -1337,3 +1349,4 @@ The text above says what is true now. This list says when each part changed.
 | 2026-10-08 | A roster group counts once, at its roll-up, in the counts strip, the tray light and tooltip, and `/state`'s bands: `CountedStates.Of`, counted by `StatusSummary.Of(sessions, rosters, now)`, `MainViewModel.RecountBands` and `StateReport.Of`; the session total still counts sessions (§2.7, §3.5, §5.2, §5.6) | T1.83; issue #130 |
 | 2026-10-08 | The consumer wakes at a roster's settle deadline, not at the next tick: a settle that becomes due sooner than the armed wait arms the wait again (§5.6.9) | T1.83; issue #131 |
 | 2026-10-08 | The plugin carries the usage mod: `hooks\register.ts` (the repository's `mods/usage/hooks/register.ts`, embedded) and `hooks\listening-file.ts`, written before `hooks.json`, which names the module under `modules` beside the eight handlers; `/usage` is not built (§8.1, §9.2, §9.4, §9.5) | MOD.2; issue #133 |
+| 2026-10-08 | `POST /usage` receives the usage mod's post: the token as on `/hook`, `200` empty on every path after it, the readings kept on `UsageBoard` by Core's rule; a refusal counts as on `/hook` (R3), an accepted post does not move "last heard" (R5), and nothing enters the channel (§3.2, §3.3, Part 4, §9.5) | MOD.4; issue #133 |
