@@ -175,6 +175,10 @@ public static class AppHost
         // self-test that runs the script as Claude Code does. Written on request threads and the
         // self-test's thread; read on the tray's tick and by /state.
         builder.Services.AddSingleton<HookHealth>();
+
+        // The plan's limits, as the usage mod last posted them (issue #133, Impl §9.5). Written on request
+        // threads by /usage; never the Registry, and nothing of it enters the event channel.
+        builder.Services.AddSingleton<UsageBoard>();
         builder.Services.AddSingleton<HookSelfTest>();
         builder.Services.AddSingleton<SelfTestNotice>();
         builder.Services.AddSingleton<RefusedNotice>();
