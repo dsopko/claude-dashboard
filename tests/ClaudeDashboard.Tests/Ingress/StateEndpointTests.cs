@@ -26,7 +26,7 @@ namespace ClaudeDashboard.Tests.Ingress;
 /// and the <c>404</c> this endpoint gave in that case went with it. <c>/health</c> still answers
 /// without a token.
 /// </remarks>
-public sealed class StateEndpointTests
+public sealed class StateEndpointTests(Xunit.Abstractions.ITestOutputHelper output)
 {
     private const string Token = "state-test-token";
 
@@ -316,6 +316,152 @@ public sealed class StateEndpointTests
         Assert.Equal("published", Assert.Single(root.GetProperty("sessions").EnumerateArray().ToList()).GetProperty("id").GetString());
     }
 
+    // ---- The plan's usage (MOD.5, issue #133) ---------------------------------------------------
+
+    /// <summary>The first body the usage mod sent in the guide's lab ("What you get").</summary>
+    private const string RealUsageBody =
+        """
+        {
+          "sessionId": "ab86443d-84b5-4342-85b4-a13111a93020",
+          "context": { "tokens": 3575, "window": 1000000, "percent": 0 },
+          "rateLimits": [
+            { "kind": "five_hour", "percentUsed": 24, "resetsAt": "2026-10-08T23:10:00.000Z" },
+            { "kind": "seven_day", "percentUsed": 13, "resetsAt": "2026-10-14T13:00:00.000Z" }
+          ],
+          "cost": { "usd": 0.0006151500000000001 },
+          "changed": ["context", "rateLimits", "cost"]
+        }
+        """;
+
+    /// <summary>
+    /// <strong>The report's members, by name and in order, as they are with <c>usage</c></strong> (MOD.5). The six
+    /// that were there before keep their names and places; <c>usage</c> comes last, after <c>health</c>.
+    /// </summary>
+    [Fact]
+    public async Task The_report_names_its_members_as_before_and_usage_last()
+    {
+        await using var host = await StateHost.Start(Token);
+
+        using var response = await host.Client.SendAsync(Get("/state", Token));
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+
+        Assert.Equal(
+            ["publishedAt", "sessionCount", "bands", "tray", "sessions", "health", "usage"],
+            document.RootElement.EnumerateObject().Select(member => member.Name));
+    }
+
+    /// <summary><strong><c>usage</c> is null before the first post</strong>, and present as a member.</summary>
+    [Fact]
+    public async Task State_before_any_post_says_usage_is_null()
+    {
+        await using var host = await StateHost.Start(Token);
+
+        using var response = await host.Client.SendAsync(Get("/state", Token));
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(JsonValueKind.Null, document.RootElement.GetProperty("usage").ValueKind);
+    }
+
+    /// <summary>
+    /// <strong>The guide's real body, posted to <c>/usage</c> after the consumer's last publication, is in the next
+    /// <c>/state</c></strong>: <c>lastHeardAt</c> and the two windows, in the order of their kinds, with camelCase
+    /// names and each instant in UTC, ending in <c>Z</c>. Reading <c>/state</c> changes no reading.
+    /// </summary>
+    [Fact]
+    public async Task State_carries_the_readings_in_camel_case_with_instants_in_UTC()
+    {
+        await using var host = await StateHost.Start(Token);
+
+        // A publication, then the post: the post is later than anything the consumer published.
+        host.Registry.Apply(new UserPromptSubmit
+        {
+            SessionId = new SessionId("s-1"),
+            Timestamp = FakeClock.DefaultStart,
+            Cwd = @"C:\work",
+            PromptId = "p-1",
+            Prompt = "go",
+        });
+        var published = host.Board.Current;
+
+        using (var post = await host.Client.SendAsync(Post("/usage", RealUsageBody, Token)))
+        {
+            Assert.Equal(HttpStatusCode.OK, post.StatusCode);
+        }
+
+        var held = host.Usage.Current;
+
+        using var response = await host.Client.SendAsync(Get("/state", Token));
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var usage = document.RootElement.GetProperty("usage");
+
+        output.WriteLine(usage.GetRawText());
+
+        Assert.Same(published, host.Board.Current);
+        Assert.Same(held, host.Usage.Current);
+        Assert.Equal(["lastHeardAt", "windows"], usage.EnumerateObject().Select(member => member.Name));
+        Assert.Equal("2026-08-24T09:00:00Z", usage.GetProperty("lastHeardAt").GetString());
+
+        var windows = usage.GetProperty("windows").EnumerateArray().ToList();
+
+        Assert.Collection(
+            windows,
+            fiveHour =>
+            {
+                Assert.Equal(
+                    ["kind", "percentUsed", "resetsAt", "heardAt", "sessionId"],
+                    fiveHour.EnumerateObject().Select(member => member.Name));
+                Assert.Equal("five_hour", fiveHour.GetProperty("kind").GetString());
+                Assert.Equal(24, fiveHour.GetProperty("percentUsed").GetDouble());
+                Assert.Equal("2026-10-08T23:10:00Z", fiveHour.GetProperty("resetsAt").GetString());
+                Assert.Equal("2026-08-24T09:00:00Z", fiveHour.GetProperty("heardAt").GetString());
+                Assert.Equal("ab86443d-84b5-4342-85b4-a13111a93020", fiveHour.GetProperty("sessionId").GetString());
+            },
+            sevenDay =>
+            {
+                Assert.Equal("seven_day", sevenDay.GetProperty("kind").GetString());
+                Assert.Equal(13, sevenDay.GetProperty("percentUsed").GetDouble());
+                Assert.Equal("2026-10-14T13:00:00Z", sevenDay.GetProperty("resetsAt").GetString());
+            });
+    }
+
+    /// <summary>
+    /// <strong>A limit whose reset time has passed is not in <c>usage</c></strong>, read at the clock's instant: at
+    /// the five-hour limit's reset time it is out, and the weekly one and <c>lastHeardAt</c> stay. The board still
+    /// holds it; only the answer leaves it out.
+    /// </summary>
+    [Fact]
+    public async Task State_leaves_out_a_limit_whose_reset_time_has_passed()
+    {
+        await using var host = await StateHost.Start(Token);
+
+        using (var post = await host.Client.SendAsync(Post("/usage", RealUsageBody, Token)))
+        {
+            Assert.Equal(HttpStatusCode.OK, post.StatusCode);
+        }
+
+        host.Clock.Now = new DateTimeOffset(2026, 10, 8, 23, 10, 0, TimeSpan.Zero);
+
+        using var response = await host.Client.SendAsync(Get("/state", Token));
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var usage = document.RootElement.GetProperty("usage");
+
+        var window = Assert.Single(usage.GetProperty("windows").EnumerateArray().ToList());
+        Assert.Equal("seven_day", window.GetProperty("kind").GetString());
+        Assert.Equal("2026-08-24T09:00:00Z", usage.GetProperty("lastHeardAt").GetString());
+        Assert.Equal(2, host.Usage.Current.Windows.Count);
+    }
+
+    private static HttpRequestMessage Post(string path, string json, string token)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, path)
+        {
+            Content = new StringContent(json, Encoding.UTF8, "application/json"),
+        };
+        request.Headers.Add(IngressToken.HeaderName, token);
+        return request;
+    }
+
     private static HttpRequestMessage Get(string path, string token)
     {
         var request = new HttpRequestMessage(HttpMethod.Get, path);
@@ -337,6 +483,8 @@ public sealed class StateEndpointTests
             Registry = app.Services.GetRequiredService<SessionRegistry>();
             Board = app.Services.GetRequiredService<StateBoard>();
             Sink = (RecordingEventSink)app.Services.GetRequiredService<IEventSink>();
+            Usage = app.Services.GetRequiredService<UsageBoard>();
+            Clock = (FakeClock)app.Services.GetRequiredService<IClock>();
         }
 
         public HttpClient Client { get; }
@@ -347,6 +495,12 @@ public sealed class StateEndpointTests
 
         /// <summary>What /hook published. Nothing drains it: a test applies what it needs.</summary>
         public RecordingEventSink Sink { get; }
+
+        /// <summary>The plan's limits, as /usage keeps them (MOD.5).</summary>
+        public UsageBoard Usage { get; }
+
+        /// <summary>The clock /state and /usage read; a test moves it.</summary>
+        public FakeClock Clock { get; }
 
         public static async Task<StateHost> Start(string token)
         {
@@ -366,6 +520,7 @@ public sealed class StateEndpointTests
             builder.Services.AddSingleton(new IngressToken(token));
             builder.Services.AddSingleton(sp => new HookEventMapper(sp.GetRequiredService<IClock>()));
             builder.Services.AddSingleton<IEventSink>(new RecordingEventSink());
+            builder.Services.AddSingleton(new UsageBoard());
             builder.Services.AddSingleton(new SessionRegistry(guard));
             builder.Services.AddSingleton(new SoundPolicyEngine(new RecordingSoundPlayer(), clock, guard, new SoundPolicyOptions()));
             builder.Services.AddSingleton(sp => new StateBoard(
