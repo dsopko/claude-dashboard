@@ -1112,6 +1112,45 @@ public sealed class AppHostTests : IDisposable
         Assert.True(Holds(consumer, board), "The host's consumer does not hold the host's state board.");
     }
 
+    /// <summary>
+    /// <strong>The host maps <c>/usage</c> and keeps a post on its one usage board</strong> (MOD.4, issue #133): a post
+    /// with the host's own token reaches the board the container holds, and does not move "last heard" (ruling R5).
+    /// </summary>
+    [Fact]
+    public async Task The_host_keeps_a_usage_post_on_its_one_usage_board()
+    {
+        var (started, port, _) = await StartedHost();
+        using var host = started;
+
+        try
+        {
+            var board = host.Services.GetRequiredService<ClaudeDashboard.App.Ingress.UsageBoard>();
+            Assert.Same(board, host.Services.GetRequiredService<ClaudeDashboard.App.Ingress.UsageBoard>());
+
+            using var client = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+            using var request = new System.Net.Http.HttpRequestMessage(System.Net.Http.HttpMethod.Post, new Uri($"http://127.0.0.1:{port}/usage"))
+            {
+                Content = new System.Net.Http.StringContent(
+                    """{ "sessionId": "s-1", "rateLimits": [ { "kind": "five_hour", "percentUsed": 24, "resetsAt": "2026-10-08T23:10:00Z" } ] }""",
+                    System.Text.Encoding.UTF8,
+                    "application/json"),
+            };
+            request.Headers.Add(
+                ClaudeDashboard.App.Ingress.IngressToken.HeaderName,
+                host.Services.GetRequiredService<ClaudeDashboard.App.Ingress.IngressToken>().Reveal());
+
+            using var response = await client.SendAsync(request);
+
+            Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+            Assert.Equal("five_hour", Assert.Single(board.Current.Windows).Kind);
+            Assert.Null(host.Services.GetRequiredService<ClaudeDashboard.App.Ingress.HookHealth>().LastHeardAt);
+        }
+        finally
+        {
+            await host.StopAsync();
+        }
+    }
+
     /// <summary>Whether one of <paramref name="owner"/>'s own instance fields is <paramref name="value"/>.</summary>
     private static bool Holds(object owner, object value) =>
         owner.GetType()

@@ -60,7 +60,7 @@ public static class IngressEndpoints
         Converters = { new JsonStringEnumConverter() },
     };
 
-    /// <summary>Maps <c>/hook</c>, <c>/show</c>, <c>/health</c> and <c>/state</c>.</summary>
+    /// <summary>Maps <c>/hook</c>, <c>/usage</c>, <c>/show</c>, <c>/health</c> and <c>/state</c>.</summary>
     /// <param name="app">The endpoint route builder.</param>
     /// <param name="onShow">What to do when a second instance asks this one to surface (T1.15).</param>
     public static void MapIngress(this IEndpointRouteBuilder app, Action? onShow = null)
@@ -68,6 +68,7 @@ public static class IngressEndpoints
         ArgumentNullException.ThrowIfNull(app);
 
         app.MapPost("/hook", (Delegate)HandleHook);
+        app.MapPost("/usage", (Delegate)HandleUsage);
         app.MapPost("/show", (HttpContext context) => HandleShow(context, onShow));
         app.MapGet("/health", (HttpContext context) => HandleHealth(context));
         app.MapGet("/state", (HttpContext context) => HandleState(context));
@@ -286,6 +287,73 @@ public static class IngressEndpoints
                 "Dropped hook event {HookEventName} for session {SessionId}: the pipeline would not accept it.",
                 payload.HookEventName,
                 mapping.Event!.SessionId.Value);
+        }
+
+        return Empty200();
+    }
+
+    /// <summary>
+    /// The usage mod's post (Impl §3.2, §9.5; issue #133): the plan's limits, kept on the
+    /// <see cref="UsageBoard"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>A pure observer, as <c>/hook</c> is (Impl §3.3).</strong> After the token check it
+    /// answers <c>200</c> with an empty body on every path: a good body, a body that is not JSON, a
+    /// body with no limits in it, and any exception, which the catch-all takes. The mod never reads
+    /// the answer, but a status that meant something would invite a sender that does.
+    /// </para>
+    /// <para>
+    /// <strong>A refused post counts as a refusal, as one on <c>/hook</c> does</strong> (ruling R3): the same
+    /// fault, with the same remedy. <strong>An accepted post does not move "last heard"</strong>
+    /// (ruling R5): that instant says the script's path works, and a usage post comes by another
+    /// path. The board keeps its own instant.
+    /// </para>
+    /// <para>
+    /// <strong>Nothing enters the channel.</strong> A limit belongs to the account, not to a session:
+    /// no event, no mapper, no Registry, no archive and no row comes from a reading.
+    /// </para>
+    /// </remarks>
+    private static async Task<IResult> HandleUsage(HttpContext context)
+    {
+        var services = context.RequestServices;
+        var logger = services.GetService(typeof(ILogger)) as ILogger ?? Log.Logger;
+
+        if (!Authorized(context, services))
+        {
+            logger.Warning("Rejected a /usage post with a missing or incorrect token.");
+
+            // As on /hook: nothing from an untrusted post goes anywhere, so no body and no token.
+            Health(services)?.Refused(Now(services));
+            return Results.Unauthorized();
+        }
+
+        try
+        {
+            var board = (UsageBoard)services.GetService(typeof(UsageBoard))!;
+            var now = Now(services);
+
+            using var reader = new StreamReader(context.Request.Body, Encoding.UTF8, leaveOpen: true);
+            var body = await reader.ReadToEndAsync(context.RequestAborted).ConfigureAwait(false);
+
+            // A post with no reading in it is still heard: the mod's path works.
+            var readings = UsageReader.Read(body, now);
+            board.Heard(readings, now);
+
+            logger.Debug(
+                "Heard a /usage post with {ReadingCount} readings: {Readings:l}",
+                readings.Count,
+                readings.Count == 0
+                    ? "(none)"
+                    : string.Join(", ", readings.Select(reading => $"{reading.Kind} {reading.PercentUsed.ToString(System.Globalization.CultureInfo.InvariantCulture)}%")));
+        }
+        catch (OperationCanceledException)
+        {
+            logger.Debug("A /usage post was aborted by the client before its body arrived.");
+        }
+        catch (Exception ex)
+        {
+            logger.Error(ex, "A /usage post failed after the token check. Answering 200 regardless (Impl §3.3).");
         }
 
         return Empty200();
