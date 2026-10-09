@@ -143,6 +143,7 @@ This section is for the director, the coder and the reviewer. It is a proposal i
   - **Plants:** (a) `Report` gives a limit past its reset time; (b) `Usage` is set when the consumer publishes and not at the request, so a post after the last publication is not in the answer.
   - `build.ps1` GREEN for Debug and Release, with the new `Total`.
 - **Guardrails:** read-only. No prompt and no answer in the report. `StateBoard` does not change.
+- **Done 2026-10-08:** PR #139, merged as `997ffaa` (`StateReport.Usage`, `HandleState`, 4 tests), `0bba0b4` (documents); approved first time, no nits. `Usage` is set at the request after `Health`, from `UsageBoard.Report(Now)`; a harness with no board answers `usage: null`; `StateBoard` unchanged, so a publication never carries a reading. The reviewer's probes: a `resetsAt` of `+02:00` comes out as `Z`; a kind with no reset time comes out as `"resetsAt":null`, present; `/state` before and after a post, with `usage` removed, is equal. Plants (a) `At(now)` out: 2; (b) `Usage` set at publication (three files): 2, for the block's two reasons. `The_report_names_its_members_as_before_and_usage_last` holds the member names and order. Impl §3.2's Debug bullet tightened to the code since `4b6bc4d`; TS Appendix C's not-built row removed. GREEN in both configurations, Total 2371 (2367 + 4), `mod 28 pass`. **MOD.1 to MOD.5 are merged; the mod, the endpoint and `/state` are built. MOD.6 is the operator's.**
 
 **MOD.6 — The operator's gate on Windows**
 
@@ -161,3 +162,5 @@ This section is for the director, the coder and the reviewer. It is a proposal i
 * [ ] One session's debug log has `hooks module claude-dashboard@claude-dashboard loaded`.
 * [ ] A session that starts with `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` in its environment still gives a reading.
 * [ ] If the operator uses the Desktop app or the VS Code extension: a turn there gives a reading.
+* [ ] **Added 2026-10-08 (the MOD.5 review):** after the gate, the day's log file (`logs\dashboard-<date>.log`) has 0 hits for the token in `listening.txt`; and `health.lastHeardAt` still follows the hook events, not the usage posts (R5): a turn moves both, but a `/usage` post alone moves `usage.lastHeardAt` only.
+* [ ] **Added 2026-10-08:** `npx -p typescript@5.9.3 tsc -p mods/usage` type-checks the mod with no error (left out at MOD.1: no TypeScript on the machine, and the npx cache holds a deprecated package named `tsc`; this form downloads TypeScript, which is the operator's call). A `--plugin-dir` load must have written `mods/usage/.claude-plugin/types/` first.
