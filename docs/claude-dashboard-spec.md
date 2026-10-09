@@ -106,7 +106,7 @@ Three rules make the script safe:
 - **No allow-list.** The mod posts through Claude Code's own call for the network, and no setting was needed for a post to the loopback address.
 - **With the dashboard closed, nothing shows.** With no file the mod opens nothing; with a port that nothing holds, its failure ends in its own `catch`.
 
-It holds the script's three rules too: it reads the file when it runs, it prints nothing, and it never fails a turn, because it hands the event on as it came. It adds one rule of its own: **the post starts from a timer, outside the event,** because a post started inside it holds the end of a `claude -p` run until the dashboard answers. The endpoint that receives it is *not built* (Appendix C).
+It holds the script's three rules too: it reads the file when it runs, it prints nothing, and it never fails a turn, because it hands the event on as it came. It adds one rule of its own: **the post starts from a timer, outside the event,** because a post started inside it holds the end of a `claude -p` run until the dashboard answers. The endpoint keeps the newest reading of each limit, outside the world model of sessions: a limit belongs to the account. No caller can read the readings yet (*not built*, Appendix C).
 
 ### II.2 The events consumed, and what each means
 
@@ -540,7 +540,7 @@ One list for all the documents. Each item is marked *not built* where it appears
 | A restart of the dashboard after a crash | Earlier text of Impl §10.1 | Given up by ruling when the start moved to the `Run` key (Impl §10.1) |
 | "Open terminal" on an open row | Design §9 | The button is in the markup and is hidden until Phase 2 |
 | Navigator, Focus Observer, grouping by desktop, history search, the settings interface (but one checkbox), the remote surface | Part III, Part V | Phases 2 to 7 |
-| The receipt of the plan's usage: `POST /usage`, and `usage` in `/state` | §II.1; Impl §9.5; the usage mod guide | At MOD.2 the plugin carries the mod, which posts; ingress has no `/usage` and answers `404`, and the reading is dropped (MOD.4, MOD.5) |
+| The plan's usage in `/state`: the `usage` object | §II.1; Impl §9.5; the usage mod guide | `POST /usage` keeps the readings on `UsageBoard` (MOD.4, Impl §3.2); `/state` has no `usage` member, so no caller can read them (MOD.5) |
 
 ## Appendix D — Change history
 
@@ -584,3 +584,4 @@ The text above says what is true now. This list says when each rule changed, for
 | 2026-10-04 | A roster group plays only when it has something new to announce: a settle in which every finished member already announced is silent, with no nudge, and recorded as announced before (§IV.5) | T1.72; issue #107 |
 | 2026-10-08 | The tray light counts a roster group once, by the state its heading shows, so it is blue while an orchestration works (§III.10) | T1.83; issue #130 |
 | 2026-10-08 | A second transport, for the plan's usage only: the plugin carries a mod, which posts the figures to the loopback endpoint from a timer, and brings back none of the HTTP handler's faults (§II.1, Appendix A); its endpoint is not built (Appendix C) | MOD.2; issue #133 |
+| 2026-10-08 | The endpoint for the plan's usage is built: it keeps the newest reading of each limit, outside the world model of sessions; `/state` does not show it yet (§II.1, Appendix C) | MOD.4; issue #133 |

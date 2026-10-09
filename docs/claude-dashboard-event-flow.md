@@ -86,7 +86,7 @@ The plugin's file `plugin\hooks\hooks.json` has one entry of this shape for each
 - **`async: true`** runs the hook in the background. A turn does not wait for it.
 - **No port and no URL.** The entry names a script. The script finds the port when it runs. Thus the entry stays correct when the port moves and when the dashboard is closed.
 - **The plugin is a pointer.** It names `post-status.cmd` by its absolute path in the data folder. Claude Code loads the plugin from the data folder in place.
-- **The same file names the usage mod**, `"modules": ["./register.ts"]`, between `description` and `hooks`. The mod is not part of this path: it is a function that Claude Code calls inside its own process at the end of each turn, and it posts the plan's usage to `/usage`, not to `/hook` (Impl §9.5). `/usage` is not built yet, so nothing of it reaches the dashboard, and nothing of it will enter the event channel.
+- **The same file names the usage mod**, `"modules": ["./register.ts"]`, between `description` and `hooks`. The mod is not part of this path: it is a function that Claude Code calls inside its own process at the end of each turn, and it posts the plan's usage to `/usage`, not to `/hook` (Impl §9.5). `POST /usage` keeps its readings on `UsageBoard` (Impl §3.2), and nothing of it enters the event channel (section 10).
 
 ### 2.2 When the dashboard registers the plugin
 
@@ -331,6 +331,8 @@ The tick is not an event. It causes changes that no hook causes:
 - **Roster groups.** A group settles 1.5 seconds after its last member stops, and the group plays one notice. The settle pass (`EventConsumer.ObserveRosterGroups`) reads the groups as they stand and hands the engine the member that settled the group and the group's Unread members. When each of those members already announced its finish, the settle is silent and recorded as already announced (T1.72): a roster made, renamed or joined after its members sounded adds no sound.
 - **The counts.** The health snapshot for `/state`, and once an hour an Information line and an `HourlySummary` decision row with the counts since the previous summary (T1.65).
 
+**A usage post is not an event, and does not use the channel** (MOD.4, issue #133). `POST /usage` checks the token as `/hook` does, reads the usage mod's figures, and keeps the newest reading of each limit on `UsageBoard`, on the request thread (Impl §3.2). A limit belongs to the account, not to a session, so a reading reaches no Registry, no archive and no sound engine, and makes no row. A refused post is the one exception: it counts as a refusal on `/hook` does, with its `HookRefused` row.
+
 ---
 
 ## 11. When a part fails
@@ -433,6 +435,7 @@ Until 2026-10-02 this section listed the places where the other documents disagr
 |---|---|
 | The plugin: its files, its registration and its removal | `src/ClaudeDashboard.App/Setup/HookPlugin.cs`, `HookHandlers.cs`, `PluginInstaller.cs`, `ClaudeCli.cs`, `StartupHookInstall.cs`, `HookSwitches.cs` |
 | The usage mod, which the plugin carries | `mods/usage/hooks/register.ts`, embedded in `ClaudeDashboard.App.csproj`; its tests: `mods/usage/tests/register.test.ts` |
+| The usage post, and the readings it keeps | `src/ClaudeDashboard.App/Ingress/IngressEndpoints.cs` (`HandleUsage`), `UsageReader.cs`, `UsageBoard.cs`; the rule: `src/ClaudeDashboard.Core/UsageReadings.cs` |
 | The read of Claude Code's settings, and the notice | `src/ClaudeDashboard.App/Setup/HookCheck.cs`, `HookNotice.cs`; `src/ClaudeDashboard.App/Configuration/ClaudeCodePaths.cs` |
 | The script | `src/ClaudeDashboard.App/Setup/HookScript.cs` |
 | The port files | `src/ClaudeDashboard.App/Configuration/ListeningFile.cs`, `PortFile.cs`; `src/ClaudeDashboard.App/Hosting/IngressAnnouncement.cs` |

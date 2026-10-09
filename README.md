@@ -71,7 +71,7 @@ Invoke-RestMethod "http://127.0.0.1:$port/state" -Headers @{ 'X-Dashboard-Token'
 
 ## The usage mod (in development)
 
-`mods/usage/` holds a Claude Code mod that sends the plan's usage (the 5-hour and the weekly percentage) to the dashboard at the end of each turn. The plugin that the dashboard writes carries it, as `hooks\register.ts`, but the dashboard does not yet receive its posts: `/usage` is not built. The [Usage Mod Development Guide](docs/claude-dashboard-usage-mod-guide.md) says what it does and why, and the [Usage Mod Execution Plan](docs/claude-dashboard-usage-mod-execution-plan.md) is its build plan. You need Claude Code 2.1.287 or later; no Node.js and no build step. Type each command in the repository's root folder:
+`mods/usage/` holds a Claude Code mod that sends the plan's usage (the 5-hour and the weekly percentage) to the dashboard at the end of each turn. The plugin that the dashboard writes carries it, as `hooks\register.ts`, and the dashboard keeps the newest reading of each limit, but nothing shows the readings yet: `/state` has no `usage` member. The [Usage Mod Development Guide](docs/claude-dashboard-usage-mod-guide.md) says what it does and why, and the [Usage Mod Execution Plan](docs/claude-dashboard-usage-mod-execution-plan.md) is its build plan. You need Claude Code 2.1.287 or later; no Node.js and no build step. Type each command in the repository's root folder:
 
 ```text
 claude plugin validate --strict mods/usage
