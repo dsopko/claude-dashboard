@@ -3,6 +3,7 @@ using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Globalization;
 using ClaudeDashboard.App.Configuration;
+using ClaudeDashboard.App.Ingress;
 using ClaudeDashboard.Core;
 using ClaudeDashboard.Core.Ports;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -57,6 +58,7 @@ public sealed partial class MainViewModel : ObservableObject, IUiTickTarget, ISo
     private readonly RosterStore _rosters;
     private readonly Dictionary<SessionId, SessionViewModel> _sessionRows = [];
     private readonly IRosterPersistence _persist;
+    private readonly UsageBoard _usage;
     private bool _isSelecting;
     private RosterPromptViewModel? _prompt;
     private string _promptFormedAs = string.Empty;
@@ -243,6 +245,11 @@ public sealed partial class MainViewModel : ObservableObject, IUiTickTarget, ISo
     /// service, so an optional form here would turn a deleted registration into a copy affordance
     /// that silently does nothing — the exact failure the remark above describes for <c>ack</c>.
     /// </param>
+    /// <param name="usage">
+    /// The plan's limits, as the usage mod last posted them (MOD.7, ruling R12): read at each refresh, so the
+    /// figures in the caption are at most one UI tick behind a post. Required for the reason above: it is a
+    /// registered service, and an optional form would turn a lost registration into a strip that never shows.
+    /// </param>
     /// <exception cref="ArgumentNullException">Any argument is null.</exception>
     public MainViewModel(
         SessionProjection projection,
@@ -250,7 +257,8 @@ public sealed partial class MainViewModel : ObservableObject, IUiTickTarget, ISo
         IAckPublisher ack,
         IClipboard clipboard,
         RosterStore rosters,
-        IRosterPersistence persist)
+        IRosterPersistence persist,
+        UsageBoard usage)
     {
         ArgumentNullException.ThrowIfNull(projection);
         ArgumentNullException.ThrowIfNull(motion);
@@ -258,6 +266,7 @@ public sealed partial class MainViewModel : ObservableObject, IUiTickTarget, ISo
         ArgumentNullException.ThrowIfNull(clipboard);
         ArgumentNullException.ThrowIfNull(rosters);
         ArgumentNullException.ThrowIfNull(persist);
+        ArgumentNullException.ThrowIfNull(usage);
 
         _projection = projection;
         _motion = motion;
@@ -265,11 +274,30 @@ public sealed partial class MainViewModel : ObservableObject, IUiTickTarget, ISo
         _clipboard = clipboard;
         _rosters = rosters;
         _persist = persist;
+        _usage = usage;
         _projection.Sessions.CollectionChanged += OnSessionsChanged;
         _motion.PropertyChanged += OnMotionChanged;
 
         Refresh();
     }
+
+    // ---- The plan's usage (MOD.7, issue #133) -----------------------------------------------------
+
+    /// <summary>The five-hour limit's pair in the usage strip, "Current 5%".</summary>
+    public UsageFigure CurrentUsage { get; } = new(UsageSlot.Current);
+
+    /// <summary>The weekly limit's pair, "Week 36%".</summary>
+    public UsageFigure WeekUsage { get; } = new(UsageSlot.Week);
+
+    /// <summary>The Fable limit's pair, "Fable 60%".</summary>
+    public UsageFigure FableUsage { get; } = new(UsageSlot.Fable);
+
+    /// <summary>
+    /// Whether any slot has a reading that stands now. False before the first post, and the strip is then
+    /// collapsed: the caption's slot is the counts' alone, as before MOD.7.
+    /// </summary>
+    [ObservableProperty]
+    private bool _hasUsage;
 
     /// <summary>
     /// The body: band or group headings interleaved with session rows, in display order.
@@ -630,6 +658,46 @@ public sealed partial class MainViewModel : ObservableObject, IUiTickTarget, ISo
         Forget(sessions, groups?.Select(group => group.Key).ToHashSet());
         RecountBands(sessions);
         Remember(sessions, groups);
+        RestateUsage();
+    }
+
+    /// <summary>
+    /// Puts the plan's usage, as it stands at the last tick, into the three pairs (MOD.7, ruling R12).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>Read, not told.</strong> <c>/usage</c> writes the board on a request thread and raises nothing;
+    /// this reads its one reference at each refresh, which the UI tick and every change of a session cause. So
+    /// there is no new event and no new timer, and a post shows at the next tick at the latest.
+    /// </para>
+    /// <para>
+    /// <strong>At the tick's instant,</strong> through <see cref="UsageReadings.At"/>: a limit past its reset time
+    /// leaves its slot. Before the first tick there is no instant to judge by, so nothing shows.
+    /// </para>
+    /// </remarks>
+    private void RestateUsage()
+    {
+        var slots = _now == DateTimeOffset.MinValue
+            ? []
+            : UsageGauge.Slots(_usage.Current.At(_now));
+
+        var shown = 0;
+
+        foreach (var pair in (UsageFigure[])[CurrentUsage, WeekUsage, FableUsage])
+        {
+            var reading = slots.FirstOrDefault(entry => entry.Slot == pair.Slot).Window;
+
+            if (reading is null)
+            {
+                pair.Hide();
+                continue;
+            }
+
+            pair.Show(reading, _now, hasSeparator: shown > 0);
+            shown++;
+        }
+
+        HasUsage = shown > 0;
     }
 
     /// <summary>

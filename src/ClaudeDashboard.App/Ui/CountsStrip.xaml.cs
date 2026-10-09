@@ -7,7 +7,7 @@ namespace ClaudeDashboard.App.Ui;
 /// issue #54). See the remarks in <c>CountsStrip.xaml</c> and on the counts row in
 /// <c>MainWindow.xaml</c>.
 /// </summary>
-public partial class CountsStrip : UserControl
+public partial class CountsStrip : UserControl, IFittingStripHost
 {
     /// <summary>Creates the counts.</summary>
     public CountsStrip() => InitializeComponent();

@@ -1,5 +1,6 @@
 using System.IO;
 using System.Reflection;
+using ClaudeDashboard.App.Ingress;
 using ClaudeDashboard.App.Configuration;
 using ClaudeDashboard.App.Hosting;
 using ClaudeDashboard.App.Ui;
@@ -57,7 +58,7 @@ public sealed class SoundSignTests : IDisposable
             new StubAckPublisher(),
             new FakeClipboard(),
             _rosters,
-            new RecordingRosterPersistence());
+            new RecordingRosterPersistence(), new UsageBoard());
         _signs.Attach(_viewModel);
     }
 

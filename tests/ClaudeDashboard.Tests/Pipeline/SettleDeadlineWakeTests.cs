@@ -73,7 +73,7 @@ public sealed class SettleDeadlineWakeTests(Xunit.Abstractions.ITestOutputHelper
             new StubAckPublisher(),
             new FakeClipboard(),
             rosters,
-            new RecordingRosterPersistence());
+            new RecordingRosterPersistence(), new UsageBoard());
         using var tray = new TrayViewModel(projection, new NoModes(), new RecordingEventSink(), clock, Healthy, Logger.None, rosters: rosters);
         var uiTick = new UiTick(ui);
         uiTick.Attach(window);

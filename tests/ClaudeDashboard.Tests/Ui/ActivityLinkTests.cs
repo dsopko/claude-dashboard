@@ -7,6 +7,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
+using ClaudeDashboard.App.Ingress;
 using ClaudeDashboard.App.Configuration;
 using ClaudeDashboard.App.Storage;
 using ClaudeDashboard.App.Ui;
@@ -553,7 +554,7 @@ public sealed class ActivityLinkTests(StaHarness harness)
             var ack = new StubAckPublisher();
             var rosterSink = new RecordingEventSink();
             var traySink = new RecordingEventSink();
-            using var main = new MainViewModel(registry.Projection, policy, ack, new FakeClipboard(), new RosterStore(rosterSink), new RecordingRosterPersistence());
+            using var main = new MainViewModel(registry.Projection, policy, ack, new FakeClipboard(), new RosterStore(rosterSink), new RecordingRosterPersistence(), new UsageBoard());
 
             // Before the window is realized, as MainWindowTests does: toggling it on a live window raises
             // transient binding errors that say nothing about the markup.

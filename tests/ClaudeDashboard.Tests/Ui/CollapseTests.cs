@@ -1,3 +1,4 @@
+using ClaudeDashboard.App.Ingress;
 using ClaudeDashboard.App.Configuration;
 using ClaudeDashboard.App.Ui;
 using ClaudeDashboard.Core;
@@ -33,7 +34,7 @@ public sealed class CollapseTests : IDisposable
             _harness.Projection,
             new MotionPolicy(() => false, observeChanges: false),
             new StubAckPublisher(),
-            new FakeClipboard(), new RosterStore(new RecordingEventSink()), new RecordingRosterPersistence());
+            new FakeClipboard(), new RosterStore(new RecordingEventSink()), new RecordingRosterPersistence(), new UsageBoard());
     }
 
     public void Dispose()

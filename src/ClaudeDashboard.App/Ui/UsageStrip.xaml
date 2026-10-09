@@ -1,0 +1,121 @@
+<!--
+    The plan's usage — "Current 5% · Week 36% · Fable 60%" — as one piece of markup (MOD.7, issue
+    #133). MainWindow places it twice, as it places the counts: in the caption, to the left of the
+    counts, and on the row under the caption when the caption has no room for its numbers. Both
+    lines are this markup, so the ladder, the colours and the hover text are the same on both.
+
+    THREE PAIRS, ONE FOR EACH SLOT, AND NOT AN ITEMS LIST. FittingStrip finds its words once, in the
+    markup, and cannot follow children that a template makes later (its remark on _tagged). A slot
+    with no reading collapses, and costs no room, as a zero count does.
+
+    THE SEPARATOR GOES WITH THE PAIRS BEFORE IT. The counts can start each band with " · " because
+    their total is always first. Any slot here can be absent, so a pair shows its " · " only when a
+    pair to its left is shown (UsageFigure.HasSeparator). The strip never starts with a separator.
+
+    THE LADDER HAS TWO TIERS: the labels, then the numbers alone. A third answer, a figure dropped
+    from the right, is FittingStrip's own and is left to it on the row only; in the caption the
+    whole strip moves instead (MainWindow's remark on the caption's slot).
+
+    THE HOVER TEXT IS ON ALWAYS, and that is not the counts' rule. The counts offer their tooltip
+    only when they are shortened, because their full text then repeats what is on screen. Here the
+    hover text holds the reset time, which nothing on screen shows: it is the operator's way to it
+    (ruling R11). It is on each pair, not on the strip, and not on the separator.
+-->
+<UserControl x:Class="ClaudeDashboard.App.Ui.UsageStrip"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:core="clr-namespace:ClaudeDashboard.Core;assembly=ClaudeDashboard.Core"
+             xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
+             xmlns:ui="clr-namespace:ClaudeDashboard.App.Ui">
+    <UserControl.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="/ClaudeDashboard.App;component/Ui/RowTemplates.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+
+            <Style x:Key="UsageSeparatorStyle" TargetType="TextBlock">
+                <Setter Property="Text" Value=" · " />
+                <Setter Property="FontFamily" Value="{StaticResource UiFont}" />
+                <Setter Property="FontSize" Value="12" />
+                <Setter Property="Foreground" Value="{StaticResource Ink2Brush}" />
+                <Setter Property="Visibility" Value="{Binding HasSeparator, Converter={StaticResource BoolToVisible}}" />
+            </Style>
+
+            <Style x:Key="UsageLabelStyle" TargetType="TextBlock">
+                <Setter Property="FontFamily" Value="{StaticResource UiFont}" />
+                <Setter Property="FontSize" Value="12" />
+                <Setter Property="Foreground" Value="{StaticResource Ink2Brush}" />
+            </Style>
+
+            <!--
+                The figure and its percent sign, in one colour: green below 50, amber from 50 to
+                90, red above 90, by the whole number shown (ruling R10, UsageGauge in Core).
+            -->
+            <Style x:Key="UsageFigureStyle" TargetType="TextBlock">
+                <Setter Property="Text" Value="{Binding Figure}" />
+                <Setter Property="FontFamily" Value="{StaticResource UiFont}" />
+                <Setter Property="FontSize" Value="12" />
+                <Setter Property="FontWeight" Value="SemiBold" />
+                <Setter Property="Typography.NumeralAlignment" Value="Tabular" />
+                <Setter Property="Foreground" Value="{StaticResource GreenBrush}" />
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding Level}" Value="{x:Static core:UsageLevel.Amber}">
+                        <Setter Property="Foreground" Value="{StaticResource AmberBrush}" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding Level}" Value="{x:Static core:UsageLevel.Red}">
+                        <Setter Property="Foreground" Value="{StaticResource RedBrush}" />
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
+
+            <!--
+                The pair the hover text is on. A transparent background, so the gap between the
+                label and the figure answers the mouse as the words do.
+
+                HIT-TEST VISIBLE IN THE CHROME, OR THE HOVER TEXT NEVER SHOWS IN THE CAPTION. The
+                caption is WindowChrome's drag area: the window answers the mouse there as its
+                title bar, and WPF sees no mouse at all over an element that does not opt out, so
+                no tooltip opens. Measured in the MOD.7 probe at 150%: the row showed the hover text
+                and the caption did not. The setting inherits to the pair's words; the separators
+                and the gaps between pairs still drag the window. On the row it changes nothing.
+            -->
+            <Style x:Key="UsagePairStyle" TargetType="StackPanel">
+                <Setter Property="Orientation" Value="Horizontal" />
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="shell:WindowChrome.IsHitTestVisibleInChrome" Value="True" />
+                <Setter Property="ToolTip" Value="{Binding HoverText}" />
+            </Style>
+
+            <Style x:Key="UsageSlotStyle" TargetType="StackPanel">
+                <Setter Property="Orientation" Value="Horizontal" />
+                <Setter Property="Visibility" Value="{Binding IsShown, Converter={StaticResource BoolToVisible}}" />
+            </Style>
+        </ResourceDictionary>
+    </UserControl.Resources>
+
+    <ui:FittingStrip x:Name="StripPart">
+        <StackPanel x:Name="CurrentPart" DataContext="{Binding CurrentUsage}" Style="{StaticResource UsageSlotStyle}">
+            <TextBlock Style="{StaticResource UsageSeparatorStyle}" />
+            <StackPanel Style="{StaticResource UsagePairStyle}">
+                <TextBlock Text="Current " ui:FittingStrip.HideAtTier="1" Style="{StaticResource UsageLabelStyle}" />
+                <TextBlock Style="{StaticResource UsageFigureStyle}" />
+            </StackPanel>
+        </StackPanel>
+
+        <StackPanel x:Name="WeekPart" DataContext="{Binding WeekUsage}" Style="{StaticResource UsageSlotStyle}">
+            <TextBlock Style="{StaticResource UsageSeparatorStyle}" />
+            <StackPanel Style="{StaticResource UsagePairStyle}">
+                <TextBlock Text="Week " ui:FittingStrip.HideAtTier="1" Style="{StaticResource UsageLabelStyle}" />
+                <TextBlock Style="{StaticResource UsageFigureStyle}" />
+            </StackPanel>
+        </StackPanel>
+
+        <StackPanel x:Name="FablePart" DataContext="{Binding FableUsage}" Style="{StaticResource UsageSlotStyle}">
+            <TextBlock Style="{StaticResource UsageSeparatorStyle}" />
+            <StackPanel Style="{StaticResource UsagePairStyle}">
+                <TextBlock Text="Fable " ui:FittingStrip.HideAtTier="1" Style="{StaticResource UsageLabelStyle}" />
+                <TextBlock Style="{StaticResource UsageFigureStyle}" />
+            </StackPanel>
+        </StackPanel>
+    </ui:FittingStrip>
+</UserControl>

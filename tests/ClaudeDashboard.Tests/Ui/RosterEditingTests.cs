@@ -1,3 +1,4 @@
+using ClaudeDashboard.App.Ingress;
 using ClaudeDashboard.App.Configuration;
 using ClaudeDashboard.App.Ui;
 using ClaudeDashboard.Core;
@@ -40,7 +41,8 @@ public sealed class RosterEditingTests : IDisposable
             new StubAckPublisher(),
             new FakeClipboard(),
             _rosters,
-            _persist);
+            _persist,
+            new UsageBoard());
     }
 
     public void Dispose()
