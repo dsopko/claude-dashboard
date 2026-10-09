@@ -1,3 +1,4 @@
+using ClaudeDashboard.App.Ingress;
 using ClaudeDashboard.App.Configuration;
 using ClaudeDashboard.App.Ui;
 using ClaudeDashboard.Core;
@@ -137,7 +138,7 @@ public sealed class MotionTests
         var allowed = true;
         using var policy = new MotionPolicy(() => allowed, observeChanges: false);
         using var registry = new RegistryHarness();
-        using var viewModel = new MainViewModel(registry.Projection, policy, new StubAckPublisher(), new FakeClipboard(), new RosterStore(new RecordingEventSink()), new RecordingRosterPersistence());
+        using var viewModel = new MainViewModel(registry.Projection, policy, new StubAckPublisher(), new FakeClipboard(), new RosterStore(new RecordingEventSink()), new RecordingRosterPersistence(), new UsageBoard());
 
         registry.Working("s-1", At);
         var row = viewModel.Rows.OfType<SessionViewModel>().Single();

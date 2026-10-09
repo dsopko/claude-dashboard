@@ -22,6 +22,8 @@
                 <ResourceDictionary Source="/ClaudeDashboard.App;component/Ui/RowTemplates.xaml" />
             </ResourceDictionary.MergedDictionaries>
             <ui:InverseBooleanConverter x:Key="InverseBool" />
+            <ui:AllTrueToVisibleConverter x:Key="AllTrueToVisible" />
+            <ui:AnyVisibleConverter x:Key="AnyVisible" />
         </ResourceDictionary>
     </Window.Resources>
 
@@ -273,22 +275,86 @@
                             the width that decided to move them — the choice is a pure function of
                             the window's width, and it cannot oscillate.
                         -->
-                        <ui:CountsStrip x:Name="CaptionCounts"
+                        <!--
+                            THE USAGE SHARES THE SLOT, AND THE COUNTS DECIDE FIRST (MOD.7, issue #133,
+                            ruling R9). "Current 5% . Week 36% . Fable 60%" stands to the left of the
+                            counts. SummarySlot measures the counts against the whole column, exactly
+                            as above, and then the usage against what the counts left: the usage never
+                            changes what the counts show, and the choice is still a pure function of the
+                            window's width and what the two strips hold.
+
+                            The usage has two tiers, labels and then numbers only. When the numbers do
+                            not fit, ALL OF THE USAGE moves to the row under the caption and its place
+                            is left empty (Hidden, still measured, as the counts are): never a figure
+                            here and the others there. When the counts move to the row, the usage is
+                            given no room and moves with them (SummarySlot.UsageLeavesWithCounts).
+
+                            Before the first usage post the strip is COLLAPSED, not hidden: it then
+                            measures to nothing, and the slot is the counts' alone, as before MOD.7.
+
+                            The gap between the two is 20: the counts' own 14 and the usage's 6. The
+                            14 before the slot stays, on whichever strip is leftmost.
+
+                            MEASURED AT 100%, with the counts "11 sessions . 3 need you . 5 unread .
+                            8 working" and the figures 5%, 36% and 60%. Each run of
+                            MainWindowTests.The_usage_drops_its_labels_before_its_numbers writes
+                            these ranges to its output; the test judges by the room, not by these:
+
+                              two figures    320-499 row, 500-544 numbers, 545-683 row,
+                                             684-757 numbers, 758 and wider labels
+                              three figures  320-532 row, 533-544 numbers, 545-716 row,
+                                             717-821 numbers, 822 and wider labels
+
+                            So a 520 window shows two figures as numbers, beside the counts as
+                            numbers, and puts three on the row. The labels first stand beside the
+                            counts' full words at 758 with two figures and at 822 with three.
+
+                            THE USAGE CAN LEAVE THE CAPTION AS THE WINDOW WIDENS. That is the
+                            ruling's order, not a fault: at 545 the counts take back their words
+                            (tier 2 to tier 1, 115 more), and what is left is too little even for
+                            the numbers. The usage comes back when the window has grown by the
+                            usage's own width again. The probe at 150% showed the same at 520, 540,
+                            600 and 900.
+                        -->
+                        <ui:SummarySlot x:Name="CaptionSlot"
                                         Grid.Column="2"
-                                        VerticalAlignment="Center"
-                                        HorizontalAlignment="Right"
-                                        ClipToBounds="True"
-                                        Margin="14,0,0,0">
-                            <ui:CountsStrip.Style>
-                                <Style TargetType="ui:CountsStrip">
-                                    <Style.Triggers>
-                                        <DataTrigger Binding="{Binding Strip.HasDropped, RelativeSource={RelativeSource Self}}" Value="True">
-                                            <Setter Property="Visibility" Value="Hidden" />
-                                        </DataTrigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </ui:CountsStrip.Style>
-                        </ui:CountsStrip>
+                                        UsageLeavesWithCounts="True">
+                            <ui:CountsStrip x:Name="CaptionCounts"
+                                            VerticalAlignment="Center"
+                                            HorizontalAlignment="Right"
+                                            ClipToBounds="True"
+                                            Margin="14,0,0,0">
+                                <ui:CountsStrip.Style>
+                                    <Style TargetType="ui:CountsStrip">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Strip.HasDropped, RelativeSource={RelativeSource Self}}" Value="True">
+                                                <Setter Property="Visibility" Value="Hidden" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </ui:CountsStrip.Style>
+                            </ui:CountsStrip>
+
+                            <ui:UsageStrip x:Name="CaptionUsage"
+                                           VerticalAlignment="Center"
+                                           HorizontalAlignment="Right"
+                                           ClipToBounds="True"
+                                           Margin="14,0,6,0">
+                                <ui:UsageStrip.Style>
+                                    <!-- The later trigger wins: no reading collapses, whatever the strip measured. -->
+                                    <Style TargetType="ui:UsageStrip">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Strip.HasDropped, RelativeSource={RelativeSource Self}}" Value="True">
+                                                <Setter Property="Visibility" Value="Hidden" />
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding HasUsage}" Value="False">
+                                                <Setter Property="Visibility" Value="Collapsed" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </ui:UsageStrip.Style>
+                            </ui:UsageStrip>
+                        </ui:SummarySlot>
 
                         <Rectangle Grid.Column="3"
                                    Width="1" Height="18" Margin="14,0"
@@ -306,7 +372,7 @@
                 </Grid>
             </Border>
 
-            <!-- ==== Counts row: the counts, when the caption has no room for them (T1.43) ===== -->
+            <!-- ==== Counts row: the counts and the usage, when the caption has no room (T1.43, MOD.7) -->
             <!--
                 Issue #54, ruled by the operator 2026-09-27. When even numbers-only does not fit in
                 the caption, ALL the counts come down here, and the caption's place is left empty;
@@ -319,22 +385,52 @@
                 the same CountsStrip, with the same tiers, the same order and the same tooltip rule.
                 The list below moves down a line while the row is up; the operator accepted that.
 
-                LEFT-ALIGNED, AND THAT IS LOAD-BEARING (the T1.42 review). FittingStrip draws the
+                NOT STRETCHED, AND THAT IS LOAD-BEARING (the T1.42 review). FittingStrip draws the
                 counts its measure kept without checking the width again, so it must be arranged at
                 the width it measured. A non-stretched element is arranged at its desired size, and
                 MainWindowTests asserts it here as it does in the caption.
+
+                THE ROW IS SHARED WITH THE USAGE (MOD.7, ruling R9; "shared row" was the operator's
+                choice): the usage at the left, the counts at the right, each here only when it left
+                the caption, and the row up when either did. The counts are measured first on the
+                row too, each ladder starting again from tier 0 on the row's width. Two strips on the
+                row at a narrow window is the accepted cost; two rows is not. On the row the usage
+                follows FittingStrip's own rule when even its numbers do not fit: whole figures drop
+                from the right. The counts were left-aligned here before the usage came; they are
+                now at the right, as in the caption.
             -->
             <Border x:Name="CountsRow"
                     Grid.Row="1"
                     Padding="14,4"
                     Background="{StaticResource CaptionBrush}"
                     BorderBrush="{StaticResource CaptionRuleBrush}"
-                    BorderThickness="0,0,0,1"
-                    Visibility="{Binding Strip.HasDropped, ElementName=CaptionCounts, Converter={StaticResource BoolToVisible}}">
-                <ui:CountsStrip x:Name="RowCounts"
-                                HorizontalAlignment="Left"
-                                VerticalAlignment="Center"
-                                ClipToBounds="True" />
+                    BorderThickness="0,0,0,1">
+                <Border.Visibility>
+                    <MultiBinding Converter="{StaticResource AnyVisible}">
+                        <Binding Path="Visibility" ElementName="RowCounts" />
+                        <Binding Path="Visibility" ElementName="RowUsage" />
+                    </MultiBinding>
+                </Border.Visibility>
+                <ui:SummarySlot x:Name="RowSlot">
+                    <ui:CountsStrip x:Name="RowCounts"
+                                    HorizontalAlignment="Right"
+                                    VerticalAlignment="Center"
+                                    ClipToBounds="True"
+                                    Visibility="{Binding Strip.HasDropped, ElementName=CaptionCounts, Converter={StaticResource BoolToVisible}}" />
+
+                    <ui:UsageStrip x:Name="RowUsage"
+                                   HorizontalAlignment="Left"
+                                   VerticalAlignment="Center"
+                                   ClipToBounds="True"
+                                   Margin="0,0,20,0">
+                        <ui:UsageStrip.Visibility>
+                            <MultiBinding Converter="{StaticResource AllTrueToVisible}">
+                                <Binding Path="HasUsage" />
+                                <Binding Path="Strip.HasDropped" ElementName="CaptionUsage" />
+                            </MultiBinding>
+                        </ui:UsageStrip.Visibility>
+                    </ui:UsageStrip>
+                </ui:SummarySlot>
             </Border>
 
             <!-- ==== Toolbar: Grouped/Flat · Select · Activity · Mute all · Ack all (2c + issue #43) == -->

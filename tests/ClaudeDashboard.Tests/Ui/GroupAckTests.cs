@@ -1,3 +1,4 @@
+using ClaudeDashboard.App.Ingress;
 using ClaudeDashboard.App.Configuration;
 using ClaudeDashboard.App.Ui;
 using ClaudeDashboard.Core;
@@ -43,7 +44,7 @@ public sealed class GroupAckTests : IDisposable
             new AckPublisher(_sink, _clock, Logger.None),
             new FakeClipboard(),
             _rosters,
-            new RecordingRosterPersistence());
+            new RecordingRosterPersistence(), new UsageBoard());
     }
 
     public void Dispose()

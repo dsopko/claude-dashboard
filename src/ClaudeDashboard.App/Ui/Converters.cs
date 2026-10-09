@@ -73,3 +73,38 @@ public sealed class InverseBooleanToVisibilityConverter : IValueConverter
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
         throw new NotSupportedException("Visibility does not convert back to a flag.");
 }
+
+/// <summary>Shows an element when every value is <see langword="true"/>, and collapses it otherwise.</summary>
+/// <remarks>
+/// For the usage on the row under the caption (MOD.7): it is there when the window has a reading AND the
+/// caption's usage strip dropped a figure. The first value guards the second: a collapsed strip is not
+/// measured, so its <see cref="FittingStrip.HasDropped"/> keeps whatever it last was.
+/// </remarks>
+public sealed class AllTrueToVisibleConverter : IMultiValueConverter
+{
+    /// <inheritdoc/>
+    public object Convert(object[] values, Type targetType, object? parameter, CultureInfo culture) =>
+        values.Length > 0 && values.All(value => value is true) ? Visibility.Visible : Visibility.Collapsed;
+
+    /// <inheritdoc/>
+    /// <exception cref="NotSupportedException">Always: this converts one way.</exception>
+    public object[] ConvertBack(object? value, Type[] targetTypes, object? parameter, CultureInfo culture) =>
+        throw new NotSupportedException("Visibility does not convert back to flags.");
+}
+
+/// <summary>Shows an element when any value is <see cref="Visibility.Visible"/>, and collapses it otherwise.</summary>
+/// <remarks>
+/// For the row under the caption (MOD.7): it is up when the counts or the usage are on it, and it is read off
+/// the two strips' own visibility so the row and what it holds cannot disagree.
+/// </remarks>
+public sealed class AnyVisibleConverter : IMultiValueConverter
+{
+    /// <inheritdoc/>
+    public object Convert(object[] values, Type targetType, object? parameter, CultureInfo culture) =>
+        values.Any(value => value is Visibility.Visible) ? Visibility.Visible : Visibility.Collapsed;
+
+    /// <inheritdoc/>
+    /// <exception cref="NotSupportedException">Always: this converts one way.</exception>
+    public object[] ConvertBack(object? value, Type[] targetTypes, object? parameter, CultureInfo culture) =>
+        throw new NotSupportedException("Visibility does not convert back to visibilities.");
+}

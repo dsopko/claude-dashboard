@@ -1,3 +1,4 @@
+using ClaudeDashboard.App.Ingress;
 using ClaudeDashboard.App.Configuration;
 using ClaudeDashboard.App.Hosting;
 using ClaudeDashboard.App.Pipeline;
@@ -51,7 +52,7 @@ public sealed class RosterCountTests : IDisposable
             new StubAckPublisher(),
             new FakeClipboard(),
             _rosters,
-            new RecordingRosterPersistence());
+            new RecordingRosterPersistence(), new UsageBoard());
 
         _tray = new TrayViewModel(
             _harness.Projection,

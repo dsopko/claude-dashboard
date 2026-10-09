@@ -1,3 +1,4 @@
+using ClaudeDashboard.App.Ingress;
 using ClaudeDashboard.App.Configuration;
 using ClaudeDashboard.App.Storage;
 using ClaudeDashboard.App.Pipeline;
@@ -50,7 +51,7 @@ public sealed class UiTickTests : IAsyncLifetime
     public Task InitializeAsync()
     {
         _projection = new SessionProjection(_registry, _dispatcher);
-        _viewModel = new MainViewModel(_projection, new MotionPolicy(() => false, observeChanges: false), new StubAckPublisher(), new FakeClipboard(), new RosterStore(new RecordingEventSink()), new RecordingRosterPersistence());
+        _viewModel = new MainViewModel(_projection, new MotionPolicy(() => false, observeChanges: false), new StubAckPublisher(), new FakeClipboard(), new RosterStore(new RecordingEventSink()), new RecordingRosterPersistence(), new UsageBoard());
         _tick = new UiTick(_dispatcher);
 
         _consumer = new EventConsumer(

@@ -1,3 +1,4 @@
+using ClaudeDashboard.App.Ingress;
 using ClaudeDashboard.App.Configuration;
 using ClaudeDashboard.App.Storage;
 using ClaudeDashboard.App.Pipeline;
@@ -54,7 +55,7 @@ public sealed class AckPipelineTests : IAsyncLifetime
             _projection,
             new MotionPolicy(() => false, observeChanges: false),
             new AckPublisher(_pipeline.Sink, _clock, Logger.None),
-            new FakeClipboard(), new RosterStore(new RecordingEventSink()), new RecordingRosterPersistence());
+            new FakeClipboard(), new RosterStore(new RecordingEventSink()), new RecordingRosterPersistence(), new UsageBoard());
 
         _consumer = new EventConsumer(
             _pipeline,

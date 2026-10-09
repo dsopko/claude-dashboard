@@ -1,3 +1,4 @@
+using ClaudeDashboard.App.Ingress;
 using ClaudeDashboard.App.Configuration;
 using System.Reflection;
 using ClaudeDashboard.App.Ui;
@@ -39,7 +40,7 @@ public sealed class AckTests : IDisposable
             _harness.Projection,
             new MotionPolicy(() => false, observeChanges: false),
             new AckPublisher(_sink, _clock, Logger.None),
-            new FakeClipboard(), new RosterStore(new RecordingEventSink()), new RecordingRosterPersistence());
+            new FakeClipboard(), new RosterStore(new RecordingEventSink()), new RecordingRosterPersistence(), new UsageBoard());
     }
 
     public void Dispose()

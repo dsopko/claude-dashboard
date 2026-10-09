@@ -1,3 +1,4 @@
+using ClaudeDashboard.App.Ingress;
 using ClaudeDashboard.App.Configuration;
 using System.Diagnostics;
 using System.IO;
@@ -54,13 +55,14 @@ public sealed class MainWindowTests(StaHarness harness, Xunit.Abstractions.ITest
         bool showQuiet = false,
         bool grouped = true,
         Action<MainViewModel>? prepare = null,
-        RosterStore? rosters = null)
+        RosterStore? rosters = null,
+        UsageBoard? usage = null)
     {
         return _harness.Invoke(() =>
         {
             using var registry = new RegistryHarness();
             using var policy = new MotionPolicy(() => motionAllowed, observeChanges: false);
-            using var viewModel = new MainViewModel(registry.Projection, policy, new StubAckPublisher(), new FakeClipboard(), rosters ?? new RosterStore(new RecordingEventSink()), new RecordingRosterPersistence());
+            using var viewModel = new MainViewModel(registry.Projection, policy, new StubAckPublisher(), new FakeClipboard(), rosters ?? new RosterStore(new RecordingEventSink()), new RecordingRosterPersistence(), usage ?? new UsageBoard());
 
             // Set before the window is realized. Toggling it on a live window raises transient
             // binding errors from the group headers being torn down, which BindingErrorWatch
@@ -161,7 +163,7 @@ public sealed class MainWindowTests(StaHarness harness, Xunit.Abstractions.ITest
         {
             using var registry = new RegistryHarness();
             using var policy = new MotionPolicy(() => true, observeChanges: false);
-            using var viewModel = new MainViewModel(registry.Projection, policy, new StubAckPublisher(), new FakeClipboard(), new RosterStore(new RecordingEventSink()), new RecordingRosterPersistence());
+            using var viewModel = new MainViewModel(registry.Projection, policy, new StubAckPublisher(), new FakeClipboard(), new RosterStore(new RecordingEventSink()), new RecordingRosterPersistence(), new UsageBoard());
 
             for (var i = 0; i < 5; i++)
             {
@@ -961,6 +963,357 @@ public sealed class MainWindowTests(StaHarness harness, Xunit.Abstractions.ITest
     private static FittingStrip StripOf(MainWindow window) =>
         window.CountsRow.Visibility == Visibility.Visible ? window.RowCounts.Strip : window.CaptionCounts.Strip;
 
+    // ---- The usage strip (MOD.7, issue #133) -----------------------------------------------------
+
+    /// <summary>The display scale of the last usage sweep.</summary>
+    private double _usageScale;
+
+    /// <summary>What the caption and the row showed at one window width, with the usage beside the counts.</summary>
+    private sealed record UsageAt(
+        double Width,
+        int CountsTier,
+        bool CountsDropped,
+        double CountsDesired,
+        bool CountsInCaption,
+        bool UsageInCaption,
+        int UsageTier,
+        double UsageRoom,
+        int CaptionPairsDrawn,
+        bool RowUp,
+        bool RowCounts,
+        bool RowUsage,
+        int RowPairsDrawn,
+        double RowUsageRight,
+        double RowCountsLeft,
+        bool TipsOn);
+
+    /// <summary>The counts of a busy day, "11 sessions · 3 need you · 5 unread · 8 working", set on the view model.</summary>
+    private static void BusyCounts(MainViewModel viewModel)
+    {
+        viewModel.SessionCount = 11;
+        viewModel.NeedsYouCount = 3;
+        viewModel.UnreadCount = 5;
+        viewModel.WorkingCount = 8;
+    }
+
+    /// <summary>
+    /// A board with the guide's two limits, 5% and 36%, and with <paramref name="figures"/> 3 a made-up Fable
+    /// kind at 60%, each resetting two days after <see cref="At"/>.
+    /// </summary>
+    private static UsageBoard UsageOf(int figures)
+    {
+        var board = new UsageBoard();
+        var reset = At.AddDays(2);
+        var windows = new List<UsageWindow>
+        {
+            new("five_hour", 5, reset, At, null),
+            new("seven_day", 36, reset, At, null),
+        };
+
+        if (figures == 3)
+        {
+            windows.Add(new("seven_day_fable", 60, reset, At, null));
+        }
+
+        board.Heard(windows, At);
+
+        return board;
+    }
+
+    /// <summary>How many of a usage strip's pairs are shown and drawn: a pair a FittingStrip left out is arranged empty.</summary>
+    private static int PairsDrawn(UsageStrip strip) =>
+        strip.Pairs.Count(pair => pair.Visibility == Visibility.Visible && LayoutInformation.GetLayoutSlot(pair).Width > 0);
+
+    /// <summary>
+    /// Whether every shown pair of <paramref name="strip"/> offers its hover text, it is the view model's, and the
+    /// figure answers the mouse in the caption, which is the window's drag area (WindowChrome).
+    /// </summary>
+    private static bool TipsOn(UsageStrip strip, MainViewModel viewModel)
+    {
+        UsageFigure[] figures = [viewModel.CurrentUsage, viewModel.WeekUsage, viewModel.FableUsage];
+
+        return strip.Pairs.Zip(figures).Where(pair => pair.First.Visibility == Visibility.Visible).All(pair =>
+        {
+            var host = (StackPanel)pair.First.Children[1];
+
+            return ToolTipService.GetIsEnabled(host)
+                && Equals(host.ToolTip, pair.Second.HoverText)
+                && System.Windows.Shell.WindowChrome.GetIsHitTestVisibleInChrome((TextBlock)host.Children[1]);
+        });
+    }
+
+    /// <summary>
+    /// Sweeps the window one DIP at a time across <paramref name="widths"/> and records where the counts and the
+    /// usage are; a second layout at each width must change nothing.
+    /// </summary>
+    private List<UsageAt> SweepUsage(MainWindow window, MainViewModel viewModel, IEnumerable<double> widths)
+    {
+        var seen = new List<UsageAt>();
+
+        foreach (var width in widths)
+        {
+            window.Width = width;
+            window.UpdateLayout();
+            _harness.Pump(DispatcherPriority.Background);
+            window.UpdateLayout();
+
+            var usageInCaption = window.CaptionUsage.Visibility == Visibility.Visible;
+            var rowUsage = window.RowUsage.Visibility == Visibility.Visible;
+
+            seen.Add(new UsageAt(
+                width,
+                window.CaptionCounts.Strip.Tier,
+                window.CaptionCounts.Strip.HasDropped,
+                window.CaptionCounts.DesiredSize.Width,
+                window.CaptionCounts.Visibility == Visibility.Visible,
+                usageInCaption,
+                window.CaptionUsage.Strip.Tier,
+                window.CaptionSlot.UsageRoom,
+                PairsDrawn(window.CaptionUsage),
+                window.CountsRow.Visibility == Visibility.Visible,
+                window.RowCounts.Visibility == Visibility.Visible,
+                rowUsage,
+                PairsDrawn(window.RowUsage),
+                window.RowUsage.TranslatePoint(default, window).X + window.RowUsage.RenderSize.Width,
+                window.RowCounts.TranslatePoint(default, window).X,
+                TipsOn(usageInCaption ? window.CaptionUsage : window.RowUsage, viewModel)));
+
+            window.UpdateLayout();
+            _harness.Pump(DispatcherPriority.Background);
+
+            Assert.True(
+                (window.CaptionUsage.Visibility == Visibility.Visible) == usageInCaption
+                    && (window.RowUsage.Visibility == Visibility.Visible) == rowUsage,
+                $"At {width} the usage moved without the width changing.");
+        }
+
+        return seen;
+    }
+
+    /// <summary>The window's widths from its minimum to 1,100, one DIP apart: past full words for both strips.</summary>
+    private static List<double> UsageWidths(MainWindow window) =>
+        [.. Enumerable.Range(0, (int)(1100 - window.MinWidth) + 1).Select(step => window.MinWidth + step)];
+
+    /// <summary>
+    /// Sweeps a window whose board holds <paramref name="usage"/>, with the counts of a busy day. The display
+    /// scale goes to <see cref="_usageScale"/>, for the output of the measuring test.
+    /// </summary>
+    private List<UsageAt> SweepWith(UsageBoard usage) =>
+        WithWindow(
+            registry => registry.Working("busy", At),
+            (window, viewModel) =>
+            {
+                BusyCounts(viewModel);
+                _usageScale = VisualTreeHelper.GetDpi(window).DpiScaleX;
+
+                return SweepUsage(window, viewModel, UsageWidths(window));
+            },
+            prepare: viewModel => viewModel.Tick(At),
+            usage: usage);
+
+    /// <summary>
+    /// <strong>The counts decide before the usage</strong> (ruling R9): at every width, the counts choose the
+    /// same tier, drop the same counts and ask for the same width with three figures beside them as with none.
+    /// </summary>
+    /// <remarks>
+    /// The two windows are swept in the same run, so the widths are this run's measurements and nothing is
+    /// written down. The plant that measures the usage first fails here: the counts then lose words to labels.
+    /// </remarks>
+    [Fact]
+    public void The_counts_decide_before_the_usage()
+    {
+        var alone = SweepWith(new UsageBoard()).ToDictionary(at => at.Width);
+        var beside = SweepWith(UsageOf(3));
+
+        Assert.Contains(beside, at => at.UsageInCaption);
+
+        foreach (var at in beside)
+        {
+            var before = alone[at.Width];
+
+            Assert.True(
+                (at.CountsTier, at.CountsDropped, at.CountsDesired) == (before.CountsTier, before.CountsDropped, before.CountsDesired),
+                $"At {at.Width} the counts chose tier {at.CountsTier}, dropped: {at.CountsDropped}, {at.CountsDesired} wide, beside the usage; alone, tier {before.CountsTier}, dropped: {before.CountsDropped}, {before.CountsDesired} wide.");
+        }
+    }
+
+    /// <summary>
+    /// <strong>The usage drops its labels before its numbers</strong> (R9), with two figures and with three: as the
+    /// room the counts leave shrinks, the usage shows labels, then numbers only, then leaves the caption; each is
+    /// reached, and the same room always gives the same answer.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>Judged by the room, not by the window's width,</strong> because the counts decide first: when the
+    /// window widens past a step of the counts' ladder, the counts take their words back and the room for the usage
+    /// shrinks. The usage can then leave the caption at a wider window than one where it fitted. That is ruling
+    /// R9's order, and the output lists the widths where it happens.
+    /// </para>
+    /// <para>
+    /// Also the widths the XAML remark records, measured in this run and written to the test's output: what a
+    /// 520 window shows, and where the labels first stand beside the counts' full words.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [InlineData(2)]
+    [InlineData(3)]
+    public void The_usage_drops_its_labels_before_its_numbers(int figures)
+    {
+        var seen = SweepWith(UsageOf(figures));
+
+        // 0 on the row, 1 numbers only in the caption, 2 labels in the caption.
+        static int StateOf(UsageAt at) => !at.UsageInCaption ? 0 : at.UsageTier == 1 ? 1 : 2;
+
+        Assert.All(seen, at => Assert.True(!at.UsageInCaption || at.UsageTier is 0 or 1, $"At {at.Width} the usage showed tier {at.UsageTier}."));
+        Assert.Equal([0, 1, 2], seen.Select(StateOf).Distinct().Order());
+
+        var byRoom = seen.OrderBy(at => at.UsageRoom).ThenBy(at => at.Width).ToList();
+
+        Assert.All(byRoom.Zip(byRoom.Skip(1)), pair => Assert.True(
+            StateOf(pair.Second) >= StateOf(pair.First) && (pair.First.UsageRoom != pair.Second.UsageRoom || StateOf(pair.First) == StateOf(pair.Second)),
+            $"With {pair.First.UsageRoom} of room (at {pair.First.Width}) the usage was in state {StateOf(pair.First)}, and with {pair.Second.UsageRoom} (at {pair.Second.Width}) in state {StateOf(pair.Second)}."));
+
+        var leavesWider = seen.Zip(seen.Skip(1))
+            .Where(pair => StateOf(pair.Second) < StateOf(pair.First))
+            .Select(pair => $"{pair.Second.Width} (counts tier {pair.First.CountsTier} to {pair.Second.CountsTier}, usage state {StateOf(pair.First)} to {StateOf(pair.Second)})");
+
+        var numbersFrom = seen.First(at => StateOf(at) == 1).Width;
+        var labelsFrom = seen.First(at => StateOf(at) == 2).Width;
+        var beside = seen.First(at => StateOf(at) == 2 && at.CountsTier == 0 && at.CountsInCaption).Width;
+        var at520 = seen.Single(at => at.Width == 520);
+
+        _output.WriteLine(
+            $"{figures} figures at {_usageScale:P0}: numbers only from {numbersFrom}, labels from {labelsFrom}, "
+            + $"labels beside full-word counts from {beside}. At 520: usage in state {StateOf(at520)}, counts tier {at520.CountsTier}, "
+            + $"counts in the caption: {at520.CountsInCaption}, usage room {at520.UsageRoom}. "
+            + $"Steps back as the window widens: {string.Join("; ", leavesWider)}. "
+            + $"By width: {string.Join(", ", Ranges(seen, StateOf))}.");
+    }
+
+    /// <summary>The widths, as ranges, at which the usage was on the row, numbers only, or labels.</summary>
+    private static IEnumerable<string> Ranges(List<UsageAt> seen, Func<UsageAt, int> stateOf)
+    {
+        string[] names = ["row", "numbers", "labels"];
+        var start = 0;
+
+        for (var i = 1; i <= seen.Count; i++)
+        {
+            if (i == seen.Count || stateOf(seen[i]) != stateOf(seen[start]))
+            {
+                yield return $"{seen[start].Width}-{seen[i - 1].Width} {names[stateOf(seen[start])]}";
+                start = i;
+            }
+        }
+    }
+
+    /// <summary>
+    /// <strong>When the numbers do not fit, all three figures leave the caption</strong> (R9): in the caption the
+    /// usage shows all three or none, at every width; when it is not there, all three are on the row.
+    /// </summary>
+    [Fact]
+    public void When_the_numbers_do_not_fit_all_three_leave_the_caption()
+    {
+        var seen = SweepWith(UsageOf(3));
+
+        Assert.Contains(seen, at => at.UsageInCaption);
+        Assert.Contains(seen, at => !at.UsageInCaption);
+
+        foreach (var at in seen)
+        {
+            if (at.UsageInCaption)
+            {
+                Assert.True(at.CaptionPairsDrawn == 3, $"At {at.Width} the caption drew {at.CaptionPairsDrawn} of the three figures.");
+            }
+            else
+            {
+                Assert.True(at.RowUsage, $"At {at.Width} the usage was in neither place.");
+            }
+        }
+
+        // On the row, the ladder starts again from labels: where the usage first leaves the caption, the row has
+        // the whole window's width and shows all three.
+        var firstLeft = seen.Last(at => !at.UsageInCaption);
+
+        Assert.Equal(3, firstLeft.RowPairsDrawn);
+    }
+
+    /// <summary>
+    /// <strong>The row shows only what left the caption, the usage at the left</strong> (R9, "shared row"): the
+    /// counts are on the row exactly when the caption's counts dropped one, the usage exactly when it is not in the
+    /// caption; when both are there, the usage ends left of where the counts begin. When the counts leave, the
+    /// usage leaves with them.
+    /// </summary>
+    [Fact]
+    public void The_row_shows_only_what_left_the_caption_usage_at_the_left()
+    {
+        var seen = SweepWith(UsageOf(3));
+
+        Assert.Contains(seen, at => at.RowCounts && at.RowUsage);
+
+        foreach (var at in seen)
+        {
+            Assert.True(at.RowCounts == at.CountsDropped, $"At {at.Width} the counts were on the row: {at.RowCounts}; the caption's counts dropped one: {at.CountsDropped}.");
+            Assert.True(at.RowCounts != at.CountsInCaption, $"At {at.Width} the counts were in the caption: {at.CountsInCaption}, on the row: {at.RowCounts}.");
+            Assert.True(at.RowUsage != at.UsageInCaption, $"At {at.Width} the usage was in the caption: {at.UsageInCaption}, on the row: {at.RowUsage}.");
+            Assert.True(!at.RowCounts || at.RowUsage, $"At {at.Width} the counts left the caption and the usage stayed.");
+
+            if (at.RowCounts && at.RowUsage)
+            {
+                Assert.True(at.RowUsageRight <= at.RowCountsLeft + 0.5, $"At {at.Width} the usage on the row ends at {at.RowUsageRight}, right of the counts at {at.RowCountsLeft}.");
+            }
+        }
+    }
+
+    /// <summary>
+    /// <strong>The row is up when either strip left the caption, and only then</strong> (R9): there are widths
+    /// where the usage alone left, and the row is up for it; and widths where neither did, and it is down.
+    /// </summary>
+    [Fact]
+    public void The_row_shows_when_either_strip_left_the_caption()
+    {
+        var seen = SweepWith(UsageOf(3));
+
+        Assert.All(seen, at => Assert.True(at.RowUp == (at.RowCounts || at.RowUsage), $"At {at.Width} the row was up: {at.RowUp}, with the counts: {at.RowCounts}, the usage: {at.RowUsage}."));
+        Assert.Contains(seen, at => at.RowUp && at.RowUsage && !at.RowCounts);
+        Assert.Contains(seen, at => !at.RowUp);
+    }
+
+    /// <summary>
+    /// <strong>The hover text is on always</strong> (R11), unlike the counts' tooltip: with labels, with numbers
+    /// only, and on the row, each shown pair offers the view model's text.
+    /// </summary>
+    [Fact]
+    public void The_hover_text_is_on_at_both_tiers_and_on_the_row()
+    {
+        var seen = SweepWith(UsageOf(3));
+
+        Assert.Contains(seen, at => at.UsageInCaption && at.UsageTier == 0);
+        Assert.Contains(seen, at => at.UsageInCaption && at.UsageTier == 1);
+        Assert.Contains(seen, at => at.RowUsage);
+        Assert.All(seen, at => Assert.True(at.TipsOn, $"At {at.Width} a shown pair offered no hover text, or not the view model's."));
+    }
+
+    /// <summary>
+    /// <strong>Before the first post the usage strip is collapsed, not hidden</strong>, in the caption and on the row:
+    /// the slot is the counts' alone, as before MOD.7.
+    /// </summary>
+    [Fact]
+    public void Before_the_first_post_the_usage_strip_is_collapsed()
+    {
+        var (caption, row, room) = WithWindow(
+            registry => registry.Working("busy", At),
+            (window, viewModel) =>
+            {
+                window.Width = 900;
+                window.UpdateLayout();
+
+                return (window.CaptionUsage.Visibility, window.RowUsage.Visibility, window.CaptionUsage.DesiredSize.Width);
+            },
+            prepare: viewModel => viewModel.Tick(At));
+
+        Assert.Equal((Visibility.Collapsed, Visibility.Collapsed, 0.0), (caption, row, room));
+    }
+
     // ---- Colour comes from the accent ----------------------------------------------------------
 
     [Theory]
@@ -1590,7 +1943,7 @@ public sealed class MainWindowTests(StaHarness harness, Xunit.Abstractions.ITest
                 registry.Projection,
                 policy,
                 new AckPublisher(sink, new FakeClock(), Serilog.Core.Logger.None),
-                new FakeClipboard(), new RosterStore(new RecordingEventSink()), new RecordingRosterPersistence());
+                new FakeClipboard(), new RosterStore(new RecordingEventSink()), new RecordingRosterPersistence(), new UsageBoard());
 
             var promptId = registry.Working("finished", FakeClock.DefaultStart);
             registry.Finished("finished", FakeClock.DefaultStart.AddMinutes(1), promptId);
@@ -1644,7 +1997,7 @@ public sealed class MainWindowTests(StaHarness harness, Xunit.Abstractions.ITest
             using var policy = new MotionPolicy(() => false, observeChanges: false);
             using var viewModel = new MainViewModel(
                 registry.Projection, policy, new StubAckPublisher(),
-                new FakeClipboard(), new RosterStore(new RecordingEventSink()), new RecordingRosterPersistence());
+                new FakeClipboard(), new RosterStore(new RecordingEventSink()), new RecordingRosterPersistence(), new UsageBoard());
             using var tray = TestTrays.For(registry.Projection, notice: notice);
 
             var window = new MainWindow(viewModel, tray);
@@ -1720,7 +2073,7 @@ public sealed class MainWindowTests(StaHarness harness, Xunit.Abstractions.ITest
             using var policy = new MotionPolicy(() => false, observeChanges: false);
             using var viewModel = new MainViewModel(
                 registry.Projection, policy, new StubAckPublisher(),
-                new FakeClipboard(), new RosterStore(new RecordingEventSink()), new RecordingRosterPersistence());
+                new FakeClipboard(), new RosterStore(new RecordingEventSink()), new RecordingRosterPersistence(), new UsageBoard());
             using var board = new NoticeBoard(hook, history);
             using var tray = TestTrays.For(registry.Projection, clock: clock, notices: board);
 
@@ -1812,7 +2165,7 @@ public sealed class MainWindowTests(StaHarness harness, Xunit.Abstractions.ITest
             using var policy = new MotionPolicy(() => false, observeChanges: false);
             using var viewModel = new MainViewModel(
                 registry.Projection, policy, new StubAckPublisher(),
-                new FakeClipboard(), new RosterStore(new RecordingEventSink()), new RecordingRosterPersistence());
+                new FakeClipboard(), new RosterStore(new RecordingEventSink()), new RecordingRosterPersistence(), new UsageBoard());
             using var board = new NoticeBoard(hook, history, sound);
             using var tray = TestTrays.For(registry.Projection, clock: clock, notices: board);
 
@@ -1887,7 +2240,7 @@ public sealed class MainWindowTests(StaHarness harness, Xunit.Abstractions.ITest
             using var policy = new MotionPolicy(() => false, observeChanges: false);
             using var viewModel = new MainViewModel(
                 registry.Projection, policy, new StubAckPublisher(),
-                new FakeClipboard(), new RosterStore(new RecordingEventSink()), new RecordingRosterPersistence());
+                new FakeClipboard(), new RosterStore(new RecordingEventSink()), new RecordingRosterPersistence(), new UsageBoard());
             using var board = new NoticeBoard(hook, history, sound, settings);
             using var tray = TestTrays.For(registry.Projection, clock: clock, notices: board);
 
@@ -1949,7 +2302,7 @@ public sealed class MainWindowTests(StaHarness harness, Xunit.Abstractions.ITest
             using var policy = new MotionPolicy(() => false, observeChanges: false);
             using var viewModel = new MainViewModel(
                 registry.Projection, policy, new StubAckPublisher(),
-                new FakeClipboard(), new RosterStore(new RecordingEventSink()), new RecordingRosterPersistence());
+                new FakeClipboard(), new RosterStore(new RecordingEventSink()), new RecordingRosterPersistence(), new UsageBoard());
             using var board = new NoticeBoard(port, hook);
             using var tray = TestTrays.For(registry.Projection, clock: clock, notices: board);
 
@@ -1997,7 +2350,7 @@ public sealed class MainWindowTests(StaHarness harness, Xunit.Abstractions.ITest
             using var policy = new MotionPolicy(() => false, observeChanges: false);
             using var viewModel = new MainViewModel(
                 registry.Projection, policy, new StubAckPublisher(),
-                new FakeClipboard(), new RosterStore(new RecordingEventSink()), new RecordingRosterPersistence());
+                new FakeClipboard(), new RosterStore(new RecordingEventSink()), new RecordingRosterPersistence(), new UsageBoard());
             using var board = new NoticeBoard(hook, behind, lost);
             using var tray = TestTrays.For(registry.Projection, clock: clock, notices: board);
 
@@ -2067,7 +2420,7 @@ public sealed class MainWindowTests(StaHarness harness, Xunit.Abstractions.ITest
             using var policy = new MotionPolicy(() => false, observeChanges: false);
             using var viewModel = new MainViewModel(
                 registry.Projection, policy, new StubAckPublisher(),
-                new FakeClipboard(), new RosterStore(new RecordingEventSink()), new RecordingRosterPersistence());
+                new FakeClipboard(), new RosterStore(new RecordingEventSink()), new RecordingRosterPersistence(), new UsageBoard());
             using var board = new NoticeBoard(hook, selfTest, refused, behind);
             using var tray = new TrayViewModel(
                 registry.Projection,
@@ -2208,7 +2561,7 @@ public sealed class MainWindowTests(StaHarness harness, Xunit.Abstractions.ITest
             using var policy = new MotionPolicy(() => false, observeChanges: false);
             using var viewModel = new MainViewModel(
                 registry.Projection, policy, new StubAckPublisher(),
-                new FakeClipboard(), new RosterStore(new RecordingEventSink()), new RecordingRosterPersistence());
+                new FakeClipboard(), new RosterStore(new RecordingEventSink()), new RecordingRosterPersistence(), new UsageBoard());
             using var tray = TestTrays.For(registry.Projection, modes, sink, clock);
 
             var window = new MainWindow(viewModel, tray);
@@ -2333,7 +2686,7 @@ public sealed class MainWindowTests(StaHarness harness, Xunit.Abstractions.ITest
             using var viewModel = new MainViewModel(
                 registry.Projection,
                 new MotionPolicy(() => false, observeChanges: false),
-                new StubAckPublisher(), new FakeClipboard(), new RosterStore(new RecordingEventSink()), new RecordingRosterPersistence());
+                new StubAckPublisher(), new FakeClipboard(), new RosterStore(new RecordingEventSink()), new RecordingRosterPersistence(), new UsageBoard());
             var window = new MainWindow(viewModel, TestTrays.For(registry.Projection));
 
             window.Close();
@@ -2368,7 +2721,7 @@ public sealed class MainWindowTests(StaHarness harness, Xunit.Abstractions.ITest
             using var viewModel = new MainViewModel(
                 registry.Projection,
                 new MotionPolicy(() => false, observeChanges: false),
-                new StubAckPublisher(), new FakeClipboard(), new RosterStore(new RecordingEventSink()), new RecordingRosterPersistence());
+                new StubAckPublisher(), new FakeClipboard(), new RosterStore(new RecordingEventSink()), new RecordingRosterPersistence(), new UsageBoard());
             var window = new MainWindow(viewModel, TestTrays.For(registry.Projection));
             window.Left = -32000;
             window.Top = -32000;
@@ -2410,7 +2763,7 @@ public sealed class MainWindowTests(StaHarness harness, Xunit.Abstractions.ITest
             using var viewModel = new MainViewModel(
                 registry.Projection,
                 new MotionPolicy(() => false, observeChanges: false),
-                new StubAckPublisher(), new FakeClipboard(), new RosterStore(new RecordingEventSink()), new RecordingRosterPersistence());
+                new StubAckPublisher(), new FakeClipboard(), new RosterStore(new RecordingEventSink()), new RecordingRosterPersistence(), new UsageBoard());
             var window = new MainWindow(viewModel, TestTrays.For(registry.Projection));
             window.Left = -32000;
             window.Top = -32000;
