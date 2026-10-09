@@ -988,8 +988,18 @@ public sealed class MainWindowTests(StaHarness harness, Xunit.Abstractions.ITest
         bool TipsOn,
         IReadOnlyList<StripFit> UsageFits);
 
-    /// <summary>How one shown usage strip was measured, arranged and drawn, on the line named by <c>Line</c>.</summary>
-    private sealed record StripFit(string Line, double ArrangedWidth, double DesiredWidth, double DrawnWidth);
+    /// <summary>
+    /// How one shown usage strip was measured, arranged and drawn, on the line named by <c>Line</c>: the inner
+    /// FittingStrip's widths, and the room its parent gave the <see cref="UsageStrip"/> (its layout slot) beside
+    /// the width it asked for, both with its margin.
+    /// </summary>
+    private sealed record StripFit(
+        string Line,
+        double ArrangedWidth,
+        double DesiredWidth,
+        double DrawnWidth,
+        double HostSlotWidth,
+        double HostDesiredWidth);
 
     /// <summary>The counts of a busy day, "11 sessions · 3 need you · 5 unread · 8 working", set on the view model.</summary>
     private static void BusyCounts(MainViewModel viewModel)
@@ -1047,8 +1057,8 @@ public sealed class MainWindowTests(StaHarness harness, Xunit.Abstractions.ITest
     }
 
     /// <summary>
-    /// The arranged, desired and drawn widths of <paramref name="strip"/>: a pair the strip left out is arranged
-    /// empty, so what is drawn is the sum of the pairs with room.
+    /// The arranged, desired and drawn widths of <paramref name="strip"/>, and its slot: a pair the strip left
+    /// out is arranged empty, so what is drawn is the sum of the pairs with room.
     /// </summary>
     private static StripFit FitOf(string line, UsageStrip strip) =>
         new(
@@ -1057,7 +1067,9 @@ public sealed class MainWindowTests(StaHarness harness, Xunit.Abstractions.ITest
             strip.Strip.DesiredSize.Width,
             strip.Strip.Children.Cast<FrameworkElement>()
                 .Where(child => LayoutInformation.GetLayoutSlot(child).Width > 0)
-                .Sum(child => child.DesiredSize.Width));
+                .Sum(child => child.DesiredSize.Width),
+            LayoutInformation.GetLayoutSlot(strip).Width,
+            strip.DesiredSize.Width);
 
     /// <summary>
     /// Sweeps the window one DIP at a time across <paramref name="widths"/> and records where the counts and the
@@ -1301,13 +1313,25 @@ public sealed class MainWindowTests(StaHarness harness, Xunit.Abstractions.ITest
 
     /// <summary>
     /// <strong>The usage strip is arranged at the width it measured</strong>, in the caption and on the row, at
-    /// every width: the counts' check (the T1.42 review) applied to the usage.
+    /// every width: the counts' check (the T1.42 review) applied to the usage, and one check more.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// FittingStrip draws the pairs its measure kept without checking the width again (T1.42), so its parent must
-    /// arrange it at its desired width, give or take a pixel of rounding. Narrower, it draws a pair past its edge;
-    /// wider, the usage is not beside the counts. <see cref="SummarySlot"/> arranges the usage over the room left
-    /// of the counts, and the strip's own alignment takes its desired width out of that room.
+    /// arrange it at its desired width. The test finds three faults:
+    /// </para>
+    /// <list type="bullet">
+    /// <item>A strip that draws more than it measured: its pairs with room are wider than its arrangement.</item>
+    /// <item>A strip arranged wider than it measured, by more than a pixel of rounding: the usage is then not
+    /// beside the counts.</item>
+    /// <item>A <see cref="UsageStrip"/> whose slot is narrower than it asked for, margin included. WPF arranges
+    /// such an element at its desired width all the same and clips it to the slot, so the inner strip's widths
+    /// look right while the first figure is cut ("5%" drawn as "i%"). Only the slot shows it.</item>
+    /// </list>
+    /// <para>
+    /// <see cref="SummarySlot"/> gives the usage the room left of the counts, never less than it measured, and the
+    /// strip's own alignment takes its desired width out of that room.
+    /// </para>
     /// </remarks>
     [Theory]
     [InlineData(2)]
@@ -1325,6 +1349,7 @@ public sealed class MainWindowTests(StaHarness harness, Xunit.Abstractions.ITest
         {
             Assert.True(fit.DrawnWidth <= fit.ArrangedWidth + 0.01, $"At {width} the usage strip on the {fit.Line} drew {fit.DrawnWidth} in an arrangement {fit.ArrangedWidth} wide.");
             Assert.True(Math.Abs(fit.ArrangedWidth - fit.DesiredWidth) <= 1, $"At {width} the usage strip on the {fit.Line} measured {fit.DesiredWidth} and was arranged at {fit.ArrangedWidth}.");
+            Assert.True(fit.HostSlotWidth >= fit.HostDesiredWidth - 0.01, $"At {width} the usage on the {fit.Line} asked for {fit.HostDesiredWidth} and got a slot {fit.HostSlotWidth} wide: it is clipped.");
         }
     }
 
