@@ -31,8 +31,9 @@ public sealed record UsageWindow(
 /// reports the same limits. So the newest reading of a kind wins, whichever session sent it.
 /// </para>
 /// <para>
-/// <strong>Information, never an alarm.</strong> Nothing here has a threshold. A limit that is
-/// almost used changes no colour and plays no sound until a ruling says that it does.
+/// <strong>Information, never an alarm.</strong> Nothing here has a threshold. The lines between
+/// green, amber and red are in <see cref="UsageGauge"/> (ruling R10). A limit that is almost used
+/// plays no sound and shows no notice.
 /// </para>
 /// </remarks>
 public sealed record UsageReadings
