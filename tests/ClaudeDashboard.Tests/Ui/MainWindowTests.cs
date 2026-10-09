@@ -1215,9 +1215,6 @@ public sealed class MainWindowTests(StaHarness harness, Xunit.Abstractions.ITest
     {
         var seen = SweepWith(UsageOf(3));
 
-        Assert.Contains(seen, at => at.UsageInCaption);
-        Assert.Contains(seen, at => !at.UsageInCaption);
-
         foreach (var at in seen)
         {
             if (at.UsageInCaption)
@@ -1229,6 +1226,9 @@ public sealed class MainWindowTests(StaHarness harness, Xunit.Abstractions.ITest
                 Assert.True(at.RowUsage, $"At {at.Width} the usage was in neither place.");
             }
         }
+
+        Assert.Contains(seen, at => at.UsageInCaption);
+        Assert.Contains(seen, at => !at.UsageInCaption);
 
         // On the row, the ladder starts again from labels: where the usage first leaves the caption, the row has
         // the whole window's width and shows all three.
