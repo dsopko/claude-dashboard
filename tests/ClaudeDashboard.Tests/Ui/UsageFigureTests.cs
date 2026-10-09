@@ -10,7 +10,7 @@ namespace ClaudeDashboard.Tests.Ui;
 
 /// <summary>
 /// The plan's usage in the view model: what the three pairs of the usage strip say, and when (MOD.7, issue
-/// #133; rulings R8, R10, R11 and R12).
+/// #133; MOD.8, issues #144 and #145; rulings R8, R10 to R14).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -77,31 +77,108 @@ public sealed class UsageFigureTests : IDisposable
 
         Assert.True(_viewModel.HasUsage);
         Assert.Equal(
-            [(true, false, "24%", UsageLevel.Green), (true, true, "55%", UsageLevel.Amber), (false, false, string.Empty, UsageLevel.Green)],
+            [(true, false, "76%", UsageLevel.Green), (true, true, "45%", UsageLevel.Amber), (false, false, string.Empty, UsageLevel.Green)],
             Pairs.Select(pair => (pair.IsShown, pair.HasSeparator, pair.Figure, pair.Level)));
     }
 
     /// <summary>
-    /// <strong>A limit past its reset time leaves its slot</strong> (<see cref="UsageReadings.At"/>), and the pair
-    /// after it then starts the strip, with no separator. The board still holds it: only the window lets it go.
+    /// <strong>A slot past its reset time shows fresh</strong> (R14): at the tick at its reset time it shows 100% in
+    /// green, whatever it showed before, and stays in its place, so the pair after it keeps its separator. The board
+    /// still holds the old reading, and <c>/state</c>'s view (<see cref="UsageReadings.At"/>) still leaves it out.
     /// </summary>
     [Fact]
-    public void A_window_past_its_reset_time_leaves_its_slot_empty()
+    public void A_slot_past_its_reset_time_shows_fresh()
     {
         var fiveHourReset = Noon.AddHours(3);
 
-        _usage.Heard([Reading("five_hour", 24, fiveHourReset), Reading("seven_day", 13, Noon.AddDays(6))], Noon);
+        _usage.Heard([Reading("five_hour", 97, fiveHourReset), Reading("seven_day", 13, Noon.AddDays(6))], Noon);
         _viewModel.Tick(Noon.AddSeconds(15));
 
-        Assert.True(_viewModel.CurrentUsage.IsShown);
+        Assert.Equal(("3%", UsageLevel.Red), (_viewModel.CurrentUsage.Figure, _viewModel.CurrentUsage.Level));
 
         _viewModel.Tick(fiveHourReset);
 
-        Assert.False(_viewModel.CurrentUsage.IsShown);
-        Assert.True(_viewModel.WeekUsage.IsShown);
-        Assert.False(_viewModel.WeekUsage.HasSeparator);
+        Assert.True(_viewModel.CurrentUsage.IsShown);
+        Assert.Equal(("100%", UsageLevel.Green), (_viewModel.CurrentUsage.Figure, _viewModel.CurrentUsage.Level));
+        Assert.True(_viewModel.WeekUsage.HasSeparator);
+        Assert.Equal("87%", _viewModel.WeekUsage.Figure);
         Assert.True(_viewModel.HasUsage);
-        Assert.Equal(2, _usage.Current.Windows.Count);
+        Assert.Equal(97, _usage.Current.Windows.Single(window => window.Kind == "five_hour").PercentUsed);
+        Assert.DoesNotContain(_usage.Current.At(fiveHourReset).Windows, window => window.Kind == "five_hour");
+    }
+
+    /// <summary>
+    /// <strong>The fresh hover names the reset that passed</strong> (R14): "Reset", past, at the time when it was
+    /// today, or with the day's name when it was not; then that the next reset time comes with the next reading.
+    /// </summary>
+    [Fact]
+    public void The_fresh_hover_names_the_reset_that_passed()
+    {
+        var today = Noon.AddHours(-2).AddMinutes(-40);
+        var yesterday = Noon.AddDays(-1);
+
+        _usage.Heard([Reading("five_hour", 60, today), Reading("seven_day", 99, yesterday)], Noon.AddDays(-2));
+        _viewModel.Tick(Noon);
+
+        var todayLocal = TimeZoneInfo.ConvertTime(today, TimeZoneInfo.Local);
+        var yesterdayLocal = TimeZoneInfo.ConvertTime(yesterday, TimeZoneInfo.Local);
+
+        Assert.Equal(
+            "Current session · 100% remaining · Reset at " + todayLocal.ToString("t", CultureInfo.CurrentCulture)
+                + "; the next reset time comes with the next reading",
+            _viewModel.CurrentUsage.HoverText);
+        Assert.Equal(
+            "This week · 100% remaining · Reset " + yesterdayLocal.ToString("dddd", CultureInfo.CurrentCulture) + " "
+                + yesterdayLocal.ToString("t", CultureInfo.CurrentCulture) + "; the next reset time comes with the next reading",
+            _viewModel.WeekUsage.HoverText);
+    }
+
+    /// <summary>
+    /// <strong>The next reading replaces a fresh slot</strong> (R14), at the next tick, also when it shows less than
+    /// 100: the slot is live again, with its new reset time.
+    /// </summary>
+    [Fact]
+    public void The_next_reading_replaces_a_fresh_slot()
+    {
+        var firstReset = Noon.AddHours(-1);
+        var nextReset = Noon.AddHours(4);
+
+        _usage.Heard([Reading("five_hour", 80, firstReset)], Noon.AddHours(-3));
+        _viewModel.Tick(Noon);
+
+        Assert.Equal("100%", _viewModel.CurrentUsage.Figure);
+
+        _usage.Heard([Reading("five_hour", 2, nextReset)], Noon.AddSeconds(5));
+        _viewModel.Tick(Noon.AddSeconds(15));
+
+        var nextLocal = TimeZoneInfo.ConvertTime(nextReset, TimeZoneInfo.Local);
+
+        Assert.Equal(("98%", UsageLevel.Green), (_viewModel.CurrentUsage.Figure, _viewModel.CurrentUsage.Level));
+        Assert.Equal(
+            "Current session · 98% remaining · Resets at " + nextLocal.ToString("t", CultureInfo.CurrentCulture),
+            _viewModel.CurrentUsage.HoverText);
+    }
+
+    /// <summary>
+    /// <strong>The hover says remaining</strong> (R13), with the figure the caption shows: 40.4 used is "60%
+    /// remaining", never "used".
+    /// </summary>
+    [Fact]
+    public void The_hover_says_remaining()
+    {
+        var reset = Noon.AddDays(6);
+
+        _usage.Heard([Reading("seven_day", 40.4, reset)], Noon);
+        _viewModel.Tick(Noon.AddSeconds(15));
+
+        var resetLocal = TimeZoneInfo.ConvertTime(reset, TimeZoneInfo.Local);
+
+        Assert.Equal("60%", _viewModel.WeekUsage.Figure);
+        Assert.Equal(
+            "This week · 60% remaining · Resets " + resetLocal.ToString("dddd", CultureInfo.CurrentCulture) + " "
+                + resetLocal.ToString("t", CultureInfo.CurrentCulture),
+            _viewModel.WeekUsage.HoverText);
+        Assert.DoesNotContain("used", _viewModel.WeekUsage.HoverText, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -127,16 +204,17 @@ public sealed class UsageFigureTests : IDisposable
 
         Assert.Equal(
             [
-                "Current session · 5% used · " + atToday,
-                "This week · 36% used · " + onLater,
-                "Fable this week · 60% used · " + onLater,
+                "Current session · 95% remaining · " + atToday,
+                "This week · 64% remaining · " + onLater,
+                "Fable this week · 40% remaining · " + onLater,
             ],
             Pairs.Select(pair => pair.HoverText));
-        Assert.Equal(["5%", "36%", "60%"], Pairs.Select(pair => pair.Figure));
+        Assert.Equal(["95%", "64%", "40%"], Pairs.Select(pair => pair.Figure));
+        Assert.Equal([UsageLevel.Green, UsageLevel.Green, UsageLevel.Amber], Pairs.Select(pair => pair.Level));
         Assert.Equal([false, true, true], Pairs.Select(pair => pair.HasSeparator));
     }
 
-    /// <summary>A reading with no reset time stays (it cannot pass), and its hover text has no reset part.</summary>
+    /// <summary>A reading with no reset time stays live (it cannot pass), and its hover text has no reset part.</summary>
     [Fact]
     public void A_reading_with_no_reset_time_has_no_resets_part()
     {
@@ -144,12 +222,12 @@ public sealed class UsageFigureTests : IDisposable
         _viewModel.Tick(Noon.AddDays(30));
 
         Assert.True(_viewModel.WeekUsage.IsShown);
-        Assert.Equal("This week · 13% used", _viewModel.WeekUsage.HoverText);
+        Assert.Equal("This week · 87% remaining", _viewModel.WeekUsage.HoverText);
     }
 
     /// <summary>
-    /// A kind with no slot is not shown, and a post with only such kinds leaves the strip away. 49.5 shows
-    /// 50 and is amber: the colour is judged by the figure on screen.
+    /// A kind with no slot is not shown, and a post with only such kinds leaves the strip away. 49.5 used is 50 used,
+    /// so 50% remaining, amber: the colour is judged by the rounded used figure.
     /// </summary>
     [Fact]
     public void Only_the_three_slots_are_shown_and_each_figure_is_rounded()
@@ -179,7 +257,15 @@ public sealed class UsageFigureTests : IDisposable
         _usage.Heard([Reading("seven_day", 13, DateTimeOffset.MaxValue)], Noon);
         _viewModel.Tick(Noon.AddSeconds(15));
 
-        Assert.StartsWith("This week · 13% used", _viewModel.WeekUsage.HoverText, StringComparison.Ordinal);
+        Assert.StartsWith("This week · 87% remaining", _viewModel.WeekUsage.HoverText, StringComparison.Ordinal);
+
+        // A reset at the start of the calendar has passed: the slot is fresh. Its reset part is there only in a zone
+        // where that instant has a local time.
+        _usage.Heard([Reading("five_hour", 13, DateTimeOffset.MinValue)], Noon);
+        _viewModel.Tick(Noon.AddSeconds(30));
+
+        Assert.StartsWith("Current session · 100% remaining", _viewModel.CurrentUsage.HoverText, StringComparison.Ordinal);
+        Assert.EndsWith("; " + UsageFigure.NextReadingText, _viewModel.CurrentUsage.HoverText, StringComparison.Ordinal);
     }
 
     private static UsageWindow Reading(string kind, double percentUsed, DateTimeOffset? resetsAt) =>
