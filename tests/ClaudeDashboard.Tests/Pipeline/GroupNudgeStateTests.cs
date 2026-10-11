@@ -104,6 +104,65 @@ public sealed class GroupNudgeStateTests(Xunit.Abstractions.ITestOutputHelper ou
         }
     }
 
+    /// <summary>
+    /// <strong>A settle that the tick sees builds the report again too</strong> (T1.84). The settle wake is armed only
+    /// when the deadline comes before the next tick; a tick that wakes a little late, after the deadline, sees the
+    /// settle in its own roster pass. Until T1.84 only the drain and the settle wake built the report after a settle,
+    /// so the members read no time until the group's nudge played.
+    /// </summary>
+    /// <remarks>
+    /// Made certain with a held clock: the events are drained at the start instant, and the clock is moved past the
+    /// deadline before the next tick, so the settle wake is never armed and the tick is the pass that settles.
+    /// </remarks>
+    [Fact]
+    public async Task A_settle_the_tick_sees_builds_the_report_again()
+    {
+        var start = FakeClock.DefaultStart;
+        var clock = new FakeClock(start);
+        var guard = new SingleWriterGuard();
+        var registry = new SessionRegistry(new SingleWriterGuard());
+        var pipeline = new EventPipeline(Logger.None);
+        var archive = new EventArchive(Logger.None);
+        var rosters = new RosterStore(pipeline.Sink, RosterBook.From([("orchestration", ["Coder", "Reviewer"])]), clock);
+        var recorder = new DecisionRecorder(registry, rosters, archive, Logger.None);
+        var engine = new SoundPolicyEngine(
+            new RecordingSoundPlayer(), clock, guard, new SoundPolicyOptions { UnreadNudgeAfter = UnreadAfter }, recorder);
+
+        registry.SessionChanged += (_, e) => engine.OnSessionChanged(e.Session, GroupKeys.Effective(e.Session, rosters.Book));
+        using var board = new StateBoard(registry, engine, clock, Logger.None, rosters);
+
+        using var consumer = new EventConsumer(
+            pipeline, registry, engine, clock, guard, Logger.None, new UiTick(new QueueingDispatcher()), archive, rosters, recorder,
+            tickInterval: TimeSpan.FromSeconds(1),
+            state: board);
+        await consumer.StartAsync(CancellationToken.None);
+
+        try
+        {
+            Publish(pipeline, Prompt("s-1", "Coder", "p-1", start));
+            Publish(pipeline, Prompt("s-2", "Reviewer", "p-2", start));
+            Publish(pipeline, Finished("s-1", "p-1", start));
+            Publish(pipeline, Finished("s-2", "p-2", start));
+
+            Assert.True(
+                await Until(() => Members.All(id => Is(board, id, null, NudgeOwner.Group)), DateTimeOffset.UtcNow.AddSeconds(5)),
+                $"The members did not read no time and Group after the drain: {Read(board)}.");
+            Assert.Equal(0, consumer.SettledCount);
+
+            var settledAt = start + RosterSettle.DefaultWindow + TimeSpan.FromMilliseconds(500);
+            clock.Now = settledAt;
+
+            Assert.True(
+                await Until(() => Members.All(id => Is(board, id, settledAt + UnreadAfter, NudgeOwner.Group)), DateTimeOffset.UtcNow.AddSeconds(3)),
+                $"After the tick settled the group, the members did not read the group's time: {Read(board)}.");
+            Assert.Equal(1, consumer.SettledCount);
+        }
+        finally
+        {
+            await consumer.StopAsync(CancellationToken.None);
+        }
+    }
+
     /// <summary>Waits until <paramref name="condition"/> holds or the clock passes <paramref name="giveUp"/>.</summary>
     private static async Task<bool> Until(Func<bool> condition, DateTimeOffset giveUp)
     {
