@@ -147,8 +147,9 @@ Rules of the type:
 | `SetAllMuted(muted, until)` | Mute all. `until` null means no end |
 | `SetMonitoringPaused(paused)` | Pause |
 | `SetSessionMuted`, `SetGroupMuted` | Mute for one session or one group. *No caller: not built in the host* |
-| `NextNudgeAt(session)` | The due time of the next nudge, or null |
-| `NudgeScheduleAdvanced` | An event, raised when `Evaluate` moved a due time |
+| `NextNudgeAt(session)` | The due time of the session's own next nudge, or null |
+| `NextNudgeOf(session)` | A `NextNudge`: when the session's state is next sounded (`At`, or null) and whose schedule that is (`By`: `Session` or `Group`). What `/state` answers as `nextNudgeAt` and `nudgeBy` (below; T1.84, issue #58) |
+| `NudgeScheduleAdvanced` | An event, raised when `Evaluate` moved a due time: a session's, or a roster group's when its one nudge plays (T1.84) |
 | `SoundMarked` | An event, raised when the player queued a sound, with the session whose row shows the speaker sign: the sound's own session, or, for a group's sound, the member that the settle named (`settledBy`). Nothing for a suppressed or a dropped sound (T1.67, §5.6.3) |
 
 Values, all in `SoundPolicyOptions`:
@@ -167,6 +168,7 @@ Values, all in `SoundPolicyOptions`:
 - The engine knows a roster group only by the kind of its key. It holds no roster book.
 - **An entry that comes back unchanged is not announced again.** After a quiet tick, the session has the same state and the same `EnteredAt` as before. The engine recognises that pair, restores the nudge schedule, and records a suppression with the reason `AlreadyAnnounced`.
 - **A settle with nothing new to announce is silent** (T1.72, issue #107). The engine keeps, with each session's entry, whether its finish was announced (`Tracked.Announced`). Announced: the engine made the session's own notice for that entry, which played, was held back by a mute or a pause, or was dropped. Not announced: the notice went to the roster group (`GroupDone`). When a group's settle is announced (played, held back or dropped), each member Unread at that moment counts as announced. A T1.44 restore brings the entry back with its fact; a new entry decides it again. A settle in which each Unread member is announced plays nothing, records `NoticeSuppressed` with `AlreadyAnnounced` for the group's notice, holds the group as settled, starts no group nudge and marks no row. No members, or a member the engine holds no Unread record of, means the group plays: when in doubt, the sound plays. **The members come from the settle pass**, from the groups as they stand, never from the engine's own copy of each session's group, which a roster edit does not change.
+- **Whose reminder** (T1.84, issue #58). The engine keeps, with each entry, whether its notice went to its roster group (`Tracked.ByGroup`): the session entered `Unread` while in a roster group. Such a member has no reminder of its own, and `NextNudgeOf` answers `Group` with the group's time: null before the group settles, the group's nudge after, and null again once that nudge has played. Every other session answers `Session` with its own time. The fact is fixed at the entry, as the notice was, so a member that announced its own finish and joined a roster later keeps its own reminder (T1.72) and answers `Session`. A member whose finish went to its group and that then left the roster answers `Session` with no time: nothing will sound it.
 - Mute and pause are checked at the point where a sound would play, in this sequence: pause, mute all, session mute, group mute. The schedule goes on.
 
 ### 2.5 Groups, rosters and the settle window
@@ -308,7 +310,8 @@ Each hook that the dashboard registers only observes. `/hook` answers `200` with
 | `lastActivity` | instant | When a transition last changed something |
 | `lastHeardAt` | instant | When an event last arrived |
 | `errorKind` | string or null | In `Error` only. The kind as Claude Code sent it, for example `rate_limit`. Empty if the event carried none (§9.1) |
-| `nextNudgeAt` | instant or null | The due time of the next nudge. See below |
+| `nextNudgeAt` | instant or null | When the session's state is next sounded, by the schedule that `nudgeBy` names. Null when that schedule has nothing. See below |
+| `nudgeBy` | string | `Session` or `Group`: whose schedule `nextNudgeAt` is. Never null (T1.84, issue #58). See below |
 | `waitingOn` | array | The background tasks that the session waits on. Empty if none |
 
 **One task in `waitingOn`**
@@ -323,12 +326,12 @@ Each hook that the dashboard registers only observes. `/hook` answers `200` with
 **What a caller must know**
 
 - **`nextNudgeAt` is the schedule, not what is audible.** A muted session still shows a time.
-- **A null `nextNudgeAt` has two meanings** (issue #58): no nudge is due, or the session is a finished member of a roster group and the group owns the notice. The report cannot tell them apart.
+- **`nudgeBy` says whose reminder it is** (T1.84, issue #58). `Group` for a finished (`Unread`) member of a roster group whose finish the group announces: `nextNudgeAt` is then the group's one nudge, null while the group has not settled, the group's time after the settle, and null again once that nudge has played. `Session` in every other case, with the session's own time, as before; also for a roster member that needs you, and for members that announced their own finish before a roster was made over them (T1.72), which keep their own reminders. The engine answers both (`SoundPolicyEngine.NextNudgeOf`, §2.4), and the report copies them. **Why:** until T1.84 a null `nextNudgeAt` had two meanings, no reminder coming or a reminder from the roster group, and the report could not tell them apart. Now a null time means one thing: the owner has nothing scheduled.
 - **`waitingOn` is usually empty unless `state` is `Waiting`.** It is also not empty for a session that waits on a background agent while that agent's permission prompt, question or error shows on the parent.
 - **The report never carries a prompt, an answer or a task's command.**
 - **`title` and `description` are free text:** a title can be a model's summary of the session's first prompt, and a description is what the agent said the task is.
 - **Before the first event,** the report has `sessionCount` 0, all bands 0, `tray.worst` `Ended`, `tray.light` `Grey` and no sessions.
-- **The report does not change with time alone.** It is built when a session changes and when a nudge fires. It holds instants, not ages. `health` and `usage` are the exceptions: each is read at each request, because each is written on request threads.
+- **The report does not change with time alone.** It is built when a session changes, when a nudge fires (a session's, or a roster group's: T1.84), and after each pass that settles or unsettles a roster group: at a drain, at the settle deadline, or in a tick that wakes after the deadline (T1.83, T1.84). It holds instants, not ages. `health` and `usage` are the exceptions: each is read at each request, because each is written on request threads.
 - **`usage` can be behind the true figure.** A reading arrives only when a session ends a turn, and other apps use the same limits; `heardAt` says how old each reading is.
 - **`usage` is of one account.** The body names no account, so readings from two accounts on one machine would replace each other.
 - **Not in the report:** the mute and pause modes, the rosters, the settle window's state of a group, the notice, and the row's clock anchor.
@@ -663,7 +666,7 @@ The mode ends when the operator groups, cancels, or hides the window.
 |---|---|
 | A session changed | `SessionChanged` → `SessionProjection` → `MainViewModel.Refresh` |
 | Time passed | The consumer's tick → `UiTick` → `MainViewModel.Tick` and `TrayViewModel.Tick` |
-| A roster group settled | The consumer wakes at the deadline and sends a tick, and builds `/state` again (`StateBoard.Restate`). Until #131 an event that started a settle window left the consumer's wait aimed at the next ordinary tick, so the settle was seen up to 15 seconds after its 1.5-second deadline; the wait is now armed again for the deadline when a settle becomes due sooner than it (T1.83) |
+| A roster group settled | The consumer wakes at the deadline and sends a tick, and builds `/state` again (`StateBoard.Restate`). Until #131 an event that started a settle window left the consumer's wait aimed at the next ordinary tick, so the settle was seen up to 15 seconds after its 1.5-second deadline; the wait is now armed again for the deadline when a settle becomes due sooner than it (T1.83). The settle wake is armed only when the deadline comes before the next tick, so a tick that wakes a little after the deadline sees the settle in its own pass; that tick builds `/state` again too (T1.84). Until T1.84 it did not, and `/state` kept the bands and the members' reminder time until the next change |
 | A roster was edited | The consumer sends a tick after the `RostersChanged`, so the tray counts again at once (T1.83) |
 | Mute or pause changed | The consumer sends a tick after the `SoundCommand` |
 | A sound played | `SoundPolicyEngine.SoundMarked` → `SoundSigns` → `MainViewModel.SoundPlayed`: one post for each sound that played (§5.6.3) |
@@ -1368,3 +1371,4 @@ The text above says what is true now. This list says when each part changed.
 | 2026-10-08 | `/state` gains `usage`, after `health`: the plan's limits from `UsageBoard.Report`, read at the request, null before the first post, a limit past its reset time left out, instants in UTC; two lines on what a caller must know; the `/usage` Debug line described as the code writes it since the MOD.4 review (§3.2, §3.5, §9.5) | MOD.5; issue #133 |
 | 2026-10-09 | The caption shows the usage strip to the left of the counts, and the row under the caption is shared: the slots and the colour from Core's `UsageGauge`, the counts measured first by `SummarySlot`, the hover with the reset time (§5.6.1) | MOD.7; issue #133 |
 | 2026-10-09 | The usage strip shows the share remaining, coloured by the share used; a slot past its reset time is fresh, `100%` green, until the next reading, judged by Core's `UsageGauge.Slots` from the held readings (the view model no longer applies `UsageReadings.At`; `/state` unchanged); the log file writes one Information line when a usage post changes the picture, with Core's reason for a reading not kept, and a Debug line with each reading in full; the Activity line for a fresh slot is not built (§5.6.1, §8.4) | MOD.8; issues #143, #144, #145 |
+| 2026-10-11 | `/state` gains `nudgeBy` on each session, `Session` or `Group`, and `nextNudgeAt` carries that owner's time: for a finished roster member whose finish the group announces, the group's nudge; the rule is the engine's (`NextNudgeOf`, `Tracked.ByGroup`), and a group's nudge raises `NudgeScheduleAdvanced`. The tick builds `/state` again when its own pass settles or unsettles a group, as the drain and the settle wake already did. "A null `nextNudgeAt` has two meanings" rewritten to the new rule (§2.4, §3.5, §5.6.9) | T1.84; issue #58 |

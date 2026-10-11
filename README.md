@@ -58,11 +58,11 @@ A scheduled job, such as a watchdog that checks every 30 minutes, can end its tu
 
 ## Asking the dashboard what it believes
 
-`GET http://127.0.0.1:<port>/state` answers with what the dashboard believes now: every session with its state, band, title, waiting tasks and next nudge time, then the band counts and the tray light, and the plan's usage as the usage mod last posted it (`usage`, null before its first post). It is for tests and diagnosis. It never carries a prompt or an answer. The [Implementation Specification](docs/claude-dashboard-impl-spec.md) §3.5 describes every field.
+`GET http://127.0.0.1:<port>/state` answers with what the dashboard believes now: every session with its state, band, title, waiting tasks, and next nudge time with its owner, then the band counts and the tray light, and the plan's usage as the usage mod last posted it (`usage`, null before its first post). It is for tests and diagnosis. It never carries a prompt or an answer. The [Implementation Specification](docs/claude-dashboard-impl-spec.md) §3.5 describes every field.
 
 It needs the dashboard's token, in an `X-Dashboard-Token` header; without it, or with a wrong one, `/state` answers `401`. **You set nothing.** The dashboard makes a new token every time it starts and writes it, with the port, to `%LocalAppData%\ClaudeDashboard\listening.txt`: the port on the first line, the token on the second. The file exists only while a dashboard runs. The hook reads the same file at every event, so a Claude Code session keeps reporting through any number of dashboard restarts, and no session or terminal ever needs restarting for the token. Read the token again after each start. The old `CLAUDE_DASHBOARD_TOKEN` variable is no longer used; if it is set, the dashboard says so once in its log and ignores it.
 
-`nextNudgeAt` is the schedule, not what you will hear: a muted session still shows a time. When it is `null`, either no nudge is coming or the session is a finished member of a roster group, and the group owns the notice.
+`nextNudgeAt` is the schedule, not what you will hear: a muted session still shows a time. `nudgeBy` says whose schedule it is. `Group` is for a finished member of a roster group, whose finish the group announces: `nextNudgeAt` is then the group's one reminder, `null` before the group settles and after that reminder plays. `Session` is for every other session, with its own time. So a `null` time means one thing: nothing is scheduled by that owner.
 
 ```powershell
 $port, $token = Get-Content "$env:LOCALAPPDATA\ClaudeDashboard\listening.txt"
