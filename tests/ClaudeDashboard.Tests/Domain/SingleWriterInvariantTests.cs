@@ -223,7 +223,7 @@ public sealed class SingleWriterInvariantTests
     {
         // Queries: they read and do not mutate, so they do not enter the region. See
         // SingleWriterGuard for why reads are documented rather than guarded.
-        string[] queries = ["IsMuted", "NextNudgeAt", "IsSilenced"];
+        string[] queries = ["IsMuted", "NextNudgeAt", "NextNudgeOf", "IsSilenced"];
 
         var classified = Mutators
             .Select(mutator => mutator.Name.Split('.')[^1])
@@ -312,6 +312,7 @@ public sealed class SingleWriterInvariantTests
             ["IsMuted"] = 1,
             ["IsSilenced"] = 1,
             ["NextNudgeAt"] = 1,
+            ["NextNudgeOf"] = 1,
         };
 
         var actual = new[] { typeof(SessionRegistry), typeof(SoundPolicyEngine) }
