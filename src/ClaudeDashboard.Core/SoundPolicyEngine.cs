@@ -236,6 +236,9 @@ public sealed class SoundPolicyEngine : ISoundModeReader
             // mute or a pause, or dropped), so this entry's finish is announced. A notice given to the roster
             // group instead is not, until the group announces.
             Announced = ownNotice,
+
+            // T1.84: the finish is the group's to announce, so the reminder is the group's too.
+            ByGroup = IsGroupDone(session.State, effectiveGroup),
         };
 
         _tracked[session.Id] = tracked;
@@ -513,6 +516,9 @@ public sealed class SoundPolicyEngine : ISoundModeReader
             // TS §IV.5: an unread result gets at most one soft nudge, and a settled group is one
             // unread result however many members produced it.
             group.NextNudgeAt = null;
+
+            // The group's time is its members' reminder time (T1.84), so it moved as surely as a session's does.
+            advanced = true;
         }
 
         if (advanced)
@@ -633,8 +639,51 @@ public sealed class SoundPolicyEngine : ISoundModeReader
         _tracked.TryGetValue(session, out var tracked) ? tracked.NextNudgeAt : null;
 
     /// <summary>
+    /// When this session's state is next sounded, and whose schedule that is (T1.84, issue #58): the answer
+    /// <c>/state</c> gives as <c>nextNudgeAt</c> and <c>nudgeBy</c>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong><see cref="NudgeOwner.Group"/> for a finished roster member whose finish the group announces</strong>:
+    /// one that entered <see cref="SessionState.Unread"/> while in its roster group, and is in a roster group still.
+    /// Its time is the group's nudge: null before the group settles, the group's time after, and null again once
+    /// the group's one nudge has played. That member has no reminder of its own (see <see cref="FirstNudgeAt"/>),
+    /// so its own <see cref="NextNudgeAt"/> is always null and says nothing about when it is heard.
+    /// </para>
+    /// <para>
+    /// <strong><see cref="NudgeOwner.Session"/> in every other case</strong>, with the session's own time: a session
+    /// outside any roster, a roster member needing permission, asking or in error, and a member that finished and
+    /// announced its finish itself before it joined a roster (T1.72: the group's settle is then silent and sets no
+    /// reminder, and the member keeps its own). A session this engine does not hold answers null and
+    /// <see cref="NudgeOwner.Session"/>.
+    /// </para>
+    /// <para>
+    /// <strong>The rule is here, so no caller works the owner out again.</strong> A mute does not change the
+    /// answer: a muted session's ladder goes on advancing silently (see <see cref="Play"/>), so the time is the
+    /// schedule, not what is heard. Read on the consumer thread, as <see cref="NextNudgeAt"/> is.
+    /// </para>
+    /// </remarks>
+    /// <param name="session">The session to answer for.</param>
+    public NextNudge NextNudgeOf(SessionId session)
+    {
+        if (!_tracked.TryGetValue(session, out var tracked))
+        {
+            return new NextNudge(null, NudgeOwner.Session);
+        }
+
+        if (tracked.ByGroup && GroupKeys.KindOf(tracked.Group) == GroupKeyKind.Roster)
+        {
+            return new NextNudge(
+                _groups.TryGetValue(tracked.Group, out var group) ? group.NextNudgeAt : null,
+                NudgeOwner.Group);
+        }
+
+        return new NextNudge(tracked.NextNudgeAt, NudgeOwner.Session);
+    }
+
+    /// <summary>
     /// Raised when <see cref="Evaluate(DateTimeOffset)"/> moves a session's
-    /// <see cref="NextNudgeAt"/>: a nudge fired, and the next one is scheduled or none is.
+    /// <see cref="NextNudgeAt"/> or a roster group's nudge: a nudge fired, and the next one is scheduled or none is.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -645,9 +694,15 @@ public sealed class SoundPolicyEngine : ISoundModeReader
     /// does not go stale in the past after the first nudge.
     /// </para>
     /// <para>
+    /// <strong>A roster group's nudge raises it too</strong> (T1.84, issue #58). The group's time is its finished
+    /// members' time in <see cref="NextNudgeOf"/>, and after the group's one nudge no session changes, so without
+    /// this <c>/state</c> would go on showing a time already past. A group's settle needs no event here: the
+    /// consumer builds the report again after each settle pass (T1.83).
+    /// </para>
+    /// <para>
     /// Raised on the thread that called <see cref="Evaluate(DateTimeOffset)"/>, inside the
     /// single-writer region, after the pass. A handler may read <see cref="NextNudgeAt"/> and
-    /// must do nothing else here.
+    /// <see cref="NextNudgeOf"/>, and must do nothing else here.
     /// </para>
     /// </remarks>
     public event EventHandler? NudgeScheduleAdvanced;
@@ -892,5 +947,13 @@ public sealed class SoundPolicyEngine : ISoundModeReader
         /// member's entry says so. Kept with the entry, so a T1.44 restore keeps it.
         /// </summary>
         public bool Announced { get; set; }
+
+        /// <summary>
+        /// Whether this entry's notice was given to its roster group (T1.84, issue #58): a member that entered
+        /// <see cref="SessionState.Unread"/> while in a roster group. Its reminder is then the group's, and it has none
+        /// of its own. Fixed at the entry, as the notice was: a member that finished on its own and joined a roster
+        /// later keeps its own reminder (T1.72). Kept with the entry, so a T1.44 restore keeps it.
+        /// </summary>
+        public bool ByGroup { get; init; }
     }
 }

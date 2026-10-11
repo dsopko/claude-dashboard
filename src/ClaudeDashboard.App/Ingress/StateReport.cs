@@ -45,7 +45,7 @@ public sealed record StateReport(
     UsageEntry? Usage = null)
 {
     /// <summary>What <c>/state</c> answers before the consumer has published anything.</summary>
-    public static StateReport Empty(DateTimeOffset at) => Of([], _ => null, at);
+    public static StateReport Empty(DateTimeOffset at) => Of([], _ => default, at);
 
     /// <summary>
     /// Builds the report from session snapshots and the nudge schedule.
@@ -59,17 +59,20 @@ public sealed record StateReport(
     /// (T1.83, issue #130); the session count and each session's entry are the sessions themselves.
     /// </remarks>
     /// <param name="sessions">Immutable session snapshots.</param>
-    /// <param name="nextNudgeAt">The sound engine's schedule, read on the consumer thread.</param>
+    /// <param name="nextNudge">
+    /// The sound engine's answer for each session (<see cref="SoundPolicyEngine.NextNudgeOf"/>), read on the consumer
+    /// thread: the time and its owner, so nothing here works the owner out again (T1.84, issue #58).
+    /// </param>
     /// <param name="at">When this is published.</param>
     /// <param name="rosters">The rosters; none when null, so every session counts on its own.</param>
     public static StateReport Of(
         IReadOnlyCollection<Session> sessions,
-        Func<SessionId, DateTimeOffset?> nextNudgeAt,
+        Func<SessionId, NextNudge> nextNudge,
         DateTimeOffset at,
         RosterBook? rosters = null)
     {
         ArgumentNullException.ThrowIfNull(sessions);
-        ArgumentNullException.ThrowIfNull(nextNudgeAt);
+        ArgumentNullException.ThrowIfNull(nextNudge);
 
         var bands = Enum.GetValues<AttentionBand>()
             .OrderByDescending(band => band)
@@ -89,7 +92,7 @@ public sealed record StateReport(
             sessions.Count,
             bands,
             new TrayRollUp(worst, TrayVisuals.ColourOf(worst)),
-            [.. AttentionEngine.Order(sessions).SelectMany(band => band.Sessions).Select(session => SessionStateEntry.Of(session, nextNudgeAt(session.Id)))]);
+            [.. AttentionEngine.Order(sessions).SelectMany(band => band.Sessions).Select(session => SessionStateEntry.Of(session, nextNudge(session.Id)))]);
     }
 }
 
@@ -109,7 +112,15 @@ public sealed record TrayRollUp(SessionState Worst, TrayColour Light);
 /// <param name="LastActivity">When anything last happened to it.</param>
 /// <param name="LastHeardAt">When Claude Code last sent an event for it.</param>
 /// <param name="ErrorKind">The error matcher, in Error only.</param>
-/// <param name="NextNudgeAt">When the sound engine next nudges it, or null if nothing is scheduled.</param>
+/// <param name="NextNudgeAt">
+/// When its state is next sounded, by <paramref name="NudgeBy"/>'s schedule, or null if nothing is scheduled: its own
+/// nudge, or its roster group's (T1.84, issue #58).
+/// </param>
+/// <param name="NudgeBy">
+/// Whose schedule <paramref name="NextNudgeAt"/> is: <see cref="NudgeOwner.Group"/> for a finished roster member whose
+/// finish the group announces, else <see cref="NudgeOwner.Session"/>. Never null, so a null time reads one way only:
+/// nothing is scheduled by that owner.
+/// </param>
 /// <param name="WaitingOn">The background tasks it is waiting on, in Waiting.</param>
 public sealed record SessionStateEntry(
     string Id,
@@ -123,10 +134,11 @@ public sealed record SessionStateEntry(
     DateTimeOffset LastHeardAt,
     string? ErrorKind,
     DateTimeOffset? NextNudgeAt,
+    NudgeOwner NudgeBy,
     IReadOnlyList<WaitingTaskEntry> WaitingOn)
 {
     /// <summary>Copies what the report shows out of an immutable session.</summary>
-    public static SessionStateEntry Of(Session session, DateTimeOffset? nextNudgeAt)
+    public static SessionStateEntry Of(Session session, NextNudge nextNudge)
     {
         ArgumentNullException.ThrowIfNull(session);
 
@@ -141,7 +153,8 @@ public sealed record SessionStateEntry(
             session.LastActivity,
             session.LastHeardAt,
             session.ErrorKind,
-            nextNudgeAt,
+            nextNudge.At,
+            nextNudge.By,
             [.. session.WaitingOn.Select(WaitingTaskEntry.Of)]);
     }
 }
