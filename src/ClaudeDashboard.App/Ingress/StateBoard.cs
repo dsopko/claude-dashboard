@@ -28,13 +28,14 @@ namespace ClaudeDashboard.App.Ingress;
 /// fifteen sessions.
 /// </para>
 /// <para>
-/// <strong>The nudge time is read here, on the consumer thread.</strong>
-/// <see cref="SoundPolicyEngine.NextNudgeAt"/> reads a plain dictionary the consumer writes. Two
+/// <strong>The nudge time and its owner are read here, on the consumer thread.</strong>
+/// <see cref="SoundPolicyEngine.NextNudgeOf"/> reads plain dictionaries the consumer writes. Three
 /// things move it. A session change moves it inside the sound engine's own
 /// <c>SessionChanged</c> handler — so this board must be subscribed <em>after</em> that handler,
-/// which <c>AppHost</c> guarantees by resolving it after wiring the engine. A nudge firing moves
-/// it with no session change at all, so this also hears
-/// <see cref="SoundPolicyEngine.NudgeScheduleAdvanced"/>.
+/// which <c>AppHost</c> guarantees by resolving it after wiring the engine. A nudge firing, a
+/// session's or a roster group's (T1.84, issue #58), moves it with no session change at all, so this
+/// also hears <see cref="SoundPolicyEngine.NudgeScheduleAdvanced"/>. A roster group's settle moves a
+/// finished member's time from null to the group's, and the consumer calls <see cref="Restate"/> for it.
 /// </para>
 /// <para>
 /// <strong>Degrade, never crash.</strong> Both handlers run inside the consumer's apply and tick.
@@ -131,7 +132,7 @@ public sealed class StateBoard : IDisposable
     {
         try
         {
-            Volatile.Write(ref _current, StateReport.Of(_sessions.Values, _sound.NextNudgeAt, _clock.Now, _rosters.Book));
+            Volatile.Write(ref _current, StateReport.Of(_sessions.Values, _sound.NextNudgeOf, _clock.Now, _rosters.Book));
         }
         catch (Exception ex)
         {

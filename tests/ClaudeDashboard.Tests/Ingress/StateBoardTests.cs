@@ -28,6 +28,9 @@ public sealed class StateBoardTests : IDisposable
 
     private static readonly DateTimeOffset T0 = FakeClock.DefaultStart;
 
+    /// <summary>The three sessions <see cref="Orchestrate"/> makes.</summary>
+    private static readonly string[] Orchestration = ["s-1", "s-2", "s-3"];
+
     private readonly FakeClock _clock = new(T0);
     private readonly RegistryHarness _harness = new();
     private readonly SoundPolicyEngine _sound;
@@ -37,7 +40,7 @@ public sealed class StateBoardTests : IDisposable
     public StateBoardTests()
     {
         _sound = new SoundPolicyEngine(new RecordingSoundPlayer(), _clock, new SingleWriterGuard(), new SoundPolicyOptions());
-        _harness.Registry.SessionChanged += (_, e) => _sound.OnSessionChanged(e.Session, e.Session.WorkspaceGroup);
+        _harness.Registry.SessionChanged += (_, e) => _sound.OnSessionChanged(e.Session, GroupKeys.Effective(e.Session, _rosters.Book));
         _board = new StateBoard(_harness.Registry, _sound, _clock, Logger.None, _rosters);
     }
 
@@ -266,6 +269,70 @@ public sealed class StateBoardTests : IDisposable
         Assert.Equal(0, report.Bands[AttentionBand.Working]);
         Assert.Equal(SessionState.Unread, report.Tray.Worst);
         Assert.Equal(3, report.SessionCount);
+    }
+
+    /// <summary>
+    /// <strong>Every session says whose reminder it is</strong> (T1.84, issue #58): in the JSON, <c>nudgeBy</c> is the
+    /// string <c>Session</c> or <c>Group</c> on every entry, and each entry's time and owner are the engine's answer.
+    /// The two finished roster members are <c>Group</c> with no time before the settle; the working member, and a
+    /// session outside the roster that needs permission, are <c>Session</c>.
+    /// </summary>
+    [Fact]
+    public void Every_session_says_whose_reminder_it_is_as_a_string()
+    {
+        _rosters.Replace(ClaudeDashboard.Core.RosterBook.From([("orchestration", ["Director", "Coder", "Reviewer"])]));
+        Orchestrate();
+        _harness.Working("alone", T0.AddMinutes(3));
+        _harness.Blocked("alone", T0.AddMinutes(3));
+
+        using var document = JsonDocument.Parse(JsonSerializer.Serialize(_board.Current, IngressEndpoints.StateOptions));
+        var sessions = document.RootElement.GetProperty("sessions").EnumerateArray().ToList();
+
+        Assert.Equal(4, sessions.Count);
+        Assert.All(sessions, session => Assert.Equal(JsonValueKind.String, session.GetProperty("nudgeBy").ValueKind));
+
+        var owners = sessions.ToDictionary(session => session.GetProperty("id").GetString()!, session => session.GetProperty("nudgeBy").GetString());
+        Assert.Equal("Group", owners["s-1"]);
+        Assert.Equal("Group", owners["s-2"]);
+        Assert.Equal("Session", owners["s-3"]);
+        Assert.Equal("Session", owners["alone"]);
+
+        Assert.Equal(JsonValueKind.Null, sessions.Single(session => session.GetProperty("id").GetString() == "s-1").GetProperty("nextNudgeAt").ValueKind);
+
+        foreach (var entry in _board.Current.Sessions)
+        {
+            Assert.Equal(_sound.NextNudgeOf(new SessionId(entry.Id)), new NextNudge(entry.NextNudgeAt, entry.NudgeBy));
+        }
+    }
+
+    /// <summary>
+    /// <strong>A finished roster member reports the group's reminder</strong> (T1.84): no time before the settle, the
+    /// group's time in the report built again after the settle pass, and no time once the group's nudge has played.
+    /// The last step has no session change and no settle pass: only the engine's event builds the report again.
+    /// </summary>
+    [Fact]
+    public void A_finished_roster_member_reports_the_group_reminder_until_the_group_nudge_plays()
+    {
+        _rosters.Replace(ClaudeDashboard.Core.RosterBook.From([("orchestration", ["Director", "Coder", "Reviewer"])]));
+        var reviewer = Orchestrate();
+        _clock.Now = T0.AddMinutes(4);
+        _harness.Finished("s-3", T0.AddMinutes(4), reviewer, cwd: @"C:\reviewer", title: "Reviewer");
+
+        Assert.Equal(((DateTimeOffset?)null, NudgeOwner.Group), (Entry("s-1").NextNudgeAt, Entry("s-1").NudgeBy));
+
+        var settledAt = T0.AddMinutes(4) + RosterSettle.DefaultWindow;
+        _clock.Now = settledAt;
+        var roster = GroupKeys.ForRoster("orchestration");
+        _sound.OnRosterGroupSettled(roster, settledAt, T0.AddMinutes(4), new SessionId("s-3"), [new SessionId("s-1"), new SessionId("s-2"), new SessionId("s-3")]);
+        _board.Restate();
+
+        var due = settledAt + SoundPolicyOptions.DefaultUnreadNudgeAfter;
+        Assert.All(Orchestration, id => Assert.Equal(((DateTimeOffset?)due, NudgeOwner.Group), (Entry(id).NextNudgeAt, Entry(id).NudgeBy)));
+
+        _clock.Now = due;
+        _sound.Evaluate(due);
+
+        Assert.All(Orchestration, id => Assert.Equal(((DateTimeOffset?)null, NudgeOwner.Group), (Entry(id).NextNudgeAt, Entry(id).NudgeBy)));
     }
 
     /// <summary>The issue's orchestration: Director and Coder finished, Reviewer working. Returns Reviewer's prompt id.</summary>

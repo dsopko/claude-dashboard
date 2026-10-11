@@ -118,6 +118,7 @@ public sealed class StateEndpointTests(Xunit.Abstractions.ITestOutputHelper outp
         Assert.Equal("NeedsYou", session.GetProperty("band").GetString());
         Assert.Equal("Director", session.GetProperty("title").GetString());
         Assert.Equal(JsonValueKind.String, session.GetProperty("nextNudgeAt").ValueKind);
+        Assert.Equal("Session", session.GetProperty("nudgeBy").GetString());
     }
 
     /// <summary>

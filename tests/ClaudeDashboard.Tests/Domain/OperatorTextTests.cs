@@ -79,6 +79,7 @@ public sealed class OperatorTextTests
             At,
             null,
             null,
+            NudgeOwner.Session,
             [new WaitingTaskEntry("task-1", BackgroundTaskKind.Subagent, new OperatorText(DescriptionMarker), At)]);
 
         return new StateReport(
