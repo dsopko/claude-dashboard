@@ -698,9 +698,11 @@ public sealed class EventConsumer : BackgroundService
     /// a session title, and a title can be a model-written summary of the operator's prompt.
     /// </para>
     /// </remarks>
-    private void ObserveRosterGroups(DateTimeOffset now)
+    /// <returns>Whether a group settled or unsettled, so the tick builds <c>/state</c> again (T1.84).</returns>
+    private bool ObserveRosterGroups(DateTimeOffset now)
     {
         var groups = GroupResolver.Resolve(_registry.Sessions.Values, _rosters.Book);
+        var moved = false;
 
         foreach (var change in _watch.Observe(groups, now))
         {
@@ -723,11 +725,13 @@ public sealed class EventConsumer : BackgroundService
                         RosterSettle.SettledBy(settled),
                         RosterSettle.UnreadMembers(settled));
                     SettledCount++;
+                    moved = true;
                     break;
                 }
 
                 case RosterGroupEvent.Unsettled:
                     _sound.OnRosterGroupUnsettled(change.Group);
+                    moved = true;
                     break;
 
                 case RosterGroupEvent.MisMarked:
@@ -745,6 +749,8 @@ public sealed class EventConsumer : BackgroundService
         }
 
         _settleDue = _watch.NextDeadline(groups, now);
+
+        return moved;
     }
     /// <summary>
     /// Asks the sound engine what has come due (TS §IV.5), and tells the UI what time it is.
@@ -802,6 +808,7 @@ public sealed class EventConsumer : BackgroundService
     private void Tick()
     {
         var now = _clock.Now;
+        var settledOrUnsettled = false;
 
         try
         {
@@ -825,7 +832,7 @@ public sealed class EventConsumer : BackgroundService
                     SweepSilent(now);
 
                     _sound.Evaluate(now);
-                    ObserveRosterGroups(now);
+                    settledOrUnsettled = ObserveRosterGroups(now);
 
                     // Inside the tick's scope, so the hourly summary is a decision like the others, and
                     // after the tick's work, so the snapshot counts it (T1.65).
@@ -844,6 +851,15 @@ public sealed class EventConsumer : BackgroundService
         catch (Exception ex)
         {
             _logger.Error(ex, "Evaluating the nudge schedule failed. The pipeline continues.");
+        }
+
+        // A tick that wakes after a group's settle deadline settles it here, not in Settle (T1.84): the settle wake is
+        // armed only when the deadline comes before the tick. /state's bands and a finished member's reminder time
+        // change with the settle, so the report is built again, as Settle builds it. Only when a group moved, so a
+        // group's nudge is still announced by the engine's NudgeScheduleAdvanced and nothing else.
+        if (settledOrUnsettled)
+        {
+            _state?.Restate();
         }
 
         EchoToUi(now);
