@@ -654,6 +654,115 @@ public sealed class AppHostTests : IDisposable
     }
 
     /// <summary>
+    /// A host started with no port set anywhere binds a port of this user's own, never the one
+    /// shared base port (issue #5, held by a test for issue #32).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>Every other started host pins a port first, and a pin wins in both shapes.</strong> So
+    /// the pre-T1.21 line, <c>Healthy(loaded.Settings.Port ?? IngressPortBase)</c>, could come back
+    /// with the suite green. That line is issue #5: on a PC with two users, the second dashboard
+    /// starts on the port the first one holds and hears nothing, with no error. This host has no
+    /// settings file and no <c>port.txt</c>, and is built with no ingress, as <c>Program</c>'s
+    /// first start is.
+    /// </para>
+    /// <para>
+    /// <strong>The port is read from <see cref="IngressStatus"/>, and it must be in this user's
+    /// walk.</strong> "Not the base" alone passes for any other port. The walk is what
+    /// <c>PortSelection.ForDataFolder</c> makes: the derived port, then up to
+    /// <see cref="PortSelection.DefaultWalk"/> steps. The walk matters on the operator's PC, where
+    /// their own dashboard holds this user's derived port and this host walks past it.
+    /// </para>
+    /// <para>
+    /// <strong>No luck.</strong> For one user in a thousand the derived port is the base itself,
+    /// and then "not the base" proves nothing. The test then fails with a text that says so, and
+    /// does not pass on a claim it cannot check: <c>AppHost.Build</c> takes no identity.
+    /// </para>
+    /// <para>
+    /// A port the probe found free can be taken before the host binds it, because Windows gives
+    /// ports in this range to any program that asks for one. Then the host is built again, and its
+    /// probe walks past that port, as <see cref="TestPorts"/> does for a pin.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task A_start_with_no_port_set_binds_this_users_port_and_never_the_base()
+    {
+        const int basePort = DashboardSettings.IngressPortBase;
+        var derived = PortSelection.Derive(UserIdentity.Current, basePort);
+
+        Assert.True(
+            derived != basePort,
+            $"this user's derived port is the base port {basePort} itself, so this test cannot tell " +
+            "this user's port from the shared one; AppHost.Build takes no identity to choose another");
+
+        var walk = Enumerable.Range(0, PortSelection.DefaultWalk + 1)
+            .Select(step => basePort + ((derived - basePort + step) % PortSelection.DefaultRange))
+            .ToHashSet();
+
+        // A data folder of its own: the fixture's folder has a pinned port in its settings file.
+        var paths = new DashboardPaths(Path.Combine(_root, "no-port"));
+        Assert.False(File.Exists(paths.SettingsFile));
+        Assert.False(File.Exists(paths.PortFile));
+
+        using var host = await StartedWithNoPort(paths);
+
+        try
+        {
+            var status = host.Services.GetRequiredService<IngressStatus>();
+
+            Assert.True(status.CanReceiveHooks, $"a start with no port set cannot hear on port {status.Port}");
+            Assert.NotEqual(basePort, status.Port);
+            Assert.True(
+                walk.Contains(status.Port),
+                $"port {status.Port} is not in this user's walk, from {derived} for " +
+                $"{PortSelection.DefaultWalk} steps");
+
+            using var client = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+            var body = await client.GetStringAsync(new Uri($"http://127.0.0.1:{status.Port}/health"));
+
+            Assert.Contains("\"status\":\"ok\"", body, StringComparison.Ordinal);
+        }
+        finally
+        {
+            await host.StopAsync();
+        }
+    }
+
+    /// <summary>
+    /// Builds and starts a host over <paramref name="paths"/>, with no ingress passed. A port taken
+    /// between the build's probe and the start is not a result: the host is built again.
+    /// </summary>
+    private async Task<WebApplication> StartedWithNoPort(DashboardPaths paths)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            var host = Build(paths);
+
+            try
+            {
+                await host.StartAsync();
+                return host;
+            }
+            catch (Exception ex) when (attempt < TestPorts.Attempts
+                && (ex is Microsoft.AspNetCore.Connections.AddressInUseException
+                    || ex is IOException { InnerException: Microsoft.AspNetCore.Connections.AddressInUseException }))
+            {
+                try
+                {
+                    await host.StopAsync();
+                }
+                catch (Exception stop) when (stop is InvalidOperationException or ObjectDisposedException)
+                {
+                    // A host whose start failed may have nothing to stop.
+                }
+
+                await host.DisposeAsync();
+                CloseOurLoggers();
+            }
+        }
+    }
+
+    /// <summary>
     /// A host started from ordinary settings binds the port those settings name, and serves on it.
     /// </summary>
     /// <remarks>
