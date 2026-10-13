@@ -340,8 +340,8 @@ The tick is not an event. It causes changes that no hook causes:
 | Condition | Result |
 |---|---|
 | The dashboard is closed | There is no `listening.txt`, so the script exits and opens no socket. The events of that time are lost. The dashboard does not get them later |
-| The dashboard was killed | `listening.txt` stays and names the old port and a token that nothing accepts now. The script posts to that port, and each post fails in the background. If a different program takes the port, it receives the payloads, which contain prompts. The next start writes the file again, with a new token |
-| A different program has a port at start | The dashboard skips that port and binds the next free one (section 2.4). Only when no port is free, or the pinned port is taken, does it start without one: it writes no `listening.txt`, and the log, the tray and the window say what to do. Until the T1.57 review a program on the port in `port.txt` left the dashboard deaf although its choice had found a free port |
+| The dashboard was killed | `listening.txt` stays and names the old port and a token that nothing accepts now. The script posts to that port, and each post fails in the background. If a different program takes the port, it receives the payloads, which contain prompts. The next start ends it: a start that binds a port writes the file again, with a new token, and a start with no port deletes the file when no dashboard answers on the port it names (T1.86, issue #151) |
+| A different program has a port at start | The dashboard skips that port and binds the next free one (section 2.4). Only when no port is free, or the pinned port is taken, does it start without one: it writes no `listening.txt`, removes a stale one when no dashboard answers on its port, and the log, the tray and the window say what to do. Until the T1.57 review a program on the port in `port.txt` left the dashboard deaf although its choice had found a free port |
 | The plugin is not registered, or is turned off | No event arrives. The next start registers it if the rules of section 2.2 permit. If not, the window and the tray show a notice with what to do |
 | An old hook from a build before the plugin is in Claude Code's settings | Events arrive through the old hook. The dashboard registers no plugin beside it, and shows a notice that asks the operator to remove the hook |
 | A hook reads `listening.txt` just before a restart replaces it | That one post carries the old token and gets `401`. The next hook reads the new file. One refusal shows nothing; 3 within 10 minutes show "messages refused" until 10 minutes after the last. Refusals are `HookRefused` rows: at most one row a second, with the count (T1.61) |
@@ -422,7 +422,7 @@ These are true as of T1.53, which reads the error kind from `error` (issue #67).
 |---|---|
 | Nothing removes an Ended session (section 8) | An Ended row stays until the dashboard starts again |
 | The Registry starts empty (section 8) | After a restart, a session shows again at its next event. Nothing is read from `dashboard.db` at start |
-| A hard stop leaves `listening.txt` (section 11) | Until the next start, each hook posts to the old port |
+| A hard stop leaves `listening.txt` (section 11) | Until the next start, each hook posts to the old port. The next start ends it, with a port or without one (T1.86) |
 | An unknown `Notification` type changes no state and writes no log line (issue #9) | Only the archive shows that it arrived |
 
 Until 2026-10-02 this section listed the places where the other documents disagreed with the code. Those documents are corrected.
