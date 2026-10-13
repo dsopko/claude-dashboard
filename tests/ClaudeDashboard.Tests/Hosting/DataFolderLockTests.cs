@@ -119,7 +119,7 @@ public sealed class DataFolderLockTests
     /// closes. The name reaches it through an environment variable, so no quoting can change it.
     /// </remarks>
     [Fact]
-    public void A_lock_held_by_another_process_is_held_by_another()
+    public async Task A_lock_held_by_another_process_is_held_by_another()
     {
         var root = UniqueRoot();
         var name = DataFolderLock.NameFor(root);
@@ -141,7 +141,7 @@ public sealed class DataFolderLockTests
 
         try
         {
-            var said = child.StandardOutput.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult();
+            var said = await child.StandardOutput.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(30));
             Assert.Equal("held", said);
 
             using var folder = DataFolderLock.Acquire(root);
