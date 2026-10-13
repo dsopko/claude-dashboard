@@ -1,8 +1,8 @@
 # Claude Dashboard: how Claude Code reaches the dashboard
 
-2026-10-12 · the mechanism as built in 0.0.27 (Parts 1 to 8), and what was decided on 2026-10-12 and filed as issues #150 and #151 (Parts 9 to 11), not yet built.
+2026-10-12, updated 2026-10-13 · the mechanism as built. Parts 9 to 11 record what was decided on 2026-10-12 (issues #150 and #151) and built in T1.86 (PR #153, merged as `f568976` on 2026-10-13).
 
-This page is for someone who sits down cold and wants to understand how a Claude Code session's events get to the dashboard window, what can go wrong on the way, and what the dashboard does about it. Every statement about today's behaviour was checked against `main` at `91995cc`; the file and section names point at the code and the Implementation Specification (Impl) for the detail.
+This page is for someone who sits down cold and wants to understand how a Claude Code session's events get to the dashboard window, what can go wrong on the way, and what the dashboard does about it. Every statement about the behaviour was checked against `main` at `91995cc` and, for what T1.86 changed, at `f568976`; the file and section names point at the code and the Implementation Specification (Impl) for the detail.
 
 ## Words used here
 
@@ -133,64 +133,7 @@ where the hex is a hash of two things: the data folder path and the Windows sign
 
 **When a second sign-in as the same user can exist.** Not on Windows 10 or 11 Pro in normal use: a client edition allows one session per account. Connecting by Remote Desktop as the account that is signed in at the keyboard moves that same session to the remote connection and locks the screen at the keyboard; you return to your own desktop, processes and dashboard. Two live sessions for one account need Windows Server with the "restrict each user to a single session" setting turned off, or a third-party change to a client edition. What a client edition does allow is two *different* users with live sessions (one at the keyboard, one remote or switched away); each has their own profile, so their own data folder and files, and only the port is shared, which the walk handles (scenario 5).
 
-## 7. The start and the exit, as built today
-
-```mermaid
-flowchart TD
-    A[Start] --> B{Gate held by<br/>another process?}
-    B -- yes --> C[Ask /health on the<br/>port in port.txt]
-    C -- a copy of us --> D[POST /show<br/>exit 0]
-    C -- anything else --> E[Log an Error<br/>exit 1]
-    B -- no --> F["Ask /health on the port<br/>in port.txt (if there is one)"]
-    F -- a copy of us --> D
-    F -- free, or someone else's --> G["Choose a port (Part 5):<br/>pin, port.txt, derived, walk"]
-    G -- bound --> H[Write port.txt<br/>write the script if changed<br/>overwrite listening.txt<br/>run the self-test]
-    G -- nothing free --> I[Start deaf<br/>notices in the log, the tray<br/>and the window<br/>listening.txt untouched]
-    H --> R[Run]
-    I --> R
-    R --> Q[Quit, sign-out, fault<br/>or the finally of Main]
-    Q --> X[Delete listening.txt<br/>keep port.txt]
-    classDef happy fill:#d8f3dc,stroke:#2d6a4f,color:#1b1b1b
-    class A,B,F,G,H,R,Q,X happy
-    linkStyle 0,4,6,7,9,11,12 stroke:#2d6a4f,stroke-width:3px
-```
-
-Green is the ordinary start: the gate is free, nothing of ours answers on the recorded port, the first candidate binds, the dashboard runs, and a clean quit removes the file. Every other box is a start that found something in the way.
-
-Two points to hold on to: **a bound dashboard overwrites `listening.txt` unconditionally**, which is what corrects a file a crash left behind; and **every exit deletes it unconditionally**, whoever wrote it.
-
-## 8. What can go wrong, and what the dashboard does today
-
-| # | Situation | What happens today | Verdict |
-|---|---|---|---|
-| 1 | You start the dashboard a second time in the same sign-in | The gate catches it; `/show` raises the window you had; the second process exits. The file is untouched | Fine |
-| 2 | The dashboard crashes or is killed, you restart it, the port is free | `listening.txt` is stale until the restart; each event in between costs the script a connect that fails in under a second, async, nothing waits. The restart binds the same port (`port.txt`) and overwrites the file with a new token | Fine |
-| 3 | Crash, and before the restart **another program takes the port** | Every event posts your prompt and the dead token to that program. No pin: the restart walks to a free port and overwrites the file; the leak lasts until the restart | Acceptable; recorded in Impl §9.4 as the residual |
-| 4 | Crash, **the pinned port is taken**, restart | The restart is deaf and shows the notices, and **leaves the stale file**. The leak in #3 now lasts as long as the deaf dashboard runs | **Gap.** The only case that leaks prompts for longer than a restart |
-| 5 | Another user is signed in and their dashboard holds your derived port | `/health` says "another dashboard"; the walk skips it. Their file is in their folder, not yours | Fine; this is what the walk is for |
-| 6 | A stranger (a dev server) holds your recorded or derived port, no pin | Skipped; the walk finds the next free port; `port.txt` is updated | Fine |
-| 7 | **You are signed in twice as the same user** (Windows Server with one-session-per-user off; not reachable on Windows 11 Pro, see Part 6), both start a dashboard, no pin | Two gates, one data folder. Copy 2 walks past copy 1's port, binds the next, **overwrites `listening.txt`**. Every hook now goes to copy 2; copy 1 keeps running and hears nothing, and nothing tells it. When copy 2 quits it **deletes the file**: copy 1 is still running and no hook finds it | **Gap.** Deaf without warning |
-| 8 | Signed in twice, **with a pin** | Copy 2 cannot bind the pin and starts deaf, leaving the file (copy 1's). When copy 2 quits it **deletes copy 1's file**. Copy 1 goes deaf | **Gap** |
-| 9 | The running dashboard has hung | It still holds the gate, and `/health` may still answer. A new start sends `/show` (the window may not come) or logs an Error, and exits | By design. End it in Task Manager; the next start is a first start |
-| 10 | You delete `listening.txt` by hand while the dashboard runs | Every hook finds no file and sends nothing until a restart | Minor. The notice row never learns of it |
-
-In #7 and #8 the two copies also write one `dashboard.db`. That is a bigger problem than the file and is out of scope here (Part 10).
-
-**On a Windows 10 or 11 PC, #4 is the one gap you can reach.** #7 and #8 need a second session for the same account, which a client edition does not give (Part 6). So the deaf-start tidy-up in Part 9 is the part that matters on a PC, and the folder lock matters on a server; the message box helps on both.
-
-## 9. What was decided: one dashboard per data folder
-
-An earlier draft of this part let two dashboards share the file, warned the loser every 15 seconds, and had each delete only its own file. A review on 2026-10-12 made two points: the owner check has a race (read "mine", the other dashboard writes, delete theirs), and the whole arrangement was a graceful way of doing something the product should refuse. The operator chose the refusal. The design is three sentences:
-
-**One dashboard per data folder. A bound dashboard overwrites a stale announcement. A deaf dashboard removes one when nobody answers on its port, and never writes one of its own.**
-
-| Moment | Today | Decided | Why |
-|---|---|---|---|
-| Start | The gate: one dashboard per sign-in (Part 6) | **A folder lock as well:** a second named mutex, `Global\ClaudeDashboard.DataFolder.<hash of the folder>`, taken right after the gate and before anything writes the folder. Gate held → a copy in this sign-in → `/show` and exit, as today. Gate free, folder lock held → a copy in another sign-in → exit without starting. Both free → start | Two dashboards on one folder share one database and one file. Refusing is the one exception Part 6 already makes, applied across sign-ins |
-| A second start that exits without showing a window | One line in the log file | **A message box too**, then exit. *Already running in another Windows session for this account; quit it there, or end its process.* Or: *already running, but it could not be asked to show its window; open it from its tray icon, or end its process.* Each names the log file | You double-clicked and nothing happened. The log line stays |
-| Bound a port | Overwrite `listening.txt` | Same | Corrects a crash's leftover |
-| Deaf start (pin taken, or the walk ran out) | Leave the file | Still write nothing. **Remove the file if no dashboard answers on the port it names** (free, a stranger, or silent); keep it if one does | Scenario 4, the one gap you can reach on a PC |
-| Quit | Delete the file | Same | With one dashboard per folder, the file is always its own |
+## 7. The start and the exit, as built
 
 ```mermaid
 flowchart TD
@@ -220,16 +163,44 @@ flowchart TD
     linkStyle 0,4,6,8,9,14,17,18 stroke:#2d6a4f,stroke-width:3px
 ```
 
-Green is still the ordinary start and quit; the folder-lock question (`L`) is new on that path but answers "no" every day. Amber is what the decision adds: the two message boxes and the deaf-start tidy-up. Everything else is Part 7 unchanged.
+Green is the ordinary start: the gate and the folder lock are free, nothing of ours answers on the recorded port, the first candidate binds, the dashboard runs, and a clean quit removes the file. Amber is what T1.86 added (Part 9): the folder lock's question, the two message boxes and the deaf-start tidy-up. Every other box is a start that found something in the way.
 
-**The scenarios of Part 8 under the decision:**
+Three points to hold on to: **a bound dashboard overwrites `listening.txt` unconditionally**, which is what corrects a file a crash left behind; **every exit deletes it**, and since there is one dashboard per data folder the file is always its own; and **a deaf dashboard never writes the file**, but removes a stale one when nobody answers on the port it names.
 
-| # | With the decision |
-|---|---|
-| 4 | The probe finds no dashboard on the pinned port, so the stale file is removed. The leak ends at the restart, as it already does without a pin |
-| 7, 8 | Copy 2 finds the folder lock held and its own gate free: message box, exit. One dashboard, one database, one file. The second session has no dashboard until the first is quit from its own session. The pin never enters into it: the lock is checked before the port |
-| 9 | Unchanged, except that you now see a box where today you see nothing |
-| 10 | Unchanged: the hooks stop until a restart. Delete the file only on purpose; quitting the dashboard is the way to silence the hooks |
+## 8. What can go wrong, and what the dashboard does
+
+The verdicts are as of T1.86 (`f568976`). Where T1.86 changed the behaviour, the row says what happened before.
+
+| # | Situation | What happens | Verdict |
+|---|---|---|---|
+| 1 | You start the dashboard a second time in the same sign-in | The gate catches it; `/show` raises the window you had; the second process exits. The file is untouched | Fine |
+| 2 | The dashboard crashes or is killed, you restart it, the port is free | `listening.txt` is stale until the restart; each event in between costs the script a connect that fails in under a second, async, nothing waits. The restart binds the same port (`port.txt`) and overwrites the file with a new token | Fine |
+| 3 | Crash, and before the restart **another program takes the port** | Every event posts your prompt and the dead token to that program. No pin: the restart walks to a free port and overwrites the file; the leak lasts until the restart | Acceptable; recorded in Impl §9.4 as the residual |
+| 4 | Crash, **the pinned port is taken**, restart | The restart is deaf and shows the notices. Its probe finds no dashboard on the pinned port, so it removes the stale file, and the leak ends at the restart as in #3. **Before T1.86** the file stayed, and the leak lasted as long as the deaf dashboard ran | Closed by T1.86 (#151). It was the one gap reachable on a PC |
+| 5 | Another user is signed in and their dashboard holds your derived port | `/health` says "another dashboard"; the walk skips it. Their file is in their folder, not yours | Fine; this is what the walk is for |
+| 6 | A stranger (a dev server) holds your recorded or derived port, no pin | Skipped; the walk finds the next free port; `port.txt` is updated | Fine |
+| 7 | **You are signed in twice as the same user** (Windows Server with one-session-per-user off; not reachable on Windows 11 Pro, see Part 6), both start a dashboard, no pin | Copy 2 finds the folder lock held and its own gate free: a message box, *already running in another Windows session*, and exit. One dashboard, one database, one file. **Before T1.86** copy 2 walked past copy 1's port, overwrote `listening.txt`, took every hook, and deleted the file when it quit; copy 1 heard nothing and nothing told it | Closed by T1.86 (#150) |
+| 8 | Signed in twice, **with a pin** | The same as #7: the lock is checked before the port, so the pin never enters into it. **Before T1.86** copy 2 started deaf and deleted copy 1's file when it quit | Closed by T1.86 (#150) |
+| 9 | The running dashboard has hung | It still holds the gate, and `/health` may still answer. A new start sends `/show` (the window may not come), or shows the *could not be reached* box and exits. **Before T1.86** that exit wrote one line in the log file and showed nothing | By design, now visible. End it in Task Manager; the next start is a first start |
+| 10 | You delete `listening.txt` by hand while the dashboard runs | Every hook finds no file and sends nothing until a restart | Minor, unchanged. Delete the file only on purpose; quitting the dashboard is the way to silence the hooks |
+
+Before T1.86, in #7 and #8 the two copies also wrote one `dashboard.db`. The folder lock makes that impossible (Part 10).
+
+## 9. What was decided and built: one dashboard per data folder
+
+An earlier draft of this part let two dashboards share the file, warned the loser every 15 seconds, and had each delete only its own file. A review on 2026-10-12 made two points: the owner check has a race (read "mine", the other dashboard writes, delete theirs), and the whole arrangement was a graceful way of doing something the product should refuse. The operator chose the refusal, and T1.86 built it (PR #153, merged as `f568976` on 2026-10-13). The design is three sentences:
+
+**One dashboard per data folder. A bound dashboard overwrites a stale announcement. A deaf dashboard removes one when nobody answers on its port, and never writes one of its own.**
+
+| Moment | Before T1.86 | Since T1.86 | Why |
+|---|---|---|---|
+| Start | The gate: one dashboard per sign-in (Part 6) | **A folder lock as well:** a second named mutex, `Global\ClaudeDashboard.DataFolder.<hash of the folder>`, taken right after the gate and before anything writes the folder. Gate held → a copy in this sign-in → `/show` and exit, as before. Gate free, folder lock held → a copy in another sign-in → exit without starting. Both free → start | Two dashboards on one folder share one database and one file. Refusing is the one exception Part 6 already makes, applied across sign-ins |
+| A second start that exits without showing a window | One line in the log file | **A message box too**, then exit. *Already running in another Windows session for this account; quit it there, or end its process.* Or: *already running, but it could not be asked to show its window; open it from its tray icon, or end its process.* Each names the logs folder (the log file's name carries the date) | You double-clicked and nothing happened. The log line stays |
+| Bound a port | Overwrite `listening.txt` | Same | Corrects a crash's leftover |
+| Deaf start (pin taken, or the walk ran out) | Leave the file | Still write nothing. **Remove the file if no dashboard answers on the port it names** (free, a stranger, or silent); keep it if one does | Scenario 4, the one gap you can reach on a PC |
+| Quit | Delete the file | Same | With one dashboard per folder, the file is always its own |
+
+The start as built is the diagram in Part 7; its amber boxes are what this part added. Part 8 gives each scenario before and after.
 
 **What does not change:** the gate; the port choice and the meaning of a pin; `port.txt` is never deleted; a bound dashboard overwrites the file; the token stays in memory and in the file and is never logged (the tidy-up reads line 1 and never line 2). And the day-to-day case: a running dashboard, a second start, its window comes forward.
 
@@ -240,17 +211,18 @@ Green is still the ordinary start and quit; the folder-lock question (`L`) is ne
 - A lock around the file operations: with one dashboard per folder there is no second writer to lock against.
 - Rewriting a file someone deleted by hand: little value, one more moving part.
 
-## 10. Not supported, and to be written as such in the Impl
+## 10. Not supported (Impl §5.3)
 
 - Two sign-ins as the same account sharing one data folder (Windows Server): the second dashboard does not start and says so.
 - A different account pointed at the same folder through `CLAUDE_DASHBOARD_HOME`: the folder lock cannot be opened across accounts, so the dashboard starts and logs that sharing a folder between accounts is not supported.
 
-## 11. Where it lands
+## 11. Where it landed
 
-Issues **#150** (the folder lock and the message box) and **#151** (the deaf-start tidy-up); task **T1.86** in the Execution Plan.
+Issues **#150** (the folder lock and the message box) and **#151** (the deaf-start tidy-up); task **T1.86** in the Execution Plan; PR #153, five commits, merged as `f568976` on 2026-10-13 after two reviews (the first asked for one test, the second found nothing).
 
-- `DataFolderLock`, a sibling of `SingleInstanceGate` with the same normalisation and no session in its name.
-- `StartupDecision`: a third input (the folder lock) and a new action for "another sign-in", with no probe and no `/show`.
-- `Program.StandDown`: the message box behind a seam, after the log line, on every exit path that shows no window.
-- `IngressAnnouncement.RemoveStale`: the deaf-start tidy-up, probing the file's port once with the walk's classifier. `ListeningFile` is unchanged.
-- Documents: Impl §3.1, §5.3, §8.1, §9.4 and one Appendix C row; the "Residual" remarks in `ListeningFile`, `IngressAnnouncement` and `SingleInstanceGate` rewritten in place. Parts 7 and 8 of this page are updated when the task is done.
+- `DataFolderLock`, a sibling of `SingleInstanceGate` with the same normalisation (now shared) and no session in its name. A lock that cannot be created or opened is "cannot tell": the start goes on with one Warning.
+- `StartupDecision.For(holdsGate, holdsFolder, occupant)`: the folder bit and the action `ExitForOtherSession`, with no probe and no `/show`.
+- `StandDownNotice.TextFor`: the two texts as a pure function. `Program.Run(args, showBox)` takes the box as a required argument, and `Program.Main` is the Velopack call and `return Run(args, ShowMessageBox)`. Two guard tests hold it: `MessageBox.Show` appears in `Program.cs` only, once; no test calls `Program.Main` except with a literal hook switch. The task's first Debug run was blocked by a real box from a test that runs the real start; that is why the box is an argument and not a default.
+- `IngressAnnouncement.RemoveStale`: the deaf-start tidy-up, one probe of the port on line 1 with the walk's classifier; `OurInstance` and `OtherInstance` keep the file, anything else deletes it. Line 2 is read with the rest of the file and never used or logged. `ListeningFile` changed only in its remarks.
+- Tests: 55, among them `OtherSessionStartTests`, which runs the real start with the folder lock held on another thread and holds four claims at once: exit 1, one box, no request to the recorded port, no `listening.txt`. The review asked for it: without it, ignoring the lock in `Program` left every test green.
+- Documents: Impl §3.1, §5.3, §8.1, §9.4 and one Appendix C row; the event flow, three rows; the remarks in `SingleInstanceGate`, `IngressAnnouncement`, `ListeningFile`, `StartupDecision` and `Program`.
