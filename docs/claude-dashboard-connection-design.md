@@ -15,7 +15,7 @@ This page is for someone who sits down cold and wants to understand how a Claude
 | **Bind** | To take a port for listening. Only one program can hold a port at a time; the second one to try gets an error. |
 | **Token** | A 43-character random secret the dashboard makes at each start and keeps in a file only your own processes can read. A message without it is refused, so a program that can reach the port but not your profile cannot use the dashboard. |
 | **Data folder** | `%LOCALAPPDATA%\ClaudeDashboard\` (or wherever `CLAUDE_DASHBOARD_HOME` points). Everything the dashboard owns lives here, per Windows user (Impl §8.1). |
-| **Gate** | A Windows named mutex the dashboard takes at start so that one sign-in runs one dashboard (Part 6). |
+| **Gate** | A Windows named mutex the dashboard takes at start so that one sign-in runs one dashboard (Part 6). A second one, the **folder lock**, makes it one dashboard per data folder across sign-ins. |
 
 ## 1. The whole thing in one picture
 
@@ -80,7 +80,7 @@ Both are in the data folder. They hold the same number and mean two different th
 | **Content** | One line: a port | Line 1: the port. Line 2: the token. CRLF between, nothing after |
 | **Means** | "This user's dashboard was last on this port." A memory | "A dashboard is listening on this port **right now**, and accepts this token." A statement |
 | **Written** | After a bind | After a bind, after the script is written, by write-then-rename so a reader never sees half a file |
-| **Deleted** | **Never** | At every exit: the ordinary quit, a Windows sign-out, a fault that stops the process, and the `finally` of `Main` |
+| **Deleted** | **Never** | At every exit: the ordinary quit, a Windows sign-out, a fault that stops the process, and the `finally` of `Main`. And by a deaf start, when no dashboard answers on the port the file names (Part 9) |
 | **Read by** | The next start (first port to try); a second start (where to send `/show`) | The script at every event; the usage mod; a second start (the token for `/show`) |
 | **Absent means** | Fresh profile: derive a port | **No dashboard: send nothing.** This is how the hook stays installed while the dashboard is closed, with no error on every turn |
 
@@ -115,7 +115,7 @@ On this machine the operator's account derives 52888.
 
 After a successful bind the dashboard writes `port.txt`, rewrites the script if the build changed it, writes `listening.txt`, and then runs the script itself once as a self-test (Impl §9.4): the test message must arrive within 3 seconds or the window says *Messages from Claude Code cannot reach the dashboard*.
 
-## 6. The gate: one dashboard per sign-in
+## 6. The gate and the folder lock: one dashboard per sign-in, and per data folder
 
 **The gate is a Windows named mutex**: a lock with a name that any process can ask the operating system for, and that one process at a time can hold. The dashboard asks for
 
@@ -125,11 +125,13 @@ Local\ClaudeDashboard.SingleInstance.<16 hex characters>
 
 where the hex is a hash of two things: the data folder path and the Windows sign-in session number. The first dashboard to ask holds it until its process ends, however it ends. Windows releases a mutex the instant its holder dies, so a crashed dashboard never blocks the next start, and there is nothing to clean up (`SingleInstanceGate.cs`; Impl §5.3).
 
-**A second start in the same sign-in** is told "held". It then reads `port.txt`, asks `/health` on that port, and if the answer carries its own gate name, it sends `POST /show` (with the token from `listening.txt`) so the running dashboard raises its window, and exits. You double-clicked the shortcut; the window you already had comes forward. If `/health` answers anything else (the first copy is starting, stopping, or deaf) the second one writes one Error line to the log and exits without starting a rival: two dashboards on one database is the thing the gate exists to prevent.
+**A second start in the same sign-in** is told "held". It then reads `port.txt`, asks `/health` on that port, and if the answer carries its own gate name, it sends `POST /show` (with the token from `listening.txt`) so the running dashboard raises its window, and exits. You double-clicked the shortcut; the window you already had comes forward. If `/health` answers anything else (the first copy is starting, stopping, or deaf) the second one writes one Error line to the log, shows the *could not be reached* message box, and exits without starting a rival: two dashboards on one database is the thing the gate exists to prevent.
+
+**The folder lock: one dashboard per data folder.** Since T1.86 a second named mutex, `Global\ClaudeDashboard.DataFolder.<16 hex characters>`, is taken right after the gate. Its hash is of the data folder path alone, with no sign-in in it, and `Global\` makes it visible across sign-ins. A start whose gate is free but whose folder lock is held is a copy in another sign-in for the same account: it shows the *already running in another Windows session* box and exits, with no probe and no `/show` (`DataFolderLock.cs`; Impl §5.3; Part 9).
 
 **Two interlocks, one authority.** The gate decides "a copy of me is running". The port only corroborates, by carrying the gate name in `/health`. After a hard stop anything may hold the old port, so "the port is taken" never by itself means "another copy of me", and a dashboard that holds the gate but finds a copy of itself answering on its recorded port still sends `/show` and exits: the name decides, not the mutex alone (`StartupDecision.cs`).
 
-**Why the sign-in is part of the name.** A second Windows sign-in as the same user gets a different name, so its own gate, so its own dashboard. Deliberately: otherwise the second sign-in would be told "already running" and have the window raised on a desktop it cannot see. The consequence is the one case where two dashboards share one data folder (scenarios 7 and 8 in Part 8).
+**Why the sign-in is part of the name.** A second Windows sign-in as the same user gets a different name, so its own gate, so its own dashboard. Deliberately: otherwise the second sign-in would be told "already running" and have the window raised on a desktop it cannot see. Before T1.86 the consequence was the one case where two dashboards shared one data folder (scenarios 7 and 8 in Part 8); the folder lock below now stops the second.
 
 **When a second sign-in as the same user can exist.** Not on Windows 10 or 11 Pro in normal use: a client edition allows one session per account. Connecting by Remote Desktop as the account that is signed in at the keyboard moves that same session to the remote connection and locks the screen at the keyboard; you return to your own desktop, processes and dashboard. Two live sessions for one account need Windows Server with the "restrict each user to a single session" setting turned off, or a third-party change to a client edition. What a client edition does allow is two *different* users with live sessions (one at the keyboard, one remote or switched away); each has their own profile, so their own data folder and files, and only the port is shared, which the walk handles (scenario 5).
 
