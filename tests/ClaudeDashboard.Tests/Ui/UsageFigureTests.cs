@@ -108,7 +108,7 @@ public sealed class UsageFigureTests : IDisposable
     }
 
     /// <summary>
-    /// <strong>The fresh hover names the reset that passed</strong> (R14): "Reset", past, at the time when it was
+    /// <strong>The fresh hover names the reset that passed</strong> (R14): "reset", past, at the time when it was
     /// today, or with the day's name when it was not; then that the next reset time comes with the next reading.
     /// </summary>
     [Fact]
@@ -124,11 +124,11 @@ public sealed class UsageFigureTests : IDisposable
         var yesterdayLocal = TimeZoneInfo.ConvertTime(yesterday, TimeZoneInfo.Local);
 
         Assert.Equal(
-            "Current session · 100% remaining · Reset at " + todayLocal.ToString("t", CultureInfo.CurrentCulture)
+            "Usage this session · 100% remaining · reset at " + todayLocal.ToString("t", CultureInfo.CurrentCulture)
                 + "; the next reset time comes with the next reading",
             _viewModel.CurrentUsage.HoverText);
         Assert.Equal(
-            "This week · 100% remaining · Reset " + yesterdayLocal.ToString("dddd", CultureInfo.CurrentCulture) + " "
+            "Usage this week · 100% remaining · reset " + yesterdayLocal.ToString("dddd", CultureInfo.CurrentCulture) + " "
                 + yesterdayLocal.ToString("t", CultureInfo.CurrentCulture) + "; the next reset time comes with the next reading",
             _viewModel.WeekUsage.HoverText);
     }
@@ -155,7 +155,7 @@ public sealed class UsageFigureTests : IDisposable
 
         Assert.Equal(("98%", UsageLevel.Green), (_viewModel.CurrentUsage.Figure, _viewModel.CurrentUsage.Level));
         Assert.Equal(
-            "Current session · 98% remaining · Resets at " + nextLocal.ToString("t", CultureInfo.CurrentCulture),
+            "Usage this session · 98% remaining · resets at " + nextLocal.ToString("t", CultureInfo.CurrentCulture),
             _viewModel.CurrentUsage.HoverText);
     }
 
@@ -175,14 +175,14 @@ public sealed class UsageFigureTests : IDisposable
 
         Assert.Equal("60%", _viewModel.WeekUsage.Figure);
         Assert.Equal(
-            "This week · 60% remaining · Resets " + resetLocal.ToString("dddd", CultureInfo.CurrentCulture) + " "
+            "Usage this week · 60% remaining · resets " + resetLocal.ToString("dddd", CultureInfo.CurrentCulture) + " "
                 + resetLocal.ToString("t", CultureInfo.CurrentCulture),
             _viewModel.WeekUsage.HoverText);
         Assert.DoesNotContain("used", _viewModel.WeekUsage.HoverText, StringComparison.Ordinal);
     }
 
     /// <summary>
-    /// <strong>The hover text names the window, the figure and the reset time</strong> (R11): "Resets at" and the
+    /// <strong>The hover text names the window, the figure and the reset time</strong> (R11): "resets at" and the
     /// time when the reset is today, and the day's full name before the time otherwise. A made-up Fable kind
     /// fills the third slot.
     /// </summary>
@@ -199,19 +199,59 @@ public sealed class UsageFigureTests : IDisposable
 
         var todayLocal = TimeZoneInfo.ConvertTime(today, TimeZoneInfo.Local);
         var laterLocal = TimeZoneInfo.ConvertTime(later, TimeZoneInfo.Local);
-        var atToday = "Resets at " + todayLocal.ToString("t", CultureInfo.CurrentCulture);
-        var onLater = "Resets " + laterLocal.ToString("dddd", CultureInfo.CurrentCulture) + " " + laterLocal.ToString("t", CultureInfo.CurrentCulture);
+        var atToday = "resets at " + todayLocal.ToString("t", CultureInfo.CurrentCulture);
+        var onLater = "resets " + laterLocal.ToString("dddd", CultureInfo.CurrentCulture) + " " + laterLocal.ToString("t", CultureInfo.CurrentCulture);
 
         Assert.Equal(
             [
-                "Current session · 95% remaining · " + atToday,
-                "This week · 64% remaining · " + onLater,
-                "Fable this week · 40% remaining · " + onLater,
+                "Usage this session · 95% remaining · " + atToday,
+                "Usage this week · 64% remaining · " + onLater,
+                "Fable usage this week · 40% remaining · " + onLater,
             ],
             Pairs.Select(pair => pair.HoverText));
         Assert.Equal(["95%", "64%", "40%"], Pairs.Select(pair => pair.Figure));
         Assert.Equal([UsageLevel.Green, UsageLevel.Green, UsageLevel.Amber], Pairs.Select(pair => pair.Level));
         Assert.Equal([false, true, true], Pairs.Select(pair => pair.HasSeparator));
+    }
+
+    /// <summary>
+    /// <strong>A limit used past 100 shows how far past</strong> (issue #144): 110 used shows "-10%" in red, in the
+    /// culture's format of a negative number, and no word in the caption. The hover gives the figure without the
+    /// sign and says "over" in place of "remaining".
+    /// </summary>
+    [Fact]
+    public void A_limit_used_past_one_hundred_shows_how_far_over()
+    {
+        var reset = Noon.AddHours(3);
+
+        _usage.Heard([Reading("five_hour", 110, reset)], Noon);
+        _viewModel.Tick(Noon.AddSeconds(15));
+
+        var resetLocal = TimeZoneInfo.ConvertTime(reset, TimeZoneInfo.Local);
+
+        Assert.Equal(((-10).ToString(CultureInfo.CurrentCulture) + "%", UsageLevel.Red), (_viewModel.CurrentUsage.Figure, _viewModel.CurrentUsage.Level));
+        Assert.Equal(
+            "Usage this session · 10% over · resets at " + resetLocal.ToString("t", CultureInfo.CurrentCulture),
+            _viewModel.CurrentUsage.HoverText);
+        Assert.DoesNotContain("remaining", _viewModel.CurrentUsage.HoverText, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// <strong>The used share is rounded before it is taken from 100</strong> (issue #144): 100.4 used is 100, so
+    /// "0%" and "0% remaining"; 100.5 used is 101, so "-1%" and "1% over". Both are red.
+    /// </summary>
+    [Fact]
+    public void One_hundred_point_four_is_zero_remaining_and_one_hundred_point_five_is_one_over()
+    {
+        _usage.Heard([Reading("five_hour", 100.5, null), Reading("seven_day", 100.4, null)], Noon);
+        _viewModel.Tick(Noon.AddSeconds(15));
+
+        Assert.Equal(
+            [
+                ((-1).ToString(CultureInfo.CurrentCulture) + "%", "Usage this session · 1% over", UsageLevel.Red),
+                ("0%", "Usage this week · 0% remaining", UsageLevel.Red),
+            ],
+            new[] { _viewModel.CurrentUsage, _viewModel.WeekUsage }.Select(pair => (pair.Figure, pair.HoverText, pair.Level)));
     }
 
     /// <summary>A reading with no reset time stays live (it cannot pass), and its hover text has no reset part.</summary>
@@ -222,7 +262,7 @@ public sealed class UsageFigureTests : IDisposable
         _viewModel.Tick(Noon.AddDays(30));
 
         Assert.True(_viewModel.WeekUsage.IsShown);
-        Assert.Equal("This week · 87% remaining", _viewModel.WeekUsage.HoverText);
+        Assert.Equal("Usage this week · 87% remaining", _viewModel.WeekUsage.HoverText);
     }
 
     /// <summary>
@@ -257,14 +297,14 @@ public sealed class UsageFigureTests : IDisposable
         _usage.Heard([Reading("seven_day", 13, DateTimeOffset.MaxValue)], Noon);
         _viewModel.Tick(Noon.AddSeconds(15));
 
-        Assert.StartsWith("This week · 87% remaining", _viewModel.WeekUsage.HoverText, StringComparison.Ordinal);
+        Assert.StartsWith("Usage this week · 87% remaining", _viewModel.WeekUsage.HoverText, StringComparison.Ordinal);
 
         // A reset at the start of the calendar has passed: the slot is fresh. Its reset part is there only in a zone
         // where that instant has a local time.
         _usage.Heard([Reading("five_hour", 13, DateTimeOffset.MinValue)], Noon);
         _viewModel.Tick(Noon.AddSeconds(30));
 
-        Assert.StartsWith("Current session · 100% remaining", _viewModel.CurrentUsage.HoverText, StringComparison.Ordinal);
+        Assert.StartsWith("Usage this session · 100% remaining", _viewModel.CurrentUsage.HoverText, StringComparison.Ordinal);
         Assert.EndsWith("; " + UsageFigure.NextReadingText, _viewModel.CurrentUsage.HoverText, StringComparison.Ordinal);
     }
 

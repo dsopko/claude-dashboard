@@ -107,10 +107,11 @@ public static class UsageGauge
 
     /// <summary>
     /// The share remaining the window shows (ruling R13): <c>100</c> less the used figure rounded as
-    /// <see cref="FigureOf"/> rounds it, so 40.4 used is 60 and 49.5 used is 50. A used figure above 100 is 0: a
-    /// negative share is not a share.
+    /// <see cref="FigureOf"/> rounds it, so 40.4 used is 60 and 49.5 used is 50. A used figure above 100 gives a
+    /// figure below 0, so 110 used is -10 (issue #144): a plan with extra usage can work past a limit, and the window
+    /// shows how far past. 100.4 used is 100 used, so 0; 100.5 used is 101, so -1. The figure is never above 100.
     /// </summary>
-    public static double RemainingOf(double percentUsed) => Math.Clamp(100 - FigureOf(percentUsed), 0, 100);
+    public static double RemainingOf(double percentUsed) => Math.Min(100 - FigureOf(percentUsed), 100);
 
     /// <summary>
     /// Whether <paramref name="window"/> is fresh at <paramref name="now"/>: its reset time is at or before

@@ -169,17 +169,32 @@ public sealed class UsageGaugeTests
     }
 
     /// <summary>
-    /// <strong>A used share above 100 shows 0 remaining, in red</strong>: a negative share is not a share. A gateway's
-    /// spend limit can pass 100.
+    /// <strong>A used share above 100 shows the remainder below zero, in red</strong> (issue #144): 110 used is -10.
+    /// The used share is rounded first, so 100.4 used is 0 and 100.5 used is -1. A plan with extra usage, and a
+    /// gateway's spend limit, can pass 100.
     /// </summary>
     [Theory]
-    [InlineData(100.4)]
-    [InlineData(150)]
-    [InlineData(10_000)]
-    public void Above_one_hundred_used_shows_zero_remaining_red(double percentUsed)
+    [InlineData(100.4, 0)]
+    [InlineData(100.5, -1)]
+    [InlineData(110, -10)]
+    [InlineData(150, -50)]
+    [InlineData(10_000, -9_900)]
+    public void Above_one_hundred_used_shows_the_remainder_below_zero_red(double percentUsed, double remaining)
     {
-        Assert.Equal(0, UsageGauge.RemainingOf(percentUsed));
+        Assert.Equal(remaining, UsageGauge.RemainingOf(percentUsed));
         Assert.Equal(UsageLevel.Red, UsageGauge.LevelOf(percentUsed));
+
+        var slot = Assert.Single(UsageGauge.Slots(UsageReadings.Empty.With(Reading("seven_day", percentUsed)), Heard));
+
+        Assert.Equal((remaining, UsageLevel.Red), (slot.Remaining, slot.Level));
+    }
+
+    /// <summary>The remainder is never above 100: a used share below 0 shows 100, green.</summary>
+    [Fact]
+    public void The_remainder_is_never_above_one_hundred()
+    {
+        Assert.Equal(100, UsageGauge.RemainingOf(-5));
+        Assert.Equal(UsageLevel.Green, UsageGauge.LevelOf(-5));
     }
 
     // ---- Fresh at the reset (MOD.8, R14) ---------------------------------------------------------
