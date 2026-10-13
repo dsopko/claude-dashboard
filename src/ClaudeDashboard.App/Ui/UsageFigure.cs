@@ -40,7 +40,10 @@ public sealed partial class UsageFigure : ObservableObject
     [ObservableProperty]
     private bool _hasSeparator;
 
-    /// <summary>The share remaining with its percent sign, "64%" (ruling R13).</summary>
+    /// <summary>
+    /// The share remaining with its percent sign, "64%" (ruling R13); below zero for a limit used past 100, "-10%",
+    /// in the current culture's format of a negative number (issue #144). No word says so: the red and the sign do.
+    /// </summary>
     [ObservableProperty]
     private string _figure = string.Empty;
 
@@ -49,19 +52,23 @@ public sealed partial class UsageFigure : ObservableObject
     private UsageLevel _level;
 
     /// <summary>
-    /// The hover text: "This week · 64% remaining · Resets Wednesday 9:00 AM" (ruling R11), or for a fresh slot
-    /// "Current session · 100% remaining · Reset at 6:20 AM; the next reset time comes with the next reading"
-    /// (ruling R14).
+    /// The hover text: "Usage this week · 64% remaining · resets Wednesday 9:00 AM" (ruling R11, issue #144); for a
+    /// limit used past 100, how far over, without the sign, "Usage this session · 10% over · resets at 9:00 AM"; or
+    /// for a fresh slot "Usage this session · 100% remaining · reset at 6:20 AM; the next reset time comes with the
+    /// next reading" (ruling R14).
     /// </summary>
     [ObservableProperty]
     private string _hoverText = string.Empty;
 
-    /// <summary>The name of the window in the hover text: longer than the label, because there is room.</summary>
+    /// <summary>
+    /// The name of the window in the hover text: longer than the label, because there is room. It starts with
+    /// "Usage" (or "Fable usage"), so the hover says what the figure counts.
+    /// </summary>
     public string WindowName => Slot switch
     {
-        UsageSlot.Current => "Current session",
-        UsageSlot.Week => "This week",
-        _ => "Fable this week",
+        UsageSlot.Current => "Usage this session",
+        UsageSlot.Week => "Usage this week",
+        _ => "Fable usage this week",
     };
 
     /// <summary>The words after a fresh slot's reset time: its percentage comes back with the next post.</summary>
@@ -76,16 +83,19 @@ public sealed partial class UsageFigure : ObservableObject
         ArgumentNullException.ThrowIfNull(slot);
 
         var figure = string.Create(CultureInfo.CurrentCulture, $"{slot.Remaining:0}%");
+        var share = slot.Remaining < 0
+            ? string.Create(CultureInfo.CurrentCulture, $"{-slot.Remaining:0}% over")
+            : $"{figure} remaining";
         var reset = slot.Window.ResetsAt is { } at ? ResetsText(at, now, passed: slot.IsFresh) : null;
 
         Figure = figure;
         Level = slot.Level;
         HoverText = (slot.IsFresh, reset) switch
         {
-            (true, { } passed) => $"{WindowName} · {figure} remaining · {passed}; {NextReadingText}",
-            (true, null) => $"{WindowName} · {figure} remaining; {NextReadingText}",
-            (false, { } resets) => $"{WindowName} · {figure} remaining · {resets}",
-            (false, null) => $"{WindowName} · {figure} remaining",
+            (true, { } passed) => $"{WindowName} · {share} · {passed}; {NextReadingText}",
+            (true, null) => $"{WindowName} · {share}; {NextReadingText}",
+            (false, { } resets) => $"{WindowName} · {share} · {resets}",
+            (false, null) => $"{WindowName} · {share}",
         };
         HasSeparator = hasSeparator;
         IsShown = true;
@@ -99,9 +109,10 @@ public sealed partial class UsageFigure : ObservableObject
     }
 
     /// <summary>
-    /// "Resets at 6:20 AM" when <paramref name="reset"/> is today in local time, "Resets Wednesday 9:00 AM"
-    /// otherwise, in the current culture's short time pattern; "Reset at …" and "Reset Wednesday …" when
-    /// <paramref name="passed"/>; null for an instant that has no local time.
+    /// "resets at 6:20 AM" when <paramref name="reset"/> is today in local time, "resets Wednesday 9:00 AM"
+    /// otherwise, in the current culture's short time pattern; "reset at …" and "reset Wednesday …" when
+    /// <paramref name="passed"/>; null for an instant that has no local time. Lower case, because it follows " · "
+    /// in the middle of the hover text (issue #144).
     /// </summary>
     /// <remarks>
     /// <strong>Degrade, never crash.</strong> A post can carry a reset time near the end of the calendar, and the
@@ -122,7 +133,7 @@ public sealed partial class UsageFigure : ObservableObject
             return null;
         }
 
-        var verb = passed ? "Reset" : "Resets";
+        var verb = passed ? "reset" : "resets";
 
         return local.Date == today.Date
             ? string.Create(CultureInfo.CurrentCulture, $"{verb} at {local:t}")
