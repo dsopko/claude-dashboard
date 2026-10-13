@@ -78,6 +78,28 @@ public static class Program
         // exits; it must be fast and must never fail the uninstall — see StartWithWindows.
         VelopackApp.Build().OnBeforeUninstallFastCallback(_ => StartWithWindows.RemoveOnUninstall(new WindowsStartupRegistry(), InstalledCopy.CurrentExe(Serilog.Core.Logger.None))).Run();
 
+        // THE REAL MESSAGE BOX IS SUPPLIED HERE, AND NOWHERE ELSE (T1.86). Run takes the box as a
+        // required argument with no default, and a test that drives the start calls Run with a
+        // recorder: the first build of T1.86 passed the real box from inside the start, and a test
+        // that drove the start as a second instance showed a real box and held the test run until
+        // it was closed. A test calls Main only with a hook switch, which returns before the gate.
+        // MessageBoxGuardTests holds both halves.
+        return Run(args, ShowMessageBox);
+    }
+
+    /// <summary>
+    /// The start after Velopack's lifecycle handler: everything <see cref="Main"/> describes.
+    /// </summary>
+    /// <param name="args">The command line.</param>
+    /// <param name="showBox">
+    /// Shows the message box of a second start that exits with no window (issue #150). Only
+    /// <see cref="Main"/> passes the real one, <see cref="ShowMessageBox"/>; a test passes a recorder.
+    /// </param>
+    /// <returns>As <see cref="Main"/>.</returns>
+    internal static int Run(string[] args, Action<string, string> showBox)
+    {
+        ArgumentNullException.ThrowIfNull(showBox);
+
         IHost? host = null;
 
         // The /show action is handed this rather than the container: a post arrives on a Kestrel
@@ -193,7 +215,7 @@ public static class Program
 
                 if (action is not StartupAction.StartNormally)
                 {
-                    return StandDown(paths, settings, action, probe, recorded ?? settings.Port, ShowMessageBox);
+                    return StandDown(paths, settings, action, probe, recorded ?? settings.Port, showBox);
                 }
 
                 // A SETTINGS FILE THAT DOES NOT PARSE IS KEPT ASIDE HERE, AND ONLY HERE (T1.56, issue
@@ -666,7 +688,7 @@ public static class Program
     /// folder is what the gate exists to prevent — but exiting quietly is not.
     /// </para>
     /// </remarks>
-    /// <param name="showBox">Shows a message box with a text and a title; <see cref="ShowMessageBox"/> in the product.</param>
+    /// <param name="showBox">Shows a message box with a text and a title: the real one from <see cref="Main"/>, a recorder from a test.</param>
     private static int StandDown(
         DashboardPaths paths,
         DashboardSettings settings,

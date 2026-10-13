@@ -9,7 +9,7 @@ namespace ClaudeDashboard.Tests.Setup;
 
 /// <summary>
 /// A second instance and the one-shot switches leave a settings file that does not parse byte for
-/// byte, through the real <c>Program.Main</c> (T1.56, issue #73).
+/// byte, through the real start, <c>Program.Run</c> (T1.56, issue #73).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -21,6 +21,12 @@ namespace ClaudeDashboard.Tests.Setup;
 /// <strong>Safe to run because both roots are redirected</strong>, as in <c>MainSwitchTests</c>:
 /// <c>CLAUDE_DASHBOARD_HOME</c> and <c>CLAUDE_CONFIG_DIR</c> point at scratch folders, and the class
 /// joins the collection that serializes their use.
+/// </para>
+/// <para>
+/// <strong>Through <c>Run</c> with a recorder for the box, never <c>Main</c> (T1.86).</strong> Only
+/// <c>Main</c> passes the real message box. The first build of T1.86 passed it from inside the
+/// start, and the second-instance test below showed a real box and held the test run until it was
+/// closed by hand.
 /// </para>
 /// </remarks>
 [Collection(DataFolderEnvironment.Name)]
@@ -69,7 +75,7 @@ public sealed class BadSettingsLeftAloneTests : IDisposable
         using (MainSwitchTests.Set(DashboardPaths.HomeVariable, _paths.Root))
         using (MainSwitchTests.Set(ClaudeCodePaths.ConfigDirectoryVariable, _claudeRoot))
         {
-            Program.Main(args);
+            Program.Run(args, NoBox);
         }
 
         AssertLeftAlone();
@@ -87,6 +93,7 @@ public sealed class BadSettingsLeftAloneTests : IDisposable
         using var held = new ManualResetEventSlim();
         using var release = new ManualResetEventSlim();
         var holderFirst = false;
+        var boxes = new List<(string Text, string Title)>();
 
         var holder = new Thread(() =>
         {
@@ -108,11 +115,17 @@ public sealed class BadSettingsLeftAloneTests : IDisposable
             using (MainSwitchTests.Set(DashboardPaths.HomeVariable, _paths.Root))
             using (MainSwitchTests.Set(ClaudeCodePaths.ConfigDirectoryVariable, _claudeRoot))
             {
-                code = Program.Main([]);
+                code = Program.Run([], (text, title) => boxes.Add((text, title)));
             }
 
             // No port.txt, so nothing is probed: the gate alone says another copy runs.
             Assert.Equal(1, code);
+
+            // The box went to the seam, once, with the text for a copy that cannot be asked
+            // (issue #150). A real box here would hold the test run until someone closed it.
+            var box = Assert.Single(boxes);
+            Assert.StartsWith(StandDownNotice.CannotBeReached, box.Text, StringComparison.Ordinal);
+            Assert.Equal(StandDownNotice.Title, box.Title);
         }
         finally
         {
@@ -122,6 +135,10 @@ public sealed class BadSettingsLeftAloneTests : IDisposable
 
         AssertLeftAlone();
     }
+
+    /// <summary>The box for a path that must show none: a switch returns before the gate.</summary>
+    private static void NoBox(string text, string title) =>
+        Assert.Fail($"A one-shot switch showed a message box: {title}: {text}");
 
     private void AssertLeftAlone()
     {
