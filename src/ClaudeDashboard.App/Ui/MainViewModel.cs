@@ -439,7 +439,9 @@ public sealed partial class MainViewModel : ObservableObject, IUiTickTarget, ISo
 
             _isSelecting = value;
 
-            foreach (var row in _sessionRows.Values)
+            // Over a copy: leaving the mode clears each tick, and a cleared tick on a quiet row
+            // runs Refresh (issue #46), which may add rows to or remove rows from _sessionRows.
+            foreach (var row in _sessionRows.Values.ToList())
             {
                 row.IsSelecting = value;
             }
@@ -626,6 +628,14 @@ public sealed partial class MainViewModel : ObservableObject, IUiTickTarget, ISo
         if (e.PropertyName == nameof(SessionViewModel.IsSelected))
         {
             RaiseSelection();
+
+            // A tick holds a quiet row on screen and unticking lets it collapse (issue #46), so
+            // the rows that exist can change here. A live row's tick changes nothing in the
+            // assembly, so it does not pay for one.
+            if (sender is SessionViewModel row && IsQuiet(row.Session))
+            {
+                Refresh();
+            }
         }
     }
 
@@ -889,6 +899,23 @@ public sealed partial class MainViewModel : ObservableObject, IUiTickTarget, ISo
     private static bool IsQuiet(Session session) =>
         AttentionOrder.BandOf(session.State) is AttentionBand.Quiet or AttentionBand.Ended;
 
+    /// <summary>
+    /// Whether <paramref name="session"/> may leave the view: quiet, and not ticked in selection
+    /// mode (Design Document §6 rule 3; issue #46).
+    /// </summary>
+    /// <remarks>
+    /// <strong>A ticked row is never collapsed.</strong> The chosen count reads every row this view
+    /// model holds, so a ticked row that went quiet behind a footer was counted and not seen, and
+    /// "Group these" would group a session the operator could not check. Keeping the row on screen
+    /// with its mark is the same exemption an Unread row has, and for the same reason: the rule
+    /// must never hide the thing the operator is about to act on. The tick clears when the mode
+    /// ends (<see cref="SessionViewModel.IsSelecting"/>), and the row collapses then as it would have.
+    /// </remarks>
+    private bool IsHidden(Session session) => IsQuiet(session) && !IsTicked(session);
+
+    private bool IsTicked(Session session) =>
+        _isSelecting && _sessionRows.TryGetValue(session.Id, out var row) && row.IsSelected;
+
     /// <summary>Grouped view: a heading per group, its members in attention order beneath it.</summary>
     private List<DashboardRow> GroupedRows(IReadOnlyList<Group> resolved)
     {
@@ -900,7 +927,7 @@ public sealed partial class MainViewModel : ObservableObject, IUiTickTarget, ISo
 
             header.WorstState = RosterSettle.StateOf(group, _now);
             header.IdleAge = _now - group.LastActivity;
-            header.IsStale = group.Members.All(IsQuiet) && header.IdleAge >= StaleAfter;
+            header.IsStale = group.Members.All(IsHidden) && header.IdleAge >= StaleAfter;
 
             rows.Add(header);
 
@@ -929,11 +956,12 @@ public sealed partial class MainViewModel : ObservableObject, IUiTickTarget, ISo
                 continue;
             }
 
-            // Rule 2: the live rows in full, the dealt-with ones behind a footer.
+            // Rule 2: the live rows in full, the dealt-with ones behind a footer. A ticked quiet
+            // row stays with the live ones (issue #46).
             var quiet = 0;
             foreach (var member in group.Members)
             {
-                if (IsQuiet(member))
+                if (IsHidden(member))
                 {
                     quiet++;
                 }
@@ -967,7 +995,27 @@ public sealed partial class MainViewModel : ObservableObject, IUiTickTarget, ISo
             if (header.IsCollapsible && !header.IsExpanded)
             {
                 // The mockups' flat view: the Quiet band is one line, never a list of grey rows.
-                rows.Add(FooterFor(header, band.Band.ToString(), band.Sessions.Count, isBandSummary: true));
+                // A ticked row in the band stays on screen above that line (issue #46).
+                var hidden = 0;
+                foreach (var session in band.Sessions)
+                {
+                    if (IsHidden(session))
+                    {
+                        hidden++;
+                    }
+                    else
+                    {
+                        var row = RowFor(session);
+                        row.IsRosterMember = false;
+                        rows.Add(row);
+                    }
+                }
+
+                if (hidden > 0)
+                {
+                    rows.Add(FooterFor(header, band.Band.ToString(), hidden, isBandSummary: true));
+                }
+
                 continue;
             }
 

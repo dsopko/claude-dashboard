@@ -549,13 +549,14 @@ A control that is the main action of the current state is *lit*: `Ack all` when 
 4. Or: each member that is not quiet, then one line `+ 3 quiet` if any member is quiet.
 
 - **Quiet** means the Quiet band or the Ended band (`AttentionOrder.BandOf`). Thus an `Unread` row is never hidden.
-- **Stale** means that all members are quiet and the group's last change is 15 minutes old or more (`MainViewModel.DefaultStaleAfter`).
+- **A ticked row is never hidden** while selection mode is on (`MainViewModel.IsHidden`; issue #46): a quiet row the operator has chosen is listed with the live ones, in both views, and does not make its group stale. Why: `SelectedCount` counts every row the view model holds, so a hidden chosen row was counted and not seen. A tick that changes on a quiet row refreshes the rows; the tick clears when the mode ends, and the row collapses then.
+- **Stale** means that all members are quiet and not ticked, and the group's last change is 15 minutes old or more (`MainViewModel.DefaultStaleAfter`).
 - A click on the heading, or on the `+ 3 quiet` line, opens and closes the group.
 
 **Flat view.** For each band that has sessions, in the order of `AttentionEngine.Order`:
 
 1. The band heading: `NEEDS YOU`, `UNREAD`, `WORKING`, `QUIET` or `ENDED`.
-2. For Quiet and Ended, if not opened: one line `4 quiet sessions`.
+2. For Quiet and Ended, if not opened: each ticked session of the band (selection mode only; issue #46), then one line `4 quiet sessions` for the rest, if any.
 3. Or: each session of the band.
 
 **The roster prompt** (§5.6.8), when there is one, is the first row in each view.
@@ -1391,3 +1392,4 @@ The text above says what is true now. This list says when each part changed.
 | 2026-10-09 | The usage strip shows the share remaining, coloured by the share used; a slot past its reset time is fresh, `100%` green, until the next reading, judged by Core's `UsageGauge.Slots` from the held readings (the view model no longer applies `UsageReadings.At`; `/state` unchanged); the log file writes one Information line when a usage post changes the picture, with Core's reason for a reading not kept, and a Debug line with each reading in full; the Activity line for a fresh slot is not built (§5.6.1, §8.4) | MOD.8; issues #143, #144, #145 |
 | 2026-10-11 | `/state` gains `nudgeBy` on each session, `Session` or `Group`, and `nextNudgeAt` carries that owner's time: for a finished roster member whose finish the group announces, the group's nudge; the rule is the engine's (`NextNudgeOf`, `Tracked.ByGroup`), and a group's nudge raises `NudgeScheduleAdvanced`. The tick builds `/state` again when its own pass settles or unsettles a group, as the drain and the settle wake already did. "A null `nextNudgeAt` has two meanings" rewritten to the new rule (§2.4, §3.5, §5.6.9) | T1.84; issue #58 |
 | 2026-10-12 | One dashboard per data folder: `DataFolderLock`, a `Global\` mutex named from the folder alone, taken after the gate; `StartupDecision` gains the folder input and `ExitForOtherSession` (no probe, no `/show`); a lock that cannot be opened starts with one Warning. A second start that exits with no window shows a message box after its log line (`StandDownNotice`). A start with no port deletes a stale `listening.txt` when no dashboard answers on its port, and uses only line 1. Two sessions for one account on one folder, and two accounts on one folder, are not supported (§3.1, §5.3, §8.1, §9.4) | T1.86; issues #150, #151 |
+| 2026-10-12 | A ticked row in selection mode is never hidden: `MainViewModel.IsHidden` is quiet and not ticked, used by the grouped footer, the stale test and the flat band summary; a tick that changes on a quiet row refreshes the rows; the mode's exit iterates a copy of the rows (§5.6.2) | Issue #46 |

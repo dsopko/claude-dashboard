@@ -249,6 +249,119 @@ public sealed class CollapseTests : IDisposable
         Assert.False(Group(RegistryHarness.Workspace).IsStale);
     }
 
+    /// <summary>
+    /// A ticked row that goes quiet stays on screen with its mark (issue #46). Before this rule the
+    /// row left the view behind the footer and was still counted, so the header said "2 chosen"
+    /// with one mark showing, and "Group these" grouped a session the operator could not see.
+    /// </summary>
+    [Fact]
+    public void A_ticked_row_is_never_collapsed()
+    {
+        TwoTickedFinishedRows();
+
+        // One of them is dealt with while ticked; it is now a quiet row.
+        _harness.Acked("a", At.AddMinutes(2));
+
+        Assert.Equal(SessionState.Acked, Row("a").State);
+        Assert.Equal(["b", "a"], Ids);
+        Assert.True(Row("a").IsSelected);
+        Assert.True(Row("b").IsSelected);
+        Assert.Equal(2, _viewModel.SelectedCount);
+        Assert.True(_viewModel.GroupSelectedCommand.CanExecute(null));
+        Assert.Empty(_viewModel.Rows.OfType<QuietFooterViewModel>());
+    }
+
+    /// <summary>Unticking the quiet row lets it collapse as it would have.</summary>
+    [Fact]
+    public void An_unticked_quiet_row_collapses_again()
+    {
+        TwoTickedFinishedRows();
+        _harness.Acked("a", At.AddMinutes(2));
+
+        Row("a").IsSelected = false;
+
+        Assert.Equal(["b"], Ids);
+        Assert.Equal("+ 1 quiet", Assert.Single(_viewModel.Rows.OfType<QuietFooterViewModel>()).Text);
+        Assert.Equal(1, _viewModel.SelectedCount);
+    }
+
+    /// <summary>Leaving the mode drops every tick, so the quiet row collapses then.</summary>
+    [Fact]
+    public void Leaving_selection_mode_lets_the_quiet_row_collapse()
+    {
+        TwoTickedFinishedRows();
+        _harness.Acked("a", At.AddMinutes(2));
+
+        _viewModel.IsSelecting = false;
+
+        Assert.Equal(["b"], Ids);
+        Assert.Equal("+ 1 quiet", Assert.Single(_viewModel.Rows.OfType<QuietFooterViewModel>()).Text);
+        Assert.Equal(0, _viewModel.SelectedCount);
+    }
+
+    /// <summary>
+    /// And a group whose every member is quiet does not go stale while one of them is ticked —
+    /// rule 1 would hide the row by another route.
+    /// </summary>
+    [Fact]
+    public void A_group_holding_a_ticked_row_never_goes_stale()
+    {
+        TwoTickedFinishedRows();
+        _harness.Acked("a", At.AddMinutes(2));
+        _harness.Acked("b", At.AddMinutes(2));
+
+        _viewModel.Tick(At + TimeSpan.FromHours(4));
+
+        Assert.False(Group(RegistryHarness.Workspace).IsStale);
+        Assert.Equal(["a", "b"], Ids.Order());
+
+        _viewModel.IsSelecting = false;
+
+        Assert.True(Group(RegistryHarness.Workspace).IsStale);
+        Assert.Empty(SessionRows);
+    }
+
+    /// <summary>The same exemption in flat view: the ticked row stands above the band's one line.</summary>
+    [Fact]
+    public void A_ticked_row_is_never_summarised_in_flat_view()
+    {
+        _viewModel.IsGrouped = false;
+        TwoTickedFinishedRows();
+        _harness.Quiet("seen", At);
+
+        _harness.Acked("a", At.AddMinutes(2));
+
+        Assert.Equal(["b", "a"], Ids);
+        Assert.True(Row("a").IsSelected);
+        Assert.Equal(2, _viewModel.SelectedCount);
+        Assert.Equal("1 quiet session", Assert.Single(_viewModel.Rows.OfType<QuietFooterViewModel>()).Text);
+
+        _viewModel.IsSelecting = false;
+
+        Assert.Equal(["b"], Ids);
+        Assert.Equal("2 quiet sessions", Assert.Single(_viewModel.Rows.OfType<QuietFooterViewModel>()).Text);
+    }
+
+    /// <summary>
+    /// Two finished rows, both with a title (a row with no title cannot be ticked), both ticked in
+    /// selection mode. "a" is the one the tests then deal with.
+    /// </summary>
+    private void TwoTickedFinishedRows()
+    {
+        var a = _harness.Working("a", At, title: "Session A");
+        _harness.Finished("a", At.AddMinutes(1), a, title: "Session A");
+        var b = _harness.Working("b", At, title: "Session B");
+        _harness.Finished("b", At.AddMinutes(1), b, title: "Session B");
+
+        _viewModel.IsSelecting = true;
+        Row("a").IsSelected = true;
+        Row("b").IsSelected = true;
+
+        Assert.Equal(2, _viewModel.SelectedCount);
+    }
+
+    private SessionViewModel Row(string id) => SessionRows.Single(row => row.Id.Value == id);
+
     // ---- Flat view --------------------------------------------------------------------------------
 
     /// <summary>The mockups' flat view: the Quiet band is one line, never a list of grey rows.</summary>

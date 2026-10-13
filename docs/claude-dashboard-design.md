@@ -111,7 +111,7 @@ The window is a narrow side panel. Rows are the scarce resource. The rules, in s
 
 1. **A stale group costs one row.** When each member of a group is quiet for 15 minutes, the group becomes one line: name, member count, "idle 38 min". A click opens it.
 2. **Quiet rows collapse in their group.** A group with live work shows a line "+ 3 quiet" in place of the grey rows.
-3. **An Unread row always gets a full row.** Work that is finished and not seen is what gets lost today. It is never summarised.
+3. **An Unread row always gets a full row.** Work that is finished and not seen is what gets lost today. It is never summarised. **A ticked row in selection mode gets the same.** A row the operator has chosen and then let go quiet stays on screen with its mark, in both views, and its group does not go stale. Why: the header counts every chosen row, so a hidden chosen row said "2 chosen" with one mark showing, and *Group these* grouped a session the operator could not see. The row collapses as before when the operator unticks it or leaves the mode.
 
 Rule 3 replaces the idea "show only the first green of each group when space is short". That rule would hide the thing that the tool exists to show. To collapse only what is *dealt with* is simpler and safe.
 
@@ -239,3 +239,4 @@ Each phase can ship alone. Phase 7 is the reason that the domain model stays apa
 | 2026-10-08 | A roster group counts once in the caption's counts and in the tray light, by the state its heading shows (§9) | T1.83; issue #130 |
 | 2026-10-09 | The caption shows the plan's usage to the left of the counts: three figures with labels, then numbers only, then on the row under the caption; a colour at 50 and 90; the reset time on hover; the counts choose first (§9) | MOD.7; issue #133 |
 | 2026-10-09 | The caption's usage shows the share remaining, coloured by the share used; a limit past its reset time shows 100% green until the next reading, and its hover says when it reset (§9) | MOD.8; issues #144, #145 |
+| 2026-10-12 | A ticked row in selection mode is never collapsed, in either view, and its group does not go stale; it collapses when unticked or when the mode ends (§6 rule 3) | Issue #46 |
