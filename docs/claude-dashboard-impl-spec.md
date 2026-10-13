@@ -241,6 +241,8 @@ If no port is free, the dashboard **starts**, and says what to do in three place
 
 The port that is bound goes into `port.txt`, and into `listening.txt` for as long as it stays bound (§9.4). **No port is in Claude Code's settings.**
 
+**A start with no port writes no `listening.txt`, and removes a stale one** (T1.86, issue #151). A file that an earlier run left (a hard stop) names a port. The deaf start asks `/health` on that port once, with the classifier of the walk (`IngressAnnouncement.RemoveStale`). When no dashboard answers (the port is free, a program that is not a dashboard holds it, or it does not answer), the file is deleted, with one Warning that names the port. When a dashboard answers, the file stays, with one Information line. Only the first line, the port, is read; the token on the second line is never read and never logged. The reason: after a crash, a pinned port that another program took gave a deaf start, and the stale file sent the operator's prompts to that program for as long as the deaf dashboard ran.
+
 ### 3.2 Endpoints
 
 | Endpoint | Purpose | Token | Answers |
@@ -466,10 +468,24 @@ The colour is the worst state of all sessions, with a roster group counted once,
 
 ### 5.3 Single instance
 
-- A named `Mutex` (`SingleInstanceGate`) is taken at start. It is local to the logon session, and its name holds a hash of the data folder path. If it is held, this process is the second instance.
+- A named `Mutex` (`SingleInstanceGate`) is taken at start. It is local to the logon session, and its name holds a hash of the data folder path and the session. If it is held, this process is the second instance.
+- **A second named `Mutex`, the data folder lock (`DataFolderLock`), is taken directly after the gate** (T1.86, issue #150). Its name is `Global\ClaudeDashboard.DataFolder.` and the first 16 hex characters of SHA-256 of the normalised data folder path, with **no session in it**, so a dashboard in another Windows session for the same account sees it. It is held as long as the gate, and given up after the last withdrawal of `listening.txt`. The reason: the gate is per session on purpose (a window must not rise on a desktop this user cannot see), so two sessions for one account (Windows Server with one session per user turned off) each took a gate and started two dashboards on one `dashboard.db` and one `listening.txt`. A `Global\` mutex needs no privilege. Two users have two data folders, so two names.
+  - **A lock that cannot be opened is "cannot tell", and the dashboard starts**, with one Warning that names the folder and says that sharing a data folder between accounts is not supported. That is another account pointed at the same folder through `CLAUDE_DASHBOARD_HOME`: Windows refuses this account the other account's mutex. An abandoned lock is taken over and logged, as the gate is.
+- **The decision** (`StartupDecision.For`), from the gate, the folder lock and the holder of the port in `port.txt`:
+
+  | Gate | Folder lock | Port in `port.txt` | Action |
+  |---|---|---|---|
+  | Held by another process | Any | A copy of this dashboard | `SignalAndExit`: `POST /show`, exit |
+  | Held by another process | Any | Anything else, or no `port.txt` | `ReportAndExit`: exit |
+  | Taken | Held by another process | Not probed | `ExitForOtherSession`: exit, with no probe and no `/show` |
+  | Taken | Taken, or cannot tell | A copy of this dashboard | `SignalAndExit` |
+  | Taken | Taken, or cannot tell | Anything else, or no `port.txt` | `StartNormally` |
+
 - The second instance reads the port from `port.txt` and the token from `listening.txt`, sends `POST /show`, and exits.
+- **A second instance has two channels: the log line and a message box** (T1.86, issue #150). Each exit that brings no window forward writes its log line first and then shows a box, title `Claude Dashboard`: for `ExitForOtherSession`, *Claude Dashboard is already running in another Windows session for this account. Quit it there, or end its process, and start again.*; for `ReportAndExit` and a `/show` that was refused, failed, did not connect or could not be sent, *Claude Dashboard is already running, but it could not be asked to show its window. Open it from its tray icon, or end its process and start again.* Each text ends with the log folder. A `/show` that worked shows no box. The text is a pure function (`StandDownNotice.TextFor`); the box is a seam that `Program` fills with `System.Windows.MessageBox.Show`, and no test shows a box. A box that throws is logged. The reason: before this, a double-click that could not hand over did nothing that the operator could see.
 - The port corroborates only. After a hard stop, any program can hold the port. `GET /health` says if the holder is a copy of this dashboard, a different user's dashboard, or a stranger. **Only a copy of this dashboard changes the start**: it is signalled. Any other holder of the port in `port.txt` is a candidate that the port choice skips (§3.1), and the start goes on. Until the T1.57 review such a holder left the dashboard without a port (`StartWithoutIngress`, from T1.15's single fixed port) although its choice had found a free one; that action is removed.
-- **A dashboard with no port still starts.** The tray tooltip and the window's notice row give the cause and what to do (§3.1).
+- **A dashboard with no port still starts.** The tray tooltip and the window's notice row give the cause and what to do (§3.1). It writes no `listening.txt`, and removes a stale one when no dashboard answers on the port it names (§3.1).
+- **Not supported** (T1.86): two sessions for one account sharing a data folder (the second dashboard does not start, and says so); and another account pointed at the same folder through `CLAUDE_DASHBOARD_HOME` (the dashboard starts and logs that this is not supported).
 
 ### 5.4 DPI and window placement
 
@@ -830,7 +846,7 @@ Location: **`%LOCALAPPDATA%\ClaudeDashboard\`**. The variable `CLAUDE_DASHBOARD_
 | `dashboard.db` | The archive writer | For each event; at each start and clean stop (`runs`) | §8.3. **It holds prompts and answers** |
 | `logs\dashboard-<date>.log` | Serilog | Always | §8.4 |
 | `port.txt` | The dashboard | After a bind. Never deleted | The port that this user last bound. An *input* to the next start and to a second instance |
-| `listening.txt` | The dashboard | After a bind and after the script is written. Deleted at exit | Line 1: the port. Line 2: the token. Its presence means "a dashboard listens now" |
+| `listening.txt` | The dashboard | After a bind and after the script is written. Deleted at exit, and by a start with no port when no dashboard answers on the port it names (§3.1) | Line 1: the port. Line 2: the token. Its presence means "a dashboard listens now" |
 | `post-status.cmd` | The dashboard | At each start, if it is different from the text in the build | The hook script (§9.2). An edit by hand is undone at the next start |
 | `plugin\` | The dashboard | At each start, if different | The Claude Code plugin, five files: `.claude-plugin\marketplace.json`, `.claude-plugin\plugin.json`, the usage mod's `hooks\register.ts` and `hooks\listening-file.ts` (§9.5), then `hooks\hooks.json` (§9.4). The two module files are written first, so a `hooks.json` that names the module is never on disk before the module is. Claude Code adds `.claude-plugin\types\` and `tsconfig.json` beside them when it loads the mod (measured with `--plugin-dir`); the dashboard neither writes nor compares them, so they cause no rewrite |
 | `sounds\` | The operator | — | Optional. A `.wav` here with the name of a shipped sound replaces it. The dashboard does not create the folder |
@@ -1183,9 +1199,9 @@ Measured on Claude Code 2.1.286 (2026-09-30 and 2026-10-01): both install comman
 **The two port files, and the announcement**
 
 - `listening.txt` is written after a bind, **after** the script is written, and by write-then-rename. Thus the script cannot read half a file, and an old script never meets a dashboard that needs a token.
-- `listening.txt` is deleted at four points: the usual quit, a Windows logoff, a fault that stops the process, and the `finally` block of `Main`.
+- `listening.txt` is deleted at four points: the usual quit, a Windows logoff, a fault that stops the process, and the `finally` block of `Main`. A start with no port also deletes a stale one, when no dashboard answers on the port it names (§3.1).
 - **Nothing is announced unless ingress is bound.** Hook payloads carry the operator's prompts.
-- **Residual:** a hard stop leaves `listening.txt` with the last port. Until the next start, the script posts there. If a different program took the port, it receives the prompts. The next start writes the file again, with a new token.
+- **Residual:** a hard stop leaves `listening.txt` with the last port. Until the next start, the script posts there. If a different program took the port, it receives the prompts. **The leak ends at the next start, pinned or not** (T1.86, issue #151): a start that binds a port writes the file again, with a new token; a start with no port (its pinned port taken, or the walk ran out) deletes the file when no dashboard answers on the port it names (§3.1). Before T1.86 a deaf start left the file, and the leak lasted as long as the deaf dashboard ran.
 
 ### 9.5 The usage mod
 
@@ -1372,3 +1388,4 @@ The text above says what is true now. This list says when each part changed.
 | 2026-10-09 | The caption shows the usage strip to the left of the counts, and the row under the caption is shared: the slots and the colour from Core's `UsageGauge`, the counts measured first by `SummarySlot`, the hover with the reset time (§5.6.1) | MOD.7; issue #133 |
 | 2026-10-09 | The usage strip shows the share remaining, coloured by the share used; a slot past its reset time is fresh, `100%` green, until the next reading, judged by Core's `UsageGauge.Slots` from the held readings (the view model no longer applies `UsageReadings.At`; `/state` unchanged); the log file writes one Information line when a usage post changes the picture, with Core's reason for a reading not kept, and a Debug line with each reading in full; the Activity line for a fresh slot is not built (§5.6.1, §8.4) | MOD.8; issues #143, #144, #145 |
 | 2026-10-11 | `/state` gains `nudgeBy` on each session, `Session` or `Group`, and `nextNudgeAt` carries that owner's time: for a finished roster member whose finish the group announces, the group's nudge; the rule is the engine's (`NextNudgeOf`, `Tracked.ByGroup`), and a group's nudge raises `NudgeScheduleAdvanced`. The tick builds `/state` again when its own pass settles or unsettles a group, as the drain and the settle wake already did. "A null `nextNudgeAt` has two meanings" rewritten to the new rule (§2.4, §3.5, §5.6.9) | T1.84; issue #58 |
+| 2026-10-12 | One dashboard per data folder: `DataFolderLock`, a `Global\` mutex named from the folder alone, taken after the gate; `StartupDecision` gains the folder input and `ExitForOtherSession` (no probe, no `/show`); a lock that cannot be opened starts with one Warning. A second start that exits with no window shows a message box after its log line (`StandDownNotice`). A start with no port deletes a stale `listening.txt` when no dashboard answers on its port, and reads only line 1. Two sessions for one account on one folder, and two accounts on one folder, are not supported (§3.1, §5.3, §8.1, §9.4) | T1.86; issues #150, #151 |
