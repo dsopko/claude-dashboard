@@ -105,6 +105,6 @@ public sealed class StandDownNoticeTests
         Assert.EndsWith($"The details are in the newest log file in {LogFolder}", actual, StringComparison.Ordinal);
     }
 
-    private static ILogger Logger(RecordingLogSink sink) =>
+    private static Serilog.Core.Logger Logger(RecordingLogSink sink) =>
         new LoggerConfiguration().MinimumLevel.Verbose().WriteTo.Sink(sink).CreateLogger();
 }
