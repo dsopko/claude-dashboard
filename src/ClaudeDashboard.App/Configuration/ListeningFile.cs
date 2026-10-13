@@ -70,6 +70,10 @@ public static class ListeningFile
     /// cannot call this. Tests use it to assert what was written without restating the parsing
     /// rules, and so the two readers can be compared against each other.
     /// </para>
+    /// <para>
+    /// It reads the whole file and keeps line 1, so line 2, the token, is in memory for that moment.
+    /// This method never returns it, and no caller logs it.
+    /// </para>
     /// </remarks>
     /// <exception cref="ArgumentNullException"><paramref name="paths"/> is null.</exception>
     public static int? Read(DashboardPaths paths)

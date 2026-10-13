@@ -164,8 +164,9 @@ public sealed class IngressAnnouncement
     /// deleting the file can only stop the hooks, and keeping it can post prompts to a stranger.
     /// </para>
     /// <para>
-    /// <strong>Only line 1 is read.</strong> Line 2 is the token of the run that wrote the file; it
-    /// is never read here and never logged.
+    /// <strong>Only line 1 is used.</strong> <see cref="ListeningFile.Read"/> reads the whole file and
+    /// keeps line 1, so line 2, the token of the run that wrote the file, is in memory for that
+    /// moment. It is never used and never logged.
     /// </para>
     /// <para>
     /// A dashboard that can hear does nothing here: <see cref="Announce"/> overwrites the file.
