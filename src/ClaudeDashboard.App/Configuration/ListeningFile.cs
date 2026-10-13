@@ -39,10 +39,11 @@ namespace ClaudeDashboard.App.Configuration;
 /// <para>
 /// <strong>Residual, and it is issue #29's.</strong> A hard kill leaves the file behind naming the
 /// last bound port. Until the next start the script posts to whatever holds that port, and hook
-/// payloads carry the operator's prompts — the same exposure Impl §9.3 already records for a hard
-/// kill. <see cref="Write"/> overwrites unconditionally on every start, which is what closes it. The token on
-/// its second line is already dead by then: each start makes a new one, and the next start
-/// overwrites the file (T1.48).
+/// payloads carry the operator's prompts — the exposure Impl §9.4 records for a hard kill. The next
+/// start closes it, pinned or not: a start that binds a port overwrites the file with
+/// <see cref="Write"/>, and a start with no port deletes it when no dashboard answers on the port
+/// it names (<c>IngressAnnouncement.RemoveStale</c>, issue #151). The token on its second line is
+/// already dead by then: each start makes a new one (T1.48).
 /// </para>
 /// </remarks>
 public static class ListeningFile
@@ -63,10 +64,11 @@ public static class ListeningFile
     /// a caller: <em>nothing is listening</em>.
     /// </para>
     /// <para>
-    /// <strong>Nothing in the application reads this in production.</strong> The reader is
-    /// <c>post-status.cmd</c>, which is a batch file and cannot call this. It is here so a test can
-    /// assert what was written without restating the parsing rules, and so the two readers can be
-    /// compared against each other.
+    /// <strong>One reader in the application, at a start with no port.</strong>
+    /// <c>IngressAnnouncement.RemoveStale</c> reads the port here to ask whether a dashboard answers
+    /// on it (issue #151). The other reader is <c>post-status.cmd</c>, which is a batch file and
+    /// cannot call this. Tests use it to assert what was written without restating the parsing
+    /// rules, and so the two readers can be compared against each other.
     /// </para>
     /// </remarks>
     /// <exception cref="ArgumentNullException"><paramref name="paths"/> is null.</exception>

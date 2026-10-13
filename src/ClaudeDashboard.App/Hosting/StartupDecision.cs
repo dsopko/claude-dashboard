@@ -26,10 +26,18 @@ public enum StartupAction
     /// prevent.
     /// </summary>
     ReportAndExit = 4,
+
+    /// <summary>
+    /// This process took the gate, but another process holds the data folder lock: a dashboard on
+    /// this data folder in another Windows session for this account (issue #150). Exit with a
+    /// message box. Nothing is probed and no <c>/show</c> is sent: the window would rise on a
+    /// desktop this user cannot see.
+    /// </summary>
+    ExitForOtherSession = 5,
 }
 
 /// <summary>
-/// The single-instance decision: which of the two interlocks decides, and when (Impl §5.3).
+/// The single-instance decision: which of the three interlocks decides, and when (Impl §5.3).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -51,9 +59,10 @@ public enum StartupAction
 /// </para>
 /// <para>
 /// <strong>Every unresolved case starts rather than exits.</strong> A dashboard that starts can
-/// say what is wrong; one that exits without a window has no channel left to explain itself with.
-/// The single exception is a gate held by a live copy of us, where starting would mean two
-/// Registries on one data folder. <strong>When this process holds the gate, the occupant of the
+/// say what is wrong; one that exits without a window has only its log line and, since issue
+/// #150, a message box. The two exceptions are a gate held by a live copy of us, and a data folder
+/// lock held by a copy of us in another Windows session (<see cref="DataFolderLock"/>): in both,
+/// starting would mean two Registries on one data folder. <strong>When this process holds the gate, the occupant of the
 /// recorded port decides only one thing:</strong> whether it is a copy of us to signal. Anything
 /// else on that port is a candidate the port choice skips (Impl §3.1, §5.3); only a pin that is
 /// taken, or a walk that runs out, leaves the dashboard without a port.
@@ -61,11 +70,30 @@ public enum StartupAction
 /// </remarks>
 public static class StartupDecision
 {
-    /// <summary>Decides what to do, given both interlocks.</summary>
+    /// <summary>Decides what to do, given the three interlocks.</summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>The gate first, then the folder lock (issue #150).</strong> A gate held by another
+    /// process is a copy of us in this session, and it holds the folder lock too: as before, it is
+    /// signalled or reported, and the folder bit adds nothing. A gate this process took, with the
+    /// folder lock held elsewhere, is a copy of us on this data folder in another Windows session:
+    /// <see cref="StartupAction.ExitForOtherSession"/>, whatever is on the port.
+    /// </para>
+    /// </remarks>
     /// <param name="holdsGate">Whether this process took the single-instance mutex.</param>
+    /// <param name="holdsFolder">
+    /// Whether no other process holds the data folder lock: true when this process took it, and
+    /// true when it could not tell (<see cref="DataFolderLock.CouldNotTell"/>), because a dashboard
+    /// that cannot tell starts.
+    /// </param>
     /// <param name="occupant">Who holds the ingress port, from <see cref="HealthProbe"/>.</param>
-    public static StartupAction For(bool holdsGate, PortOccupant occupant)
+    public static StartupAction For(bool holdsGate, bool holdsFolder, PortOccupant occupant)
     {
+        if (holdsGate && !holdsFolder)
+        {
+            return StartupAction.ExitForOtherSession;
+        }
+
         if (holdsGate)
         {
             return occupant switch
@@ -92,6 +120,24 @@ public static class StartupDecision
             ? StartupAction.SignalAndExit
             : StartupAction.ReportAndExit;
     }
+
+    /// <summary>Whether the port in <c>port.txt</c> is probed before <see cref="For"/> decides.</summary>
+    /// <remarks>
+    /// Not when this process took the gate and another process holds the folder lock: the answer
+    /// is <see cref="StartupAction.ExitForOtherSession"/> whoever is on the port, and a probe there
+    /// would only ask another session's dashboard who it is.
+    /// </remarks>
+    /// <param name="holdsGate">Whether this process took the single-instance mutex.</param>
+    /// <param name="holdsFolder">Whether no other process holds the data folder lock.</param>
+    public static bool Probes(bool holdsGate, bool holdsFolder) => !holdsGate || holdsFolder;
+
+    /// <summary>Why <see cref="StartupAction.ExitForOtherSession"/> was reached, in words for the log.</summary>
+    /// <param name="dataFolder">The data folder the other dashboard holds.</param>
+    public static string ExplainExitForOtherSession(string dataFolder) =>
+        $"another copy of the dashboard holds the data folder lock for {dataFolder}, in another Windows " +
+        "session for this account. Two dashboards on one data folder would share one database and one " +
+        "listening.txt, so this copy will not start. Quit the dashboard in that session, or end its " +
+        "process, and start again.";
 
     /// <summary>Why <see cref="StartupAction.ReportAndExit"/> was reached, in words for the log.</summary>
     /// <remarks>

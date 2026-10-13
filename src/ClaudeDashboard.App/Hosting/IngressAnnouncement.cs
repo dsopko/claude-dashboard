@@ -135,10 +135,91 @@ public sealed class IngressAnnouncement
     /// <strong>Residual: a kill reaches none of the four.</strong> <c>TerminateProcess</c> — Task
     /// Manager, <c>taskkill /f</c>, <c>Process.Kill</c> — a CLR fast-fail, and power loss all leave
     /// the file behind naming the last bound port. Until the next start the script posts to
-    /// whatever holds that port. It is the exposure Impl §9.3 already records for a hard kill, and
-    /// the unconditional overwrite in <see cref="Announce"/> is what closes it.
+    /// whatever holds that port. It is the exposure Impl §9.4 records for a hard kill, and the next
+    /// start closes it, pinned or not: a start that binds a port overwrites the file in
+    /// <see cref="Announce"/>, and a start with no port removes it in <see cref="RemoveStale"/> when
+    /// no dashboard answers on the port it names (issue #151). Before that, a deaf start left the
+    /// file, and the exposure lasted as long as the deaf dashboard ran.
     /// </para>
     /// </remarks>
     /// <returns>Whether the announcement is gone.</returns>
     public bool Withdraw() => ListeningFile.Delete(_paths);
+
+    /// <summary>
+    /// At a start that has no port, removes a <c>listening.txt</c> left behind when no dashboard
+    /// answers on the port it names (issue #151).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>The case.</strong> A dashboard is killed, so its file stays. Something else takes
+    /// the pinned port, and the restart starts deaf. Until this, the deaf start left the file, and
+    /// for as long as it ran every hook posted the operator's prompt to whatever held that port.
+    /// </para>
+    /// <para>
+    /// <strong>One probe, with the walk's classifier.</strong> <see cref="PortOccupant.Free"/>,
+    /// <see cref="PortOccupant.Unrecognised"/> and <see cref="PortOccupant.Silent"/> mean no
+    /// dashboard answers there: the file is deleted, with one Warning. A dashboard that answers
+    /// (<see cref="PortOccupant.OurInstance"/> or <see cref="PortOccupant.OtherInstance"/>) keeps
+    /// it, with one Information line. An occupant a later build adds is treated as no dashboard:
+    /// deleting the file can only stop the hooks, and keeping it can post prompts to a stranger.
+    /// </para>
+    /// <para>
+    /// <strong>Only line 1 is read.</strong> Line 2 is the token of the run that wrote the file; it
+    /// is never read here and never logged.
+    /// </para>
+    /// <para>
+    /// A dashboard that can hear does nothing here: <see cref="Announce"/> overwrites the file.
+    /// This one writes no file of its own, and it does not rewrite a file that was deleted by hand
+    /// or check the file again later; with one dashboard per data folder there is no other writer.
+    /// </para>
+    /// </remarks>
+    /// <param name="probe">Asks who holds a port: <c>HealthProbe.Probe(port, gate name).Occupant</c> in the product.</param>
+    /// <returns>Whether a stale file was removed.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="probe"/> is null.</exception>
+    public bool RemoveStale(Func<int, PortOccupant> probe)
+    {
+        ArgumentNullException.ThrowIfNull(probe);
+
+        if (_ingress.CanReceiveHooks || ListeningFile.Read(_paths) is not { } port)
+        {
+            return false;
+        }
+
+        var occupant = probe(port);
+
+        if (occupant is PortOccupant.OurInstance or PortOccupant.OtherInstance)
+        {
+            _logger.Information(
+                "Kept {ListeningFile}: a dashboard answers on port {Port}, the port the file names ({Occupant}).",
+                _paths.ListeningFile,
+                port,
+                occupant);
+
+            return false;
+        }
+
+        if (!ListeningFile.Delete(_paths))
+        {
+            _logger.Warning(
+                "Could not remove {ListeningFile}, which names port {Port}, where no dashboard answers " +
+                "({Occupant}). Claude Code's hooks will post prompts to port {Port} until the file is removed.",
+                _paths.ListeningFile,
+                port,
+                occupant,
+                port);
+
+            return false;
+        }
+
+        _logger.Warning(
+            "Removed {ListeningFile}: it named port {Port}, where no dashboard answers ({Occupant}). " +
+            "Claude Code's hooks would have posted prompts to port {Port}. This dashboard has no port, so " +
+            "the hooks now send nothing until a dashboard starts with one.",
+            _paths.ListeningFile,
+            port,
+            occupant,
+            port);
+
+        return true;
+    }
 }

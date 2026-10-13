@@ -59,9 +59,10 @@ public static class Program
     /// </summary>
     /// <returns>
     /// 0 when this process ran the dashboard, or successfully handed over to the one that is.
-    /// 1 when startup failed, or when a resident instance exists but could not be reached — both
-    /// are conditions the operator has to fix, and a tray app's exit code is the only place a
-    /// launch that produced no window can say so to anything but the log.
+    /// 1 when startup failed, when a resident instance exists but could not be reached, or when a
+    /// dashboard on this data folder runs in another Windows session (issue #150) — all are
+    /// conditions the operator has to fix. The exit code is one more place, after the log and the
+    /// message box, where a launch that produced no window says so.
     /// </returns>
     [STAThread]
     public static int Main(string[] args)
@@ -95,6 +96,7 @@ public static class Program
 
         DashboardPaths paths;
         SingleInstanceGate gate;
+        DataFolderLock folder;
 
         try
         {
@@ -118,13 +120,18 @@ public static class Program
             }
 
             gate = SingleInstanceGate.Acquire(paths.Root);
+
+            // The data folder lock (issue #150), directly after the gate and before anything
+            // writes the folder: one dashboard per data folder, across Windows sessions. It never
+            // throws for a lock it cannot open; that is CouldNotTell, and the start goes on.
+            folder = DataFolderLock.Acquire(paths.Root);
         }
         catch (Exception ex)
         {
             // Before the logger exists, so the static sink is all there is. Reaching here means
             // the data folder or the gate could not be resolved at all; without this the throw
             // would leave the process with no window, no tray and no diagnosis whatever.
-            Log.Fatal(ex, "Claude Dashboard could not work out where its data folder is, or take the single-instance gate.");
+            Log.Fatal(ex, "Claude Dashboard could not work out where its data folder is, or take the single-instance gate or the data folder lock.");
             Log.CloseAndFlush();
 
             return 1;
@@ -138,14 +145,17 @@ public static class Program
         // Deleting this release also leaves the whole suite green, and that is a different and
         // much narrower claim: it says nothing about the operating system, only that no test
         // depends on the call — which an entirely uncovered branch would produce just as well.
-        // It is here so the gate is given up at the same point everything else is.
+        // It is here so the gate is given up at the same point everything else is. The data
+        // folder lock is held in the same scope, so both are given up after the last Withdraw.
         using (gate)
+        using (folder)
         {
             try
             {
-                // Impl §5.3's two interlocks. The gate is the authority on "another copy of us is
-                // running"; the port only corroborates, because after a hard kill anything at all
-                // may be holding it. See StartupDecision.
+                // Impl §5.3's three interlocks. The gate is the authority on "another copy of us is
+                // running" in this session; the port only corroborates, because after a hard kill
+                // anything at all may be holding it; and the data folder lock says whether a copy of
+                // us runs on this folder in another Windows session (issue #150). See StartupDecision.
                 //
                 // The whole load result is kept, not just the settings: the hook install below has
                 // to know whether InstallHooksAtStart was read or defaulted from a file that would
@@ -171,15 +181,19 @@ public static class Program
                 // itself sat free. The gate is the authority on "another copy of us is running"
                 // (§5.3); the port only ever corroborated, and a port this user has never bound
                 // corroborates nothing about this user.
+                //
+                // And a copy of us in another Windows session is not probed at all (issue #150): the
+                // answer is to exit whoever is on the port, and its window must not be raised.
+                var holdsFolder = !folder.IsHeldByAnother;
                 var recorded = PortFile.Read(paths);
-                var probe = recorded is { } lastPort
+                var probe = recorded is { } lastPort && StartupDecision.Probes(gate.IsFirstInstance, holdsFolder)
                     ? HealthProbe.Probe(lastPort, gate.Name)
                     : new HealthProbeResult(PortOccupant.Free);
-                var action = StartupDecision.For(gate.IsFirstInstance, probe.Occupant);
+                var action = StartupDecision.For(gate.IsFirstInstance, holdsFolder, probe.Occupant);
 
-                if (action is StartupAction.SignalAndExit or StartupAction.ReportAndExit)
+                if (action is not StartupAction.StartNormally)
                 {
-                    return StandDown(paths, settings, action, probe, recorded ?? settings.Port);
+                    return StandDown(paths, settings, action, probe, recorded ?? settings.Port, ShowMessageBox);
                 }
 
                 // A SETTINGS FILE THAT DOES NOT PARSE IS KEPT ASIDE HERE, AND ONLY HERE (T1.56, issue
@@ -225,6 +239,26 @@ public static class Program
                         "abandoned. This one has taken it over.");
                 }
 
+                if (folder.TookOverFromACrash)
+                {
+                    Log.Warning(
+                        "The previous dashboard on this data folder did not exit cleanly — it left its data " +
+                        "folder lock abandoned. This one has taken it over.");
+                }
+
+                if (folder.CouldNotTell)
+                {
+                    // Another account on this folder through CLAUDE_DASHBOARD_HOME: Windows refuses
+                    // this account the other account's lock. Degrade, never crash: start, and say so.
+                    Log.Warning(
+                        "Could not open the data folder lock for {DataFolder} ({Problem}), so this dashboard " +
+                        "cannot tell whether another one uses this folder. Another Windows account may be " +
+                        "using it through CLAUDE_DASHBOARD_HOME. Sharing a data folder between accounts is " +
+                        "not supported: two dashboards would write one database and one listening.txt.",
+                        paths.Root,
+                        folder.Problem);
+                }
+
                 // Issue #29 made the hook an install step rather than a lifecycle: it names a
                 // script, so it is right whether a dashboard is running or not, and nothing is
                 // done about it on the way out.
@@ -242,6 +276,16 @@ public static class Program
                 // window in which the script posts to a port nothing answers.
                 announcement = host.Services.GetRequiredService<IngressAnnouncement>();
                 announcement.Announce();
+
+                // A start with no port writes no file, and removes a stale one when no dashboard
+                // answers on the port it names (issue #151): a crash, then a pinned port taken by
+                // another program, left the hooks posting prompts there for as long as this ran.
+                // Before the self-test, which reads the file.
+                if (!choice.Found)
+                {
+                    announcement.RemoveStale(port => HealthProbe.Probe(port, gate.Name).Occupant);
+                }
+
                 phases.Mark("announce");
 
                 // The self-test (T1.61, issue #74): AFTER the announcement, because the script reads
@@ -606,9 +650,12 @@ public static class Program
     /// </summary>
     /// <remarks>
     /// <para>
-    /// This process has no window and no console, so the log is the only channel it has. It gets
-    /// its own logger — the same rolling file, opened <c>shared</c> — because nothing else in
-    /// this process has built one yet.
+    /// This process has no window and no console. It has two channels: the log, through its own
+    /// logger — the same rolling file, opened <c>shared</c> — because nothing else in this process
+    /// has built one yet; and, since issue #150, a message box. <strong>Every way out that brings no
+    /// window forward writes its log line first and then shows the box</strong>
+    /// (<see cref="StandDownNotice"/>); the box never stands in for the line. A hand-over that
+    /// worked shows nothing.
     /// </para>
     /// <para>
     /// <strong>A refused <c>/show</c> is an Error, not a shrug.</strong> The same gate name means
@@ -619,15 +666,33 @@ public static class Program
     /// folder is what the gate exists to prevent — but exiting quietly is not.
     /// </para>
     /// </remarks>
+    /// <param name="showBox">Shows a message box with a text and a title; <see cref="ShowMessageBox"/> in the product.</param>
     private static int StandDown(
         DashboardPaths paths,
         DashboardSettings settings,
         StartupAction action,
         HealthProbeResult probe,
-        int? port)
+        int? port,
+        Action<string, string> showBox)
     {
         var foldersReady = paths.TryEnsureCreated(out _);
         using var logger = AppHost.CreateLogger(paths, settings.Logging, foldersReady);
+
+        // After the log line, never instead of it.
+        int Exit(int code, ShowSignalOutcome? outcome)
+        {
+            StandDownNotice.Show(showBox, StandDownNotice.TextFor(action, outcome, paths.LogFolder), logger);
+            return code;
+        }
+
+        if (action == StartupAction.ExitForOtherSession)
+        {
+            logger.Error(
+                "Claude Dashboard will not start: {Reason}",
+                StartupDecision.ExplainExitForOtherSession(paths.Root));
+
+            return Exit(1, null);
+        }
 
         if (action == StartupAction.ReportAndExit)
         {
@@ -635,7 +700,7 @@ public static class Program
                 "Claude Dashboard will not start: {Reason}",
                 StartupDecision.ExplainReportAndExit(probe.Occupant, port));
 
-            return 1;
+            return Exit(1, null);
         }
 
         // Unreachable by construction: SignalAndExit is only chosen when the probe found OUR
@@ -648,7 +713,7 @@ public static class Program
                 "Claude Dashboard is already running, but this process has no recorded port to signal. " +
                 "No window will appear. Open the running dashboard from its tray icon.");
 
-            return 1;
+            return Exit(1, null);
         }
 
         // The running dashboard's token, from the file it announced (T1.48). It made the token at
@@ -660,7 +725,7 @@ public static class Program
             case ShowSignalOutcome.Shown:
                 logger.Information(
                     "Claude Dashboard is already running; asked it to surface its window and exited.");
-                return 0;
+                return Exit(0, result.Outcome);
 
             case ShowSignalOutcome.Rejected:
                 logger.Error(
@@ -670,7 +735,7 @@ public static class Program
                     port,
                     (int)result.StatusCode!.Value,
                     paths.ListeningFile);
-                return 1;
+                return Exit(1, result.Outcome);
 
             case ShowSignalOutcome.Failed:
                 logger.Error(
@@ -678,7 +743,7 @@ public static class Program
                     "No window will appear.",
                     port,
                     (int)result.StatusCode!.Value);
-                return 1;
+                return Exit(1, result.Outcome);
 
             default:
                 logger.Error(
@@ -686,7 +751,19 @@ public static class Program
                     "{Problem}. No window will appear.",
                     port,
                     result.Problem);
-                return 1;
+                return Exit(1, result.Outcome);
         }
     }
+
+    /// <summary>The message box a second start shows (issue #150): <see cref="StandDownNotice"/>'s seam in the product.</summary>
+    /// <remarks>
+    /// On the STA entry thread, with no <c>Application</c> and no owner window: WPF's box needs
+    /// neither. It blocks until the operator closes it, and the process then exits.
+    /// </remarks>
+    private static void ShowMessageBox(string text, string title) =>
+        System.Windows.MessageBox.Show(
+            text,
+            title,
+            System.Windows.MessageBoxButton.OK,
+            System.Windows.MessageBoxImage.Warning);
 }

@@ -111,7 +111,7 @@ public sealed class PortRemedyTests
             return taken.Contains(port) ? PortOccupant.OtherInstance : PortOccupant.Free;
         }
 
-        Assert.Equal(StartupAction.StartNormally, StartupDecision.For(holdsGate: true, PortOccupant.Silent));
+        Assert.Equal(StartupAction.StartNormally, StartupDecision.For(holdsGate: true, holdsFolder: true, PortOccupant.Silent));
 
         var choice = PortSelection.Choose(Base, "S-1-5-21-1-2-3-1001", Recorded, Probe);
 
@@ -138,7 +138,7 @@ public sealed class PortRemedyTests
         const int Recorded = 52977;
         const int Pin = 52979;
 
-        Assert.Equal(StartupAction.StartNormally, StartupDecision.For(holdsGate: true, PortOccupant.Unrecognised));
+        Assert.Equal(StartupAction.StartNormally, StartupDecision.For(holdsGate: true, holdsFolder: true, PortOccupant.Unrecognised));
 
         var choice = PortSelection.Choose(
             Base, "S-1-5-21-1-2-3-1001", Recorded, port => port == Recorded ? PortOccupant.Unrecognised : PortOccupant.Free, pinned: Pin);

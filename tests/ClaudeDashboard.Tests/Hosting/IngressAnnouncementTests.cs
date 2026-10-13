@@ -3,7 +3,10 @@ using System.IO;
 using ClaudeDashboard.App.Configuration;
 using ClaudeDashboard.App.Hosting;
 using ClaudeDashboard.App.Ingress;
+using ClaudeDashboard.Tests.Fakes;
+using Serilog;
 using Serilog.Core;
+using Serilog.Events;
 
 namespace ClaudeDashboard.Tests.Hosting;
 
@@ -263,6 +266,152 @@ public sealed class IngressAnnouncementTests : IDisposable
         Announcement(IngressStatus.Healthy(BoundPort)).Announce();
 
         Assert.Equal(BoundPort, ListeningFile.Read(_paths));
+    }
+
+    // ---- A start with no port, and a stale file (issue #151) ---------------------------------------
+
+    private const string OurGate = @"Local\ClaudeDashboard.SingleInstance.aaaaaaaaaaaaaaaa";
+    private const string TheirGate = @"Local\ClaudeDashboard.SingleInstance.bbbbbbbbbbbbbbbb";
+
+    /// <summary>The walk's classifier, as Program passes it, with our gate name.</summary>
+    private static PortOccupant Probe(int port) =>
+        HealthProbe.Probe(port, OurGate, TimeSpan.FromMilliseconds(750)).Occupant;
+
+    /// <summary>A deaf dashboard: its pinned port was taken.</summary>
+    private IngressAnnouncement Deaf(RecordingLogSink sink) =>
+        new(
+            _paths,
+            IngressStatus.PinnedPortTaken(BoundPort),
+            new LoggerConfiguration().MinimumLevel.Verbose().WriteTo.Sink(sink).CreateLogger(),
+            _token);
+
+    /// <summary>
+    /// <strong>The case of issue #151.</strong> A crash left the file, and a program that is not a
+    /// dashboard took its port. The deaf start removes the file, with one Warning that names the port.
+    /// </summary>
+    [Fact]
+    public void A_deaf_start_removes_a_file_whose_port_a_stranger_holds()
+    {
+        using var stranger = CannedServer.Answering("200 OK", "text/plain", "ok");
+        ListeningFile.Write(_paths, stranger.Port, _token);
+        var sink = new RecordingLogSink();
+
+        Assert.True(Deaf(sink).RemoveStale(Probe), stranger.State);
+
+        Assert.False(File.Exists(_paths.ListeningFile));
+        var line = Assert.Single(sink.Events);
+        Assert.Equal(LogEventLevel.Warning, line.Level);
+        Assert.Contains(stranger.Port.ToString(CultureInfo.InvariantCulture), RecordingLogSink.Render(line), StringComparison.Ordinal);
+        Assert.Contains(nameof(PortOccupant.Unrecognised), RecordingLogSink.Render(line), StringComparison.Ordinal);
+    }
+
+    /// <summary>Nothing on the port at all: removed, as for a stranger.</summary>
+    [Fact]
+    public void A_deaf_start_removes_a_file_whose_port_is_free()
+    {
+        var port = TestPorts.Unbound();
+        ListeningFile.Write(_paths, port, _token);
+        var sink = new RecordingLogSink();
+
+        Assert.True(Deaf(sink).RemoveStale(Probe));
+
+        Assert.False(File.Exists(_paths.ListeningFile));
+        Assert.Equal(LogEventLevel.Warning, Assert.Single(sink.Events).Level);
+    }
+
+    /// <summary>
+    /// Another dashboard answers on the port: the file is kept, with one Information line. A deaf
+    /// start does not take another dashboard's announcement away.
+    /// </summary>
+    [Fact]
+    public void A_deaf_start_keeps_a_file_whose_port_another_dashboard_answers()
+    {
+        using var other = CannedServer.Answering("200 OK", "application/json", HealthProbe.BodyFor(TheirGate));
+        ListeningFile.Write(_paths, other.Port, _token);
+        var sink = new RecordingLogSink();
+
+        Assert.False(Deaf(sink).RemoveStale(Probe), other.State);
+
+        Assert.Equal(other.Port, ListeningFile.Read(_paths));
+        Assert.Equal(_token.Reveal(), ListeningFile.ReadToken(_paths));
+        var line = Assert.Single(sink.Events);
+        Assert.Equal(LogEventLevel.Information, line.Level);
+        Assert.Contains(nameof(PortOccupant.OtherInstance), RecordingLogSink.Render(line), StringComparison.Ordinal);
+    }
+
+    /// <summary>A dashboard with our own gate name answers: kept as well.</summary>
+    [Fact]
+    public void A_deaf_start_keeps_a_file_whose_port_a_copy_of_us_answers()
+    {
+        using var ours = CannedServer.Answering("200 OK", "application/json", HealthProbe.BodyFor(OurGate));
+        ListeningFile.Write(_paths, ours.Port, _token);
+        var sink = new RecordingLogSink();
+
+        Assert.False(Deaf(sink).RemoveStale(Probe), ours.State);
+
+        Assert.Equal(ours.Port, ListeningFile.Read(_paths));
+        Assert.Equal(LogEventLevel.Information, Assert.Single(sink.Events).Level);
+    }
+
+    /// <summary>No file: nothing is probed, nothing is written, nothing is logged.</summary>
+    [Fact]
+    public void A_deaf_start_with_no_file_does_nothing()
+    {
+        var probes = 0;
+        var sink = new RecordingLogSink();
+
+        Assert.False(Deaf(sink).RemoveStale(_ => { probes++; return PortOccupant.Free; }));
+
+        Assert.Equal(0, probes);
+        Assert.Empty(sink.Events);
+        Assert.Empty(Directory.EnumerateFiles(_root));
+    }
+
+    /// <summary>
+    /// A dashboard that can hear leaves the file to <see cref="IngressAnnouncement.Announce"/>,
+    /// which overwrites it: nothing is probed and nothing is removed.
+    /// </summary>
+    [Fact]
+    public void A_dashboard_that_can_hear_leaves_the_file_to_its_announcement()
+    {
+        ListeningFile.Write(_paths, 52789, _token);
+        var probes = 0;
+
+        Assert.False(Announcement(IngressStatus.Healthy(BoundPort)).RemoveStale(_ => { probes++; return PortOccupant.Free; }));
+
+        Assert.Equal(0, probes);
+        Assert.Equal(52789, ListeningFile.Read(_paths));
+    }
+
+    /// <summary>
+    /// <strong>Line 2 is never logged.</strong> It is the token of the run that wrote the file, a
+    /// credential (Impl §3.4). Checked over both outcomes, with every property rendered.
+    /// </summary>
+    [Fact]
+    public void The_token_on_line_2_is_never_logged()
+    {
+        var token = _token.Reveal();
+        var sink = new RecordingLogSink();
+
+        using (var other = CannedServer.Answering("200 OK", "application/json", HealthProbe.BodyFor(TheirGate)))
+        {
+            ListeningFile.Write(_paths, other.Port, _token);
+            Deaf(sink).RemoveStale(Probe);
+        }
+
+        using (var stranger = CannedServer.Answering("200 OK", "text/plain", "ok"))
+        {
+            ListeningFile.Write(_paths, stranger.Port, _token);
+            Deaf(sink).RemoveStale(Probe);
+        }
+
+        Assert.Equal(2, sink.Events.Count);
+
+        foreach (var line in sink.Events)
+        {
+            Assert.DoesNotContain(token, RecordingLogSink.Render(line), StringComparison.Ordinal);
+            Assert.All(line.Properties.Values, value => Assert.DoesNotContain(token, value.ToString(), StringComparison.Ordinal));
+        }
     }
 
     [Fact]

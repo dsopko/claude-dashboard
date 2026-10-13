@@ -7,11 +7,12 @@ using System.Text;
 namespace ClaudeDashboard.App.Hosting;
 
 /// <summary>
-/// The first of the two single-instance interlocks: a named <see cref="Mutex"/> (Impl §5.3).
+/// The first of the three single-instance interlocks: a named <see cref="Mutex"/> (Impl §5.3).
 /// </summary>
 /// <remarks>
 /// <para>
-/// The loopback port bind is the second interlock, and the two must observe <em>the same
+/// The loopback port bind is the second interlock, and <see cref="DataFolderLock"/> the third
+/// (issue #150). The gate and the port must observe <em>the same
 /// thing</em> or they can disagree while both look healthy. The port a second instance signals
 /// comes from the settings file under the data folder root, so the mutex name is keyed to that
 /// same root. A fixed name plus a root that <c>CLAUDE_DASHBOARD_HOME</c> can move would let a
@@ -34,11 +35,17 @@ namespace ClaudeDashboard.App.Hosting;
 /// <strong>Session-local, not machine-wide, and the name carries the session too.</strong> The
 /// <c>Local\</c> namespace is per logon session, so the mutex is already scoped that way. The
 /// <em>name</em> has to carry it as well, because the name is what <c>/health</c> answers with
-/// and what a starting process compares against. Two logon sessions sharing one data folder —
-/// which <c>CLAUDE_DASHBOARD_HOME</c> makes configurable, and which Impl Part 8 gives a portable
-/// install as a reason for — would otherwise report the same identity, and the second dashboard
-/// would read the first as its own duplicate, raise a window on a desktop this user cannot see,
-/// and exit saying it had worked.
+/// and what a starting process compares against. Two logon sessions sharing one data folder
+/// would otherwise report the same identity, and the second dashboard would read the first as its
+/// own duplicate, raise a window on a desktop this user cannot see, and exit saying it had worked.
+/// </para>
+/// <para>
+/// <strong>So two logon sessions sharing one data folder get a gate each, and the gate alone
+/// would let both start.</strong> Two sessions for one account (Windows Server with one session
+/// per user turned off) did exactly that: two dashboards on one <c>dashboard.db</c> and one
+/// <c>listening.txt</c>. Since issue #150, <see cref="DataFolderLock"/>, a <c>Global\</c> mutex
+/// with no session in its name, stops the second start; it exits with a message box and raises
+/// no window.
 /// </para>
 /// <para>
 /// <strong>Two signed-in users each get a port.</strong> A loopback bind is machine-wide, so when
@@ -240,7 +247,11 @@ public sealed class SingleInstanceGate : IDisposable
         _mutex.Dispose();
     }
 
-    private static string Normalize(string root)
+    /// <summary>
+    /// The data folder as a name is made from it: resolved, with no trailing separator, in lower
+    /// case. Shared with <see cref="DataFolderLock"/>, so the two names agree on what one folder is.
+    /// </summary>
+    internal static string Normalize(string root)
     {
         string resolved;
 
