@@ -2,6 +2,8 @@
 
 2026-10-12, updated 2026-10-13 · the mechanism as built. Parts 9 to 11 record what was decided on 2026-10-12 (issues #150 and #151) and built in T1.86 (PR #153, merged as `f568976` on 2026-10-13).
 
+**An explainer, not a specification.** Where this page and the Implementation Specification disagree, the specification is right (Impl §3.1, §3.4, §5.3, §8.1, §9.4 hold every fact here).
+
 This page is for someone who sits down cold and wants to understand how a Claude Code session's events get to the dashboard window, what can go wrong on the way, and what the dashboard does about it. Every statement about the behaviour was checked against `main` at `91995cc` and, for what T1.86 changed, at `f568976`; the file and section names point at the code and the Implementation Specification (Impl) for the detail.
 
 ## Words used here

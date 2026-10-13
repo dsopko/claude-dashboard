@@ -468,6 +468,8 @@ The colour is the worst state of all sessions, with a roster group counted once,
 
 ### 5.3 Single instance
 
+*For a walkthrough of how Claude Code reaches the dashboard, the port choice, the gate, the folder lock and the cases where they go wrong, see `docs/claude-dashboard-connection-design.md`. This section is the authority.*
+
 - A named `Mutex` (`SingleInstanceGate`) is taken at start. It is local to the logon session, and its name holds a hash of the data folder path and the session. If it is held, this process is the second instance.
 - **A second named `Mutex`, the data folder lock (`DataFolderLock`), is taken directly after the gate** (T1.86, issue #150). Its name is `Global\ClaudeDashboard.DataFolder.` and the first 16 hex characters of SHA-256 of the normalised data folder path, with **no session in it**, so a dashboard in another Windows session for the same account sees it. It is held as long as the gate, and given up after the last withdrawal of `listening.txt`. The reason: the gate is per session on purpose (a window must not rise on a desktop this user cannot see), so two sessions for one account (Windows Server with one session per user turned off) each took a gate and started two dashboards on one `dashboard.db` and one `listening.txt`. A `Global\` mutex needs no privilege. Two users have two data folders, so two names.
   - **A lock that cannot be opened is "cannot tell", and the dashboard starts**, with one Warning that names the folder and says that sharing a data folder between accounts is not supported. That is another account pointed at the same folder through `CLAUDE_DASHBOARD_HOME`: Windows refuses this account the other account's mutex. An abandoned lock is taken over and logged, as the gate is.
