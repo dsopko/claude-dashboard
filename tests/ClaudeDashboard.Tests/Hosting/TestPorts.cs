@@ -135,7 +135,7 @@ internal static class TestPorts
         host.Services.GetRequiredService<IngressStatus>() is { CanReceiveHooks: true } status && status.Port == port;
 
     /// <summary>Kestrel's bind failure: an address in use, alone or wrapped in an <see cref="IOException"/>.</summary>
-    private static bool TakenAtStart(Exception ex) =>
+    internal static bool TakenAtStart(Exception ex) =>
         ex is AddressInUseException || (ex is IOException && ex.InnerException is AddressInUseException);
 
     /// <summary>
@@ -143,10 +143,10 @@ internal static class TestPorts
     /// logger that the container does not dispose, and a host that never ran its stop holds the log file open: the
     /// test could not then delete its scratch folder.
     /// </summary>
-    private static void Discarded(WebApplication host) =>
+    internal static void Discarded(WebApplication host) =>
         (host.Services.GetService<Serilog.ILogger>() as IDisposable)?.Dispose();
 
-    private static async Task Stopped(WebApplication host)
+    internal static async Task Stopped(WebApplication host)
     {
         try
         {
