@@ -115,7 +115,7 @@ The window is a narrow side panel. Rows are the scarce resource. The rules, in s
 
 Rule 3 replaces the idea "show only the first green of each group when space is short". That rule would hide the thing that the tool exists to show. To collapse only what is *dealt with* is simpler and safe.
 
-In the flat view, the Quiet band and the Ended band are each one line that can be opened.
+In the flat view, the Quiet band and the Ended band are each one line that can be opened. In selection mode a ticked row of those bands shows above that line (rule 3).
 
 ## 7. View modes
 
@@ -241,3 +241,4 @@ Each phase can ship alone. Phase 7 is the reason that the domain model stays apa
 | 2026-10-09 | The caption's usage shows the share remaining, coloured by the share used; a limit past its reset time shows 100% green until the next reading, and its hover says when it reset (§9) | MOD.8; issues #144, #145 |
 | 2026-10-12 | A ticked row in selection mode is never collapsed, in either view, and its group does not go stale; it collapses when unticked or when the mode ends (§6 rule 3) | Issue #46 |
 | 2026-10-13 | The usage hover starts with "Usage"; a limit used past 100% shows below zero, red, and its hover says how far over (§9) | Issue #144 |
+| 2026-10-14 | The flat view's Quiet and Ended lines name the ticked-row exception of rule 3 (§6) | Issue #46, the review's follow-up |

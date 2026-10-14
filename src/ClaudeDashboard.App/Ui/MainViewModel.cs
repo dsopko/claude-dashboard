@@ -440,7 +440,8 @@ public sealed partial class MainViewModel : ObservableObject, IUiTickTarget, ISo
             _isSelecting = value;
 
             // Over a copy: leaving the mode clears each tick, and a cleared tick on a quiet row
-            // runs Refresh (issue #46), which may add rows to or remove rows from _sessionRows.
+            // runs Refresh (issue #46). Refresh removes a row only when the projection no longer
+            // holds its session (Forget); the copy keeps this loop safe if that ever happens here.
             foreach (var row in _sessionRows.Values.ToList())
             {
                 row.IsSelecting = value;

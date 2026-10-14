@@ -546,7 +546,7 @@ A control that is the main action of the current state is *lit*: `Ack all` when 
 1. The group heading.
 2. If the operator opened the group: each member, quiet ones included.
 3. Or, if the group is **stale**: nothing more. The heading is the one line.
-4. Or: each member that is not quiet, then one line `+ 3 quiet` if any member is quiet.
+4. Or: each member that is not hidden (not quiet, or ticked in selection mode; issue #46), then one line `+ 3 quiet` if any member is hidden.
 
 - **Quiet** means the Quiet band or the Ended band (`AttentionOrder.BandOf`). Thus an `Unread` row is never hidden.
 - **A ticked row is never hidden** while selection mode is on (`MainViewModel.IsHidden`; issue #46): a quiet row the operator has chosen is listed with the live ones, in both views, and does not make its group stale. Why: `SelectedCount` counts every row the view model holds, so a hidden chosen row was counted and not seen. A tick that changes on a quiet row refreshes the rows; the tick clears when the mode ends, and the row collapses then.
@@ -690,6 +690,7 @@ The mode ends when the operator groups, cancels, or hides the window.
 | Mute or pause changed | The consumer sends a tick after the `SoundCommand` |
 | A sound played | `SoundPolicyEngine.SoundMarked` → `SoundSigns` → `MainViewModel.SoundPlayed`: one post for each sound that played (§5.6.3) |
 | The operator opened or closed a heading, changed the view, or edited a roster | The view model refreshes itself |
+| The operator ticked or unticked a quiet row, or left selection mode | `SessionViewModel.IsSelected` changes → `MainViewModel.OnRowChanged` → `Refresh`, because a ticked quiet row is not hidden (§5.6.2, issue #46). Leaving the mode clears each tick by the same path. A tick on a row that is not quiet updates the count only |
 | The operator clicked a line in the Activity window | `ActivityLineViewModel.ShowCommand` → `MainWindow.Show` → `MainViewModel.Reveal`, which may open a heading and a row; nothing else changes (§5.7) |
 | A notice changed | A source raises a property change, and `NoticeBoard` rebuilds the list. `HookNotice` changes at a start or an event. `HistoryNotice` looks at the store, and `SoundDeviceNotice` at the player, on `TrayViewModel.Tick`, which passes the tick to the board |
 
@@ -1394,3 +1395,4 @@ The text above says what is true now. This list says when each part changed.
 | 2026-10-12 | One dashboard per data folder: `DataFolderLock`, a `Global\` mutex named from the folder alone, taken after the gate; `StartupDecision` gains the folder input and `ExitForOtherSession` (no probe, no `/show`); a lock that cannot be opened starts with one Warning. A second start that exits with no window shows a message box after its log line (`StandDownNotice`). A start with no port deletes a stale `listening.txt` when no dashboard answers on its port, and uses only line 1. Two sessions for one account on one folder, and two accounts on one folder, are not supported (§3.1, §5.3, §8.1, §9.4) | T1.86; issues #150, #151 |
 | 2026-10-12 | A ticked row in selection mode is never hidden: `MainViewModel.IsHidden` is quiet and not ticked, used by the grouped footer, the stale test and the flat band summary; a tick that changes on a quiet row refreshes the rows; the mode's exit iterates a copy of the rows (§5.6.2) | Issue #46 |
 | 2026-10-13 | The usage hover's words start with "Usage" and write `resets` in lower case; a used figure above 100 shows below zero (`-10%`, red) and its hover says `10% over`, where it showed `0%` (§5.6.1) | Ruling R17; issue #144 |
+| 2026-10-14 | The grouped view's item 4 says "hidden", not "quiet", so a ticked quiet row is listed; one row in §5.6.9 for a tick change on a quiet row (§5.6.2, §5.6.9) | Issue #46, the review's follow-up |
