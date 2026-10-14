@@ -320,7 +320,20 @@
                         <ui:SummarySlot x:Name="CaptionSlot"
                                         Grid.Column="2"
                                         UsageLeavesWithCounts="True">
+                            <!--
+                                HIT-TEST VISIBLE IN THE CHROME, OR THE COUNTS' TOOLTIP NEVER SHOWS IN THE
+                                CAPTION (issue #142). The caption is WindowChrome's drag area: WPF sees no
+                                mouse over an element there that does not opt out, so the full sentence
+                                that numbers-only promises (#53) never opened. The usage pairs beside it
+                                opt out for the same reason (UsageStrip.xaml). The setting inherits to the
+                                counts' words and separators, which touch, so no drag starts from the
+                                counts; the rest of the caption still drags the window. Measured in the
+                                #142 probe at 100% and 520: the tooltip opened over "11", a drag from the
+                                empty caption moved the window, and a drag from "11" or a separator did not.
+                                The counts row's strip is not in the caption and needs none.
+                            -->
                             <ui:CountsStrip x:Name="CaptionCounts"
+                                            shell:WindowChrome.IsHitTestVisibleInChrome="True"
                                             VerticalAlignment="Center"
                                             HorizontalAlignment="Right"
                                             ClipToBounds="True"
