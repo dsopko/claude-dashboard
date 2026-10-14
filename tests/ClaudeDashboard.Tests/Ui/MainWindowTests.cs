@@ -575,6 +575,40 @@ public sealed class MainWindowTests(StaHarness harness, Xunit.Abstractions.ITest
     }
 
     /// <summary>
+    /// <strong>The caption's counts answer the mouse</strong> (issue #142): the caption is WindowChrome's drag area,
+    /// and WPF sees no mouse over an element there unless it is hit-test visible in the chrome. So the strip that
+    /// holds the counts' tooltip, and each of its words, must have the setting, or the full sentence never opens.
+    /// </summary>
+    /// <remarks>
+    /// This holds the setting only. A tooltip test passes whether or not the tooltip can open in the caption; the
+    /// real hover was checked by hand in the #142 probe, at 100% and 520: the full sentence opened over "11".
+    /// </remarks>
+    [Fact]
+    public void The_captions_counts_are_hit_test_visible_in_the_chrome()
+    {
+        var seen = WithWindow(
+            registry => registry.Working("busy", At),
+            (window, _) =>
+            {
+                window.Width = 520;
+                _harness.Pump(DispatcherPriority.Background);
+                window.UpdateLayout();
+
+                var strip = window.CaptionCounts.Strip;
+
+                return (
+                    Placement: System.Windows.Shell.WindowChrome.GetIsHitTestVisibleInChrome(window.CaptionCounts),
+                    TooltipOwner: System.Windows.Shell.WindowChrome.GetIsHitTestVisibleInChrome(strip),
+                    Words: strip.Children.Cast<FrameworkElement>().Select(System.Windows.Shell.WindowChrome.GetIsHitTestVisibleInChrome).ToList());
+            });
+
+        Assert.True(seen.Placement, "The caption's CountsStrip is not hit-test visible in the chrome.");
+        Assert.True(seen.TooltipOwner, "The strip that holds the counts' tooltip does not inherit the setting.");
+        Assert.NotEmpty(seen.Words);
+        Assert.All(seen.Words, Assert.True);
+    }
+
+    /// <summary>
     /// <strong>A Waiting row, on a real window</strong> (T1.41, issue #52): the collapsed line, "Claude
     /// said so far", the "Waiting on" block with two tasks — and "Claude answered" again once the
     /// work really finishes.
