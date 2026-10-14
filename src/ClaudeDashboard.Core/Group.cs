@@ -111,6 +111,7 @@ public sealed record Group
         Key.Equals(other.Key) &&
         _members.AsSpan().SequenceEqual(other._members.AsSpan());
 
+    /// <inheritdoc/>
     public override int GetHashCode()
     {
         var hash = default(HashCode);

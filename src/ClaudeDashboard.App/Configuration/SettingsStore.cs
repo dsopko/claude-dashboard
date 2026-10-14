@@ -200,6 +200,13 @@ public sealed class SettingsStore(DashboardPaths paths, Serilog.ILogger? logger 
         return false;
     }
 
+    /// <summary>Reads the settings file. A file that is missing, cannot be opened or cannot be parsed gives the defaults.</summary>
+    /// <returns>
+    /// The settings and how they were found: <see cref="SettingsLoadOutcome.Loaded"/> with the file's values;
+    /// <see cref="SettingsLoadOutcome.Missing"/> with the defaults when there is no file; or
+    /// <see cref="SettingsLoadOutcome.Unreadable"/> with the defaults and the reason, and <c>Blocked</c> set when
+    /// the file could not be opened rather than not parsed.
+    /// </returns>
     public SettingsLoadResult Load()
     {
         if (!File.Exists(_paths.SettingsFile))

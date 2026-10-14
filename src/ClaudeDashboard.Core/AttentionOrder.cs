@@ -140,8 +140,8 @@ public static class AttentionOrder
     /// </para>
     /// <para>
     /// <strong>Had it been placed between them it would have tied with <c>Unread</c> here</strong>,
-    /// since the swap gives <c>Unread</c> the rank <c>Working</c> vacated. <see cref="WorstOf"/>
-    /// reduces over these ranks, and <see cref="Rank(SessionState)"/>'s own remark requires such a
+    /// since the swap gives <c>Unread</c> the rank <c>Working</c> vacated.
+    /// <see cref="WorstOf(IEnumerable{SessionState}, SeverityOrder)"/> reduces over these ranks, and <see cref="Rank(SessionState)"/>'s own remark requires such a
     /// reduction to say what it does with a tie rather than assume none arises. The tie would have
     /// decided whether <c>RosterSettle.PendingDeadlineOf</c> applies at all — it returns null
     /// unless the roll-up is exactly <c>Unread</c> — so a roster group would have chimed, or not,
@@ -166,7 +166,7 @@ public static class AttentionOrder
 
     /// <summary>The band <paramref name="state"/> is displayed in (TS §IV.2).</summary>
     /// <remarks>
-    /// A coarsening of <see cref="Rank"/>, not a second ordering: the three Needs-You states
+    /// A coarsening of <see cref="Rank(SessionState)"/>, not a second ordering: the three Needs-You states
     /// keep their distinct ranks and share one band. That the two agree — a more urgent state
     /// never lands in a less urgent band — is pinned by test rather than derived, because
     /// deriving it would obscure the mapping this method exists to state plainly.
@@ -203,7 +203,7 @@ public static class AttentionOrder
     /// <para>
     /// The one roll-up. <see cref="Group.WorstState"/> answers this question for a group's
     /// members and the tray answers it for every session at once (Impl §5.2), and they are the
-    /// same question — "worst wins", over <see cref="Rank"/>, which is why the ranking is not
+    /// same question — "worst wins", over <see cref="Rank(SessionState)"/>, which is why the ranking is not
     /// copied a third time.
     /// </para>
     /// <para>
@@ -211,8 +211,8 @@ public static class AttentionOrder
     /// happen.</strong> The comparison is strictly <c>&gt;</c>, so an equal rank never displaces
     /// the incumbent and the answer is the same whatever order <paramref name="states"/> arrives
     /// in. That is the whole reason, and it is worth stating exactly, because the tempting
-    /// version — "<see cref="Rank"/> is total, so states can only tie when they are equal" — is
-    /// <em>false</em>: <see cref="Rank"/> is not injective. <see cref="SessionState.Ended"/> and
+    /// version — "<see cref="Rank(SessionState)"/> is total, so states can only tie when they are equal" — is
+    /// <em>false</em>: <see cref="Rank(SessionState)"/> is not injective. <see cref="SessionState.Ended"/> and
     /// any unrecognised value both rank 0, and <see cref="BandOf"/> sorts them into different
     /// bands. Relax this to <c>&gt;=</c> and <c>[Ended, unrecognised]</c> answers differently
     /// from <c>[unrecognised, Ended]</c>, one landing in Ended and the other in Quiet.

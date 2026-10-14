@@ -688,7 +688,13 @@ public static class Program
     /// folder is what the gate exists to prevent — but exiting quietly is not.
     /// </para>
     /// </remarks>
+    /// <param name="paths">The data folder, for the log file and <c>listening.txt</c>.</param>
+    /// <param name="settings">The settings this start read, for the log's level and size.</param>
+    /// <param name="action">What the start decided: exit for another logon session, report and exit, or signal and exit.</param>
+    /// <param name="probe">What the health probe found on the port, for the report of who holds it.</param>
+    /// <param name="port">The port to signal: the one the running dashboard recorded, or the setting's; null when neither is known.</param>
     /// <param name="showBox">Shows a message box with a text and a title: the real one from <see cref="Main"/>, a recorder from a test.</param>
+    /// <returns>The process exit code: 0 when the running dashboard showed its window, 1 otherwise.</returns>
     private static int StandDown(
         DashboardPaths paths,
         DashboardSettings settings,

@@ -17,7 +17,7 @@ namespace ClaudeDashboard.App.Ui;
 /// <remarks>
 /// <para>
 /// <strong>What the glyph says and what it does not.</strong> The colour is a roll-up of every
-/// session, coarsened from <see cref="AttentionOrder.Rank"/> — five colours for eight states,
+/// session, coarsened from <see cref="AttentionOrder.Rank(SessionState)"/> — five colours for eight states,
 /// order preserved (see <see cref="TrayVisuals"/>). It carries no digits: 16px cannot render
 /// legible ones, so the counts live in the tooltip, where the Error-and-Question merge is also
 /// undone. It never animates; TS reserves motion for needs-you rows inside the window.
@@ -86,6 +86,10 @@ public sealed partial class TrayViewModel : ObservableObject, IUiTickTarget, IDi
     /// place that says otherwise must not be able to go missing.
     /// </param>
     /// <param name="logger">Where a refused publish is recorded.</param>
+    /// <param name="decisions">
+    /// Where a change of the tray light is recorded in the decisions record, off the consumer thread. The host
+    /// passes the recorder; a test that is not about it may omit it, and the light's changes are then not recorded.
+    /// </param>
     /// <param name="notices">
     /// What the operator must see on screen, not only in the log: the hook route (the ruling of
     /// 2026-10-01) and the history (T1.54, issue #71). Their short forms lead the tooltip, after the

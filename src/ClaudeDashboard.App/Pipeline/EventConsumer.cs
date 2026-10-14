@@ -77,6 +77,12 @@ public sealed class EventConsumer : BackgroundService
     private readonly Ingress.StateBoard? _state;
 
     /// <summary>Creates the consumer.</summary>
+    /// <param name="pipeline">The channel the hooks, the clicks and the commands arrive on. This consumer is its one reader.</param>
+    /// <param name="registry">The sessions. This consumer's thread is its one writer.</param>
+    /// <param name="sound">The sound engine, told of each change and evaluated at each tick.</param>
+    /// <param name="clock">The time each tick reads.</param>
+    /// <param name="guard">The check that only this consumer's thread writes the Registry.</param>
+    /// <param name="logger">The log file.</param>
     /// <param name="uiTick">
     /// Where the tick is echoed for the UI's age and staleness display (T1.11) and the tray's
     /// tooltip (T1.13). Required since T1.12b: it used to be optional, which meant a lost
@@ -88,6 +94,13 @@ public sealed class EventConsumer : BackgroundService
     /// resolve to nothing at all, and the dashboard would run perfectly while recording no
     /// history — a failure with no symptom until Phase 5 went looking for the data.
     /// </param>
+    /// <param name="rosters">The rosters, read at each event and tick to form the roster groups.</param>
+    /// <param name="recorder">The decisions record: each event's and each tick's decisions, written beside the event.</param>
+    /// <param name="tickInterval">How often the loop ticks; <see cref="DefaultTickInterval"/> when null.</param>
+    /// <param name="watch">Tells when a roster group settles or settled too early; a new one when null.</param>
+    /// <param name="silenceThreshold">How long a working session may go unheard before the sweep moves it; <see cref="SilenceWatch.DefaultThreshold"/> when null.</param>
+    /// <param name="health">The counts and the hourly summary (T1.65); none in a test that is not about them.</param>
+    /// <param name="state">The <c>/state</c> report, built again after each settle pass (T1.83); none in a test that is not about it.</param>
     public EventConsumer(
         EventPipeline pipeline,
         SessionRegistry registry,

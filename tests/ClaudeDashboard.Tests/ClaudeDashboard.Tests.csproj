@@ -16,8 +16,13 @@
       CA1707 (no underscores in member names) is wrong for xUnit: underscore-separated
       test names are the readable convention and are surfaced verbatim in test output.
       Suppressed here only — product code keeps the rule.
+
+      CS1591 (a public member with no doc comment) is off for the same reason: a test's name
+      is its description, and a test class is public because xUnit needs it to be. The doc
+      comments the tests do have are still checked, link by link (issue #19, root
+      Directory.Build.props).
     -->
-    <NoWarn>$(NoWarn);CA1707</NoWarn>
+    <NoWarn>$(NoWarn);CA1707;CS1591</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

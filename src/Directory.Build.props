@@ -11,6 +11,14 @@
   -->
   <PropertyGroup>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+
+    <!--
+      The documentation files exist so that the compiler checks the doc comments (issue #19,
+      root Directory.Build.props). Nothing at runtime reads them, so a publish leaves them
+      out and the release package holds the same files as before.
+    -->
+    <PublishDocumentationFile>false</PublishDocumentationFile>
+    <PublishReferencesDocumentationFiles>false</PublishReferencesDocumentationFiles>
   </PropertyGroup>
 
 </Project>

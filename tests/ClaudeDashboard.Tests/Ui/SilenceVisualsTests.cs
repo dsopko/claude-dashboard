@@ -103,7 +103,7 @@ public sealed class SilenceVisualsTests
     /// <remarks>
     /// <para>
     /// <strong>This is the assertion that would have caught the tray recolour.</strong> Adding the
-    /// state renumbered <see cref="AttentionOrder.Rank"/> by one, and <c>TrayVisuals.ColourOf</c>
+    /// state renumbered <see cref="AttentionOrder.Rank(SessionState)"/> by one, and <c>TrayVisuals.ColourOf</c>
     /// compared that rank against <em>literal</em> thresholds — <c>&gt;= 6</c>, <c>&gt;= 4</c> —
     /// with the states they covered named only in comments. Every boundary then pointed one state
     /// too low: Error would have read red, Unread amber, Working green, and an interrupted session

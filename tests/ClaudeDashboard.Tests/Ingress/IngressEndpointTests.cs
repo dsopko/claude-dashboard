@@ -335,7 +335,7 @@ public sealed class IngressEndpointTests : IAsyncLifetime
     /// identity, would have passed everything.
     /// </para>
     /// <para>
-    /// The expected name is computed from <see cref="SingleInstanceGate.NameFor"/> rather than
+    /// The expected name is computed from <see cref="SingleInstanceGate.NameFor(string)"/> rather than
     /// written out. A literal would be a second copy of the naming rule, and the copy is what
     /// drifts: the test would then go on passing while the two sides disagreed, which is the
     /// failure it exists to catch.

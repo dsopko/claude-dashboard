@@ -26,6 +26,7 @@ public readonly record struct WindowHandle
     /// <remarks>See <see cref="ValueTypeConventions"/> for why these types stay structs.</remarks>
     public bool IsNone => Value == 0;
 
+    /// <inheritdoc/>
     public override string ToString() =>
         IsNone ? "WindowHandle(none)" : $"WindowHandle(0x{Value:X})";
 }

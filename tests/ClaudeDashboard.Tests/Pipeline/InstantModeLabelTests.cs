@@ -24,7 +24,7 @@ namespace ClaudeDashboard.Tests.Pipeline;
 /// <para>
 /// Here the consumer's tick is an hour away and <see cref="EventConsumer.TickCount"/> is asserted to
 /// stay at zero, so any relabel seen must come from the command itself. The labels are read from
-/// the engine's real state through <see cref="ISoundModeReader"/>: the tray is given the engine,
+/// the engine's real state through <see cref="ClaudeDashboard.Core.Ports.ISoundModeReader"/>: the tray is given the engine,
 /// not a fake, so nothing optimistic could pass. The header's Mute all binds to this same tray
 /// property (<c>The_header_mute_all_is_the_trays_switch_and_reads_its_state</c>).
 /// </para>
