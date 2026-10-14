@@ -366,9 +366,9 @@ public sealed class ActivityLinkTests(StaHarness harness)
 
                 Assert.Equal(1, both.ActivityShown);
                 Assert.True(both.Activity.IsFiltered);
-                Assert.Equal("Only Director", both.Activity.OnlyText);
+                Assert.Equal("Only Director, project p01", both.Activity.OnlyText);
                 Assert.True(Find<DockPanel>(both.ActivityWindow, "FilterBar").IsVisible);
-                Assert.Equal("Only Director", Find<TextBlock>(both.ActivityWindow, "FilterText").Text);
+                Assert.Equal("Only Director, project p01", Find<TextBlock>(both.ActivityWindow, "FilterText").Text);
                 Assert.Equal(["s-1"], Shown(both));
                 Assert.All(StaHarness.FindAll<ListBoxItem>(both.ActivityWindow), item => Assert.Equal("s-1", ((ActivityLineViewModel)item.DataContext).Line.SessionId));
                 NothingElse(both, before);
@@ -396,7 +396,7 @@ public sealed class ActivityLinkTests(StaHarness harness)
                 Invoke(Find<Button>(Container(both.Window, other), "ShowActivityButton"));
                 Settle(both);
 
-                Assert.Equal("Only s-2", both.Activity.OnlyText);
+                Assert.Equal("Only s-2, project p02", both.Activity.OnlyText);
                 Assert.Equal(["s-2", "s-2"], Shown(both));
                 Assert.Equal(3, both.ActivityShown);
             });
@@ -417,6 +417,119 @@ public sealed class ActivityLinkTests(StaHarness harness)
             code.IndexOf("activityWindows.Create()", StringComparison.Ordinal)
                 < code.IndexOf("ActivityLinks.Connect(", StringComparison.Ordinal),
             "Program must make the Activity window before it connects the two windows.");
+    }
+
+    /// <summary>
+    /// <strong>The toolbar's Activity opens every line</strong> (issue #157): a filter left by "Show activity" outlives
+    /// the window, which is only hidden, and the toolbar asks for the Activity window as a whole. Before the fix the
+    /// operator's window opened days later on one session's lines, under "Only 457d3a3e".
+    /// </summary>
+    [Fact]
+    public void The_toolbars_activity_button_clears_a_filter_left_by_show_activity()
+    {
+        WithBoth(
+            registry =>
+            {
+                registry.Working("s-1", At, Workspace(1), title: "Director");
+                registry.Working("s-2", At.AddSeconds(1), Workspace(2));
+            },
+            both =>
+            {
+                Line(both, "s-1");
+                Line(both, "s-2");
+                var director = Row(both, "s-1");
+                director.IsExpanded = true;
+                Settle(both);
+
+                Invoke(Find<Button>(Container(both.Window, director), "ShowActivityButton"));
+                Settle(both);
+                Assert.True(both.Activity.IsFiltered);
+                Assert.Equal(["s-1"], Shown(both));
+
+                Invoke(Find<Button>(both.Window, "ActivityButton"));
+                Settle(both);
+
+                Assert.Equal(2, both.ActivityShown);
+                Assert.False(both.Activity.IsFiltered);
+                Assert.Equal(string.Empty, both.Activity.OnlyText);
+                Assert.False(Find<DockPanel>(both.ActivityWindow, "FilterBar").IsVisible);
+                Assert.Equal(both.Log.Lines.Count, both.Activity.Shown.Cast<object>().Count());
+                Assert.Equal(["s-1", "s-2"], Shown(both).Order(StringComparer.Ordinal));
+            });
+    }
+
+    /// <summary>
+    /// <strong>The tray's Activity… opens every line too</strong> (issue #157): it is the same command, and a test of
+    /// the command itself holds that the tray menu has no path of its own that keeps the filter.
+    /// </summary>
+    [Fact]
+    public void The_trays_activity_command_clears_the_filter_and_shows_the_window()
+    {
+        WithBoth(
+            registry =>
+            {
+                registry.Working("s-1", At, Workspace(1), title: "Director");
+                registry.Working("s-2", At.AddSeconds(1), Workspace(2));
+            },
+            both =>
+            {
+                Line(both, "s-1");
+                Line(both, "s-2");
+                both.Activity.ShowOnly(new SessionId("s-2"), "s-2", "p02");
+                Settle(both);
+                Assert.Equal(["s-2"], Shown(both));
+
+                both.Tray.OpenActivityCommand.Execute(null);
+                Settle(both);
+
+                Assert.Equal(1, both.ActivityShown);
+                Assert.False(both.Activity.IsFiltered);
+                Assert.Equal(both.Log.Lines.Count, both.Activity.Shown.Cast<object>().Count());
+
+                // With no filter, it only shows the window.
+                both.Tray.OpenActivityCommand.Execute(null);
+                Settle(both);
+                Assert.Equal(2, both.ActivityShown);
+                Assert.False(both.Activity.IsFiltered);
+            });
+    }
+
+    /// <summary>
+    /// <strong>The bar names the session as its lines do</strong> (issue #157): its name or short id, then its
+    /// project; no project part when the session has none.
+    /// </summary>
+    [Theory]
+    [InlineData("Director", "claude-dashboard", "Only Director, project claude-dashboard")]
+    [InlineData("457d3a3e", "IdentityTheftLawsuit", "Only 457d3a3e, project IdentityTheftLawsuit")]
+    [InlineData("457d3a3e", "", "Only 457d3a3e")]
+    public void The_bar_names_the_session_and_its_project(string name, string project, string expected)
+    {
+        _harness.Invoke(() =>
+        {
+            var activity = new ActivityViewModel(
+                new ActivityLog(new QueueingDispatcher(), new FakeClock(At)),
+                new FakeClock(At),
+                health: null);
+
+            activity.ShowOnly(new SessionId("457d3a3e-0000"), name, project);
+
+            Assert.Equal(expected, activity.OnlyText);
+        });
+    }
+
+    /// <summary>
+    /// <strong>Program has no path of its own to the Activity window</strong> (issue #157): before the fix it showed
+    /// the window from the tray's request directly, past the filter. Every request now goes through
+    /// <see cref="ActivityLinks.Connect"/>.
+    /// </summary>
+    [Fact]
+    public void Program_sends_the_trays_activity_request_through_the_links()
+    {
+        var code = GuardScan.CodeOnly(File.ReadAllText(
+            Path.Combine(RepoLayout.Root.FullName, "src", "ClaudeDashboard.App", "Program.cs")));
+
+        Assert.Equal(0, GuardScan.Occurrences(code, "ActivityRequested +="));
+        Assert.Contains("tray.ViewModel,", code, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -458,7 +571,7 @@ public sealed class ActivityLinkTests(StaHarness harness)
                 Line(both, "s-2");
                 Assert.Null(list.SelectedItem);
 
-                both.Activity.ShowOnly(new SessionId("s-1"), "Director");
+                both.Activity.ShowOnly(new SessionId("s-1"), "Director", "p01");
                 Settle(both);
                 Assert.Null(list.SelectedItem);
 
@@ -534,6 +647,8 @@ public sealed class ActivityLinkTests(StaHarness harness)
 
         public required RecordingEventSink TraySink { get; init; }
 
+        public required TrayViewModel Tray { get; init; }
+
         public int ActivityShown { get; set; }
     }
 
@@ -562,7 +677,8 @@ public sealed class ActivityLinkTests(StaHarness harness)
             arrange(registry);
             prepare?.Invoke(main);
 
-            var window = new MainWindow(main, TestTrays.For(registry.Projection, sink: traySink));
+            using var tray = TestTrays.For(registry.Projection, sink: traySink);
+            var window = new MainWindow(main, tray);
             var dispatcher = new QueueingDispatcher();
             var log = new ActivityLog(dispatcher, new FakeClock(At));
 
@@ -583,9 +699,10 @@ public sealed class ActivityLinkTests(StaHarness harness)
                 Ack = ack,
                 RosterSink = rosterSink,
                 TraySink = traySink,
+                Tray = tray,
             };
 
-            ActivityLinks.Connect(window, main, activity, () => both.ActivityShown++);
+            ActivityLinks.Connect(window, main, tray, activity, () => both.ActivityShown++);
 
             using var bindings = new BindingErrorWatch();
 

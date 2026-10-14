@@ -158,7 +158,12 @@ public sealed class ActivityLineViewModel : ObservableObject
 /// <para>
 /// <strong>"Show activity" is a filter on the one list, not a copy</strong> (T1.71): <see cref="Shown"/> is a
 /// view over the log's lines, so a new line for that session arrives in it and a line for another does not. A
-/// bar at the top says "Only Director" with <b>Show all</b>, which clears it.
+/// bar at the top says "Only Director, project claude-dashboard" with <b>Show all</b>, which clears it.
+/// </para>
+/// <para>
+/// <strong>The toolbar and the tray open the full list</strong> (issue #157): they clear the filter before they show
+/// the window (<see cref="ActivityLinks.Connect"/>). The window is only hidden when it closes, so a filter that
+/// outlived its window opened it days later on one session's lines, and the operator took the other sessions for lost.
 /// </para>
 /// </remarks>
 public sealed partial class ActivityViewModel : ObservableObject, IUiTickTarget
@@ -209,7 +214,10 @@ public sealed partial class ActivityViewModel : ObservableObject, IUiTickTarget
     /// <summary>Whether the list shows one session's lines only.</summary>
     public bool IsFiltered => OnlySession is not null;
 
-    /// <summary>The bar's words: "Only Director", or the short id when the session has no name; or empty.</summary>
+    /// <summary>
+    /// The bar's words, as the session's lines name it: "Only Director, project claude-dashboard"; the short id
+    /// when the session has no name; no project part when it has no project; or empty.
+    /// </summary>
     public string OnlyText { get; private set; } = string.Empty;
 
     /// <summary>The bar's <b>Show all</b>: every line again.</summary>
@@ -217,10 +225,14 @@ public sealed partial class ActivityViewModel : ObservableObject, IUiTickTarget
 
     /// <summary>
     /// "Show activity" on a row: only <paramref name="session"/>'s lines, under a bar that reads
-    /// "Only <paramref name="name"/>". On another row it changes the filter to that row. UI thread only.
+    /// "Only <paramref name="name"/>, project <paramref name="project"/>". On another row it changes the filter to
+    /// that row. UI thread only.
     /// </summary>
+    /// <param name="session">The session.</param>
+    /// <param name="name">Its name as the row shows it, or its short id.</param>
+    /// <param name="project">Its project, the last folder of its path; empty when it has none.</param>
     /// <exception cref="ArgumentException"><paramref name="session"/> is empty.</exception>
-    public void ShowOnly(SessionId session, string name)
+    public void ShowOnly(SessionId session, string name, string project)
     {
         if (session.IsEmpty)
         {
@@ -228,14 +240,18 @@ public sealed partial class ActivityViewModel : ObservableObject, IUiTickTarget
         }
 
         OnlySession = session.Value;
-        OnlyText = "Only " + name;
+
+        // The lines' own words (ActivityWords): a bare short id, as the bar showed before issue #157, was not read
+        // as a session's name.
+        OnlyText = string.IsNullOrEmpty(project) ? "Only " + name : "Only " + name + ", project " + project;
 
         // Set each time, so a second "Show activity" filters again by the new session.
         Shown.Filter = Passes;
         RaiseFilter();
     }
 
-    private void ShowAll()
+    /// <summary>Every line again, and no bar: <b>Show all</b>, and the toolbar's and the tray's Activity (issue #157).</summary>
+    public void ShowAll()
     {
         OnlySession = null;
         OnlyText = string.Empty;

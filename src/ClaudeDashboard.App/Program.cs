@@ -383,16 +383,16 @@ public static class Program
                 var settingsWindows = host.Services.GetRequiredService<SettingsWindowHost>();
                 tray.ViewModel.SettingsRequested += (_, _) => settingsWindows.Show();
 
-                // The Activity window (T1.70): made now, hidden, and always there; the tray menu and the toolbar
-                // share one command that only shows it.
+                // The Activity window (T1.70): made now, hidden, and always there.
                 var activityWindows = host.Services.GetRequiredService<ActivityWindowHost>();
                 activityWindows.Create();
-                tray.ViewModel.ActivityRequested += (_, _) => activityWindows.Show();
 
-                // A click on a line shows its row here, and "Show activity" on a row lists its lines there (T1.71).
+                // A click on a line shows its row here, "Show activity" on a row lists its lines there (T1.71), and
+                // the command that the tray menu and the toolbar share lists every line (issue #157).
                 ActivityLinks.Connect(
                     window,
                     window.ViewModel,
+                    tray.ViewModel,
                     host.Services.GetRequiredService<ActivityViewModel>(),
                     () => activityWindows.Show());
 
