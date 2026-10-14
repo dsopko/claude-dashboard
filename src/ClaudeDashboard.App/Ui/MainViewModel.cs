@@ -855,7 +855,7 @@ public sealed partial class MainViewModel : ObservableObject, IUiTickTarget, ISo
     {
         if (sender is SessionViewModel row && !row.Id.IsEmpty)
         {
-            ActivityRequested?.Invoke(this, new ActivityRequest(row.Id, row.ActivityName));
+            ActivityRequested?.Invoke(this, new ActivityRequest(row.Id, row.ActivityName, row.GroupTag));
         }
     }
 
