@@ -1,5 +1,5 @@
 <!--
-    The plan's usage — "Current 95% · Week 64% · Fable 40%", the share remaining — as one piece of
+    The plan's usage — "Session 95% · Week 64% · Fable 40%", the share remaining — as one piece of
     markup (MOD.7, issue #133; MOD.8, issue #144). MainWindow places it twice, as it places the counts: in the caption, to the left of the
     counts, and on the row under the caption when the caption has no room for its numbers. Both
     lines are this markup, so the ladder, the colours and the hover text are the same on both.
@@ -98,7 +98,7 @@
         <StackPanel x:Name="CurrentPart" DataContext="{Binding CurrentUsage}" Style="{StaticResource UsageSlotStyle}">
             <TextBlock Style="{StaticResource UsageSeparatorStyle}" />
             <StackPanel Style="{StaticResource UsagePairStyle}">
-                <TextBlock Text="Current " ui:FittingStrip.HideAtTier="1" Style="{StaticResource UsageLabelStyle}" />
+                <TextBlock Text="Session " ui:FittingStrip.HideAtTier="1" Style="{StaticResource UsageLabelStyle}" />
                 <TextBlock Style="{StaticResource UsageFigureStyle}" />
             </StackPanel>
         </StackPanel>
