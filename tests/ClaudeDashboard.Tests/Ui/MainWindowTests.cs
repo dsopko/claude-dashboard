@@ -3081,7 +3081,6 @@ public sealed class MainWindowTests(StaHarness harness, Xunit.Abstractions.ITest
         StaHarness.FindAll<Button>(row).Any(button =>
             button.Content as string == "✓ Ack" && button.Visibility == Visibility.Visible);
 
-    /// <summary>Drives a session to <paramref name="state"/> through the real pipeline.</summary>
     // ---- The orchestration's one Ack, as it actually renders (issue #47) -----------------------
 
     private static readonly string[] AlphaOnly = ["alpha"];
@@ -3552,6 +3551,7 @@ public sealed class MainWindowTests(StaHarness harness, Xunit.Abstractions.ITest
     private static object? StyleValue(Style style, DependencyProperty property) =>
         style.Setters.OfType<Setter>().Single(setter => setter.Property == property).Value;
 
+    /// <summary>Drives a session to <paramref name="state"/> through the real pipeline.</summary>
     private static void Reach(RegistryHarness registry, string id, SessionState state)
     {
         switch (state)

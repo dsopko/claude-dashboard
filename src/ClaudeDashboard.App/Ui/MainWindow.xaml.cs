@@ -228,6 +228,11 @@ public partial class MainWindow : Window, IActivityRows
     private void OnCloseWindow(object sender, ExecutedRoutedEventArgs e) =>
         SystemCommands.CloseWindow(this);
 
+    /// <summary>
+    /// Cancels the close and hides the window, so the dashboard keeps running in the tray (Impl §5.1).
+    /// A close that something else has already cancelled is left as it is.
+    /// </summary>
+    /// <param name="e">The close, which this cancels.</param>
     protected override void OnClosing(CancelEventArgs e)
     {
         ArgumentNullException.ThrowIfNull(e);

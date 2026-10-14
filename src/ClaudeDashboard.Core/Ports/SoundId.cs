@@ -50,5 +50,6 @@ public readonly record struct SoundId
     /// <remarks>See <see cref="ValueTypeConventions"/> for why these types stay structs.</remarks>
     public bool IsEmpty => string.IsNullOrEmpty(_name);
 
+    /// <inheritdoc/>
     public override string ToString() => Name;
 }

@@ -52,7 +52,7 @@ public sealed record StateReport(
     /// </summary>
     /// <remarks>
     /// <strong>The band rule is asked, never restated.</strong> Each band comes from
-    /// <see cref="AttentionOrder.BandOf"/>, the tray from <see cref="StatusSummary.Of"/> and
+    /// <see cref="AttentionOrder.BandOf"/>, the tray from <see cref="StatusSummary.OfCounted"/> and
     /// <see cref="TrayVisuals.ColourOf"/>, and the order from <see cref="AttentionEngine.Order"/> —
     /// the same calls the window and the tray make. The bands and the tray light are taken over
     /// <see cref="CountedStates.Of"/>, so a roster group counts once, at its roll-up, as in the window and the tray

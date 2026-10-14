@@ -48,7 +48,7 @@ namespace ClaudeDashboard.Core;
 /// <para>
 /// <strong>Both numbers are guesses and are treated as guesses.</strong> 1.5 seconds is the
 /// operator's starting value, not a measured one, which is why
-/// <see cref="MisMarkWindow"/> exists at all: a group that shows finished and returns to working
+/// <see cref="DefaultMisMarkWindow"/> exists at all: a group that shows finished and returns to working
 /// inside it proves the window was too short, and says so in the log. Both are injectable so the
 /// tests drive them from a clock rather than sleeping.
 /// </para>

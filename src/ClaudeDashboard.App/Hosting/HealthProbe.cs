@@ -84,7 +84,7 @@ public static class HealthProbe
 
     /// <summary>Asks who holds <paramref name="port"/>, comparing against <paramref name="ourInstance"/>.</summary>
     /// <param name="port">The loopback port to probe.</param>
-    /// <param name="ourInstance">This process's gate name, from <see cref="SingleInstanceGate.NameFor"/>.</param>
+    /// <param name="ourInstance">This process's gate name, from <see cref="SingleInstanceGate.NameFor(string)"/>.</param>
     /// <param name="timeout">How long to wait; <see cref="DefaultTimeout"/> when null.</param>
     /// <remarks>
     /// <para>

@@ -74,7 +74,7 @@ public sealed class SilenceRosterTests
     /// <remarks>
     /// The tie that was avoided. Under the roster order <c>Unread</c> takes the rank <c>Working</c>
     /// vacated; had <c>Interrupted</c> been placed between them the two would rank equally, and
-    /// <see cref="AttentionOrder.WorstOf"/> — a reduction over those ranks — would decide by
+    /// <see cref="AttentionOrder.WorstOf(IEnumerable{SessionState}, SeverityOrder)"/> — a reduction over those ranks — would decide by
     /// accident whether this group's roll-up is <c>Unread</c>. Only an <c>Unread</c> roll-up gets a
     /// settle deadline, so the accident would be a finished chime that fires or does not.
     /// </remarks>

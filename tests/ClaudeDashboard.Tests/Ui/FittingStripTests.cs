@@ -110,6 +110,7 @@ public sealed class FittingStripTests(StaHarness harness, ITestOutputHelper outp
     /// "11 · 3 · 5 · 8" at tier 2. Text, not pixels, which is what lets the order of the ladder
     /// be asserted at any display scale.
     /// </param>
+    /// <param name="IsShortened">The strip's <see cref="FittingStrip.IsShortened"/>: whether it shows less than the full text.</param>
     private sealed record Result(int Tier, double Desired, IReadOnlyList<bool> Shown, string NeedsYouWord, string Text, bool IsShortened)
     {
         /// <summary>How many counts were given a place.</summary>

@@ -67,10 +67,12 @@ public sealed class TransitionLog : IReadOnlyList<StateTransition>, IEquatable<T
     /// <summary>The transition at <paramref name="index"/>, oldest first.</summary>
     public StateTransition this[int index] => _entries[index];
 
+    /// <summary>The retained transitions, oldest first.</summary>
     public IEnumerator<StateTransition> GetEnumerator() => ((IEnumerable<StateTransition>)_entries).GetEnumerator();
 
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
+    /// <summary>Whether <paramref name="other"/> holds the same transitions in the same order.</summary>
     public bool Equals(TransitionLog? other)
     {
         if (ReferenceEquals(this, other))
@@ -81,8 +83,10 @@ public sealed class TransitionLog : IReadOnlyList<StateTransition>, IEquatable<T
         return other is not null && _entries.AsSpan().SequenceEqual(other._entries.AsSpan());
     }
 
+    /// <inheritdoc/>
     public override bool Equals(object? obj) => Equals(obj as TransitionLog);
 
+    /// <inheritdoc/>
     public override int GetHashCode()
     {
         var hash = default(HashCode);
@@ -94,8 +98,10 @@ public sealed class TransitionLog : IReadOnlyList<StateTransition>, IEquatable<T
         return hash.ToHashCode();
     }
 
+    /// <summary>Whether the two logs hold the same transitions in the same order; two nulls are equal.</summary>
     public static bool operator ==(TransitionLog? left, TransitionLog? right) =>
         left is null ? right is null : left.Equals(right);
 
+    /// <summary>Whether the two logs differ: the opposite of <c>==</c>.</summary>
     public static bool operator !=(TransitionLog? left, TransitionLog? right) => !(left == right);
 }

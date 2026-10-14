@@ -5,7 +5,7 @@ using ClaudeDashboard.Core;
 namespace ClaudeDashboard.Tests.Ui;
 
 /// <summary>
-/// The tray glyph's colour is a coarsening of <see cref="AttentionOrder.Rank"/>, not a second
+/// The tray glyph's colour is a coarsening of <see cref="AttentionOrder.Rank(SessionState)"/>, not a second
 /// opinion about severity (Impl §5.2).
 /// </summary>
 public sealed class TrayVisualsTests
@@ -165,7 +165,7 @@ public sealed class TrayVisualsTests
     /// <remarks>
     /// <para>
     /// The property holds because ties go to the first arrival, not because ties cannot happen:
-    /// <see cref="AttentionOrder.Rank"/> is total but <strong>not injective</strong>, and
+    /// <see cref="AttentionOrder.Rank(SessionState)"/> is total but <strong>not injective</strong>, and
     /// <see cref="SessionState.Ended"/> shares rank 0 with any unrecognised value.
     /// </para>
     /// <para>

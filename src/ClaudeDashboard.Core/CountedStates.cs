@@ -33,7 +33,7 @@ public readonly record struct CountedState(SessionState State, SessionId Session
 /// band counts read this list.
 /// </para>
 /// <para>
-/// <strong>The order</strong> is the order of <paramref name="sessions"/>, with a roster group's entry where its first
+/// <strong>The order</strong> is the order of the sessions given to <see cref="Of"/>, with a roster group's entry where its first
 /// member appears, so a reader that takes "the first at the worst state" names the same session it named before for
 /// a session in no roster.
 /// </para>

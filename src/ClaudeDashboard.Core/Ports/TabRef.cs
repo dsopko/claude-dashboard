@@ -68,6 +68,7 @@ public readonly record struct TabRef
     /// </remarks>
     public bool IsNone => Window.IsNone;
 
+    /// <inheritdoc/>
     public override string ToString() =>
         Window.IsNone
             ? "TabRef(none)"

@@ -7,7 +7,7 @@ namespace ClaudeDashboard.Tests.Architecture;
 /// Proves the engineering standards from Execution Plan Part 1 are in effect for
 /// <em>every</em> project, not merely declared in one of them: nullable reference
 /// types on everywhere, analyzers on everywhere, warnings-as-errors on the product
-/// projects (required for Core "at minimum").
+/// projects (required for Core "at minimum"), and doc comments checked everywhere (issue #19).
 /// </summary>
 public sealed class BuildSettingsTests
 {
@@ -19,6 +19,19 @@ public sealed class BuildSettingsTests
     private static readonly string[] ProductProjects =
     [
         RepoLayout.Core, RepoLayout.App, RepoLayout.Remote,
+    ];
+
+    /// <summary>
+    /// The compiler's checks of a doc comment (issue #19): a link that names nothing (CS1574) or
+    /// more than one member (CS0419), or is malformed (CS1580, CS1581, CS1584, CS1658); a
+    /// parameter tag that names no parameter (CS1572, CS1734, CS1711, CS1735) or is repeated
+    /// (CS1571); a documented member with an undocumented parameter (CS1573, CS1712); XML that
+    /// does not parse (CS1570); and a comment on nothing (CS1587).
+    /// </summary>
+    private static readonly string[] DocCommentChecks =
+    [
+        "CS0419", "CS1570", "CS1571", "CS1572", "CS1573", "CS1574", "CS1580", "CS1581",
+        "CS1584", "CS1587", "CS1658", "CS1711", "CS1712", "CS1734", "CS1735",
     ];
 
     [Theory]
@@ -81,6 +94,77 @@ public sealed class BuildSettingsTests
                          or "System.Runtime.CompilerServices.NullableContextAttribute");
     }
 
+    /// <summary>
+    /// The compiler checks a doc comment's links and parameter tags only while it writes the
+    /// documentation file, so every project writes one (issue #19).
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(EveryProject))]
+    public void Every_project_writes_its_documentation_file(string project)
+    {
+        Assert.Equal("true", RepoLayout.EffectiveProperty(project, "GenerateDocumentationFile"));
+    }
+
+    /// <summary>
+    /// A wrong doc comment fails the build in every project, the test project included, which
+    /// otherwise stays out of warnings-as-errors (issue #19).
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(EveryProject))]
+    public void Every_project_treats_a_wrong_doc_comment_as_an_error(string project)
+    {
+        var errors = Codes(RepoLayout.EffectiveProperty(project, "WarningsAsErrors"));
+
+        Assert.All(DocCommentChecks, code => Assert.Contains(code, errors));
+    }
+
+    /// <summary>
+    /// No project turns a doc comment check off. The test project turns off only CS1591, a public
+    /// member with no comment, because a test's name is its description; the product projects keep
+    /// that one too.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(EveryProject))]
+    public void No_project_silences_a_doc_comment_check(string project)
+    {
+        var silenced = Codes(RepoLayout.EffectiveProperty(project, "NoWarn"));
+
+        Assert.All(DocCommentChecks, code => Assert.DoesNotContain(code, silenced));
+
+        if (ProductProjects.Contains(project))
+        {
+            Assert.DoesNotContain("CS1591", silenced);
+        }
+    }
+
+    /// <summary>
+    /// The documentation files exist for the compiler's check; nothing at runtime reads them, so
+    /// the release package leaves them out.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(EveryProductProject))]
+    public void Product_projects_do_not_publish_their_documentation_files(string project)
+    {
+        Assert.Equal("false", RepoLayout.EffectiveProperty(project, "PublishDocumentationFile"));
+        Assert.Equal("false", RepoLayout.EffectiveProperty(project, "PublishReferencesDocumentationFiles"));
+    }
+
+    /// <summary>
+    /// The settings above are read from the build files; this reads the result. The documentation
+    /// files are next to the assemblies this test runs against only if the compiler wrote them, and
+    /// it checks the doc comments only when it does.
+    /// </summary>
+    [Theory]
+    [InlineData(RepoLayout.Core)]
+    [InlineData(RepoLayout.App)]
+    [InlineData(RepoLayout.Tests)]
+    public void The_compiler_wrote_the_documentation_file(string project)
+    {
+        var file = new FileInfo(Path.Combine(AppContext.BaseDirectory, project + ".xml"));
+
+        Assert.True(file.Exists, $"Expected the compiler's documentation file at '{file.FullName}'.");
+    }
+
     /// <summary>Solution-wide settings must live in a shared props file, not be copy-pasted per project.</summary>
     [Fact]
     public void Shared_settings_come_from_a_repository_wide_props_file()
@@ -96,6 +180,12 @@ public sealed class BuildSettingsTests
     }
 
     public static TheoryData<string> EveryProject() => ToTheoryData(AllProjects);
+
+    /// <summary>The codes in an MSBuild list such as <c>$(NoWarn);CA1707;CS1591</c>; none when it is not set.</summary>
+    private static HashSet<string> Codes(string? list) =>
+        (list ?? string.Empty)
+            .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
     public static TheoryData<string> EveryProductProject() => ToTheoryData(ProductProjects);
 

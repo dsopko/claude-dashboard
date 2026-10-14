@@ -46,7 +46,7 @@ public enum TrayColour
 /// </summary>
 /// <remarks>
 /// <para>
-/// <strong>Derived from <see cref="AttentionOrder.Rank"/>, not from a second state table.</strong>
+/// <strong>Derived from <see cref="AttentionOrder.Rank(SessionState)"/>, not from a second state table.</strong>
 /// Impl §5.2 is explicit that the tray palette is deliberately not the row palette:
 /// <see cref="RowVisuals.AccentOf"/> puts <see cref="SessionState.NeedsQuestion"/> on
 /// <see cref="Accent.Red"/>, which is right for a row — the LED says what that one session is,
@@ -75,7 +75,7 @@ public static class TrayVisuals
     /// <summary>The glyph colour for a rolled-up state.</summary>
     /// <remarks>
     /// <para>
-    /// Expressed as thresholds on <see cref="AttentionOrder.Rank"/> so that the mapping cannot
+    /// Expressed as thresholds on <see cref="AttentionOrder.Rank(SessionState)"/> so that the mapping cannot
     /// disagree with the ranking about which of two states is worse. Every rank below
     /// <see cref="SessionState.Waiting"/>'s — the lowest working rank since T1.41 — is grey,
     /// which is why an Ended session and an empty dashboard look the same and why neither can be
@@ -90,7 +90,7 @@ public static class TrayVisuals
     /// naming each boundary stayed true while the number under it stopped being.
     /// </para>
     /// <para>
-    /// Reading the boundary out of <see cref="AttentionOrder.Rank"/> keeps the coarsening exact
+    /// Reading the boundary out of <see cref="AttentionOrder.Rank(SessionState)"/> keeps the coarsening exact
     /// under any future renumbering, and costs nothing: the ranks are compile-time constants in
     /// every sense that matters here.
     /// </para>

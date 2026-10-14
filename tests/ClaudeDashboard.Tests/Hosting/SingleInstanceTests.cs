@@ -22,7 +22,7 @@ public sealed class SingleInstanceTests
     /// <remarks>
     /// <para>
     /// Elsewhere — the <c>/health</c> body test — the expected name is computed from
-    /// <see cref="SingleInstanceGate.NameFor"/>, because a literal there would be a second copy
+    /// <see cref="SingleInstanceGate.NameFor(string)"/>, because a literal there would be a second copy
     /// of the naming rule and the copy is what drifts. Here the claim is the opposite one: that
     /// the rule produces the <em>same</em> answer in a process that did not compute it. This
     /// value was produced outside the test host, by hashing the normalised path with a separate
@@ -305,7 +305,7 @@ public sealed class SingleInstanceTests
     /// <para>
     /// A bare <see cref="Mutex"/> rather than a gate, because a gate's own <c>Dispose</c> releases
     /// what it holds and would make this a clean handover instead of the abandonment being tested.
-    /// The name still comes from <see cref="SingleInstanceGate.NameFor"/>, so both sides are
+    /// The name still comes from <see cref="SingleInstanceGate.NameFor(string)"/>, so both sides are
     /// talking about the same object.
     /// </para>
     /// </remarks>

@@ -9,6 +9,22 @@ using Serilog;
 namespace ClaudeDashboard.App.Pipeline;
 
 /// <summary>
+/// The narrow face of <see cref="DecisionRecorder"/> for decisions born off the consumer thread
+/// (T1.37).
+/// </summary>
+/// <remarks>
+/// Deliberately not registered in the container: the UI types that take it do so as an optional
+/// parameter, which the composition guard permits only for a type that is not a service. The
+/// factory in <c>AppHost</c> passes the recorder explicitly, and a composition test asserts it
+/// arrived — the two halves of "optional in tests, mandatory in the product".
+/// </remarks>
+public interface IDecisionLog
+{
+    /// <summary>Records a decision made off the consumer thread. Thread-safe.</summary>
+    void External(Decision decision);
+}
+
+/// <summary>
 /// Assembles the decisions record: every judgement the dashboard makes while handling one event
 /// or one tick, gathered on the consumer thread and handed to the archive as one record
 /// (T1.37, issue #48).
@@ -37,22 +53,6 @@ namespace ClaudeDashboard.App.Pipeline;
 /// name.
 /// </para>
 /// </remarks>
-/// <summary>
-/// The narrow face of <see cref="DecisionRecorder"/> for decisions born off the consumer thread
-/// (T1.37).
-/// </summary>
-/// <remarks>
-/// Deliberately not registered in the container: the UI types that take it do so as an optional
-/// parameter, which the composition guard permits only for a type that is not a service. The
-/// factory in <c>AppHost</c> passes the recorder explicitly, and a composition test asserts it
-/// arrived — the two halves of "optional in tests, mandatory in the product".
-/// </remarks>
-public interface IDecisionLog
-{
-    /// <summary>Records a decision made off the consumer thread. Thread-safe.</summary>
-    void External(Decision decision);
-}
-
 public sealed class DecisionRecorder : IDecisionSink, IDecisionLog
 {
     private readonly SessionRegistry _registry;

@@ -38,5 +38,6 @@ public readonly record struct GroupKey
     /// <remarks>See <see cref="ValueTypeConventions"/> for why these types stay structs.</remarks>
     public bool IsEmpty => string.IsNullOrEmpty(_value);
 
+    /// <inheritdoc/>
     public override string ToString() => Value;
 }

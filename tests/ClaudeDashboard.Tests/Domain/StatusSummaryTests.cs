@@ -35,11 +35,11 @@ public sealed class StatusSummaryTests
     }
 
     /// <summary>
-    /// <strong>The roll-up cannot drift from <see cref="AttentionOrder.WorstOf"/>.</strong>
+    /// <strong>The roll-up cannot drift from <see cref="AttentionOrder.WorstOf(IEnumerable{SessionState})"/>.</strong>
     /// </summary>
     /// <remarks>
-    /// <see cref="StatusSummary.Of"/> inlines the roll-up rather than calling
-    /// <see cref="AttentionOrder.WorstOf"/>, so it can walk the sessions once instead of twice.
+    /// <see cref="StatusSummary.OfCounted"/> inlines the roll-up rather than calling
+    /// <see cref="AttentionOrder.WorstOf(IEnumerable{SessionState})"/>, so it can walk the sessions once instead of twice.
     /// That is a second copy of a loop, and this is what stops it becoming a second copy of the
     /// <em>ranking</em>: every combination of states is put through both, and they must agree.
     /// Driven from the enum, so a state added later is covered without anyone remembering.

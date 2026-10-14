@@ -17,7 +17,24 @@
     <AnalysisLevel>latest</AnalysisLevel>
     <AnalysisMode>Recommended</AnalysisMode>
 
-    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <!--
+      Doc comments are checked (issue #19). The compiler resolves a <see cref="..."/> and
+      checks a <param> or <paramref> only while it writes the documentation file, so the
+      file is written for every project. Nothing at runtime reads it, and the product
+      projects do not publish it (src/Directory.Build.props).
+    -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+
+    <!--
+      A doc comment that is wrong is an error in every project, the test project included:
+      a link that names nothing or more than one member, a parameter tag for a parameter
+      that does not exist, malformed XML, a comment on nothing, a documented member with an
+      undocumented parameter. The product projects already treat every warning as an error;
+      this list is what holds the test project to the same rule for doc comments, while it
+      stays out of warnings-as-errors otherwise. Why: a wrong link reads exactly like a right
+      one, and three doc comments had moved to the wrong member before this was on.
+    -->
+    <WarningsAsErrors>$(WarningsAsErrors);CS0419;CS1570;CS1571;CS1572;CS1573;CS1574;CS1580;CS1581;CS1584;CS1587;CS1658;CS1711;CS1712;CS1734;CS1735</WarningsAsErrors>
   </PropertyGroup>
 
 </Project>

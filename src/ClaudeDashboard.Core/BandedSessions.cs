@@ -47,6 +47,7 @@ public sealed record BandedSessions
         Band == other.Band &&
         _sessions.AsSpan().SequenceEqual(other._sessions.AsSpan());
 
+    /// <inheritdoc/>
     public override int GetHashCode()
     {
         var hash = default(HashCode);

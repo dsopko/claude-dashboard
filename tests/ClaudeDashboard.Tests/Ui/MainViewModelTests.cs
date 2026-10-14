@@ -21,7 +21,7 @@ namespace ClaudeDashboard.Tests.Ui;
 /// would test it against my idea of that, which is the thing most likely to be wrong.
 /// </para>
 /// <para>
-/// Assertions are on the real <see cref="ObservableCollection{T}.CollectionChanged"/>, because
+/// Assertions are on the real <see cref="System.Collections.ObjectModel.ObservableCollection{T}.CollectionChanged"/>, because
 /// the churn-free property is a statement about what the binding raises, and only the real event
 /// can say.
 /// </para>

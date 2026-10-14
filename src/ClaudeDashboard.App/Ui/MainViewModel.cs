@@ -245,6 +245,10 @@ public sealed partial class MainViewModel : ObservableObject, IUiTickTarget, ISo
     /// service, so an optional form here would turn a deleted registration into a copy affordance
     /// that silently does nothing — the exact failure the remark above describes for <c>ack</c>.
     /// </param>
+    /// <param name="rosters">
+    /// The rosters: read at each refresh to form the roster groups, and changed by <c>Group these</c> and
+    /// <c>Remove from group</c>.
+    /// </param>
     /// <param name="usage">
     /// The plan's limits, as the usage mod last posted them (MOD.7, ruling R12): read at each refresh, so the
     /// figures in the caption are at most one UI tick behind a post. Required for the reason above: it is a

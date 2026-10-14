@@ -181,6 +181,11 @@ public static class PortSelection
     /// <param name="identity">The user's stable identity.</param>
     /// <param name="recorded">The port from <c>port.txt</c>, or null on a fresh profile.</param>
     /// <param name="probe">Asks whether a port is free, and who holds it when it is not.</param>
+    /// <param name="pinned">
+    /// The port the operator named in the settings, or null. A pin from 1 to 65535 is the only attempt: when it is
+    /// free its source is <see cref="PortSource.Pinned"/>, and when it is taken its source is
+    /// <see cref="PortSource.None"/> and no other port is tried.
+    /// </param>
     /// <param name="range">How many ports wide the range is.</param>
     /// <param name="walk">How many steps the walk may take.</param>
     /// <exception cref="ArgumentNullException"><paramref name="probe"/> is null.</exception>

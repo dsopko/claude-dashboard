@@ -211,15 +211,6 @@ public sealed class StartWithWindows
     }
 
     /// <summary>
-    /// Makes the <c>Run</c> value match <paramref name="wanted"/>, at a start. Leaves Windows' mark
-    /// alone. Never throws.
-    /// </summary>
-    /// <remarks>
-    /// With the setting off, it removes the value even when the value names another program, such
-    /// as a second install of the dashboard under another pack ID; that is accepted, because only
-    /// a test install makes two.
-    /// </remarks>
-    /// <summary>
     /// <see cref="Reconcile"/> for a start, from what the start found in its settings file.
     /// </summary>
     /// <remarks>
@@ -248,6 +239,17 @@ public sealed class StartWithWindows
         return Reconcile(start.Original.Settings.StartWithWindows);
     }
 
+    /// <summary>
+    /// Makes the <c>Run</c> value match <paramref name="wanted"/>, at a start. Leaves Windows' mark
+    /// alone. Never throws.
+    /// </summary>
+    /// <remarks>
+    /// With the setting off, it removes the value even when the value names another program, such
+    /// as a second install of the dashboard under another pack ID; that is accepted, because only
+    /// a test install makes two.
+    /// </remarks>
+    /// <param name="wanted">Whether the operator's settings ask for the dashboard to start with Windows.</param>
+    /// <returns>What the reconcile did to the <c>Run</c> value.</returns>
     public StartupReconcileOutcome Reconcile(bool wanted)
     {
         if (RunData is null)
