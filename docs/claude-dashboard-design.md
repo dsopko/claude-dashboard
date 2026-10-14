@@ -176,7 +176,7 @@ A window named **Activity** lists what the dashboard did since it started, newes
 - **At the top:** when the dashboard last heard from Claude Code, in the tray tooltip's words.
 - **This start only, in memory:** the window is a log of what the dashboard did since it started, kept from the start whether the window is open or not. It never reads the database. Between 19,000 and 20,000 of the newest lines are kept, and the bottom says so when older ones have gone. Within one moment, a sound's line sits on top, with what caused it directly under it.
 - **A click on a line shows that session in the main window.** The window comes to the front, and the row is unfolded, scrolled into view and opened, as a click on the row would open it. Nothing else changes: no Ack, no mute. In selection mode the row is shown but not opened, and nothing is selected. A session that is not in the window: the window comes to the front, and the hover says why. A group's sound goes to the group's heading. Enter on a selected line does the same.
-- **"Show activity" on a row lists only that session's lines:** the story of the row. A bar says "Only Director" with **Show all**. New lines for that session keep arriving, and "Show activity" on another row changes to that row.
+- **"Show activity" on a row lists only that session's lines:** the story of the row. A bar says "Only Director, project claude-dashboard" with **Show all**. New lines for that session keep arriving, and "Show activity" on another row changes to that row. The Activity button and the tray's Activity… always open every line: they ask for the window as a whole, and a filter left from days before hid every other session.
 - It moves nothing.
 
 
@@ -243,3 +243,4 @@ Each phase can ship alone. Phase 7 is the reason that the domain model stays apa
 | 2026-10-13 | The usage hover starts with "Usage"; a limit used past 100% shows below zero, red, and its hover says how far over (§9) | Issue #144 |
 | 2026-10-14 | The flat view's Quiet and Ended lines name the ticked-row exception of rule 3 (§6) | Issue #46, the review's follow-up |
 | 2026-10-14 | The five-hour usage label reads "Session"; the caption's counts show their full sentence on hover (§9) | Issues #147, #142 |
+| 2026-10-14 | The Activity button and the tray's Activity… always open every line; the filter bar names the project (§9.1) | Issue #157 |
