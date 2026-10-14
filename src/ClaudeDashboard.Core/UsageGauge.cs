@@ -32,7 +32,7 @@ public enum UsageLevel
 /// </summary>
 /// <remarks>
 /// <para>
-/// <strong>The rule is here and the words are not.</strong> The window says "Current", "Week" and "Fable", and
+/// <strong>The rule is here and the words are not.</strong> The window says "Session", "Week" and "Fable", and
 /// it paints green, amber and red; a second interface may use other words and other colours. What it must not
 /// do is put the line between amber and red somewhere else, or show a kind that the window does not show. So
 /// the slots and the thresholds are in Core, and the words, the brushes and the layout are in App.

@@ -287,7 +287,7 @@ public sealed partial class MainViewModel : ObservableObject, IUiTickTarget, ISo
 
     // ---- The plan's usage (MOD.7, issue #133) -----------------------------------------------------
 
-    /// <summary>The five-hour limit's pair in the usage strip, "Current 5%".</summary>
+    /// <summary>The five-hour limit's pair in the usage strip, "Session 5%".</summary>
     public UsageFigure CurrentUsage { get; } = new(UsageSlot.Current);
 
     /// <summary>The weekly limit's pair, "Week 36%".</summary>
