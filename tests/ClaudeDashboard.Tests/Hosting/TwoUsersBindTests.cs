@@ -28,12 +28,13 @@ namespace ClaudeDashboard.Tests.Hosting;
 /// <strong>Another program can hold a port that a test derives</strong> (issue #155). Windows gives
 /// ports from 49152 up to the outgoing connections of every program, so a browser, Claude Code or
 /// another test can hold one at any moment. Once, in T1.86, a test here failed because 49240 was
-/// taken. So each test keeps the derivation and moves its base
-/// when a port it derived cannot be bound: down by <see cref="Shift"/>, up to
-/// <see cref="TestPorts.Attempts"/> times, and a test that runs out of attempts names every port it
-/// tried. A move changes only where the range starts; what each test proves stays the same. The two
-/// bases are 300 apart at every attempt and each range is 200 wide, so the tests never move into
-/// each other's ports.
+/// taken. So each test keeps the derivation and moves its base when a port it derived cannot be
+/// bound: down by <see cref="Shift"/>, up to <see cref="TestPorts.Attempts"/> times, and a test
+/// that runs out of attempts names every port it tried. The first test also gives why each one
+/// could not be bound, in Kestrel's words where Kestrel refused it, so a fault of the dashboard is
+/// not read as a busy PC. A move changes only where the range starts; what each test proves stays
+/// the same. The two bases are 300 apart at every attempt and each range is 200 wide, so the tests
+/// never move into each other's ports.
 /// </para>
 /// </remarks>
 public sealed class TwoUsersBindTests : IDisposable
@@ -97,6 +98,11 @@ public sealed class TwoUsersBindTests : IDisposable
 
         var tried = new List<string>();
 
+        // Why each port could not be bound, in the words of the check or of Kestrel. Kestrel's words
+        // name the address it tried, which is not always the derived port: a dashboard that binds
+        // one shared port for every user (issue #5) fails here naming that port.
+        var causes = new List<string>();
+
         for (var attempt = 0; attempt < TestPorts.Attempts; attempt++)
         {
             var basePort = FirstBase - (attempt * Shift);
@@ -106,12 +112,12 @@ public sealed class TwoUsersBindTests : IDisposable
             Assert.NotEqual(firstPort, secondPort);
             tried.Add($"{firstPort} and {secondPort}");
 
-            if (await TryStartAsync(RootFor($"first-{attempt}"), firstPort) is not { } first)
+            if (await TryStartAsync(RootFor($"first-{attempt}"), firstPort, causes) is not { } first)
             {
                 continue;
             }
 
-            if (await TryStartAsync(RootFor($"second-{attempt}"), secondPort) is not { } second)
+            if (await TryStartAsync(RootFor($"second-{attempt}"), secondPort, causes) is not { } second)
             {
                 await DiscardAsync(first);
                 continue;
@@ -134,8 +140,8 @@ public sealed class TwoUsersBindTests : IDisposable
         }
 
         Assert.Fail(
-            $"Another program held one port of each derived pair in {TestPorts.Attempts} attempts. "
-            + $"Pairs tried: {string.Join("; ", tried)}.");
+            $"One port of each derived pair could not be bound in {TestPorts.Attempts} attempts. "
+            + $"Pairs tried: {string.Join("; ", tried)}. Causes: {string.Join(" | ", causes)}");
     }
 
     /// <summary>
@@ -210,17 +216,21 @@ public sealed class TwoUsersBindTests : IDisposable
 
     /// <summary>
     /// Starts a host on <paramref name="port"/>, or returns null when the port cannot be bound: before
-    /// the start (the IPv4 check) or at the start (Kestrel's bind).
+    /// the start (the IPv4 check) or at the start (Kestrel's bind). Each time, it adds the cause to
+    /// <paramref name="causes"/>.
     /// </summary>
     /// <remarks>
     /// The check moves past a port that a listener cannot hold for any socket error, before a host is
     /// built on it; <see cref="TestPorts.TakenAtStart"/> knows only "address in use". A port taken
-    /// after the check fails Kestrel's start with "address in use", and the host is discarded.
+    /// after the check fails Kestrel's start with "address in use", and the host is discarded. The
+    /// cause is Kestrel's own message, which names the address it could not bind (the PR #156 review).
     /// </remarks>
-    private async Task<WebApplication?> TryStartAsync(DashboardPaths paths, int port)
+    private async Task<WebApplication?> TryStartAsync(DashboardPaths paths, int port, List<string> causes)
     {
-        if (!CanBind(port))
+        if (BindRefusal(port) is { } refused)
         {
+            causes.Add($"a listener on 127.0.0.1:{port} failed with {refused}");
+
             return null;
         }
 
@@ -234,6 +244,8 @@ public sealed class TwoUsersBindTests : IDisposable
         }
         catch (Exception ex) when (TestPorts.TakenAtStart(ex))
         {
+            causes.Add(ex.Message);
+
             await TestPorts.Stopped(host);
             TestPorts.Discarded(host);
             await host.DisposeAsync();
@@ -256,8 +268,11 @@ public sealed class TwoUsersBindTests : IDisposable
         await host.DisposeAsync();
     }
 
-    /// <summary>Whether a listener can hold <paramref name="port"/> on the IPv4 loopback now.</summary>
-    private static bool CanBind(int port)
+    /// <summary>
+    /// Null when a listener can hold <paramref name="port"/> on the IPv4 loopback now; otherwise the socket
+    /// error that refused it.
+    /// </summary>
+    private static SocketError? BindRefusal(int port)
     {
         using var check = new TcpListener(IPAddress.Loopback, port);
 
@@ -266,11 +281,11 @@ public sealed class TwoUsersBindTests : IDisposable
             check.Start();
             check.Stop();
 
-            return true;
+            return null;
         }
-        catch (SocketException)
+        catch (SocketException ex)
         {
-            return false;
+            return ex.SocketErrorCode;
         }
     }
 }
