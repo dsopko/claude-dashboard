@@ -37,7 +37,8 @@ public partial class ActivityWindow : Window
 
 /// <summary>
 /// The one Activity window (T1.70, issue #97): made at start, and always there. Opening it, from the tray
-/// menu or the toolbar, only shows it or brings it to the front; closing it only hides it. It remembers its
+/// menu or the toolbar, clears a "Show activity" filter, then shows it or brings it to the front
+/// (<see cref="ActivityLinks.Connect"/>, issue #157); closing it only hides it. It remembers its
 /// place and size, as the main window does: in <c>settings.json</c>, under <c>activityWindow</c>.
 /// </summary>
 /// <remarks>
