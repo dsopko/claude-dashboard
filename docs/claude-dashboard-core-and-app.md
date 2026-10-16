@@ -57,7 +57,7 @@ Core is 45 files and about 6,500 lines. Most of the lines are comments that give
 | The states | `SessionState` (9 values) | Working, Waiting, NeedsPermission, NeedsQuestion, Error, Unread, Acked, Interrupted, Ended. The numbers are stored and must not change | TS §IV.1 |
 | The state machine | `SessionRegistry.Apply` | One event in, one decision out. Three guards: stale, uncorrelated, duplicate | TS §IV.1, event flow §8 |
 | Silence | `SessionRegistry.SweepSilent`, `SilenceWatch` | A Working session with no event for 10 minutes becomes Interrupted | TS §IV.1 |
-| The title | `SessionRegistry` (the latch) | The last different, non-empty title wins. A title never moves a row | Issue #18 |
+| The title | `SessionRegistry` (the latch), `TranscriptNames`, `Session.TitleIsGenerated`, `Session.GivenName` | A given name (`session_title`, or the transcript's `customTitle`) first; else the transcript's newest `aiTitle`, which never replaces a given name. The last different, non-empty name of its kind wins. A title never moves a row. Issue #18 said that `session_title` holds both kinds; it holds only a given name | Issues #18, #161 |
 | Background work | `BackgroundTasks.cs` | A `Stop` that lists a running `shell` or `subagent` gives Waiting, not Unread | T1.41 |
 | Quiet ticks | `QuietTicks` | A scheduled job that answers `WATCHDOG-QUIET` puts the row back | [Quiet scheduled jobs](quiet-scheduled-jobs.md) |
 | Machine prompts | `UserPromptSubmit.IsMachinePrompt`, `ContinuesTheAsk` | A prompt that nobody typed is not an acknowledgment | T1.40, T1.41 |
@@ -65,7 +65,7 @@ Core is 45 files and about 6,500 lines. Most of the lines are comments that give
 | Severity and bands | `AttentionOrder` | One rank table. `BandOf`, `Rank`, `WorstOf`. A roster group uses a different order | TS §IV.2, §IV.3 |
 | The order on screen | `AttentionEngine` | `Order` for the flat view, `OrderGroups` for the grouped view | TS §IV.2 |
 | Groups | `GroupKeys`, `GroupResolver`, `Group` | The key comes from the directory, or from a roster. `Effective` decides which | TS §IV.3 |
-| Rosters | `RosterBook`, `Roster` | A name is in one roster at most. An empty roster does not exist | Issue #16 |
+| Rosters | `RosterBook`, `Roster` | A name is in one roster at most. An empty roster does not exist. A roster matches the given name only (`Session.GivenName`): a generated title changes (issue #161) | Issue #16 |
 | The settle window | `RosterSettle`, `RosterGroupWatch` | A roster group reads finished only after 1.5 s of quiet | TS §IV.3 |
 | Sound policy | `SoundPolicyEngine`, `SoundPolicyOptions` | Notices on state entry. Nudges at 2, 5, 10 minutes. Mute and pause. A roster group's settle plays only when a finished member was not announced yet; the members come from the caller (`RosterSettle.UnreadMembers`), so the engine still holds no roster book (T1.72) | TS §IV.5 |
 | The roll-up | `StatusSummary`, over `CountedStates` | The worst state, and a count for each kind, with a roster group counted once, at its roll-up (T1.83, issue #130) | Impl §2.7, §5.2 |
@@ -121,7 +121,7 @@ Three facts about these outputs matter for a second interface:
 - **It writes no log and no file.** It returns what occurred, and the host writes it.
 - **It does not know that a listener is an interface.**
 
-The ports for later phases are declared and have no behaviour yet: `ITerminalLocator`, `ITerminalNavigator`, `IFocusSource`. `IVirtualDesktopService` has an adapter, which the window uses to pin itself to all desktops.
+The ports for later phases are declared and have no behaviour yet: `ITerminalLocator`, `ITerminalNavigator`, `IFocusSource`. `IVirtualDesktopService` has an adapter, which the window uses to pin itself to all desktops. `ITranscriptNames` has an adapter, which reads a session's names from its transcript (issue #161): Core reads no file, so the read is App's, and its result reaches the Registry on the event (`InboundEvent.Transcript`).
 
 ---
 
@@ -138,7 +138,7 @@ No part of this layer is about Windows or about WPF. It is in App because App is
 | Ingress | `Ingress/IngressEndpoints.cs`, `IngressToken.cs` | Kestrel on loopback. `/hook`, `/show`, `/health`, `/state` |
 | Wire to domain | `Ingress/HookPayload.cs`, `HookEventMapper.cs`, `HookEventNames.cs`, `BackgroundTaskReader.cs`, `SessionCronReader.cs` | The only place where a wire value becomes a domain value. Stamps the arrival time |
 | The channel | `Pipeline/EventPipeline.cs` | Sheds only noise at 1,024 queued: a tool batch, or a notification that moves no state (T1.58). Drops the oldest only at the hard limit of 16,384 (Impl Part 4). Implements `IEventSink` |
-| The one thread | `Pipeline/EventConsumer.cs` | Reads the channel, calls `Apply`, and runs the 15-second tick |
+| The one thread | `Pipeline/EventConsumer.cs` | Reads the channel, reads each event's transcript for the names (issue #161), calls `Apply`, and runs the 15-second tick |
 | The decisions record | `Pipeline/DecisionRecorder.cs`, `Storage/` | Each event and its decisions go to `dashboard.db` |
 | The read model | `Ingress/StateBoard.cs`, `StateReport.cs`, `OperatorText.cs` | An immutable report for `/state`, built on the consumer thread |
 | Settings and rosters | `Configuration/` | `settings.json`, `RosterStore`, the port files |
@@ -151,6 +151,7 @@ No part of this layer is about Windows or about WPF. It is in App because App is
 - After each batch of events: the roster groups again.
 - A roster group that is due to settle wakes the loop before the next tick.
 - After a `SoundCommand`: an echo to the interface at once.
+- Before each `Apply`: the transcript's names on the event (issue #161), or a session that nobody named has no name.
 
 ### 4.2 The Windows adapters
 
@@ -159,6 +160,7 @@ No part of this layer is about Windows or about WPF. It is in App because App is
 | Sound | `Adapters/NAudioSoundPlayer.cs`, `SoundCatalog.cs`, `AudioEndpoints.cs`, `ISoundOutput.cs`, `SoundDeviceNotice.cs` | `ISoundPlayer` |
 | Clock | `Adapters/SystemClock.cs` | `IClock` |
 | Virtual desktops | `Adapters/VirtualDesktopService.cs` | `IVirtualDesktopService` |
+| The names in a transcript | `Adapters/TranscriptNameReader.cs` | `ITranscriptNames` |
 | Tray icon | `Ui/TrayIcon.cs`, `TrayIcons.cs` | None |
 | Clipboard, dispatcher | `Ui/IClipboard.cs`, `IUiDispatcher.cs` | App's own interfaces |
 | The Claude Code plugin | `Setup/` | None |
@@ -193,7 +195,7 @@ A second interface needs none of these. The dashboard process keeps them.
 | The counts strip | `MainViewModel.RecountBands`, `CountsText` | "11 sessions · 3 need you · 5 unread · 8 working". A zero band is left out |
 | The Activity window's lines | `ActivityWords`, `ActivityViewModel` | Which decisions show, and the plain words for each kind and reason. The name: the decision's name, the short id, or the group's name. The project by `WorkspaceLabel`. One line wide, two lines narrow, the detail going first |
 | The links to and from the Activity window | `MainViewModel.Reveal`, `MainViewModel.Has`; `ActivityViewModel.ShowOnly`; `ActivityLog.Recheck` | A click on a line unfolds what holds the row, opens the row as a click on it does, and does not open it in selection mode. A session or group not in the window: nothing but the front. "Show activity" filters the one list by session id; a line about no session never passes (T1.71). The Activity command of the tray and the toolbar clears the filter (`ActivityViewModel.ShowAll`, issue #157) |
-| Selection | `SessionViewModel.CanSelect`, `MainViewModel.GroupSelected` | A session with no title cannot be selected. A group needs 2 members. The default name is "Group", "Group 2" |
+| Selection | `SessionViewModel.CanSelect`, `MainViewModel.GroupSelected` | A session with no given name cannot be selected; a row that shows a generated title says `no given name` (issue #161). A group needs 2 members. The default name is "Group", "Group 2" |
 | The roster prompt | `RosterPromptViewModel`, `MainViewModel.RememberRoster` | A prompt with no answer is a "no" |
 | The tray colour | `TrayVisuals.ColourOf` | Thresholds on `AttentionOrder.Rank`. Not the row palette: a lone question is amber in the tray and red on its row |
 | The tray sentence | `TrayTooltip` | "2 permissions · 1 error · 1 question · 2 unread · 3 working". A fault leads, then pause, then mute |

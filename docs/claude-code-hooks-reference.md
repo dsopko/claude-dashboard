@@ -31,7 +31,7 @@ Field names are quoted exactly as documented. Where our own observations disagre
 |---|---|
 | `session_id` | The session's identity. **The dashboard's primary key.** |
 | `prompt_id` | UUID identifying the user prompt. **Absent until first user input.** |
-| `transcript_path` | Path to the conversation JSON. Written asynchronously — fallback only, never the live read. |
+| `transcript_path` | Path to the conversation JSON. Written asynchronously — never the live read of a prompt, an answer or a state. The dashboard reads it for the session's name only: the generated title is there and nowhere else (issue #161; Discrepancy 8). |
 | `cwd` | Working directory. **The dashboard's Phase 1 grouping key.** |
 | `permission_mode` | `default` · `plan` · `acceptEdits` · `auto` · `dontAsk` · `bypassPermissions` |
 | `effort` | Object with `level`: `low` · `medium` · `high` · `xhigh` · `max`. Present in tool-use contexts. |
@@ -304,13 +304,15 @@ All were measured on the operator's archive on 2026-09-29. **The wire is the aut
 | 5 | `Notification` | `notification_text` | `message` | Neither | The message is not shown |
 | 6 | `CwdChanged` | Common fields only; `cwd` is the new directory | `old_cwd`, `new_cwd`; `cwd` is the session's directory | `cwd` | Correct: a change of directory for one command does not move the session |
 | 7 | `Stop` | `last_assistant_message` | Also `background_tasks`, `session_crons` | All three | Correct. The two extra fields are not documented at all |
-| 8 | Any event | No title field | `session_title`, on some events and never on `Stop` | `session_title`, on each event | Correct: the dashboard keeps the last title that it saw |
+| 8 | Any event | No title field | `session_title`, on some events and never on `Stop` or `SessionEnd`; a given name only, never the generated title | `session_title`, on each event; and the transcript's newest `customTitle` and `aiTitle` | Correct since issue #161: a given name first, else the generated title. Before it, a session that nobody named showed no name |
 
 ### What settled 1, 2 and 3
 
 Until September 2026 these three were open, because `SessionStart` and `SessionEnd` had not fired in production and nobody had captured a payload. The archive now holds 86 `SessionStart` and 60 `SessionEnd` events. `prompt`, `reason` and `source` are on the wire. `user_input` and `end_reason` are not.
 
 `session_title` used to be read on `SessionStart` only, which is why issue #18 found the title feature dead. The documentation does not say which events carry it, so the dashboard reads it wherever it appears.
+
+**`session_title` holds only a given name** (measured 2026-10-16, issue #161): the operator's `/rename` or `--name`, or the name that a fork carries over. Issue #18 said that it holds the title Claude Code generates too, and the documents repeated that; it was wrong. Issue #18's example of a generated title, "Poorly worded and filed issue", is a `customTitle` in its transcript, a given name. Against a copy of the operator's `dashboard.db` (about 33,000 events, 2026-08-27 to 2026-10-16) and every transcript: 96 distinct names reached the dashboard; 67 are a `customTitle` in the session's transcript and 23 a name a fork carried over; **none** is a name that only an `aiTitle` holds. The generated title is written only to the transcript, as `{"type":"ai-title","aiTitle":"…","sessionId":"…"}`, many times during the session; a given name is there too, as `{"type":"custom-title","customTitle":"…","sessionId":"…"}`. So the dashboard reads the end of the transcript on each event, after the hook was answered (Impl §9.1). Claude Code goes on writing `aiTitle` after a rename: in 30 of the 36 transcripts that hold both, the newest `aiTitle` is after the newest `customTitle`. A given name therefore always comes first.
 
 ### Matcher lists the dashboard knows in part
 

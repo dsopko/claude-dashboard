@@ -56,9 +56,10 @@ public abstract record InboundEvent
     public string? PromptId { get; init; }
 
     /// <summary>
-    /// Claude Code's <c>transcript_path</c>. <strong>Fallback only</strong>: it is written
-    /// asynchronously and can lag the live turn, which is why the prompt and answer text are
-    /// read inline from the events instead (TS §II.3; Impl §9.1).
+    /// Claude Code's <c>transcript_path</c>. <strong>Read for the session's name only</strong>: it is
+    /// written asynchronously and can lag the live turn, which is why the prompt and answer text are
+    /// read inline from the events instead (TS §II.3; Impl §9.1). The generated title is in the
+    /// transcript and nowhere else, and a name that arrives late is still right (issue #161).
     /// </summary>
     public string? TranscriptPath { get; init; }
 
