@@ -111,8 +111,8 @@ public sealed class ClaudeSettingsReadOnlyGuardTests
     }
 
     /// <summary>
-    /// <strong>The product files that write anything at all are exactly these seven</strong> (PR #66
-    /// review, M2).
+    /// <strong>The product files that hold a call that can write are exactly these eight</strong> (PR #66
+    /// review, M2): seven that write, and the transcript reader, which opens for reading only (issue #161).
     /// </summary>
     /// <remarks>
     /// <para>
@@ -124,7 +124,7 @@ public sealed class ClaudeSettingsReadOnlyGuardTests
     /// the console.
     /// </para>
     /// <para>
-    /// A seventh file that writes fails here until a person looks at what it writes and where, and
+    /// A new file that holds such a call fails here until a person looks at what it writes and where, and
     /// adds it with a reason. That is the point: the next writer is the one nobody has checked
     /// against the ruling.
     /// </para>
@@ -148,8 +148,28 @@ public sealed class ClaudeSettingsReadOnlyGuardTests
                 "ListeningFile.cs",   // listening.txt, in the dashboard's data folder
                 "PortFile.cs",        // port.txt, in the dashboard's data folder
                 "SettingsStore.cs",   // the dashboard's own settings.json
+                "TranscriptNameReader.cs", // writes nothing: File.OpenHandle with FileAccess.Read only (issue #161; pinned below)
             ],
             writers);
+    }
+
+    /// <summary>
+    /// <strong>The transcript reader opens Claude Code's transcripts for reading only</strong> (issue #161). It is in
+    /// the list above because <c>File.OpenHandle</c> matches <c>File.Open</c>, a call that can write; this pins that
+    /// its one open asks for read access and that it holds no other writing call. A second open, or any access but
+    /// <c>Read</c>, fails here.
+    /// </summary>
+    [Fact]
+    public void The_transcript_reader_opens_for_reading_only()
+    {
+        var reader = Assert.Single(ProductSources(), source => source.Name == "TranscriptNameReader.cs").Code;
+
+        Assert.Equal(["File.Open"], WritesIn(reader));
+        Assert.Equal(1, GuardScan.Occurrences(reader, "File.Open"));
+        Assert.Equal(1, GuardScan.Occurrences(reader, "FileAccess."));
+        Assert.Equal(1, GuardScan.Occurrences(reader, "FileAccess.Read,"));
+        Assert.Equal(1, GuardScan.Occurrences(reader, "FileMode.Open,"));
+        Assert.Equal(1, GuardScan.Occurrences(reader, "FileMode."));
     }
 
     /// <summary>
