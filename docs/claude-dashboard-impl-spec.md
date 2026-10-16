@@ -84,7 +84,8 @@ Core is the C# form of TS Part IV. No behaviour here is new.
 | `LastHeardAt` | When an event last *arrived*, also one that was declined. The silence sweep reads it. It is not an ordering key |
 | `ClockAnchor` | The instant that the row's clock counts from, for the display only (§5.6.5) |
 | `ErrorKind` | The raw kind of a `StopFailure`, in the Error state only |
-| `Title` | The last title that arrived, or null |
+| `Title` | The name the row shows: the given name, else the generated title, or null when neither arrived (§9.1, issue #161) |
+| `TitleIsGenerated` | Whether `Title` is the generated title (the transcript's `aiTitle`), not a given name. `GivenName` is `Title` when it is false, and null otherwise |
 | `Transitions` | A `TransitionLog`: the last 32 state changes, each with its cause |
 | `WaitingOn` | The background tasks that the last `Stop` left running, if no prompt arrived since |
 | `ListedTasks` | The tasks that the last `Stop` listed, with the time each was first listed. A prompt does not clear it, so a task keeps its age |
@@ -176,7 +177,7 @@ Values, all in `SoundPolicyOptions`:
 | Type | Role |
 |---|---|
 | `GroupKeys` | The one place that makes a key. `ForWorkspace(cwd)` gives `workspace:` and the directory with separators unified, the last separator removed, and upper case. `ForUngrouped(id)` gives `session:` and the id. `ForRoster(name)` gives `roster:` and the name |
-| `GroupKeys.Effective(session, rosters)` | **The group that a session is in:** its roster's key if its title is in a roster, or else `WorkspaceGroup`. The Registry does not store this, because a roster changes at run time and there is no event for that |
+| `GroupKeys.Effective(session, rosters)` | **The group that a session is in:** its roster's key if its given name (`Session.GivenName`) is in a roster, or else `WorkspaceGroup`. The Registry does not store this, because a roster changes at run time and there is no event for that |
 | `GroupKeys.KindOf(key)` | `Workspace`, `Session`, `Roster` or `Unknown` |
 | `GroupResolver.Resolve(sessions, rosters)` | Makes the groups again from the sessions at each call. No cache |
 | `RosterBook` | All rosters. Immutable. `From`, `With`, `Without` and `RosterFor(title)` |
@@ -188,8 +189,8 @@ Rules of `RosterBook`, held by each operation:
 - A name and a member are trimmed. An empty one is dropped.
 - A member is in the first roster that claims it. In an edit, the edited roster claims first.
 - A roster with no members does not exist.
-- The match of a title is exact and ordinal, after a trim of both sides.
-- A session with no title matches no roster.
+- The match of a given name is exact and ordinal, after a trim of both sides.
+- A session with no given name matches no roster. A generated title never matches (issue #161): it changes as the session goes on, so the session would leave its roster at the next title.
 
 A roster is logged by its name and never by its members: a member is a session title, and a title can be a summary of the operator's prompt.
 
@@ -199,7 +200,7 @@ The transition table is in TS §IV.1. This table says where each rule that was a
 
 | Rule | Where | Notes |
 |---|---|---|
-| The title latch | `SessionRegistry.Latched` | Runs for each event, also a declined one. Never moves `LastActivity` or `EnteredAt` |
+| The title latch | `SessionRegistry.Latched` | Runs for each event, also a declined one, and on the event that makes a session. Never moves `LastActivity` or `EnteredAt`. A given name (`session_title`, else `InboundEvent.Transcript.Given`) replaces a title that differs and a generated title always; a generated title (`Transcript.Generated`) is taken only when the session has no given name (issue #161) |
 | Heard from | `SessionRegistry.Heard` | Sets `LastHeardAt` for each event that is not stale and is not an `Ack` |
 | The silence sweep | `SessionRegistry.SweepSilent`, `SilenceWatch` | Threshold 10 minutes (`SilenceWatch.DefaultThreshold`). `Working` only. Sets `ClockAnchor` to `LastHeardAt`. The cause in the log is `silence` |
 | Waiting | `BackgroundTaskKind`, `WaitingTasks`, `SessionRegistry.ApplyStop` | Allowed kinds: `Shell`, `Subagent`. `WaitingTasks.Following` keeps each task's first-seen time |
@@ -307,7 +308,7 @@ Each hook that the dashboard registers only observes. `/hook` answers `200` with
 | `band` | string | `NeedsYou`, `Unread`, `Working`, `Quiet` or `Ended` |
 | `group` | string | **The directory group key** (`workspace:…` or `session:…`). It is an identity with upper case, not a label. It is not the roster group: rosters are not in the report |
 | `cwd` | string | The working directory. Can be empty |
-| `title` | string or null | The session's title. Null if none arrived |
+| `title` | string or null | The name the row shows: the given name, else the generated title (issue #161). Null if neither arrived. One field: which kind it is does not change what a caller does with it |
 | `enteredAt` | instant | When the session entered `state` |
 | `lastActivity` | instant | When a transition last changed something |
 | `lastHeardAt` | instant | When an event last arrived |
@@ -672,7 +673,7 @@ The ages change on the consumer's tick, each 15 seconds. No view model starts a 
 **Selection mode** is how the operator makes a roster.
 
 1. `Select` starts the mode. The toolbar says so.
-2. A click on a row selects it. **A session with no title cannot be selected:** a roster stores names, and that session has none. Such a row is dim and says `no name to remember`.
+2. A click on a row selects it. **A session with no given name cannot be selected:** a roster stores names, and that session has none it can keep. Such a row is dim and says `no name to remember`, or `no given name` when it shows a generated title, which changes (issue #161).
 3. `Group these` is active at 2 or more chosen rows. It makes a roster named `Group` (or `Group 2`, …) and ends the mode. The group exists at once.
 4. **The roster prompt** appears as the first row: `Remember this group as a roster?`, a name field, `Remember` and `Just this once`. `Remember` writes the rosters to `settings.json`. No answer is the same as `Just this once`: the group stays until the dashboard restarts.
 5. A right click on a member of a roster group gives `Remove from group`. It removes the **name** from the roster, so it moves each live session with that name.
@@ -1100,6 +1101,15 @@ Fields read from each event: `hook_event_name`, `session_id`, `prompt_id`, `tran
 - **A value this build does not know** changes nothing that a known value would: a `Notification` type, a `SessionStart` source, a `StopFailure` error kind or a `SessionEnd` reason parses to `Unknown`, and a running background task of another `type` than `shell`, `subagent` or `monitor` is not waited for. The event does what any event of its name does, and a `Notification` of an unknown type changes nothing. The log file says so once, at the normal level, and the `EventDeclined` row records the type (§8.4, §8.3; T1.79, issue #9).
 - `PermissionRequest` is not consumed. A `Notification` with `permission_prompt` follows it, and that is the path.
 
+**The name: `session_title` and the transcript** (issue #161, the operator's ruling of 2026-10-16). `session_title` holds only a given name: `/rename`, `--name`, or the name a fork carries over. The title Claude Code generates for a session that nobody named is written only to the transcript, as `{"type":"ai-title","aiTitle":"…","sessionId":"…"}`, many times; a given name is there too, as `{"type":"custom-title","customTitle":"…","sessionId":"…"}`. Until issue #161 this section said, after issue #18, that `session_title` holds both; measured on 2026-10-16, none of the 96 names that reached the dashboard is generated only.
+
+- **Where the read runs.** On the event consumer's thread, before `SessionRegistry.Apply`: `EventConsumer` calls `ITranscriptNames.Read` (Core's port) with the event's `session_id` and `transcript_path`, and puts the result on the event as `InboundEvent.Transcript`. The adapter is `TranscriptNameReader` (App). Why there: the hook was answered with `200` before the event reached the channel, so no Claude turn waits; the Registry keeps its one writer; and the archive's row for the same event already holds the name the row shows. Core reads no file.
+- **Bounded.** A read happens only when the file's length or write time changed since the last read for that session; else one file-information call. The first read for a session takes the last 1 MB at most (`BackScanLimit`); each later read takes the bytes appended since, the last 1 MB of them at most (`AppendLimit`). The read finds `{"type":"custom-title"` and `{"type":"ai-title"` at the start of a line in the raw bytes and parses only that line, 64 KB at most, so a multi-megabyte line is never parsed. Measured over 393 transcripts on 2026-10-16: the newest title line of each kind was at most 58,922 bytes from the end. If the first read finds no title line in its 1 MB, the row keeps its name and the log file says so once for the session, at Debug.
+- **Read only, and only Claude Code's transcripts.** The file is opened with `FileAccess.Read` and `FileShare.ReadWrite | FileShare.Delete`. A `transcript_path` that is not fully qualified, or not a `.jsonl` file under `ClaudeCodePaths.ProjectsDirectory` after `Path.GetFullPath`, is never opened; the log file says, once for the session, at Warning: `The transcript path of session {SessionId} is not a .jsonl file under Claude Code's projects folder, so its title is not read: {TranscriptPath}`.
+- **Degrade, never crash.** A missing, locked or malformed file, or a title line not yet complete, gives no names, and the row keeps the one it has; one Debug line for the session. A half-written line is read whole with the next appended bytes. A defect that throws is caught by the consumer, logged as an Error, and the event is applied without names.
+- **Text is data.** A title from the transcript is stored and shown as it is, never run; the row folds and cuts it as it does a given name (§5.6).
+- **The cost on the consumer thread,** measured on this machine in Release (issue #161): an unchanged file 0.02 ms; the first read of a 141 MB file 0.16 ms; an appended read 0.27 ms, or about 5 ms when the read comes in the same moment the writer closed the file, which is the open, not the read.
+
 ### 9.2 The hook handler
 
 This is what the plugin's `hooks\hooks.json` holds.
@@ -1398,3 +1408,4 @@ The text above says what is true now. This list says when each part changed.
 | 2026-10-14 | The grouped view's item 4 says "hidden", not "quiet", so a ticked quiet row is listed; one row in §5.6.9 for a tick change on a quiet row (§5.6.2, §5.6.9) | Issue #46, the review's follow-up |
 | 2026-10-14 | The five-hour usage label reads `Session`, not `Current`; the caption's counts strip takes the mouse (`IsHitTestVisibleInChrome`), so its tooltip opens there, and no drag starts from the counts' own box (§5.6.1) | Issues #147, #142 |
 | 2026-10-14 | The tray's `Activity…` and the toolbar's `Activity` clear a `Show activity` filter before they show the Activity window; the bar names the project after the session's name (§5.7) | Issue #157 |
+| 2026-10-16 | A session's name has two sources: `session_title` holds only a given name, and `TranscriptNameReader` reads the newest `customTitle` and `aiTitle` from the end of the transcript, on the consumer before `Apply` (`ITranscriptNames`, `InboundEvent.Transcript`). A given name comes before a generated title, which never replaces it; the first event after a restart gives the name back. `Session.TitleIsGenerated` and `GivenName`; a roster matches the given name only, and a row with a generated title says `no given name`. `/state`'s `title` is the name the row shows. Issue #18's statement that `session_title` holds both kinds is corrected (§2.1, §2.5, §2.6, §3.5, §5.6.8, §9.1) | Issue #161 |

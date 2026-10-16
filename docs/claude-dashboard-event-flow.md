@@ -227,6 +227,8 @@ For `SessionStart`, `Notification`, `StopFailure` and `SessionEnd`, the mapper r
 
 The dashboard does not interpret the fields that it does not read, but the archive keeps them, because it stores the body as it arrived. The `command` of a background task is never read: it can contain prompts or secrets.
 
+`session_title` holds only a name that someone gave the session. The title Claude Code generates for a session that nobody named is not on the wire: the consumer reads it from the file that `transcript_path` names (Step 5, issue #161).
+
 ---
 
 ## 7. Step 5: The channel and the consumer
@@ -235,12 +237,22 @@ The dashboard does not interpret the fields that it does not read, but the archi
 
 **The event consumer** is the one reader. It is also the only thread that changes the Registry and the sound engine. Neither has a lock. For each wake-up, the consumer takes all the events that are available and handles them in sequence:
 
-1. Open a decisions scope for the event.
-2. Call `SessionRegistry.Apply`.
-3. Record the result as decision rows.
-4. Close the scope. This gives the event and its decisions to the archive as one record.
+1. Read the session's names from its transcript (issue #161), and put them on the event.
+2. Open a decisions scope for the event.
+3. Call `SessionRegistry.Apply`.
+4. Record the result as decision rows.
+5. Close the scope. This gives the event and its decisions to the archive as one record.
 
-Step 4 is in a `finally` block. Thus an event is archived when the Registry declines it, and when `Apply` throws. An exception is logged, and the consumer continues.
+Step 5 is in a `finally` block. Thus an event is archived when the Registry declines it, and when `Apply` throws. An exception is logged, and the consumer continues.
+
+**The transcript read** (step 1, issue #161). `TranscriptNameReader` reads the newest `customTitle` line (a given name) and the newest `aiTitle` line (the generated title) from the end of the file that the event's `transcript_path` names. The hook was answered before the event reached the channel, so no Claude turn waits for this read. It is bounded:
+
+- **Only when the file changed.** An unchanged length and write time costs one file-information call (measured 0.02 ms) and opens nothing.
+- **From the end.** The first read for a session takes at most the last 1 MB; each later read takes only the bytes appended since, at most the last 1 MB of them. A line still being written is read whole the next time. The read finds the title markers in the raw bytes and parses only a title line, so a multi-megabyte line (an image, a large tool result) is never parsed.
+- **Only Claude Code's transcripts.** It opens only a `.jsonl` file under Claude Code's projects folder, read only, sharing write and delete with Claude Code. Any other path is not opened, and the log file has one Warning for the session.
+- **It never throws.** A missing, locked or malformed file gives no names, and the row keeps the one it has; the log file has one Debug line for the session.
+
+Measured on this machine (issue #161): a first read of a 141 MB file 0.16 ms; an appended read 0.27 ms; an appended read in the same moment that the writer closed the file 5 ms, which is the open itself, not the read.
 
 **The waits are timed** (T1.66). The consumer measures how long each event waited in the channel (from its `Timestamp`, stamped when it arrived, to the apply), how long one `Apply` took, how late each tick ran, and the archive channel's backlog at each hand-off. The window's thread times each post from the consumer until it runs. A figure over its limit writes one Warning, and one Information line when a minute has passed with no value over it; never a line for each event. An event with no arrival instant is skipped and counted. The figures are in `/state` and the hourly line, and nowhere in the database.
 
@@ -257,7 +269,7 @@ The same loop runs **the tick** each 15 seconds. The tick does three tasks: the 
 3. An event with a time before the session's last activity is declined as `Stale`.
 4. The session's `LastHeardAt` takes the event's time. This occurs for all events but `Ack`, and also when the event is then declined. The silence sweep reads this value. When it moves a session to Interrupted, it also gives the value to the row's clock, so the row counts from the silence and not from the sweep (T1.47).
 5. The transition table decides the new state.
-6. A `session_title` that is not empty, and that is different from the session's title, replaces it. This occurs on any event, and also when the transition is declined.
+6. The title latch (issue #161). A given name, the event's `session_title` or else the transcript's newest `customTitle`, replaces the session's title when it differs, and replaces a generated title always. Else the transcript's newest `aiTitle` replaces the title when the session has no given name and the words differ. A generated title never replaces a given name. This occurs on any event, and also when the transition is declined. Until issue #161 only `session_title` could set the title, and a session that nobody named had none.
 
 | Event | A new session starts as | An existing session |
 |---|---|---|
@@ -283,7 +295,7 @@ More rules for an existing session:
 - **A quiet tick puts the row back.** If a prompt is equal to the prompt of one of the session's scheduled jobs, the Registry keeps a snapshot of the row. If the reply is exactly `WATCHDOG-QUIET`, the `Stop` restores the snapshot. See [Quiet scheduled jobs](quiet-scheduled-jobs.md).
 - **A session that waits goes back to Waiting.** If a `PostToolBatch` arrives while the session has work that it waits on, the session becomes Waiting and not Working.
 
-The Registry does not read a clock. Each time that it writes comes from the event or from the caller. Nothing removes an Ended session from the Registry at this commit. The Registry is in memory only: after a restart, a session appears when its next event arrives.
+The Registry does not read a clock. Each time that it writes comes from the event or from the caller. Nothing removes an Ended session from the Registry at this commit. The Registry is in memory only: after a restart, a session appears when its next event arrives, with its name: the transcript gives it on that first event, even a `Stop` or a `SessionEnd` (issue #161).
 
 ---
 
@@ -353,6 +365,7 @@ The tick is not an event. It causes changes that no hook causes:
 | `dashboard.db` cannot be opened or written | The store writes one Warning when it fails (not for a failed retry), and the window and the tray say "history not recorded". It tries again each minute; the events of that minute are lost. The write that succeeds clears the notice and writes one line with the count lost (T1.54, issue #71) |
 | Windows has no sound output | Each sound is dropped and recorded as `SoundDropped`, not as played. The window and the tray say "no sound device", and the notice clears at the tick after a device returns. Nothing is replayed (T1.55, issue #72) |
 | Claude Code sends an event type or a field that the dashboard does not know | The event changes no state. The archive keeps the payload |
+| A transcript is missing, locked, half-written or malformed, or its path is not under Claude Code's projects folder | The event is applied without names from it, and the row keeps the name it has. The log file has one Debug line for the session, or one Warning for a path outside the folder (issue #161) |
 | Claude Code is not installed | The start registers nothing and creates nothing. It writes one Information line and shows the notice "no Claude Code install detected" |
 
 ---
@@ -422,6 +435,7 @@ These are true as of T1.53, which reads the error kind from `error` (issue #67).
 |---|---|
 | Nothing removes an Ended session (section 8) | An Ended row stays until the dashboard starts again |
 | The Registry starts empty (section 8) | After a restart, a session shows again at its next event. Nothing is read from `dashboard.db` at start |
+| The first read of a transcript takes its last 1 MB only (section 7) | A session whose newest title line is further back has no name from the transcript until Claude Code writes the title again. Measured on 2026-10-16: the newest title line of each kind was at most 58,922 bytes from the end |
 | A hard stop leaves `listening.txt` (section 11) | Until the next start, each hook posts to the old port. The next start ends it, with a port or without one (T1.86) |
 | An unknown `Notification` type changes no state and writes no log line (issue #9) | Only the archive shows that it arrived |
 
@@ -446,6 +460,7 @@ Until 2026-10-02 this section listed the places where the other documents disagr
 | The payload and the mapper | `src/ClaudeDashboard.App/Ingress/HookPayload.cs`, `HookEventMapper.cs`, `HookEventNames.cs`, `BackgroundTaskReader.cs`, `SessionCronReader.cs` |
 | The events | `src/ClaudeDashboard.Core/Events/InboundEvent.cs`, `Variants.cs`, `Matchers.cs`, `PayloadJson.cs` |
 | The channel and the consumer | `src/ClaudeDashboard.App/Pipeline/EventPipeline.cs`, `EventConsumer.cs` |
+| The names from the transcript | `src/ClaudeDashboard.App/Adapters/TranscriptNameReader.cs`; the port and the value: `src/ClaudeDashboard.Core/Ports/ITranscriptNames.cs`, `src/ClaudeDashboard.Core/TranscriptNames.cs` |
 | The Registry | `src/ClaudeDashboard.Core/SessionRegistry.cs`, `SessionState.cs`, `ApplyOutcome.cs`, `Acknowledgment.cs`, `QuietTicks.cs` |
 | The sound | `src/ClaudeDashboard.Core/SoundPolicyEngine.cs`; `src/ClaudeDashboard.App/Adapters/NAudioSoundPlayer.cs`, `ISoundOutput.cs`, `SoundDeviceNotice.cs`; the speaker sign: `src/ClaudeDashboard.App/Ui/SoundSigns.cs`, `MetaLine.cs` |
 | The screen | `src/ClaudeDashboard.App/Ui/SessionProjection.cs`, `AckPublisher.cs`, `TrayViewModel.cs`, `NoticeBoard.cs` |

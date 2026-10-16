@@ -148,8 +148,8 @@ A second `StopFailure` with a different kind, on a session already in Error, cha
 - **Primary key: `session_id`.** It is on each event. It is the Registry's key.
 - **Grouping input: `cwd`.** It can change in a session. The group is found again when it changes, and is not fixed at the start. On a `CwdChanged` event, `cwd` is the directory of the session, which is not always the new directory: a change of directory for one command does not move the session.
 - **Turn correlation: `prompt_id`.** It connects a `Stop` to the prompt that caused it. Measured on the operator's archive: 2,318 of 2,335 `Stop` events have the id of the session's last prompt.
-- **The name: `session_title`.** It is the name that the operator gave the session, or one that Claude Code made. It arrives on few events and never on `Stop`. Thus the Registry keeps the last title that it saw (§IV.1).
-- **Fallback: `transcript_path`.** The full conversation on disk. It is written late and can be behind the live turn, so the dashboard does not read it.
+- **The name: `session_title`, and the transcript.** `session_title` holds only a name that someone gave the session: the operator's `/rename` or `--name`, or the name that a fork carries over from its parent. It arrives on few events and never on `Stop` or `SessionEnd`. The title that Claude Code generates for a session that nobody named (the one in the terminal tab) is never on the wire. Claude Code writes it only to the transcript, as `{"type":"ai-title","aiTitle":"…"}`, again and again during the session; a given name is there too, as `{"type":"custom-title","customTitle":"…"}`. So the dashboard reads the transcript for the name (issue #161, the operator's ruling of 2026-10-16): the given name first, from `session_title` or the newest `customTitle`; else the newest `aiTitle`. The Registry keeps the name (§IV.1). Until issue #161 this said that `session_title` holds the generated title too. Issue #18 said so, and its example was a given name: measured on 2026-10-16, none of the 96 names that reached the dashboard is a name that only an `aiTitle` holds.
+- **`transcript_path`: for the name only.** The full conversation on disk. It is written late and can be behind the live turn, so the dashboard never takes a prompt, an answer or a state from it. A name that arrives a little late is still the right name, so the dashboard reads the transcript for the name only (issue #161). The read happens after the hook was answered, from the end of the file, and only when the file changed. It reads only a file under Claude Code's projects folder, and never writes one.
 
 ### II.4 What is not available
 
@@ -338,6 +338,8 @@ The guide for the operator is [Quiet scheduled jobs](quiet-scheduled-jobs.md).
 
 **The title.** The Registry keeps the last title that is not empty and that is different from the one it holds. This runs for each event, also for an event that changes no state, because the events that carry a title are mostly such events. A title never changes a session's place in the list or its clock. A title cannot be removed: nothing on the wire says "no title".
 
+**A given name before a generated title** (issue #161, the operator's ruling of 2026-10-16). The title has two sources (§II.3), and the Registry knows which one it holds. A given name, from the event's `session_title` or the transcript's newest `customTitle`, replaces the title when it differs, and replaces a generated title always. The generated title, the transcript's newest `aiTitle`, is taken only when the session has no given name, and a newer one replaces the older one. A generated title never replaces a given name: Claude Code goes on writing `aiTitle` after a rename (in 30 of the 36 transcripts that hold both, the newest `aiTitle` is after the newest `customTitle`). Each event reads the transcript, so the first event after a restart gives a session its name, even a `Stop` or a `SessionEnd`.
+
 **What each session carries:** the latest exchange (prompt, answer, the times of each), the time it entered its state, the time of its last change, the time an event last arrived, its directory, its group key, its title, the kind of its error, and the background work it waits on.
 
 **The row's clock** is a display rule and is in the Implementation Specification (§5.6). One point is a rule of the domain: **an acknowledgment or a close never starts the clock again.** A row that finished four hours ago still says so after an Ack.
@@ -378,10 +380,10 @@ The reason is throughput, not age. A permission is usually seconds of operator t
 
 **Grouping mirrors what can be observed. The dashboard never invents membership.**
 
-**Rosters.** The operator can define a roster: a named set of session names. A session whose title is in a roster is grouped by that roster, wherever it runs. A roster group outranks the directory group, because to gather sessions that directories scatter is its purpose.
+**Rosters.** The operator can define a roster: a named set of session names. A session whose given name is in a roster is grouped by that roster, wherever it runs. A generated title is never a roster's name for a session (issue #161): it changes as the session goes on, so the session would leave its roster at the next title. A roster group outranks the directory group, because to gather sessions that directories scatter is its purpose.
 
 - The operator's hand reaches the *rule* and never the membership: a roster matches names that the sessions report. A rename moves a session in or out with no restart.
-- The match is exact. A session with no title can be in no roster.
+- The match is exact. A session with no given name can be in no roster.
 - A name is in one roster at most. A roster with no members does not exist.
 - A group that the operator forms exists immediately. It survives a restart only if the operator asks the dashboard to remember it.
 - To remove a member removes its name from the roster permanently. The session goes back to its directory group.
@@ -589,3 +591,4 @@ The text above says what is true now. This list says when each rule changed, for
 | 2026-10-08 | The state report gives the plan's usage, read at the request, and says that the figure can be behind and is of one account (§II.1, §IV.9); the not-built row for it leaves Appendix C | MOD.5; issue #133 |
 | 2026-10-09 | The window shows the plan's usage in its caption, as the state report gives it (§IV.9) | MOD.7; issue #133 |
 | 2026-10-09 | The window shows the plan's usage as the share remaining, and a limit that has reset as fresh until the next reading; the state report does not change (§IV.9). The Activity line for a fresh slot is not built (Appendix C) | MOD.8; issues #143, #144, #145 |
+| 2026-10-16 | The name has two sources: `session_title` holds only a given name, and the generated title is read from the transcript, which the dashboard reads for the name only. A given name comes before a generated title, and the first event after a restart gives the name back. A roster keeps given names only. Issue #18's statement that `session_title` holds both kinds is corrected (§II.3, §IV.1, §IV.3) | Issue #161 |
