@@ -167,7 +167,7 @@ public static class GroupKeys
         ArgumentNullException.ThrowIfNull(session);
         ArgumentNullException.ThrowIfNull(rosters);
 
-        return rosters.RosterFor(session.Title) is { } roster
+        return rosters.RosterFor(session.GivenName) is { } roster
             ? ForRoster(roster)
             : session.WorkspaceGroup;
     }

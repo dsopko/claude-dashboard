@@ -182,9 +182,8 @@ public sealed record Session
     public string? ErrorKind { get; init; }
 
     /// <summary>
-    /// The session's title as Claude Code last reported it — a name the operator set with
-    /// <c>--name</c> or <c>/rename</c>, or one Claude Code generated — or null if none has ever
-    /// arrived (issue #18).
+    /// The name the row shows: the session's given name (<c>--name</c>, <c>/rename</c>, or a fork's), else the
+    /// title Claude Code generated for it, or null if neither has arrived (issues #18, #161).
     /// </summary>
     /// <remarks>
     /// <para>
@@ -193,8 +192,13 @@ public sealed record Session
     /// event that finished it. The latch rule lives in <see cref="SessionRegistry"/>.
     /// </para>
     /// <para>
-    /// <strong>Verbatim.</strong> A session the operator did not name gets a title written by a background model
-    /// call summarising their first prompt, so this is prose rather than an identifier: rendered and escaped, and
+    /// <strong>Two sources</strong> (issue #161). A given name arrives as the hook's <c>session_title</c> or from
+    /// the transcript's <c>customTitle</c>; a generated title arrives only from the transcript's <c>aiTitle</c>.
+    /// <see cref="TitleIsGenerated"/> says which one this is, and a generated title never replaces a given name.
+    /// </para>
+    /// <para>
+    /// <strong>Verbatim.</strong> A generated title is a background model call's summary of the first prompt,
+    /// so this is prose rather than an identifier: rendered and escaped, and
     /// never interpreted (TS §II.5). Folding and truncation for display are the view model's, and
     /// this value is untouched by them.
     /// </para>
@@ -204,6 +208,23 @@ public sealed record Session
     /// </para>
     /// </remarks>
     public string? Title { get; init; }
+
+    /// <summary>
+    /// Whether <see cref="Title"/> is the title Claude Code generated, and not a name someone gave the session
+    /// (issue #161). False when there is no title.
+    /// </summary>
+    public bool TitleIsGenerated { get; init; }
+
+    /// <summary>
+    /// The session's given name, or null when it has none: <see cref="Title"/> unless that is a generated title
+    /// (issue #161).
+    /// </summary>
+    /// <remarks>
+    /// <strong>The roster key.</strong> A roster keeps its members by name (issue #16), and a generated title
+    /// changes as the session goes on, so a roster that keyed on it would lose a member at the next title. Only a
+    /// given name joins a roster.
+    /// </remarks>
+    public string? GivenName => TitleIsGenerated || string.IsNullOrWhiteSpace(Title) ? null : Title;
 
     /// <summary>The recent state history, oldest first. Never null; empty by default.</summary>
     /// <exception cref="ArgumentNullException">Set to null.</exception>

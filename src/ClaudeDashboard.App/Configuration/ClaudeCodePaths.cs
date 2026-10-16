@@ -72,6 +72,12 @@ public sealed class ClaudeCodePaths
     /// </remarks>
     public string UserSettingsFile => Path.Combine(ConfigDirectory, "settings.json");
 
+    /// <summary>
+    /// The folder of Claude Code's session transcripts, one folder for each project. Read, never written: the
+    /// dashboard reads a session's title from its transcript, and only from a file under this folder (issue #161).
+    /// </summary>
+    public string ProjectsDirectory => Path.Combine(ConfigDirectory, "projects");
+
     /// <summary>The default directory, ignoring any override.</summary>
     public static string DefaultConfigDirectory => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),

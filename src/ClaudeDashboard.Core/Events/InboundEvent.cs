@@ -87,11 +87,23 @@ public abstract record InboundEvent
     /// the latched title. See <see cref="SessionRegistry"/> for the latch.
     /// </para>
     /// <para>
-    /// <strong>Prose, not an identifier.</strong> A session the operator did not name gets a title written by a
-    /// background model call summarising their first prompt.
+    /// <strong>A given name only</strong> (issue #161): <c>/rename</c>, <c>--name</c>, or the name a fork carries
+    /// over. Claude Code never sends the title it generates for a session that has no given name; that title is in
+    /// the transcript only, and reaches the Registry as <see cref="Transcript"/>. Issue #18 said one field holds both
+    /// kinds; it was wrong (measured 2026-10-16: 0 of 96 names on the wire are generated only).
     /// </para>
     /// </remarks>
     public string? SessionTitle { get; init; }
+
+    /// <summary>
+    /// The names the consumer read from <see cref="TranscriptPath"/> just before the Registry applied this event
+    /// (issue #161), or <see cref="TranscriptNames.None"/>.
+    /// </summary>
+    /// <remarks>
+    /// Never from the wire: ingress makes every event with none, and the consumer sets it through
+    /// <see cref="Ports.ITranscriptNames"/>. Core reads no file. The Registry's latch decides what it changes.
+    /// </remarks>
+    public TranscriptNames Transcript { get; init; }
 
     /// <summary>
     /// The raw hook body this event was normalized from, for the event archive (Impl Part 8).

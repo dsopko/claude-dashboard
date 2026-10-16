@@ -330,17 +330,44 @@ public sealed class SessionRegistry(SingleWriterGuard guard)
     /// can show the previous title until the next event carrying the new one. Self-healing,
     /// cosmetic, and never wrong about state.
     /// </para>
+    /// <para>
+    /// <strong>A given name before a generated title</strong> (issue #161, the operator's ruling of 2026-10-16).
+    /// The given name is the event's <c>session_title</c>, else the transcript's newest <c>customTitle</c>
+    /// (<see cref="InboundEvent.Transcript"/>); it replaces any title that differs, and a generated one even when
+    /// the words are the same. The transcript's newest <c>aiTitle</c> is used only when the event brings no given
+    /// name and the session has none: it never replaces a given name. Claude Code goes on writing <c>aiTitle</c>
+    /// after a rename (measured: in 30 of 36 transcripts with both, the newest <c>aiTitle</c> is after the newest
+    /// <c>customTitle</c>), so "the newest title line wins" would undo every rename.
+    /// </para>
     /// </remarks>
     private static Session? Latched(Session session, InboundEvent inboundEvent)
     {
-        if (TitleOn(inboundEvent) is not { } incoming ||
-            string.Equals(incoming, session.Title, StringComparison.Ordinal))
+        if (GivenOn(inboundEvent) is { } given)
+        {
+            return !session.TitleIsGenerated && string.Equals(given, session.Title, StringComparison.Ordinal)
+                ? null
+                : session with { Title = given, TitleIsGenerated = false };
+        }
+
+        if (GeneratedOn(inboundEvent) is not { } generated ||
+            session.GivenName is not null ||
+            string.Equals(generated, session.Title, StringComparison.Ordinal))
         {
             return null;
         }
 
-        return session with { Title = incoming };
+        return session with { Title = generated, TitleIsGenerated = true };
     }
+
+    /// <summary>
+    /// The usable given name on <paramref name="inboundEvent"/>: its <c>session_title</c>, else the transcript's
+    /// <c>customTitle</c>; null when it carries neither (issue #161).
+    /// </summary>
+    private static string? GivenOn(InboundEvent inboundEvent) =>
+        TitleOn(inboundEvent) ?? Usable(inboundEvent.Transcript.Given);
+
+    /// <summary>The usable generated title the transcript read gave, or null (issue #161).</summary>
+    private static string? GeneratedOn(InboundEvent inboundEvent) => Usable(inboundEvent.Transcript.Generated);
 
     /// <summary>
     /// The usable title on <paramref name="inboundEvent"/>, or null when it carries none.
@@ -351,8 +378,9 @@ public sealed class SessionRegistry(SingleWriterGuard guard)
     /// that happened to come through the mapper. The value itself is never trimmed or reshaped —
     /// that is display work, and the domain keeps what arrived.
     /// </remarks>
-    private static string? TitleOn(InboundEvent inboundEvent) =>
-        string.IsNullOrWhiteSpace(inboundEvent.SessionTitle) ? null : inboundEvent.SessionTitle;
+    private static string? TitleOn(InboundEvent inboundEvent) => Usable(inboundEvent.SessionTitle);
+
+    private static string? Usable(string? title) => string.IsNullOrWhiteSpace(title) ? null : title;
 
     /// <summary>A transition's result: the session it produced, or why it produced none.</summary>
     private readonly record struct Transitioned(Session? Next, ApplyOutcome Outcome)
@@ -404,7 +432,7 @@ public sealed class SessionRegistry(SingleWriterGuard guard)
             return null;
         }
 
-        return new Session
+        var created = new Session
         {
             Id = inboundEvent.SessionId,
             State = initial,
@@ -422,13 +450,14 @@ public sealed class SessionRegistry(SingleWriterGuard guard)
             ListedTasks = FirstListed(inboundEvent),
             ScheduledPrompts = (inboundEvent as Stop)?.ScheduledPrompts ?? ScheduledPrompts.None,
 
-            // The very first event a session is seen on may already carry the title, so the latch
-            // starts here rather than waiting for a second event to change something.
-            Title = TitleOn(inboundEvent),
-
             Transitions = TransitionLog.Empty.Append(
                 new StateTransition(initial, initial, inboundEvent.Timestamp, inboundEvent.HookEventName)),
         };
+
+        // The very first event a session is seen on may already carry the title, or its transcript may hold one,
+        // so the latch starts here rather than waiting for a second event to change something. After a restart
+        // this is how a session whose first event is a Stop or a SessionEnd gets its name back (issue #161).
+        return Latched(created, inboundEvent) ?? created;
     }
 
     private static SessionState? InitialState(InboundEvent inboundEvent) => inboundEvent switch

@@ -158,6 +158,9 @@ public static class AppHost
         // Claude Code's own configuration directory, resolved the way Claude Code resolves it.
         // A separate registration from DashboardPaths, and deliberately so — see ClaudeCodePaths.
         builder.Services.AddSingleton(claude ?? new ClaudeCodePaths());
+        builder.Services.AddSingleton<ITranscriptNames>(sp => new TranscriptNameReader(
+            sp.GetRequiredService<ClaudeCodePaths>(),
+            sp.GetRequiredService<ILogger>()));
         builder.Services.AddSingleton<IVirtualDesktopService, VirtualDesktopService>();
         builder.Services.AddSingleton<WindowPresence>();
         builder.Services.AddSingleton<HookCheck>();
@@ -375,7 +378,9 @@ public static class AppHost
             // Built again after each settle pass (T1.83, issue #130). The board itself is created below, after the
             // sound engine's subscription, which its remarks require: the consumer is resolved only when the host
             // starts, after Build has returned, so this resolve finds the board already made.
-            state: sp.GetRequiredService<StateBoard>()));
+            state: sp.GetRequiredService<StateBoard>(),
+            // The given name and the generated title from each event's transcript (issue #161).
+            transcripts: sp.GetRequiredService<ITranscriptNames>()));
 
         // The notice row and the tooltip's faults (T1.54, issue #71): the port first (T1.57, issue #14),
         // then the hook route, then the self-test and the refused messages (T1.61, issue #74), then the
