@@ -336,7 +336,7 @@ Nine states:
 
 The guide for the operator is [Quiet scheduled jobs](quiet-scheduled-jobs.md).
 
-**The title.** The Registry keeps the last title that is not empty and that is different from the one it holds. This runs for each event, also for an event that changes no state, because the events that carry a title are mostly such events. A title never changes a session's place in the list or its clock. A title cannot be removed: nothing on the wire says "no title".
+**The title.** The Registry keeps the last title that is not empty and that is different from the one it holds, except that a generated title never replaces a given name (the next paragraph). This runs for each event, also for an event that changes no state, because the events that carry a title are mostly such events. A title never changes a session's place in the list or its clock. A title cannot be removed: nothing on the wire says "no title".
 
 **A given name before a generated title** (issue #161, the operator's ruling of 2026-10-16). The title has two sources (§II.3), and the Registry knows which one it holds. A given name, from the event's `session_title` or the transcript's newest `customTitle`, replaces the title when it differs, and replaces a generated title always. The generated title, the transcript's newest `aiTitle`, is taken only when the session has no given name, and a newer one replaces the older one. A generated title never replaces a given name: Claude Code goes on writing `aiTitle` after a rename (in 30 of the 36 transcripts that hold both, the newest `aiTitle` is after the newest `customTitle`). Each event reads the transcript, so the first event after a restart gives a session its name, even a `Stop` or a `SessionEnd`.
 

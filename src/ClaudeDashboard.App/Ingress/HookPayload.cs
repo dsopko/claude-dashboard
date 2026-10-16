@@ -33,7 +33,10 @@ public sealed record HookPayload
     [JsonPropertyName("prompt_id")]
     public string? PromptId { get; init; }
 
-    /// <summary>Fallback only — written asynchronously and can lag the live turn (Impl §9.1).</summary>
+    /// <summary>
+    /// Read for the session's name only: it is written asynchronously and can lag the live turn, so no prompt, answer
+    /// or state is taken from it (Impl §9.1; issue #161).
+    /// </summary>
     [JsonPropertyName("transcript_path")]
     public string? TranscriptPath { get; init; }
 
