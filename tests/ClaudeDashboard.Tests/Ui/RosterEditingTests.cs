@@ -143,6 +143,37 @@ public sealed class RosterEditingTests : IDisposable
         Assert.Equal(0, _viewModel.SelectedCount);
     }
 
+    /// <summary>
+    /// <strong>A row that shows a generated title cannot be ticked either</strong> (issue #161): a roster keeps
+    /// given names only, because a generated title changes. Its refusal does not say it has no name, since it shows
+    /// one. The title it shows is folded to one line, as a given name is (issue #22).
+    /// </summary>
+    [Fact]
+    public void A_session_with_a_generated_title_cannot_be_ticked_and_says_so()
+    {
+        _registry.Apply(new ClaudeDashboard.Core.Events.UserPromptSubmit
+        {
+            SessionId = new SessionId("s-1"),
+            Timestamp = At,
+            Cwd = @"C:\w",
+            PromptId = "p-s-1",
+            Prompt = "run the tests",
+            Transcript = new TranscriptNames(null, "Fix\nthe build"),
+        });
+
+        _viewModel.IsSelecting = true;
+
+        var row = Row("s-1");
+
+        Assert.Equal("Fix the build", row.TitleDisplay);
+        Assert.False(row.CanSelect);
+        Assert.Equal("no given name", row.SelectionRefusal);
+
+        row.IsExpanded = true;
+
+        Assert.False(row.IsSelected);
+    }
+
     /// <summary>In selection mode a row click selects and does not expand.</summary>
     /// <remarks>
     /// One gesture, one meaning at a time. Out of the mode the same click expands, which is the

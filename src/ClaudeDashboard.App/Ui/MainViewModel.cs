@@ -530,7 +530,7 @@ public sealed partial class MainViewModel : ObservableObject, IUiTickTarget, ISo
     {
         var members = _sessionRows.Values
             .Where(row => row.IsSelected && row.CanSelect)
-            .Select(row => row.Session.Title!)
+            .Select(row => row.Session.GivenName!)
             .ToList();
 
         if (members.Count < SmallestGroup)
@@ -569,7 +569,7 @@ public sealed partial class MainViewModel : ObservableObject, IUiTickTarget, ISo
     [RelayCommand(CanExecute = nameof(CanRemoveFromGroup))]
     private void RemoveFromGroup(SessionViewModel? row)
     {
-        if (row?.Session.Title is not { } title || _rosters.Book.RosterFor(title) is null)
+        if (row?.Session.GivenName is not { } title || _rosters.Book.RosterFor(title) is null)
         {
             return;
         }
@@ -579,7 +579,7 @@ public sealed partial class MainViewModel : ObservableObject, IUiTickTarget, ISo
     }
 
     private bool CanRemoveFromGroup(SessionViewModel? row) =>
-        row?.Session.Title is { } title && _rosters.Book.RosterFor(title) is not null;
+        row?.Session.GivenName is { } title && _rosters.Book.RosterFor(title) is not null;
 
     /// <summary>Writes the roster to settings, so it re-forms on the next start.</summary>
     private void RememberRoster(string name)

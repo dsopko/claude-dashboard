@@ -76,6 +76,9 @@ public sealed class EventConsumer : BackgroundService
     /// <summary>The /state report, built again after each settle pass (T1.83); none in a test that is not about it.</summary>
     private readonly Ingress.StateBoard? _state;
 
+    /// <summary>The transcript reader (issue #161), or null.</summary>
+    private readonly ITranscriptNames? _transcripts;
+
     /// <summary>Creates the consumer.</summary>
     /// <param name="pipeline">The channel the hooks, the clicks and the commands arrive on. This consumer is its one reader.</param>
     /// <param name="registry">The sessions. This consumer's thread is its one writer.</param>
@@ -101,6 +104,10 @@ public sealed class EventConsumer : BackgroundService
     /// <param name="silenceThreshold">How long a working session may go unheard before the sweep moves it; <see cref="SilenceWatch.DefaultThreshold"/> when null.</param>
     /// <param name="health">The counts and the hourly summary (T1.65); none in a test that is not about them.</param>
     /// <param name="state">The <c>/state</c> report, built again after each settle pass (T1.83); none in a test that is not about it.</param>
+    /// <param name="transcripts">
+    /// Reads the given name and the generated title from each event's transcript before the Registry applies it
+    /// (issue #161); none in a test that is not about it, and then a row has only the names the hooks carry.
+    /// </param>
     public EventConsumer(
         EventPipeline pipeline,
         SessionRegistry registry,
@@ -116,7 +123,8 @@ public sealed class EventConsumer : BackgroundService
         RosterGroupWatch? watch = null,
         TimeSpan? silenceThreshold = null,
         HealthBoard? health = null,
-        Ingress.StateBoard? state = null)
+        Ingress.StateBoard? state = null,
+        ITranscriptNames? transcripts = null)
     {
         ArgumentNullException.ThrowIfNull(pipeline);
         ArgumentNullException.ThrowIfNull(registry);
@@ -145,6 +153,7 @@ public sealed class EventConsumer : BackgroundService
         _uiTick = uiTick;
         _health = health;
         _state = state;
+        _transcripts = transcripts;
     }
 
     /// <summary>How many sessions the silence sweep has moved. Diagnostic only.</summary>
@@ -189,6 +198,9 @@ public sealed class EventConsumer : BackgroundService
         new(AppliedCount, DeclinedCount, UncorrelatedCount, TickCount, SilencedCount, SettledCount);
 
     internal IUiTick UiTick => _uiTick;
+
+    /// <summary>The transcript reader, exposed so the composition can be asserted (issue #161).</summary>
+    internal ITranscriptNames? Transcripts => _transcripts;
 
     /// <summary>Where events are handed over to be recorded.</summary>
     /// <remarks>
@@ -412,6 +424,11 @@ public sealed class EventConsumer : BackgroundService
                     }
                 }
 
+                // The transcript's names (issue #161): read here, on the one thread that writes the Registry, so the
+                // name rides on the event and the archive's row for it has the name the row shows. The hook was
+                // answered before the event reached this queue, so no Claude turn waits for the read.
+                inboundEvent = WithTranscriptNames(inboundEvent);
+
                 _recorder.BeginEvent(inboundEvent);
 
                 try
@@ -493,6 +510,37 @@ public sealed class EventConsumer : BackgroundService
                 inboundEvent.HookEventName,
                 inboundEvent.SessionId.Value);
         }
+    }
+
+    /// <summary>
+    /// <paramref name="inboundEvent"/> with the names its transcript gave (issue #161), or itself when there is no
+    /// reader or the read gave none.
+    /// </summary>
+    private InboundEvent WithTranscriptNames(InboundEvent inboundEvent)
+    {
+        if (_transcripts is null || inboundEvent.TranscriptPath is null)
+        {
+            return inboundEvent;
+        }
+
+        TranscriptNames names;
+
+        try
+        {
+            names = _transcripts.Read(inboundEvent.SessionId, inboundEvent.TranscriptPath);
+        }
+        catch (Exception ex)
+        {
+            // The reader degrades on its own; this is for a defect in it. The event is applied and archived without
+            // the names, as it was before issue #161.
+            _logger.Error(
+                ex,
+                "Reading the transcript of session {SessionId} failed. The event is applied without its names.",
+                inboundEvent.SessionId.Value);
+            return inboundEvent;
+        }
+
+        return names == TranscriptNames.None ? inboundEvent : inboundEvent with { Transcript = names };
     }
 
     /// <summary>Applies a global sound mode. Already inside the single-writer region.</summary>

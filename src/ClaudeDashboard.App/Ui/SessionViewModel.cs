@@ -345,11 +345,16 @@ public sealed partial class SessionViewModel : DashboardRow
     /// A roster stores names. A session with no title has none to store, so it cannot be a member —
     /// and matching "no title" against "no title" would gather every unnamed session into one group,
     /// which is the one thing grouping must never invent (TS §IV.3).
+    /// A generated title is not stored either (issue #161): it changes as the session goes on, so the roster would
+    /// lose the member at the next title. Only a given name (<see cref="Session.GivenName"/>) can be ticked.
     /// </remarks>
-    public bool CanSelect => !string.IsNullOrWhiteSpace(_session.Title);
+    public bool CanSelect => _session.GivenName is not null;
 
     /// <summary>Why this row cannot be ticked, shown only while selecting. Empty when it can.</summary>
-    public string SelectionRefusal => IsSelecting && !CanSelect ? "no name to remember" : string.Empty;
+    /// <remarks>A row that shows a generated title has a name, but not one to remember (issue #161).</remarks>
+    public string SelectionRefusal => !IsSelecting || CanSelect
+        ? string.Empty
+        : _session.TitleIsGenerated ? "no given name" : "no name to remember";
 
 
     /// <summary>Where this session sits in the attention model.</summary>
