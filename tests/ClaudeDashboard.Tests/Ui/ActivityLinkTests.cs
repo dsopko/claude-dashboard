@@ -520,15 +520,16 @@ public sealed class ActivityLinkTests(StaHarness harness)
     /// <summary>
     /// <strong>Program has no path of its own to the Activity window</strong> (issue #157): before the fix it showed
     /// the window from the tray's request directly, past the filter. Every request now goes through
-    /// <see cref="ActivityLinks.Connect"/>.
+    /// <see cref="ActivityLinks.Connect"/>: Program shows the window once, in the action it gives to it. The guard
+    /// counts that call, not the subscription, so that <c>ActivityRequested+=(…)</c> without spaces also fails it.
     /// </summary>
     [Fact]
-    public void Program_sends_the_trays_activity_request_through_the_links()
+    public void Program_shows_the_activity_window_only_through_the_links()
     {
         var code = GuardScan.CodeOnly(File.ReadAllText(
             Path.Combine(RepoLayout.Root.FullName, "src", "ClaudeDashboard.App", "Program.cs")));
 
-        Assert.Equal(0, GuardScan.Occurrences(code, "ActivityRequested +="));
+        Assert.Equal(1, GuardScan.Occurrences(code, "activityWindows.Show("));
         Assert.Contains("tray.ViewModel,", code, StringComparison.Ordinal);
     }
 
