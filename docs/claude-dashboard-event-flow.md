@@ -252,7 +252,7 @@ Step 5 is in a `finally` block. Thus an event is archived when the Registry decl
 - **Only Claude Code's transcripts.** It opens only a `.jsonl` file under Claude Code's projects folder, read only, sharing write and delete with Claude Code. Any other path is not opened, and the log file has one Warning for the session.
 - **It never throws.** A missing, locked or malformed file gives no names, and the row keeps the one it has; the log file has one Debug line for the session.
 
-Measured on this machine (issue #161): a first read of a 141 MB file 0.16 ms; an appended read 0.27 ms; an appended read in the same moment that the writer closed the file 5 ms, which is the open itself, not the read.
+Measured in Release, each case in its own process, on a 141 MB transcript (issue #161; the review of PR #163): each read of a changed transcript costs about 5 ms (4.3 to 6.2 ms, measured 0 ms to 10 s after the write), at any file size. The cost is the first open after a write, not the read. An unchanged file costs 0.02 ms, because it is not opened.
 
 **The waits are timed** (T1.66). The consumer measures how long each event waited in the channel (from its `Timestamp`, stamped when it arrived, to the apply), how long one `Apply` took, how late each tick ran, and the archive channel's backlog at each hand-off. The window's thread times each post from the consumer until it runs. A figure over its limit writes one Warning, and one Information line when a minute has passed with no value over it; never a line for each event. An event with no arrival instant is skipped and counted. The figures are in `/state` and the hourly line, and nowhere in the database.
 
